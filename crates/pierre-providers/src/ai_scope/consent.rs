@@ -189,12 +189,12 @@ pub fn consented_read(provider: &str) -> AppResult<()> {
 /// be read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TierRefusal {
-    /// A T2 record served over an external transport: a delegated grant's
-    /// ceiling for T2 is none until grants carry details (owl phase 5,
-    /// slice 3).
+    /// A T2 record served over an external transport without a grant that
+    /// reaches it, or a T3 record served over one at all: T3 never goes to
+    /// an outside client (ChefFamille 2026-11-25, carnet#1544 slice 4b).
     External,
-    /// A read the athlete has not allowed: a model's, a human coach's, or an
-    /// outside client's read of a T3 record.
+    /// A read the athlete has not allowed: a model's or a human coach's read
+    /// of a T2 or T3 record whose consent class they have not given.
     Withheld,
 }
 
@@ -205,7 +205,9 @@ enum TierRefusal {
 /// transport (MCP, A2A, an API key) — a T2 record is read only while the
 /// athlete gives [`SENSITIVE_T2`] and a T3 record only while they give
 /// [`SENSITIVE_T3`] ([`ai_consent_withheld`]), except that an external
-/// transport never reads T2, consent or not. Anywhere else — the athlete's
+/// transport never reads T2 or T3, consent or not: T3 never goes to an
+/// outside client, `sensitive_t3` given or not (ChefFamille 2026-11-25), and
+/// Dravr's own agent is no external transport. Anywhere else — the athlete's
 /// own screens — every tier is read.
 fn tier_refusal(tier: Tier) -> Option<TierRefusal> {
     let gate = exposure()?;
@@ -216,7 +218,7 @@ fn tier_refusal(tier: Tier) -> Option<TierRefusal> {
     }
     let class = match tier {
         Tier::T0 | Tier::T1 => return None,
-        Tier::T2 if gate.external => return Some(TierRefusal::External),
+        Tier::T2 | Tier::T3 if gate.external => return Some(TierRefusal::External),
         Tier::T2 => SENSITIVE_T2,
         Tier::T3 => SENSITIVE_T3,
     };
@@ -545,31 +547,29 @@ mod tests {
         assert!(tally.is_empty(), "{tally:?}");
     }
 
+    /// T3 never goes to an outside client, `sensitive_t3` given or not
+    /// (ChefFamille 2026-11-25): the refusal is the interface's, not the
+    /// athlete's choice, so no switch is named as the cure.
     #[tokio::test]
-    async fn an_external_transport_reads_t3_only_under_its_class() {
+    async fn an_external_transport_never_reads_t3_even_with_consent() {
         for transport in [Transport::McpHttp, Transport::A2a, Transport::ApiKey] {
-            let (refused, tally) = serve_over(
-                transport,
-                with_ai_consent(t3_withheld(), ai_read(async { consented_tier(Tier::T3) })),
-            )
-            .await;
-            assert!(refused.is_err(), "bug: T3 needs its class ({transport:?})");
-            assert_eq!(
-                (tally.sensitive_reduced, tally.off_interface),
-                (1, 0),
-                "the athlete's choice, not the interface's ceiling ({transport:?}): {tally:?}"
-            );
-
-            let (given, tally) = serve_over(
-                transport,
-                with_ai_consent(BTreeSet::new(), ai_read(async { consented_tier(Tier::T3) })),
-            )
-            .await;
-            assert!(
-                given.is_ok(),
-                "T3 given: an outside client reads it ({transport:?})"
-            );
-            assert!(tally.is_empty(), "{transport:?}: {tally:?}");
+            for withheld in [t3_withheld(), BTreeSet::new()] {
+                let given = withheld.is_empty();
+                let (refused, tally) = serve_over(
+                    transport,
+                    with_ai_consent(withheld, ai_read(async { consented_tier(Tier::T3) })),
+                )
+                .await;
+                assert!(
+                    refused.is_err(),
+                    "bug: an outside client read T3 ({transport:?}, sensitive_t3 given: {given})"
+                );
+                assert_eq!(
+                    (tally.sensitive_reduced, tally.off_interface),
+                    (0, 1),
+                    "the interface's ceiling, not the athlete's choice ({transport:?}): {tally:?}"
+                );
+            }
         }
     }
 

@@ -837,8 +837,8 @@ impl UniversalExecutor {
         // notice) is the athlete's, and never posts into the coach's thread.
         let in_conversation = subject.is_none();
         let member_read = subject.as_ref().map(ReadSubject::athlete);
-        // An outside client reaches a tool reading T2/T3 streams only under
-        // the athlete's tier consent (`tier_gate`, carnet#1544).
+        // An outside client never reaches a tool reading T3 streams, nor T2
+        // ones without a grant reaching T2 (`tier_gate`, carnet#1544).
         let tiers = self
             .resources
             .tool_registry()

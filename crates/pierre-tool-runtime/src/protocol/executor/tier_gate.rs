@@ -1,4 +1,4 @@
-// ABOUTME: The tier gate at dispatch — an outside client calls a tool reading T2/T3 streams only under the athlete's tier consent
+// ABOUTME: The tier gate at dispatch — an outside client never calls a tool reading T3 streams, nor T2 without a grant reaching it
 // ABOUTME: Every tier its declared streams reach is asked (ToolData::tiers); a refusal is an in-band tool error, tallied (carnet#1544)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,15 +6,16 @@
 
 //! The tier gate at dispatch (owl phase 5, slice 1b).
 //!
-//! JF 2026-11-20 ("Gate for third parties"): an outside AI client — MCP,
-//! A2A, an API key — reads the athlete's notes and their agent's memory only
-//! while the athlete gives `sensitive_t3`. The memory tools declare the
+//! An outside AI client — MCP, A2A, an API key — never reads the athlete's
+//! notes and their agent's memory: T3 never goes to an outside client,
+//! `sensitive_t3` given or not (ChefFamille 2026-11-25, closing JF
+//! 2026-11-20's "Gate for third parties" path). The memory tools declare the
 //! `RestrictedNotes` stream (T3) in their [`ToolData`](crate::tool_data::ToolData),
 //! so a call to a tool any of whose declared tiers
 //! ([`ToolData::tiers`](crate::tool_data::ToolData::tiers)) is unreadable is
 //! refused here before its body reads or writes anything, by the one tier rule
-//! ([`ai_scope::tier_readable`]): a T3 tool under the athlete's
-//! `sensitive_t3`, a T2 tool never, until grants carry details. A write tool
+//! ([`ai_scope::tier_readable`]): a T3 tool never, a T2 tool only through a
+//! grant that reaches T2. A write tool
 //! declaring the stream is held to it alike. Dravr's own agent and the human
 //! coach are not gated here: on Dravr's own surfaces the agent keeps its
 //! memory (E3, directive 2).
@@ -40,11 +41,10 @@ const TIER_GATE_ERROR_CODE: &str = "sensitive_tier_withheld";
 /// (empty: it declares none), unless the tier gate refuses it here: then the
 /// refusal, tallied once, and the body never runs.
 ///
-/// Every tier is asked, not only the most sensitive: an outside client may
-/// read T3 under the athlete's consent but T2 never, so a tool reading both
-/// is refused while either is unreadable, and the refusal names the lowest
-/// one refused — the health records a T2 stream reads, never the notes and
-/// memory a T3 copy names (carnet#1544).
+/// Every tier is asked, not only the most sensitive, so a tool reading
+/// several is refused while any is unreadable, and the refusal names the
+/// lowest one refused — the health records a T2 stream reads before the
+/// notes and memory a T3 copy names (carnet#1544).
 pub(super) async fn gated<F>(tool_name: &str, tiers: &[Tier], body: F) -> ToolResponse
 where
     F: Future<Output = ToolResponse>,
@@ -68,10 +68,9 @@ fn refused(tier: Tier) -> bool {
 fn refusal(tool_name: &str, tier: Tier) -> ToolResult {
     let error = match tier {
         Tier::T3 => format!(
-            "'{tool_name}' reads the athlete's notes and their agent's memory, which they keep \
-             from outside AI apps. Only the athlete can allow it, in Dravr under Settings, \
-             Privacy & Data, Sensitive health records: the switch letting AI read their \
-             intimate health records. Do not guess what they hold."
+            "'{tool_name}' reads the athlete's notes and their agent's memory, which are never \
+             served to outside AI apps. The athlete still sees them in Dravr. Do not guess \
+             what they hold."
         ),
         _ => format!(
             "'{tool_name}' reads the athlete's health records, which are not served over this \
@@ -136,37 +135,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_outside_client_calls_a_t3_tool_only_under_sensitive_t3() {
+    async fn an_outside_client_never_calls_a_t3_tool_even_under_sensitive_t3() {
         for transport in [Transport::McpHttp, Transport::A2a, Transport::ApiKey] {
-            let (refused, tally) = call(transport, &[SENSITIVE_T3], Some(Tier::T3)).await;
-            assert!(
-                refused.is_error && !body_ran(&refused),
-                "bug: without sensitive_t3 the body never runs ({transport:?})"
-            );
-            let content = refused.structured_content.unwrap();
-            assert_eq!(
-                content["error_code"], TIER_GATE_ERROR_CODE,
-                "bug: the refusal carries the tier gate's code: {content}"
-            );
-            assert!(
-                content["error"]
-                    .as_str()
-                    .unwrap()
-                    .contains("Privacy & Data"),
-                "the refusal names the switch: {content}"
-            );
-            assert_eq!(
-                (tally.sensitive_reduced, tally.off_interface),
-                (1, 0),
-                "tallied once, as the athlete's choice ({transport:?}): {tally:?}"
-            );
-
-            let (served, tally) = call(transport, &[SENSITIVE_T2], Some(Tier::T3)).await;
-            assert!(
-                body_ran(&served),
-                "sensitive_t3 given: the body runs ({transport:?})"
-            );
-            assert!(tally.is_empty(), "{tally:?}");
+            for withheld in [&[SENSITIVE_T3][..], &[SENSITIVE_T2][..], &[][..]] {
+                let (refused, tally) = call(transport, withheld, Some(Tier::T3)).await;
+                assert!(
+                    refused.is_error && !body_ran(&refused),
+                    "bug: an outside client ran a T3 tool ({transport:?}, withheld {withheld:?})"
+                );
+                let content = refused.structured_content.unwrap();
+                assert_eq!(
+                    content["error_code"], TIER_GATE_ERROR_CODE,
+                    "bug: the refusal carries the tier gate's code: {content}"
+                );
+                let error = content["error"].as_str().unwrap();
+                assert!(
+                    error.contains("never served to outside AI apps")
+                        && !error.contains("Privacy & Data"),
+                    "bug: no switch opens T3 outside, so none is named: {content}"
+                );
+                assert_eq!(
+                    (tally.sensitive_reduced, tally.off_interface),
+                    (0, 1),
+                    "tallied once, as the interface's ceiling ({transport:?}): {tally:?}"
+                );
+            }
         }
     }
 
@@ -198,10 +191,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_tool_reaching_t2_and_t3_is_refused_outside_under_sensitive_t3_as_t2() {
-        // sensitive_t3 given (only sensitive_t2 withheld): the T3 stream is
-        // readable outside, the T2 one never, so the call is refused, and
-        // the refusal names the health records, not notes and memory.
+    async fn a_tool_reaching_t2_and_t3_is_refused_outside_as_t2() {
+        // Both tiers refused outside: the refusal names the lowest, the
+        // health records, not notes and memory.
         let (refused, tally) =
             call_reaching(Transport::McpHttp, &[SENSITIVE_T2], &[Tier::T2, Tier::T3]).await;
         assert!(

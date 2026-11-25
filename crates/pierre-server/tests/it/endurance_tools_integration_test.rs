@@ -72,6 +72,15 @@ async fn create_endurance_test_executor() -> Result<Arc<UniversalToolExecutor>> 
     ))
 }
 
+/// `executor` on Dravr's own app: the dossier carries the agent's memory
+/// (T3), which never goes to an outside client (ChefFamille 2026-11-25), and
+/// an executor declaring no transport serves as one.
+fn own_app(executor: &UniversalToolExecutor) -> UniversalToolExecutor {
+    UniversalToolExecutor::new(Arc::clone(&executor.resources))
+        .with_scopes(OAuthScope::self_grant())
+        .with_transport(Transport::WebApp)
+}
+
 /// Create a regular test user with their own tenant. Endurance tools only
 /// require an authenticated user with a tenant — no admin role check.
 async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(Uuid, String)> {
@@ -83,9 +92,8 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(Uuid, Str
         .iter()
         .find(|t| t.owner_user_id == user_id)
         .ok_or_else(|| anyhow::anyhow!("user should have tenant"))?;
-    // This executor declares no transport, so it serves as an outside client
-    // does: the dossier carries the agent's memory (T3), which such a client
-    // reads only under the athlete's `sensitive_t3` (carnet#1544).
+    // The athlete's sensitive_t3, so a model read on Dravr's own surface
+    // ([`own_app`]) serves the dossier's memory (carnet#1544).
     provider_notice::grant_consent(
         executor.resources.repos(),
         user_tenant.id.as_uuid(),
@@ -270,7 +278,7 @@ async fn test_export_dossier_happy_path_empty() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
     let (user_id, tenant) = create_connected_test_user(&executor).await?;
 
-    let resp = executor
+    let resp = own_app(&executor)
         .execute_tool(make_request(
             "export_dossier",
             json!({}),
@@ -292,7 +300,7 @@ async fn test_export_dossier_with_seeded_physiology() -> Result<()> {
     let (user_id, tenant) = create_connected_test_user(&executor).await?;
     seed_physiology(&executor, &tenant, user_id).await?;
 
-    let resp = executor
+    let resp = own_app(&executor)
         .execute_tool(make_request(
             "export_dossier",
             json!({}),
@@ -363,7 +371,7 @@ async fn the_dossier_has_no_lt1_pace_without_a_usable_threshold_pace() -> Result
     for pace in [None, Some(700.0)] {
         let (user_id, tenant) = create_connected_test_user(&executor).await?;
         seed_physiology_with_pace(&executor, &tenant, user_id, pace).await?;
-        let resp = executor
+        let resp = own_app(&executor)
             .execute_tool(make_request(
                 "export_dossier",
                 json!({}),
@@ -385,7 +393,7 @@ async fn test_export_dossier_rejects_no_tenant() -> Result<()> {
     let executor = create_endurance_test_executor().await?;
     let (user_id, _tenant) = create_connected_test_user(&executor).await?;
 
-    let err = executor
+    let err = own_app(&executor)
         .execute_tool(make_request("export_dossier", json!({}), user_id, None))
         .await
         .expect_err("no-tenant call must be rejected");

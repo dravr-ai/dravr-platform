@@ -209,10 +209,17 @@ async fn recall_over_mcp_never_returns_a_medical_fact() {
     let app = ProviderToolRouter::build_http_app(&res);
     let authorization = grant(&res, &who);
 
+    // The agent's memory is T3, which never goes to an outside client, so
+    // the whole recall is refused, sensitive_t3 given (ChefFamille 2026-11-25).
     for arguments in [json!({}), json!({"kind": "medical"})] {
         let answer = mcp_call(&app, &authorization, "recall_user_memory", arguments).await;
-        assert_eq!(answer["result"]["isError"], false, "{answer}");
-        assert_eq!(answer["result"]["structuredContent"]["count"], 0);
+        assert_eq!(answer["result"]["isError"], true, "{answer}");
+        assert!(
+            answer["result"]["content"]
+                .to_string()
+                .contains("sensitive_tier_withheld"),
+            "{answer}"
+        );
         assert_no_medical_fact(&answer);
     }
 
@@ -232,8 +239,10 @@ async fn export_dossier_over_mcp_has_no_medical_bucket() {
     seed_parq(&res, &who).await;
     let app = ProviderToolRouter::build_http_app(&res);
 
+    // The dossier carries the agent's T3 memory, so it never goes to an
+    // outside client whole (ChefFamille 2026-11-25).
     let answer = mcp_call(&app, &grant(&res, &who), "export_dossier", json!({})).await;
-    assert_eq!(answer["result"]["isError"], false, "{answer}");
+    assert_eq!(answer["result"]["isError"], true, "{answer}");
     assert!(
         answer["result"]["structuredContent"]["medical"].is_null(),
         "{answer}"

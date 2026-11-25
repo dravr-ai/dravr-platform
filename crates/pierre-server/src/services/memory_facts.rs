@@ -169,12 +169,12 @@ pub async fn approve_fact_handler(
     }
 }
 
-/// Refuse an outside credential's read of the agent's memory while the
-/// athlete withholds `sensitive_t3`.
+/// Refuse an outside credential's read of the agent's memory.
 ///
 /// The agent's memory is the athlete's `RestrictedNotes` stream (T3), as the
-/// memory tools declare it: an outside credential reads it only while they
-/// give `sensitive_t3` (JF 2026-11-20, carnet#1544).
+/// memory tools declare it, and T3 never goes to an outside client,
+/// `sensitive_t3` given or not (ChefFamille 2026-11-25, carnet#1544): the one
+/// tier rule ([`outside_client_reads`]) answers it.
 async fn refuse_outside_memory_read(
     resources: &ServerContext,
     auth: &AuthResult,
@@ -191,8 +191,8 @@ async fn refuse_outside_memory_read(
     {
         return Err(AppError::new(
             ErrorCode::PermissionDenied,
-            "The athlete keeps their agent's memory from outside AI apps. Only they can allow \
-             it, in Dravr under Settings, Privacy & Data, Sensitive health records.",
+            "The athlete's agent's memory is never served to outside AI apps. The athlete \
+             still sees it in Dravr.",
         ));
     }
     Ok(())

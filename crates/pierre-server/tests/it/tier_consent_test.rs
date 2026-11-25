@@ -19,11 +19,12 @@
 //! - the consent class is no provider: no card lists it, and the GET reads
 //!   back what PUT and DELETE set. Export carries the new columns.
 //!
-//! Slice 1b (JF 2026-11-20, "Gate for third parties") adds `sensitive_t3`:
-//! an outside client (MCP) calls the memory tools, which declare the T3
-//! `RestrictedNotes` stream, and reads the athlete's daily note only while it
-//! is given. Dravr's own agent and the human coach read both as before, and
-//! T2 stays off an outside client whatever the athlete gave.
+//! Slice 1b (JF 2026-11-20, "Gate for third parties") added `sensitive_t3`
+//! for outside clients; slice 4b (ChefFamille 2026-11-25) closes it: T3 never
+//! goes to an outside client, so the memory tools, which declare the T3
+//! `RestrictedNotes` stream, and the athlete's daily note stay off MCP
+//! whatever the athlete gave. Dravr's own agent and the human coach read both
+//! under the athlete's consent as before.
 //!
 //! Slice 2 adds `get_health_records`: the coach's agent reads a T2 lab
 //! result under the same three conditions as glucose, as its stripped copy,
@@ -458,9 +459,9 @@ async fn the_export_carries_the_coach_health_records_flag() {
     assert!(row["coach_sensitive_t2_read_until"].is_string(), "{row}");
 }
 
-/// `user` gives `sensitive_t3`, so an outside client (MCP, A2A, an API key)
-/// reads their notes and their agent's memory: the setup of every suite that
-/// drives a memory tool from outside Dravr (carnet#1544).
+/// `user` gives `sensitive_t3`: the setup of every suite proving that an
+/// outside client (MCP, A2A, an API key) still never reads their notes and
+/// their agent's memory, T3 never going outside (carnet#1544, slice 4b).
 pub(crate) async fn allow_outside_memory(repos: &RepositoryRegistry, tenant: Uuid, user: Uuid) {
     grant_consent(
         repos,
@@ -505,8 +506,9 @@ async fn remember(f: &Fixture) {
         .unwrap();
 }
 
-/// Whether `response` is the tier gate's refusal, naming the switch, with
-/// nothing of the athlete's memory in it.
+/// Whether `response` is the tier gate's refusal of T3 to an outside client:
+/// no switch opens it, so none is named, and nothing of the athlete's memory
+/// is in it.
 fn tier_refused(response: &UniversalResponse) -> bool {
     let result = response
         .result
@@ -514,31 +516,26 @@ fn tier_refused(response: &UniversalResponse) -> bool {
         .expect("a refusal carries a result");
     !response.success
         && result["error_code"] == "sensitive_tier_withheld"
-        && response
-            .error
-            .as_deref()
-            .is_some_and(|message| message.contains("Privacy & Data"))
+        && response.error.as_deref().is_some_and(|message| {
+            message.contains("never served to outside AI apps") && !message.contains("Privacy & Data")
+        })
         && !result.to_string().contains(REMEMBERED)
 }
 
 #[tokio::test]
-async fn an_mcp_client_reads_memory_and_the_dossier_only_under_sensitive_t3() {
+async fn an_mcp_client_never_reads_memory_or_the_dossier_even_under_sensitive_t3() {
     let f = world().await;
     remember(&f).await;
-    // T2 given alone opens nothing of T3.
     athlete_allows(&f, true).await;
 
     for tool in ["recall_user_memory", "export_dossier"] {
         let refused = f.call(&f.mcp_executor(), f.athlete, tool, json!({})).await;
         assert!(
             tier_refused(&refused),
-            "bug: {tool} over MCP needs sensitive_t3: {:?} {:?}",
+            "bug: {tool} over MCP is T3: {:?} {:?}",
             refused.error,
             refused.result
         );
-        let note = &refused.result.as_ref().unwrap()["_withheld"];
-        assert_eq!(note["reason"], "sensitive_tier", "{tool}: tallied: {note}");
-        assert_eq!(note["sensitive_withheld"], 1, "{tool}: {note}");
     }
     let write = f
         .call(
@@ -563,26 +560,17 @@ async fn an_mcp_client_reads_memory_and_the_dossier_only_under_sensitive_t3() {
 
     athlete_sets(&f, SENSITIVE_T3, true).await;
     for tool in ["recall_user_memory", "export_dossier"] {
-        let served = ok(
-            f.call(&f.mcp_executor(), f.athlete, tool, json!({})).await,
-            tool,
-        );
+        let refused = f.call(&f.mcp_executor(), f.athlete, tool, json!({})).await;
         assert!(
-            mentions(&served, REMEMBERED),
-            "sensitive_t3 given: {tool} serves the memory over MCP: {served}"
+            tier_refused(&refused),
+            "bug: sensitive_t3 opened {tool} to MCP: {:?} {:?}",
+            refused.error,
+            refused.result
         );
     }
-
-    athlete_sets(&f, SENSITIVE_T3, false).await;
-    let withdrawn = f
-        .call(
-            &f.mcp_executor(),
-            f.athlete,
-            "recall_user_memory",
-            json!({}),
-        )
-        .await;
-    assert!(tier_refused(&withdrawn), "bug: withdrawal applies at once");
+    // Dravr's own agent still reads it.
+    let own = f.own_read(f.athlete, "recall_user_memory", json!({})).await;
+    assert!(mentions(&own, REMEMBERED), "bug: the in-app agent: {own}");
 }
 
 #[tokio::test]
@@ -694,7 +682,7 @@ async fn recovery_over_mcp(f: &Fixture, who: Person, params: Value) -> Universal
 }
 
 #[tokio::test]
-async fn the_daily_note_reaches_an_mcp_client_only_under_sensitive_t3() {
+async fn the_daily_note_never_reaches_an_mcp_client_even_under_sensitive_t3() {
     let f = world().await;
     file_note(&f).await;
     f.share_wellness(true).await;
@@ -705,17 +693,12 @@ async fn the_daily_note_reaches_an_mcp_client_only_under_sensitive_t3() {
     );
     assert!(
         !mentions(&withheld, NOTE),
-        "bug: an outside client reads the note only under sensitive_t3: {withheld}"
+        "bug: an outside client read the T3 note: {withheld}"
     );
     assert!(
         mentions(&withheld, "61.5"),
         "the rest of the morning is served: {withheld}"
     );
-    assert_eq!(
-        withheld["_withheld"]["reason"], "sensitive_tier",
-        "{withheld}"
-    );
-    assert_eq!(withheld["_withheld"]["sensitive_withheld"], 1, "{withheld}");
 
     // The coach's own AI client reads the athlete under the athlete's
     // consents: no note either.
@@ -734,20 +717,25 @@ async fn the_daily_note_reaches_an_mcp_client_only_under_sensitive_t3() {
         "bug: E3 keeps the note in-app: {in_app}"
     );
 
+    // sensitive_t3 given: still never outside, for the athlete's client or
+    // the coach's (ChefFamille 2026-11-25).
     athlete_sets(&f, SENSITIVE_T3, true).await;
     let given = ok(
         recovery_over_mcp(&f, f.athlete, json!({})).await,
         "the athlete's recovery over MCP",
     );
-    assert!(mentions(&given, NOTE), "sensitive_t3 given: {given}");
-    assert!(given.get("_withheld").is_none(), "{given}");
+    assert!(
+        !mentions(&given, NOTE),
+        "bug: sensitive_t3 opened T3 to MCP: {given}"
+    );
+    assert!(mentions(&given, "61.5"), "the rest is served: {given}");
     let coach_given = ok(
         recovery_over_mcp(&f, f.coach, naming_mira(json!({}))).await,
         "the coach's recovery over MCP",
     );
     assert!(
-        mentions(&coach_given, NOTE),
-        "the athlete's consent decides the coach's client too: {coach_given}"
+        !mentions(&coach_given, NOTE),
+        "bug: sensitive_t3 opened T3 to the coach's client: {coach_given}"
     );
 }
 
