@@ -201,14 +201,14 @@ pub struct KeyedNameStores {
     pub uploads: Arc<OriginalsStore>,
     /// The importer over `originals` that re-keys legacy Apple records and
     /// projects them as an import would; `None` re-keys nothing.
-    pub legacy_ids: Option<Importer>,
+    pub apple_rekey: Option<Importer>,
 }
 
 impl fmt::Debug for KeyedNameStores {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("KeyedNameStores")
             .field("uploads", &self.uploads)
-            .field("rekeys", &self.legacy_ids.is_some())
+            .field("rekeys", &self.apple_rekey.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -358,7 +358,7 @@ impl RecordLogWorker {
         if let Some(importer) = self
             .renames
             .as_ref()
-            .and_then(|renames| renames.legacy_ids.as_ref())
+            .and_then(|renames| renames.apple_rekey.as_ref())
         {
             tick.legacy_apple = Some(self.rekey_legacy_apple(importer).await?);
         }

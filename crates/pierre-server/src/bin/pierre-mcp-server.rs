@@ -835,10 +835,10 @@ fn spawn_background_workers(
                 blobs.map(|blobs| {
                     let originals = barrage.with_blobs(blobs);
                     KeyedNameStores {
-                        // Re-keys legacy Apple ids and projects them as an
+                        // Re-keys pre-v0.28 Apple ids and projects them as an
                         // import does, whether or not imports run here
                         // (carnet#1550).
-                        legacy_ids: Some(importer_over(&resources, originals.clone())),
+                        apple_rekey: Some(importer_over(&resources, originals.clone())),
                         originals,
                         uploads: Arc::clone(&resources.common.originals),
                     }

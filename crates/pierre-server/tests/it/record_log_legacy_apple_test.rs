@@ -114,7 +114,7 @@ fn rekeying_worker(
         },
         None,
         Some(KeyedNameStores {
-            legacy_ids: Some(importer_over(resources, originals.clone())),
+            apple_rekey: Some(importer_over(resources, originals.clone())),
             originals,
             uploads: Arc::new(OriginalsStore::new(
                 Ok(blobs),
@@ -233,7 +233,7 @@ async fn a_worker_without_an_importer_re_keys_nothing() {
             Arc::clone(&records),
             Arc::clone(&repos.uploaded_activity_files),
         )),
-        legacy_ids: None,
+        apple_rekey: None,
     };
     let worker = RecordLogWorker::new(
         Arc::clone(&records),
