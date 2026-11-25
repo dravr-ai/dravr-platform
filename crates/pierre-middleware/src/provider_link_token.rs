@@ -921,4 +921,25 @@ mod tests {
             "an expired takeover token was accepted"
         );
     }
+
+    #[test]
+    fn an_empty_admin_secret_neither_mints_nor_verifies_a_link_token() {
+        let minted = mint_connect_link_token(Uuid::new_v4(), Uuid::new_v4(), "slack", None, "");
+        assert!(
+            minted.is_err(),
+            "a link-token was signed with an empty admin secret"
+        );
+
+        let token = mint_connect_link_token(Uuid::new_v4(), Uuid::new_v4(), "slack", None, SECRET)
+            .expect("mint connect token");
+        let verified = verify_link_token(&token, "", CONNECT_PROVIDER);
+        assert!(
+            verified.is_err(),
+            "a link-token was verified against an empty admin secret"
+        );
+        assert!(
+            verify_link_token(&token, SECRET, CONNECT_PROVIDER).is_ok(),
+            "the same token failed against the secret it was signed with"
+        );
+    }
 }
