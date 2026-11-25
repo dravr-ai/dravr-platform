@@ -9517,11 +9517,11 @@
               },
               "reason": {
                 "$ref": "#/$defs/WithheldReason",
-                "description": "`medical_flag`: a medical / PAR-Q flag is on file.\n`external_transport`: withheld for every athlete outside Dravr's apps."
+                "description": "`medical_flag`: a medical / PAR-Q flag is on file.\n`external_transport`: withheld for every athlete outside Dravr's apps.\n`health_records_withheld`: the athlete keeps their health records from\nAI, so the reason is not shown."
               },
               "set_by": {
                 "$ref": "#/$defs/FigureAuthority",
-                "description": "`clinician`: who sets these amounts; `not_stated` outside Dravr's apps."
+                "description": "`clinician`: who sets these amounts; `not_stated` outside Dravr's apps\nor while the athlete keeps their health records from AI."
               }
             },
             "required": [
@@ -10020,6 +10020,11 @@
                 "const": "external_transport",
                 "description": "Served outside Dravr's own apps and channels, where amounts are\nwithheld for every athlete.",
                 "type": "string"
+              },
+              {
+                "const": "health_records_withheld",
+                "description": "Read by a model the athlete keeps their health records from\n(`sensitive_t2` not given): the reason is not shown.",
+                "type": "string"
               }
             ]
           }
@@ -10142,7 +10147,7 @@
       },
       "_meta": {
         "ai.dravr.vault/tool": {
-          "def_hash": "sha256:832dc9f51a0281e80eff69bb2d4526fda27d4da096c095c7999587c2927fe9e9"
+          "def_hash": "sha256:324237f76ef80855c794eaa8e82d1f3d0f8103e2c8679299e822a5cc19115c6c"
         }
       }
     },
@@ -15149,11 +15154,11 @@
               },
               "reason": {
                 "$ref": "#/$defs/WithheldReason",
-                "description": "`medical_flag`: a medical / PAR-Q flag is on file.\n`external_transport`: withheld for every athlete outside Dravr's apps."
+                "description": "`medical_flag`: a medical / PAR-Q flag is on file.\n`external_transport`: withheld for every athlete outside Dravr's apps.\n`health_records_withheld`: the athlete keeps their health records from\nAI, so the reason is not shown."
               },
               "set_by": {
                 "$ref": "#/$defs/FigureAuthority",
-                "description": "`clinician`: who sets these amounts; `not_stated` outside Dravr's apps."
+                "description": "`clinician`: who sets these amounts; `not_stated` outside Dravr's apps\nor while the athlete keeps their health records from AI."
               }
             },
             "required": [
@@ -15295,6 +15300,11 @@
                 "const": "external_transport",
                 "description": "Served outside Dravr's own apps and channels, where amounts are\nwithheld for every athlete.",
                 "type": "string"
+              },
+              {
+                "const": "health_records_withheld",
+                "description": "Read by a model the athlete keeps their health records from\n(`sensitive_t2` not given): the reason is not shown.",
+                "type": "string"
               }
             ]
           }
@@ -15323,7 +15333,7 @@
       },
       "_meta": {
         "ai.dravr.vault/tool": {
-          "def_hash": "sha256:08465d285f0fda48a49b5ae716efe10d184a3083c376c30de3817a0e0b33ef34"
+          "def_hash": "sha256:e0e82a0c45e8e31e8fa284818322893786fa8290d565cb42f67b0d63cc77c918"
         }
       }
     },
@@ -19460,11 +19470,11 @@
               },
               "reason": {
                 "$ref": "#/$defs/WithheldReason",
-                "description": "`medical_flag`: a medical / PAR-Q flag is on file.\n`external_transport`: withheld for every athlete outside Dravr's apps."
+                "description": "`medical_flag`: a medical / PAR-Q flag is on file.\n`external_transport`: withheld for every athlete outside Dravr's apps.\n`health_records_withheld`: the athlete keeps their health records from\nAI, so the reason is not shown."
               },
               "set_by": {
                 "$ref": "#/$defs/FigureAuthority",
-                "description": "`clinician`: who sets these amounts; `not_stated` outside Dravr's apps."
+                "description": "`clinician`: who sets these amounts; `not_stated` outside Dravr's apps\nor while the athlete keeps their health records from AI."
               }
             },
             "required": [
@@ -21581,6 +21591,11 @@
                 "const": "external_transport",
                 "description": "Served outside Dravr's own apps and channels, where amounts are\nwithheld for every athlete.",
                 "type": "string"
+              },
+              {
+                "const": "health_records_withheld",
+                "description": "Read by a model the athlete keeps their health records from\n(`sensitive_t2` not given): the reason is not shown.",
+                "type": "string"
               }
             ]
           },
@@ -21868,7 +21883,7 @@
       },
       "_meta": {
         "ai.dravr.vault/tool": {
-          "def_hash": "sha256:71bdc640e5ce44f5785bb9056601b825ff07c5f9d4a8bd93a8fc62e37f6b56e9"
+          "def_hash": "sha256:47a24fac5e769611bb0bb07dc8af78d2dc1a4d2bc8661aa53bc547c39953043c"
         }
       }
     },
