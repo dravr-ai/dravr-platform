@@ -20,7 +20,7 @@ import type {
 } from '@pierre/shared-types';
 import ChatThread from '../ChatThread';
 import { useChatThread, type OpenThread } from '../useChatThread';
-import type { PendingComposerAction } from '../types';
+import type { PendingComposerAction, WorkspacePlanSurface } from '../types';
 import { ToastProvider } from '../../ui';
 
 const CONVERSATION_ID = 'conv-1';
@@ -112,6 +112,9 @@ function Host(props: {
   action?: PendingComposerAction;
   /** Threads the host offers to open, the way a conversation list does; `null` is new chat. */
   switchTo?: (string | null)[];
+  /** The athlete workspace's way of drawing the thread: no private lane, plan cards as one line. */
+  privateLane?: boolean;
+  planSurface?: WorkspacePlanSurface;
 }) {
   const [conversationId, setConversationId] = useState<string | null>(props.initial);
   const [action, setAction] = useState<PendingComposerAction | null>(props.action ?? null);
@@ -121,6 +124,7 @@ function Host(props: {
     openThread: props.openThread,
     pendingComposerAction: action,
     onPendingComposerActionConsumed: () => setAction(null),
+    privateLane: props.privateLane,
   });
   return (
     <div className="flex h-full flex-col">
@@ -134,6 +138,7 @@ function Host(props: {
         conversationTitle={thread.title}
         followOnOpen
         focusComposerOnOpen={props.focusComposerOnOpen ?? false}
+        planSurface={props.planSurface}
       />
     </div>
   );
@@ -554,5 +559,80 @@ describe("ChatThread in a coach's own threads", () => {
         i18n.t('humanCoach.groupRoom.composerPlaceholder', { group: 'Tri — longue distance' }),
       ),
     );
+  });
+
+  describe('beside the athlete workspace (carnet#1816)', () => {
+    const LIVE_DAY = { date: '2026-10-16', sport: 'ride', workout: 'Endurance', intensity: 'Z2', rest: false };
+    const live: WorkoutPlan = {
+      ...PLAN,
+      weeks: [{ week_start: '2026-10-12', focus: 'Build', current: true, days: [LIVE_DAY] }],
+    };
+    const proposed: WorkoutPlan = {
+      ...PLAN,
+      weeks: [
+        {
+          week_start: '2026-10-12',
+          focus: 'Build',
+          current: true,
+          days: [{ ...LIVE_DAY, workout: 'Track, pure endurance' }, { ...LIVE_DAY, date: '2026-10-17', workout: 'Easy spin' }],
+        },
+      ],
+    };
+    const PROPOSAL_ROW = {
+      id: 'm-proposal',
+      role: 'assistant' as const,
+      content: 'It is proposed on the calendar.',
+      created_at: '2026-10-16T14:05:01Z',
+      scene_blocks: JSON.stringify([{ kind: 'workout_plan', plan: proposed, subject: ALICE, draft: DRAFT }]),
+    };
+
+    it('draws a plan card as one line counting the days it changes, and no open draft at the end', async () => {
+      getSubjectPlan.mockResolvedValue({ ...subjectPlan(DRAFT), live, draft: proposed });
+      getConversationMessages.mockResolvedValue({ messages: [PROPOSAL_ROW] });
+      const onShowCalendar = vi.fn();
+      const user = userEvent.setup();
+      renderThread({ initial: PLAN_ID, openThread, planSurface: { kind: 'workspace', onShowCalendar } });
+
+      const entry = await screen.findByTestId('plan-change-entry');
+      await waitFor(() =>
+        expect(entry).toHaveTextContent(
+          `${i18n.t('plan.workspace.changeEntry')} · ${i18n.t('plan.workspace.changeEntryDaysN', { count: 2 })}`,
+        ),
+      );
+      expect(screen.queryByText('Harricana 65K')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('chat-plan-thread-open-draft')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Publish to Alice Runner' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Edit day' })).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: i18n.t('plan.workspace.showOnCalendar') }));
+      expect(onShowCalendar).toHaveBeenCalledTimes(1);
+    });
+
+    it('draws no open draft for a thread whose rows never carried it', async () => {
+      getSubjectPlan.mockResolvedValue({ ...subjectPlan(DRAFT), live, draft: proposed });
+      getConversationMessages.mockResolvedValue({ messages: EARLIER });
+      renderThread({ initial: PLAN_ID, openThread, planSurface: { kind: 'workspace', onShowCalendar: vi.fn() } });
+
+      await screen.findByText('Hi, ready when you are.');
+      await waitFor(() => expect(getSubjectPlan).toHaveBeenCalledWith(PLAN_ID));
+      expect(screen.queryByTestId('chat-plan-thread-open-draft')).not.toBeInTheDocument();
+    });
+
+    it('weaves no private lane into a one-athlete room when the host draws that lane itself', async () => {
+      getGroup.mockResolvedValue({ ...group('viewer-1'), solo_athlete: ALICE });
+      const first = renderThread({ initial: ROOM_ID, openThread });
+      // By default the room's coach gets the Everyone / Only Dravr switch.
+      expect(await screen.findByTestId('composer-audience-switch')).toBeInTheDocument();
+      first.unmount();
+
+      renderThread({ initial: ROOM_ID, openThread, privateLane: false });
+      await waitFor(() =>
+        expect(composer()).toHaveAttribute(
+          'placeholder',
+          i18n.t('humanCoach.groupRoom.composerPlaceholder', { group: 'Tri — longue distance' }),
+        ),
+      );
+      expect(screen.queryByTestId('composer-audience-switch')).not.toBeInTheDocument();
+    });
   });
 });

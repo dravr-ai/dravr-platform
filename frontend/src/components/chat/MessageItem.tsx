@@ -26,7 +26,7 @@ import {
   verdictChipSeverity,
   verdictToneAlerts,
 } from '@pierre/shared-types';
-import type { Message, MessageMetadata, MessageFeedback } from './types';
+import type { Message, MessageMetadata, MessageFeedback, WorkspacePlanSurface } from './types';
 import {
   AGENT_WELCOME_FINISH_REASON,
   audienceOf,
@@ -56,6 +56,7 @@ import { SceneView } from './SceneView';
 import CoachAvatar from './CoachAvatar';
 import WorkoutPlanCard from './WorkoutPlanCard';
 import CoachPlanCard from './CoachPlanCard';
+import PlanChangeEntry from './PlanChangeEntry';
 import EnvelopeNotice from './EnvelopeNotice';
 import PlanDraftControls from './PlanDraftControls';
 import { verdictBadgeTone } from './verdictBadgeTone';
@@ -80,6 +81,12 @@ interface MessageItemProps {
    * and the private rows drawn in it.
    */
   editsPlanDays?: boolean;
+  /**
+   * The thread is drawn beside the athlete workspace's calendar: a plan card
+   * is one line leading to that calendar instead of the card. Absent
+   * everywhere else.
+   */
+  planSurface?: WorkspacePlanSurface | null;
   message: Message;
   metadata?: MessageMetadata;
   feedback?: MessageFeedback;
@@ -209,6 +216,7 @@ const ACTION_BUTTON = `${ACTION_BUTTON_SHAPE} ${ACTION_TONE_IDLE}`;
 const MessageItem = memo(function MessageItem({
   conversationId = null,
   editsPlanDays = false,
+  planSurface = null,
   message,
   metadata,
   feedback,
@@ -334,6 +342,18 @@ const MessageItem = memo(function MessageItem({
       case 'workout_plan': {
         const plan = parseWorkoutPlan(JSON.stringify(block.plan));
         if (!plan) return null;
+        // Beside the athlete workspace's calendar the card is one line: the
+        // calendar draws the plan, and publishing lives in its header.
+        if (planSurface !== null) {
+          return (
+            <PlanChangeEntry
+              key={key}
+              conversationId={conversationId}
+              plan={plan}
+              onShowCalendar={planSurface.onShowCalendar}
+            />
+          );
+        }
         // A coach's draft for the thread's athlete carries its controls on
         // the card; the controls decide for themselves who may see them.
         const shown = conversationId === null ? null : planCardDraft(block);
