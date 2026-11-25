@@ -99,9 +99,8 @@ export function clientNames(
 }
 
 /**
- * The clients the athlete always allows. Revoking such a client's grant
- * leaves its policy, so the client is renewed the next time it connects:
- * the revoke confirmation says so.
+ * The clients the athlete always allows, whose Connected-apps rows say so.
+ * Revoking such a client's grant also ends its policies.
  */
 export function alwaysAllowedClients(policies: readonly OAuthStandingPolicy[]): Set<string> {
   return new Set(policies.map((policy) => policy.client_id));

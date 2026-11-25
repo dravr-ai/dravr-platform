@@ -71,9 +71,8 @@ describe('ConnectedAppsScreen', () => {
     mockListGrantReceipts.mockResolvedValue([]);
   });
 
-  // carnet#1544: the apps the athlete always allows, each with Stop. Revoking
-  // such an app's grant leaves its policy, so its row and its confirmation say
-  // it comes back on its next connection.
+  // carnet#1544: the apps the athlete always allows, each with Stop, and a
+  // mark on their rows. Revoking such an app's grant also ends its policy.
   const POLICY = {
     id: 'policy-1',
     client_id: GRANT.client_id,
@@ -83,7 +82,7 @@ describe('ConnectedAppsScreen', () => {
     created_at: '2026-08-02T10:00:00Z',
   };
 
-  it('marks an always-allowed app and warns that revoking it is undone on its next connection', async () => {
+  it('marks an always-allowed app, revokes it with the plain confirmation, and its policy leaves the list', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
     mockListStandingPolicies.mockResolvedValue([POLICY]);
     renderScreen();
@@ -95,9 +94,20 @@ describe('ConnectedAppsScreen', () => {
     fireEvent.press(screen.getByTestId(`revoke-${GRANT.id}`));
     expect(alertSpy).toHaveBeenCalledWith(
       i18n.t('app.revokeAccessQ'),
-      i18n.t('app.confirmRevokeAlwaysAllowedApp', { app: 'Claude Desktop' }),
+      i18n.t('app.confirmRevokeAppAccess', { app: 'Claude Desktop' }),
       expect.any(Array),
     );
+
+    // The server ends the grant and the app's policy with it; the shared
+    // revoke rereads both.
+    mockListConnectedApps.mockResolvedValue([]);
+    mockListStandingPolicies.mockResolvedValue([]);
+    const buttons = alertSpy.mock.calls[0][2] as AlertButton[];
+    buttons.find((button) => button.style === 'destructive')?.onPress?.();
+
+    await waitFor(() => expect(mockRevokeConnectedApp).toHaveBeenCalledWith(GRANT.id));
+    await waitFor(() => expect(screen.getByTestId('standing-policies-empty')).toBeTruthy());
+    expect(mockRemoveStandingPolicy).not.toHaveBeenCalled();
     alertSpy.mockRestore();
   });
 

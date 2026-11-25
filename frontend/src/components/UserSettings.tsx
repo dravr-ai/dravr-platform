@@ -380,8 +380,7 @@ export default function UserSettings({
   // Revoke a connected OAuth app (external MCP client): the shared revoke
   // rereads this list and the privacy pane's access feed alike.
   const revokeConnectedAppMutation = useRevokeConnectedApps();
-  // Revoking an always-allowed app's grant leaves its policy, which renews the
-  // grant on the app's next connection: its row and its confirmation say so.
+  // An always-allowed app's row says so; revoking its grant also ends the policy.
   const { data: standingPolicies } = useStandingPolicies(isAuthenticated);
   const alwaysAllowed = useMemo(() => alwaysAllowedClients(standingPolicies ?? []), [standingPolicies]);
 
@@ -1707,11 +1706,7 @@ Authorization: Bearer <your-token-here>`}
           revokeConnectedAppMutation.mutate([appToRevoke.id], { onSuccess: () => setAppToRevoke(null) })
         }
         title={t('tokens.revokeAccess')}
-        message={
-          appToRevoke && alwaysAllowed.has(appToRevoke.client_id)
-            ? t('app.confirmRevokeAlwaysAllowedApp', { app: appToRevoke.client_name || appToRevoke.client_id })
-            : t('app.confirmRevokeAppAccess', { app: appToRevoke?.client_name || appToRevoke?.client_id || '' })
-        }
+        message={t('app.confirmRevokeAppAccess', { app: appToRevoke?.client_name || appToRevoke?.client_id || '' })}
         confirmLabel={t('app.revoke')}
         variant="danger"
         isLoading={revokeConnectedAppMutation.isPending}

@@ -556,10 +556,9 @@ describe('UserSettings Component', () => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
 
-    // carnet#1544: the apps the athlete always allows, each with Stop. Revoking
-    // such an app's grant leaves its policy, so its row and its confirmation say
-    // it comes back on its next connection.
-    it('lists the always-allowed apps, marks their rows, warns on revoke, and stops a policy', async () => {
+    // carnet#1544: the apps the athlete always allows, each with Stop, and a
+    // mark on their Connected-apps rows.
+    it('lists the always-allowed apps, marks their rows, and stops a policy', async () => {
       const user = userEvent.setup();
       const grant = {
         id: 'g1',
@@ -596,13 +595,6 @@ describe('UserSettings Component', () => {
         i18n.t('tokens.connectedAppsAlwaysAllowed'),
       );
 
-      const section = screen.getByTestId('account-section-connected-mcp-apps');
-      await user.click(within(section).getByRole('button', { name: i18n.t('settingsUi.revoke') }));
-      expect(screen.getByRole('dialog')).toHaveTextContent(
-        i18n.t('app.confirmRevokeAlwaysAllowedApp', { app: 'Coach app' }),
-      );
-      await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: i18n.t('common.cancel') }));
-
       await user.click(
         within(policies).getByRole('button', { name: i18n.t('tokens.standingPolicyStopLabel', { app: 'Coach app' }) }),
       );
@@ -614,6 +606,54 @@ describe('UserSettings Component', () => {
       expect(await within(policies).findByText(i18n.t('tokens.standingPoliciesEmpty'))).toBeInTheDocument();
       expect(screen.queryByTestId('connected-app-always-allowed-g1')).not.toBeInTheDocument();
       expect(revokeConnectedApp).not.toHaveBeenCalled();
+    });
+
+    // A revoke also ends the app's standing policies on the server, so the
+    // shared revoke rereads them: the app leaves "Always allowed" and its mark goes.
+    it('revokes an always-allowed app with the plain confirmation, and its policy leaves the list', async () => {
+      const user = userEvent.setup();
+      const grant = {
+        id: 'g1',
+        client_id: 'client-coach',
+        client_name: 'Coach app',
+        client_host: 'coach.example',
+        scope: 'fitness:read',
+        granted_at: '2026-11-01T10:00:00Z',
+        preset: 'training_coach',
+        max_tier: 'T1',
+        expires_at: null,
+      };
+      const policy = {
+        id: 'p1',
+        client_id: 'client-coach',
+        client_name: 'Coach app',
+        client_host: 'coach.example',
+        preset: 'training_coach',
+        created_at: '2026-11-02T10:00:00Z',
+      };
+      listConnectedApps.mockResolvedValue([grant]);
+      listStandingPolicies.mockResolvedValue([policy]);
+
+      await act(async () => {
+        renderUserSettings({ initialTab: 'account' });
+      });
+
+      const policies = await screen.findByTestId('standing-policies');
+      await within(policies).findByTestId('standing-policy-p1');
+      const section = screen.getByTestId('account-section-connected-mcp-apps');
+      await user.click(within(section).getByRole('button', { name: i18n.t('settingsUi.revoke') }));
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).toHaveTextContent(i18n.t('app.confirmRevokeAppAccess', { app: 'Coach app' }));
+
+      // The server ended the grant and the policy with it.
+      listConnectedApps.mockResolvedValue([]);
+      listStandingPolicies.mockResolvedValue([]);
+      await user.click(within(dialog).getByRole('button', { name: i18n.t('app.revoke') }));
+
+      await waitFor(() => expect(revokeConnectedApp).toHaveBeenCalledWith('g1'));
+      expect(await within(policies).findByText(i18n.t('tokens.standingPoliciesEmpty'))).toBeInTheDocument();
+      expect(screen.queryByTestId('connected-app-always-allowed-g1')).not.toBeInTheDocument();
+      expect(removeStandingPolicy).not.toHaveBeenCalled();
     });
 
     it('lists the consent history by app and outcome, a deleted app by its id, and pages older receipts', async () => {

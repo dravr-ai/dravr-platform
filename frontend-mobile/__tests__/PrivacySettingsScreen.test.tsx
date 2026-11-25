@@ -27,7 +27,6 @@ const mockListDataAccessRequests = jest.fn();
 const mockGetAccessFeed = jest.fn();
 const mockListConnectedApps = jest.fn();
 const mockRevokeConnectedApp = jest.fn();
-const mockListStandingPolicies = jest.fn();
 jest.mock('../src/services/api', () => ({
   userApi: {
     updateAnalyticsConsent: (enabled: boolean) => mockUpdateAnalyticsConsent(enabled),
@@ -38,7 +37,6 @@ jest.mock('../src/services/api', () => ({
   oauthApi: {
     listConnectedApps: () => mockListConnectedApps(),
     revokeConnectedApp: (id: string) => mockRevokeConnectedApp(id),
-    listStandingPolicies: () => mockListStandingPolicies(),
   },
   dataAccessRequestsApi: {
     list: () => mockListDataAccessRequests(),
@@ -87,7 +85,6 @@ describe('PrivacySettingsScreen — analytics consent', () => {
     mockListDataAccessRequests.mockResolvedValue([]);
     mockGetAccessFeed.mockResolvedValue(EMPTY_FEED);
     mockListConnectedApps.mockResolvedValue([]);
-    mockListStandingPolicies.mockResolvedValue([]);
     mockUseAuth.mockReturnValue({
       isAuthenticated: true,
       user: userWithConsent(false) as User,
@@ -304,7 +301,6 @@ describe('PrivacySettingsScreen — who read your data', () => {
       grant('g2', 'client-claude', 'fitness:write'),
     ]);
     mockRevokeConnectedApp.mockResolvedValue(undefined);
-    mockListStandingPolicies.mockResolvedValue([]);
   });
 
   it('lists each app with its calls, and the coach\'s day with its count', async () => {
@@ -337,30 +333,6 @@ describe('PrivacySettingsScreen — who read your data', () => {
         expect.arrayContaining([['oauth', 'connected-apps'], ['access-feed']]),
       ),
     );
-    alertSpy.mockRestore();
-  });
-
-  // carnet#1544: an always-allowed app's policy renews the grant on its next
-  // connection, so its confirmation says so.
-  it('warns that revoking an always-allowed app is undone on its next connection', async () => {
-    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
-    mockListStandingPolicies.mockResolvedValue([
-      { id: 'p1', client_id: 'client-claude', client_name: 'Claude', client_host: null, preset: 'training_coach', created_at: '2026-11-02T10:00:00Z' },
-    ]);
-    const { findAllByTestId } = renderScreen();
-
-    const [revoke] = await findAllByTestId('access-feed-revoke');
-    await waitFor(() => expect(mockListStandingPolicies).toHaveBeenCalled());
-    await waitFor(() => {
-      alertSpy.mockClear();
-      fireEvent.press(revoke);
-      expect(alertSpy).toHaveBeenCalledWith(
-        i18n.t('app.revokeAccessQ'),
-        i18n.t('app.confirmRevokeAlwaysAllowedApp', { app: 'Claude' }),
-        expect.any(Array),
-      );
-    });
-    expect(mockRevokeConnectedApp).not.toHaveBeenCalled();
     alertSpy.mockRestore();
   });
 

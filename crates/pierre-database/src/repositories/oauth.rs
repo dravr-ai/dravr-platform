@@ -419,7 +419,8 @@ pub trait OAuth2ServerRepository: Send + Sync {
     ///
     /// The grant's ending receipt is written in the same transaction, caused
     /// by `actor` (or, for a grant already past its expiry, an `expire` by
-    /// the AS at its expiry).
+    /// the AS at its expiry), and the user's standing policies for the
+    /// grant's client are revoked with it: nothing renews a revoked grant.
     async fn revoke_client_grant(
         &self,
         id: &str,

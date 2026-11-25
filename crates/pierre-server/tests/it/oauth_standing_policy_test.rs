@@ -15,7 +15,8 @@
 //! screen would be skipped, records a grant citing the policy as the AS, and
 //! that grant's own skip answers the next authorization. Other terms, an
 //! admin, a client returning to a local program, a changed consent text, two
-//! policies, a removed policy and a deleted client all show the screen again.
+//! policies, a removed policy, a revoked grant (which removes its client's
+//! policies) and a deleted client all show the screen again.
 
 use crate::common;
 use crate::helpers::axum_test::AxumTestRequest;
@@ -473,6 +474,40 @@ fn preset_terms(world: &World) -> String {
     preset_defaults(Preset::TrainingCoach, &source)
         .to_document()
         .unwrap()
+}
+
+#[tokio::test]
+async fn revoking_a_grant_removes_its_clients_policies_so_nothing_renews_it() {
+    let world = world().await;
+    let client = register(&world).await;
+    let grant = approve_preset(&world, &client, "training_coach").await;
+    seed_policy(&world, &grant).await;
+    let other_client = register(&world).await;
+    let other_grant = approve_preset(&world, &other_client, "sleep_coach").await;
+    let other_policy = seed_policy(&world, &other_grant).await;
+    let session = common::generate_test_token(&world.resources, &world.user).await;
+
+    AxumTestRequest::delete(&format!("/api/me/oauth-grants/{}", grant.id))
+        .header("Authorization", &format!("Bearer {session}"))
+        .send(OAuthGrantsRoutes::routes(Arc::clone(&world.resources)))
+        .await
+        .assert_status(StatusCode::NO_CONTENT);
+
+    assert_eq!(
+        policies(&world)
+            .await
+            .iter()
+            .map(|policy| policy.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![other_policy.id.as_str()],
+        "bug: the revoked client's policy stands, or another client's went with it"
+    );
+    forget_standing(&world, &client).await;
+    assert_eq!(
+        authorize(&world, &client).await,
+        200,
+        "bug: a policy renewed the grant the athlete revoked"
+    );
 }
 
 #[tokio::test]

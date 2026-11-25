@@ -29,8 +29,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
   const { data, isLoading, isError, error, refetch, isFetching } = useConnectedApps();
   // The shared revoke rereads this list and the privacy screen's access feed alike.
   const revokeMutation = useRevokeConnectedApps();
-  // Revoking an always-allowed app's grant leaves its policy, which renews the
-  // grant on the app's next connection: its row and its confirmation say so.
+  // An always-allowed app's row says so; revoking its grant also ends the policy.
   const { data: policies } = useStandingPolicies();
   const alwaysAllowed = useMemo(() => alwaysAllowedClients(policies ?? []), [policies]);
 
@@ -39,11 +38,9 @@ export function ConnectedAppsScreen(): React.JSX.Element {
   const handleRevoke = (grant: OAuthGrant): void => {
     Alert.alert(
       t('app.revokeAccessQ'),
-      // The same sentences the web card's confirmation uses, from the same keys:
+      // The same sentence the web card's confirmation uses, from the same key:
       // revoking is the same act on both, so it cannot promise two things.
-      alwaysAllowed.has(grant.client_id)
-        ? t('app.confirmRevokeAlwaysAllowedApp', { app: connectedAppName(grant) })
-        : t('app.confirmRevokeAppAccess', { app: connectedAppName(grant) }),
+      t('app.confirmRevokeAppAccess', { app: connectedAppName(grant) }),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {

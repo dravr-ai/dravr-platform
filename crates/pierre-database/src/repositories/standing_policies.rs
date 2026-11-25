@@ -17,6 +17,10 @@
 //! live policy of the same client and preset and inserts the new one, in one
 //! transaction, so the active partial unique index never sees two.
 //!
+//! Revoking a grant revokes the athlete's policies for its client in the
+//! same transaction ([`REVOKE_USER_CLIENT_STANDING_POLICIES_SQL`]): a revoke
+//! is the athlete's intent, and a silent renewal after it would undo it.
+//!
 //! Deleting a client revokes its policies with its grants
 //! ([`REVOKE_CLIENT_STANDING_POLICIES_SQL`]), and so does the orphan sweep
 //! ([`REVOKE_ORPHANED_STANDING_POLICIES_SQL`]), so a re-registered client is
@@ -95,6 +99,14 @@ pub(crate) const LIST_CLIENT_STANDING_POLICIES_SQL: &str = r"
 pub(crate) const REVOKE_STANDING_POLICY_SQL: &str = r"
             UPDATE oauth_standing_policies SET revoked_at = $4
             WHERE tenant_id = $1 AND user_id = $2 AND id = $3 AND revoked_at IS NULL
+            ";
+
+/// Revoke one athlete's live policies for one client: the athlete revoked a
+/// grant of that client, and a revoke means the client asks again, never a
+/// renewal behind it.
+pub(crate) const REVOKE_USER_CLIENT_STANDING_POLICIES_SQL: &str = r"
+            UPDATE oauth_standing_policies SET revoked_at = $4
+            WHERE tenant_id = $1 AND user_id = $2 AND client_id = $3 AND revoked_at IS NULL
             ";
 
 /// Revoke every live policy naming client `$1`, in every tenant: the client
