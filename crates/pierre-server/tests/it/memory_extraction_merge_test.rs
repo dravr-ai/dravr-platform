@@ -21,6 +21,7 @@
 
 use crate::common;
 
+use pierre_core::constants::oauth::providers::SENSITIVE_T3;
 use pierre_core::transport::TransportPolicy;
 use std::sync::{Arc, Mutex};
 
@@ -128,10 +129,24 @@ async fn seed_anchor(
         .id
 }
 
-/// Run one extraction with a scripted answer; returns the provider so the
-/// prompt it saw can be inspected.
+/// Run one extraction with a scripted answer, for an athlete who gave every
+/// consent; returns the provider so the prompt it saw can be inspected.
 async fn run(
     reply: &str,
+) -> (
+    Arc<ScriptedExtractor>,
+    Vec<UserFact>,
+    String,
+    TenantId,
+    Arc<ServerContext>,
+) {
+    Box::pin(run_withholding(reply, &[])).await
+}
+
+/// [`run`] for an athlete who withholds the consents `withheld`.
+async fn run_withholding(
+    reply: &str,
+    withheld: &[String],
 ) -> (
     Arc<ScriptedExtractor>,
     Vec<UserFact>,
@@ -183,9 +198,9 @@ async fn run(
             transport_policy: TransportPolicy::AnyTransport,
             recorder: None,
             ai_consent_sources: &[],
-            // An athlete who gave every consent: the extractor reads their
-            // whole memory (carnet#1544).
-            consent_withheld: Some(&[]),
+            // The consents the athlete withholds; none, the extractor reads
+            // their whole memory (carnet#1544).
+            consent_withheld: Some(withheld),
         },
         CONFIG,
     )
@@ -248,6 +263,46 @@ async fn a_named_restatement_merges_into_the_athletes_own_words() {
         Some("m-later"),
         "the anchor points at the message that last stated it"
     );
+}
+
+/// carnet#1544: without `sensitive_t3` the extractor is shown none of the
+/// athlete's facts, so it cannot name a restatement. The code's own
+/// same-sentence match still sees the stored goal, so the goal said again in
+/// the same words merges rather than piling up a second row.
+#[tokio::test]
+async fn without_sensitive_t3_a_restatement_merges_though_the_model_never_saw_it() {
+    let withheld = [SENSITIVE_T3.to_owned()];
+    let (extractor, facts, _user, _tenant, _res) = Box::pin(run_withholding(
+        &format!(
+            r#"[{{"kind":"goal","predicate_code":"working_toward","object":"{ANCHOR}.","confidence":0.8,"stated_by":"user"}}]"#
+        ),
+        &withheld,
+    ))
+    .await;
+
+    let prompt = extractor.seen.lock().unwrap().clone();
+    assert!(
+        !prompt.contains(ANCHOR) && !prompt.contains("Existing facts:"),
+        "bug: a stored fact reached the extractor without sensitive_t3: {prompt}"
+    );
+    assert_eq!(
+        facts.len(),
+        1,
+        "bug: the goal said again became a second row: {facts:?}"
+    );
+    assert_eq!(
+        facts[0].source_msg_id.as_deref(),
+        Some("m-later"),
+        "the stored goal points at the message that restated it"
+    );
+
+    // A different goal is still a new one.
+    let (_extractor, facts, _user, _tenant, _res) = Box::pin(run_withholding(
+        r#"[{"kind":"goal","predicate_code":"working_toward","object":"un 50 km au Mont Albert","confidence":0.8,"stated_by":"user"}]"#,
+        &withheld,
+    ))
+    .await;
+    assert_eq!(facts.len(), 2, "a new goal is its own row: {facts:?}");
 }
 
 /// The failure a cosine threshold produced: a genuinely different goal, which

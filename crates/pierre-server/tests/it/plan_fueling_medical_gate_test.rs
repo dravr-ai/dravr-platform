@@ -28,7 +28,10 @@ use pierre_core::transport::Transport;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::training_plans::PlannedDay;
 use pierre_services::medical_flag::FiguresWithheld;
+use pierre_core::constants::oauth::providers::{sensitive_display_name, SENSITIVE_T2};
+use pierre_core::constants::oauth_providers::NoticeKind;
 use pierre_services::parq;
+use pierre_services::provider_notice::grant_consent;
 use pierre_services::plan_calendar_push::desired_entries;
 use pierre_services::plan_card::try_load_plan_card;
 use pierre_services::plan_fueling::{FuelingDisclosure, FUELING_WITHHELD_CLAUSE};
@@ -79,8 +82,26 @@ async fn athlete(resources: &ServerContext) -> Result<Athlete> {
     Ok(Athlete { user_id, tenant })
 }
 
-/// A PAR-Q "yes" on file — the flag the onboarding screen raises.
+/// A PAR-Q "yes" on file — the flag the onboarding screen raises — for an
+/// athlete who lets AI read their health records (`sensitive_t2`), so the
+/// agent's tools may name the flag and their clinician (carnet#1544).
 async fn raise_parq_flag(resources: &ServerContext, athlete: &Athlete) -> Result<()> {
+    raise_unread_parq_flag(resources, athlete).await?;
+    grant_consent(
+        &resources.common.repos,
+        athlete.tenant.as_uuid(),
+        athlete.user_id,
+        SENSITIVE_T2,
+        NoticeKind::AiConsent,
+        sensitive_display_name(SENSITIVE_T2).expect("a consent class"),
+    )
+    .await?;
+    Ok(())
+}
+
+/// A PAR-Q "yes" on file for an athlete who keeps their health records from
+/// AI (`sensitive_t2` not given, the default).
+async fn raise_unread_parq_flag(resources: &ServerContext, athlete: &Athlete) -> Result<()> {
     let raised = parq::persist_parq_flags(
         resources.common.repos.memory.as_ref(),
         athlete.tenant,
@@ -266,6 +287,55 @@ async fn an_unflagged_athletes_fuelling_is_saved_and_read_back_whole() -> Result
 // ============================================================================
 // get_training_plan
 // ============================================================================
+
+// carnet#1544: without `sensitive_t2` the agent's plan tools still withhold
+// a flagged athlete's rates, and neither the read nor the save's refusal
+// names the flag or their clinician.
+#[tokio::test]
+async fn without_sensitive_t2_the_plan_tools_withhold_rates_naming_no_flag() -> Result<()> {
+    let resources = resources().await?;
+    let athlete = athlete(&resources).await?;
+    let executor = executor(&resources);
+    save(&executor, &athlete, fuelled_plan()).await?;
+    raise_unread_parq_flag(&resources, &athlete).await?;
+
+    let plan = get_plan(&executor, &athlete).await?;
+    assert!(
+        fuelled_day(&plan).get("fueling").is_none(),
+        "bug: a stored rate reached a flagged athlete's model: {plan:#}"
+    );
+    let statement = &plan["fueling_withheld"]["figures_withheld"];
+    assert_eq!(
+        statement["reason"], "health_records_withheld",
+        "{statement:#}"
+    );
+    assert_eq!(statement["set_by"], "not_stated", "{statement:#}");
+
+    let refused = executor
+        .execute_tool(request("save_training_plan", &athlete, fuelled_plan()))
+        .await;
+    let message = match refused {
+        Err(e) => e.to_string(),
+        Ok(response) => {
+            assert!(!response.success, "bug: a fuelled save went through");
+            response.error.unwrap_or_default()
+        }
+    };
+    assert!(
+        message.contains(&format!("fueling on {FUELLED_DATE} refused")),
+        "the refusal still names the day: {message}"
+    );
+    for said in [statement.to_string(), message] {
+        let lower = said.to_lowercase();
+        for word in ["clinician", "medical", "par-q", "flag"] {
+            assert!(
+                !lower.contains(word),
+                "bug: {word:?} tells the model a flag is on file: {said}"
+            );
+        }
+    }
+    Ok(())
+}
 
 #[tokio::test]
 async fn get_training_plan_withholds_rates_stored_before_the_flag() -> Result<()> {

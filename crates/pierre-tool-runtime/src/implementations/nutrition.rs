@@ -113,6 +113,16 @@ const DAILY_NUTRITION_GUIDANCE: &[&str] = &[
     "Daily energy and macronutrient targets come from your clinician; bring them to any nutrition conversation.",
 ];
 
+/// [`DAILY_NUTRITION_GUIDANCE`] for a model the athlete keeps their health
+/// records from: the same foods and patterns, and no word naming their
+/// clinician (carnet#1544).
+const DAILY_NUTRITION_GUIDANCE_UNNAMED: &[&str] = &[
+    "Build each meal around a protein source, carbohydrate-rich foods and vegetables or fruit.",
+    "Eat more carbohydrate on long or hard training days and less on rest days.",
+    "Spread protein across the day's meals rather than loading it into one.",
+    "Daily energy and macronutrient targets are withheld here; bring any you have been given to the conversation.",
+];
+
 /// What `get_nutrient_timing` says instead of amounts when a clinician sets
 /// them. Timing and food choice only (Kerksick et al. 2017; Aragon & Schoenfeld
 /// 2013: the window is flexible and total daily intake matters most).
@@ -121,6 +131,16 @@ const NUTRIENT_TIMING_GUIDANCE: &[&str] = &[
     "After the session: a meal with protein and carbohydrate within about 2 hours; total daily intake matters more than the exact minute.",
     "Spread protein across 3-4 meals through the day.",
     "How much of each to take is for your clinician to set.",
+];
+
+/// [`NUTRIENT_TIMING_GUIDANCE`] for a model the athlete keeps their health
+/// records from: the same timing and foods, and no word naming their
+/// clinician (carnet#1544).
+const NUTRIENT_TIMING_GUIDANCE_UNNAMED: &[&str] = &[
+    "Before a session over an hour: an easily digested, carbohydrate-based meal 1-4 hours beforehand, or a small snack in the last hour (banana, oatmeal, toast).",
+    "After the session: a meal with protein and carbohydrate within about 2 hours; total daily intake matters more than the exact minute.",
+    "Spread protein across 3-4 meals through the day.",
+    "How much of each to take is withheld here; ask what you have been advised.",
 ];
 
 /// What `calculate_daily_nutrition` answers with.
@@ -414,12 +434,14 @@ impl McpTool<dyn ToolRuntime> for CalculateDailyNutritionTool {
             let params = parse_nutrition_params(&args)?;
 
             if let Some(withheld) = gate_for_call(&context).await? {
+                let guidance = if withheld.names_clinician() {
+                    DAILY_NUTRITION_GUIDANCE
+                } else {
+                    DAILY_NUTRITION_GUIDANCE_UNNAMED
+                };
                 return ok_typed(
                     "calculate_daily_nutrition",
-                    NutritionAnswer::<DailyNutritionResult>::withheld(
-                        withheld,
-                        DAILY_NUTRITION_GUIDANCE,
-                    ),
+                    NutritionAnswer::<DailyNutritionResult>::withheld(withheld, guidance),
                 );
             }
 
@@ -585,12 +607,14 @@ impl McpTool<dyn ToolRuntime> for GetNutrientTimingTool {
             let session = parse_planned_session(&args)?;
 
             if let Some(withheld) = gate_for_call(&context).await? {
+                let guidance = if withheld.names_clinician() {
+                    NUTRIENT_TIMING_GUIDANCE
+                } else {
+                    NUTRIENT_TIMING_GUIDANCE_UNNAMED
+                };
                 return ok_typed(
                     "get_nutrient_timing",
-                    NutritionAnswer::<NutrientTimingResult>::withheld(
-                        withheld,
-                        NUTRIENT_TIMING_GUIDANCE,
-                    ),
+                    NutritionAnswer::<NutrientTimingResult>::withheld(withheld, guidance),
                 );
             }
 

@@ -102,7 +102,7 @@ const EXTERNAL_TRANSPORT_NOTE: &str = "Energy, protein, carbohydrate, fat, fluid
 /// what is on file.
 const HEALTH_RECORDS_WITHHELD_NOTE: &str = "Energy, protein, carbohydrate, fat, fluid, sodium and \
      caffeine amounts were withheld here. This athlete keeps their health records from AI, so \
-     the reason is not shown: ask whether a clinician has advised on their intake and work \
+     the reason is not shown: ask what they have been advised about their intake and work \
      inside it.";
 
 impl FiguresWithheld {

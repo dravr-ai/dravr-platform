@@ -362,7 +362,7 @@ const HEALTH_RECORDS_RECOVERY_GUIDANCE: &[&str] = &[
     RECOVERY_MEAL_TIMING,
     REFUEL_TIMING,
     "Rehydrate by drinking to thirst",
-    "Protein, carbohydrate and fluid amounts are withheld here; ask whether a clinician has advised on them",
+    "Protein, carbohydrate and fluid amounts are withheld here; ask what you have been advised",
 ];
 
 /// Build meal suggestions based on workout intensity. Every option sits in
