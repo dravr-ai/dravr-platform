@@ -586,6 +586,19 @@ mod tests {
         strings
     }
 
+    /// The catalogue with the standing-policy box's line blanked in English,
+    /// as a live overlay could leave it: the embedded catalogue words it.
+    fn unworded() -> MessagingStringsRegistry {
+        let strings = MessagingStringsRegistry::new();
+        strings.update(
+            PRESET_KEY_STANDING_POLICY,
+            "en",
+            String::new(),
+            "blank".to_owned(),
+        );
+        strings
+    }
+
     fn form(pairs: &[(&str, &str)]) -> HashMap<String, String> {
         pairs
             .iter()
@@ -626,7 +639,7 @@ mod tests {
             !standing_policy_ticked(&other, &checked, &text, true),
             "bug: another preset's box is read for the chosen one"
         );
-        let unworded = MessagingStringsRegistry::new();
+        let unworded = unworded();
         assert!(
             !standing_policy_ticked(&ticked, &checked, &ConsentText::new(&unworded, "en"), true),
             "bug: a box the catalogue does not word is read"
@@ -662,7 +675,7 @@ mod tests {
             !off.render("", "Client", &text).contains("standing_policy"),
             "bug: the box shows while it is switched off"
         );
-        let unworded = MessagingStringsRegistry::new();
+        let unworded = unworded();
         let unworded_text = ConsentText::new(&unworded, "en");
         let unlabelled =
             GrantChoice::for_screen(&checked, None, &unworded_text, subject(), true).unwrap();
