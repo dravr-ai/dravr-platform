@@ -18,6 +18,7 @@ use crate::helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use crate::helpers::consent_form::plain_digest;
 
 use std::net::SocketAddr;
+use std::slice;
 use std::sync::Arc;
 
 use axum::extract::connect_info::MockConnectInfo;
@@ -44,7 +45,7 @@ use uuid::Uuid;
 const REDIRECT: &str = "https://dpop.example.test/callback";
 const VERIFIER: &str = "dpop-bound-pkce-verifier-0123456789-abcdefghijklmnopqrstuvwxyz";
 
-/// The client's P-256 key, as tronc's own DPoP tests sign with it.
+/// The client's P-256 key, as tronc's own `DPoP` tests sign with it.
 const KEY_A: &str = "-----BEGIN PRIVATE KEY-----
 MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgpbH6oQSVSYUgbrn3
 4AOEqaR1OtL0XIwAXxhiGRvRpcOhRANCAAR8xBbzOIvvGO0sqN5xb5q6xtZc01ze
@@ -442,7 +443,7 @@ async fn a_bound_code_mints_a_dpop_token_the_mcp_door_admits_with_its_proof() {
 
     // A proof is good once.
     let proof = A.proof("POST", &world.resource_url("/mcp"), Some(&access));
-    let first = mcp(&world, &format!("DPoP {access}"), &[proof.clone()]).await;
+    let first = mcp(&world, &format!("DPoP {access}"), slice::from_ref(&proof)).await;
     assert_eq!(first.status(), 200, "{}", first.body_text());
     assert_refused_with_dpop_challenge(&mcp(&world, &format!("DPoP {access}"), &[proof]).await);
 
@@ -535,7 +536,7 @@ async fn a_bound_code_is_redeemed_only_with_its_key() {
     assert_proof_refused(&exchange(&world, &client, &code, &[one, two]).await);
 
     let proof = A.proof("POST", &token_url, None);
-    let (_, _, body) = issued(&exchange(&world, &client, &code, &[proof.clone()]).await);
+    let (_, _, body) = issued(&exchange(&world, &client, &code, slice::from_ref(&proof)).await);
     assert_eq!(body["token_type"], "DPoP");
 
     // The same proof again is a replay, whatever it is sent with.

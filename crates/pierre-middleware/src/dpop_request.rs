@@ -92,12 +92,6 @@ impl PresentedCall {
         }
     }
 
-    /// The presented token, without its scheme.
-    #[must_use]
-    pub fn token(&self) -> Option<&str> {
-        self.token.as_deref()
-    }
-
     /// Put the credential and how it was presented on `request`.
     pub fn attach(self, request: &mut JsonRpcRequest) {
         request.auth_token = self.token;
