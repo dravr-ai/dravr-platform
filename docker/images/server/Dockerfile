@@ -194,7 +194,10 @@ WORKDIR /app
 # CVE-2026-112315..112323, HIGH; libgssapi-krb5-2, libk5crypto3, libkrb5-3,
 # libkrb5support0): the dev deploy of 9e81bd752 was gated on them with
 # "apt security epoch: 2026-11-13" built.
-ARG APT_SECURITY_EPOCH=2026-11-22
+# 2026-11-25: libzstd1 1.5.7+dfsg-1 -> +deb13u1 (CVE-2026-124851, HIGH,
+# information disclosure in zstd): the dev deploy of f2568f8b2 was gated on
+# it with "apt security epoch: 2026-11-22" built.
+ARG APT_SECURITY_EPOCH=2026-11-25
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
