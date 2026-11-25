@@ -522,6 +522,30 @@ describe('the athlete workspace (carnet#1816)', () => {
     expect(events[1]).toHaveTextContent(i18n.t('chat.senderYou'));
     expect(events[1]).toHaveTextContent(i18n.t('plan.workspace.history.dayAdd'));
     expect(api.getSubjectPlanHistory.mock.calls[0][0]).toBe(PLAN_ID);
+    // Two changes are fewer than a page: there is nothing older to offer.
+    expect(screen.queryByTestId('workspace-history-more')).not.toBeInTheDocument();
+  });
+
+  it('reads the history past its first page from before the oldest change, and offers no more once a page comes back short', async () => {
+    const change = (createdAt: string) => ({ kind: 'day_edit' as const, source: 'coach' as const, dates: ['2026-11-26'], created_at: createdAt });
+    // A full page, a minute apart from 09:59 down to 09:10, then the last two.
+    const newest = { events: Array.from({ length: 50 }, (_, index) => change(`2026-11-24T09:${String(59 - index).padStart(2, '0')}:00Z`)) };
+    const oldest = { events: [change('2026-11-24T08:02:00Z'), change('2026-11-24T08:01:00Z')] };
+    api.getSubjectPlanHistory.mockResolvedValueOnce(newest).mockResolvedValueOnce(oldest);
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    await waitFor(() => expect(screen.getAllByTestId('workspace-history-event')).toHaveLength(50));
+    expect(api.getSubjectPlanHistory).toHaveBeenCalledWith(PLAN_ID, { limit: 50 });
+    const more = screen.getByTestId('workspace-history-more');
+    expect(more).toHaveTextContent(i18n.t('plan.workspace.historyMore'));
+
+    await user.click(more);
+    await waitFor(() => expect(screen.getAllByTestId('workspace-history-event')).toHaveLength(52));
+    expect(api.getSubjectPlanHistory).toHaveBeenLastCalledWith(PLAN_ID, { before: '2026-11-24T09:10:00Z', limit: 50 });
+    expect(screen.queryByTestId('workspace-history-more')).not.toBeInTheDocument();
+    // The first change the page added takes focus, where the button stood.
+    expect(screen.getAllByTestId('workspace-history-event')[50]).toHaveFocus();
   });
 
   it('draws the plan thread under the agent’s tab with one-line plan cards, and the room alone under Groupe', async () => {

@@ -5,7 +5,7 @@
 // ABOUTME: The kernel derives every number on the server; this only holds what the coach wrote or picked and lays out what came back
 
 import { useEffect, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import type { ChatApi } from '@pierre/api-client';
 import { refusalReason, refusalStep } from './apiError';
@@ -801,6 +801,19 @@ export const SESSION_PREVIEW_DEBOUNCE_MS = 300;
 /** How long the thread's family catalogue stays fresh: it changes only with the agent's package or a deploy. */
 const FAMILIES_STALE_MS = 5 * 60_000;
 
+/** How many changes one read of the plan's history asks for: a page shorter than this is its last. */
+const HISTORY_PAGE_SIZE = 50;
+
+/**
+ * Where the history's next page starts: strictly before the oldest change of
+ * `page`, or nowhere when `page` came back shorter than asked — there is
+ * nothing older.
+ */
+function olderHistoryFrom(page: SubjectPlanHistory): string | undefined {
+  if (page.events.length < HISTORY_PAGE_SIZE) return undefined;
+  return page.events[page.events.length - 1]?.created_at;
+}
+
 /** `value`, once it has stopped changing for `delayMs`. */
 function useSettled<T>(value: T, delayMs: number): T {
   const [settled, setSettled] = useState(value);
@@ -830,9 +843,11 @@ function useSettled<T>(value: T, delayMs: number): T {
  * - `useRevertDraftDate` puts the live plan's entries back on a date of the
  *   draft, whole — « Refuser » on a date the agent proposed (carnet#1815) —
  *   and answers the subject plan into the same cache.
- * - `useSubjectPlanHistory` reads the newest changes the coach and the
- *   thread's agent made to the plan (carnet#1815); every write above reads it
- *   again, its key living under the plan's.
+ * - `useSubjectPlanHistory` reads the changes the coach and the thread's
+ *   agent made to the plan (carnet#1815), newest first, a page at a time:
+ *   `fetchNextPage` reads the changes older than the oldest held, and
+ *   `hasNextPage` stays false once a page comes back short. Every write above
+ *   reads it again, its key living under the plan's.
  * - `useRereadPlan` reads the card's plan again after a write found its
  *   session moved.
  */
@@ -929,9 +944,15 @@ export function createSessionEditorHooks({ chatApi }: SessionEditorApis) {
   }
 
   function useSubjectPlanHistory(conversationId: string | null) {
-    return useQuery<SubjectPlanHistory>({
+    return useInfiniteQuery({
       queryKey: QUERY_KEYS.chat.subjectPlanHistory(conversationId),
-      queryFn: () => chatApi.getSubjectPlanHistory(conversationId as string),
+      queryFn: ({ pageParam }) =>
+        chatApi.getSubjectPlanHistory(
+          conversationId as string,
+          pageParam === undefined ? { limit: HISTORY_PAGE_SIZE } : { before: pageParam, limit: HISTORY_PAGE_SIZE },
+        ),
+      initialPageParam: undefined as string | undefined,
+      getNextPageParam: olderHistoryFrom,
       enabled: conversationId !== null,
     });
   }

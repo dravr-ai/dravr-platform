@@ -4,12 +4,13 @@
 // ABOUTME: The athlete workspace's one panel beside the calendar — Historique, the coach's private thread with Dravr, and the athlete's room
 // ABOUTME: Text tabs over one body, or a button per tab opening it as a sheet below lg; the threads are the chat surface's own, drawn without a plan card twice or the room's private lane (carnet#1816)
 
+import { useEffect, useRef, useState } from 'react';
 import { History, Lock, Users, type LucideIcon } from 'lucide-react';
 import { useTranslation, type TFunction } from '@pierre/i18n';
 import { GROUP_ROOM_KEYS, PRIVATE_LANE_KEYS } from '@pierre/chat-utils';
 import type { CoachRosterAthlete } from '@pierre/shared-types';
 import { PLAN_WORKSPACE_KEYS, planHistoryLine } from '@pierre/ui-logic';
-import { EmptyState, Tabs, type Tab } from '../../ui';
+import { Button, EmptyState, Tabs, type Tab } from '../../ui';
 import EmbeddedChat from '../../chat/EmbeddedChat';
 import type { PendingComposerAction, WorkspacePlanSurface } from '../../chat/types';
 import { useSubjectPlanHistory } from '../../../hooks/useSessionEditor';
@@ -119,41 +120,87 @@ function ThreadLoading() {
   );
 }
 
-/** Historique: what changed in the plan, newest first, each « when · who · what ». */
+/**
+ * Historique: what changed in the plan, newest first, each « when · who ·
+ * what », a page at a time. « Afficher les changements plus anciens » reads
+ * the page before the oldest change shown and adds it below; it goes once a
+ * page comes back short. The first change it adds takes focus, so a keyboard
+ * reader carries on from where the list grew.
+ */
 function HistoryTab({ planThreadId, agentName }: { planThreadId: string | null; agentName: string }) {
   const { t, language } = useTranslation();
   const history = useSubjectPlanHistory(planThreadId);
+  const events = history.data?.pages.flatMap((page) => page.events);
+
+  // The index of the first change the older page adds, while it is read.
+  const listRef = useRef<HTMLOListElement>(null);
+  const [focusFrom, setFocusFrom] = useState<number | null>(null);
+  const shown = events?.length ?? 0;
+  useEffect(() => {
+    if (focusFrom === null || shown <= focusFrom) return;
+    const first = listRef.current?.children.item(focusFrom);
+    if (first instanceof HTMLElement) first.focus();
+    setFocusFrom(null);
+  }, [focusFrom, shown]);
+  const showOlder = () => {
+    setFocusFrom(shown);
+    void history.fetchNextPage().then((result) => {
+      // A page that could not be read adds nothing to take focus.
+      if (result.isError) setFocusFrom(null);
+    });
+  };
+
   let body: React.ReactNode;
-  if (planThreadId === null || history.isLoading) {
+  if (planThreadId === null || (events === undefined && !history.isError)) {
     body = <ThreadLoading />;
-  } else if (history.isError || history.data === undefined) {
+  } else if (events === undefined) {
     body = (
       <EmptyState action={{ label: t('common.retry'), onClick: () => void history.refetch() }} data-testid="workspace-history-failed">
         {t(PLAN_WORKSPACE_KEYS.historyFailed)}
       </EmptyState>
     );
-  } else if (history.data.events.length === 0) {
+  } else if (events.length === 0) {
     body = <EmptyState data-testid="workspace-history-empty">{t(PLAN_WORKSPACE_KEYS.historyEmpty)}</EmptyState>;
   } else {
     body = (
-      <ol className="m-0 mt-3 flex list-none flex-col gap-3.5 p-0" data-testid="workspace-history">
-        {history.data.events.map((event) => {
-          const line = planHistoryLine(event, { t, language, agentName });
-          return (
-            <li
-              key={`${event.created_at}-${event.kind}-${event.dates.join(',')}`}
-              className="grid grid-cols-[56px_minmax(0,1fr)] gap-2.5"
-              data-testid="workspace-history-event"
-            >
-              <span className="pt-px font-mono text-xs text-outline">{line.when}</span>
-              <span className="flex min-w-0 flex-col">
-                <span className="text-sm font-semibold text-on-surface">{line.who}</span>
-                <span className="text-sm text-on-surface-variant">{line.what}</span>
-              </span>
-            </li>
-          );
-        })}
-      </ol>
+      <>
+        <ol ref={listRef} className="m-0 mt-3 flex list-none flex-col gap-3.5 p-0" data-testid="workspace-history">
+          {events.map((event) => {
+            const line = planHistoryLine(event, { t, language, agentName });
+            return (
+              <li
+                key={`${event.created_at}-${event.kind}-${event.dates.join(',')}`}
+                tabIndex={-1}
+                className="grid grid-cols-[56px_minmax(0,1fr)] gap-2.5 rounded focus-ring-visible"
+                data-testid="workspace-history-event"
+              >
+                <span className="pt-px font-mono text-xs text-outline">{line.when}</span>
+                <span className="flex min-w-0 flex-col">
+                  <span className="text-sm font-semibold text-on-surface">{line.who}</span>
+                  <span className="text-sm text-on-surface-variant">{line.what}</span>
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+        {history.isFetchNextPageError && (
+          <p role="alert" className="m-0 mt-3 text-sm text-error" data-testid="workspace-history-more-failed">
+            {t(PLAN_WORKSPACE_KEYS.historyFailed)}
+          </p>
+        )}
+        {history.hasNextPage && (
+          <Button
+            variant="tertiary"
+            size="sm"
+            className="mt-3 px-0"
+            onClick={showOlder}
+            loading={history.isFetchingNextPage}
+            data-testid="workspace-history-more"
+          >
+            {t(PLAN_WORKSPACE_KEYS.historyMore)}
+          </Button>
+        )}
+      </>
     );
   }
   return (

@@ -53,6 +53,8 @@ export const PLAN_WORKSPACE_KEYS = {
   historyIntro: 'plan.workspace.historyIntro',
   historyEmpty: 'plan.workspace.historyEmpty',
   historyFailed: 'plan.workspace.historyFailed',
+  /** "Show older changes" — reads the history's next page, under its last line. */
+  historyMore: 'plan.workspace.historyMore',
   /** "and N more dates" — a change touching more dates than its line names. */
   moreDates: { one: 'plan.workspace.history.moreDatesOne', many: 'plan.workspace.history.moreDatesN' } satisfies CountKeys,
   /** The athlete has no room of their own with the coach: their group holds other athletes. */
