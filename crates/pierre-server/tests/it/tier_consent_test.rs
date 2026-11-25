@@ -20,7 +20,7 @@
 //!   back what PUT and DELETE set. Export carries the new columns.
 //!
 //! Slice 1b (JF 2026-11-20, "Gate for third parties") added `sensitive_t3`
-//! for outside clients; slice 4b (ChefFamille 2026-11-25) closes it: T3 never
+//! for outside clients; slice 4b (JF 2026-11-25) closes it: T3 never
 //! goes to an outside client, so the memory tools, which declare the T3
 //! `RestrictedNotes` stream, and the athlete's daily note stay off MCP
 //! whatever the athlete gave. Dravr's own agent and the human coach read both

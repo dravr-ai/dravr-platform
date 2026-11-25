@@ -482,7 +482,7 @@ async fn remember_approved(resources: &Arc<ServerContext>, rider: &Rider) {
 }
 
 /// T3 never goes to an outside client, `sensitive_t3` given or not
-/// (ChefFamille 2026-11-25): the agent's memory and the dossier carrying it
+/// (JF 2026-11-25): the agent's memory and the dossier carrying it
 /// are T3, so an MCP or A2A caller is refused both, and no T3 label is ever
 /// sent. Dravr's own agent still reads them.
 #[tokio::test]
@@ -545,7 +545,7 @@ async fn the_agents_memory_and_the_dossier_never_reach_an_outside_caller() {
 }
 
 /// T3 never goes to an outside client on any surface, `sensitive_t3` given
-/// (ChefFamille 2026-11-25): `/mcp` `tools/call`, `GET /mcp/tools`, A2A
+/// (JF 2026-11-25): `/mcp` `tools/call`, `GET /mcp/tools`, A2A
 /// `SendMessage` and the REST memory route each carry nothing of the agent's
 /// memory, while the athlete's own session still reads it.
 #[tokio::test]

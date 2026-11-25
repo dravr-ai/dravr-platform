@@ -125,7 +125,7 @@ impl ProviderNotice {
 ///   one sensitivity tier, owl's T2 (labs, clinical records, self-measured
 ///   glucose) and T3 (cycle tracking, mental and reproductive health),
 ///   whichever provider or import holds it (J2, 2026-11-12). Neither opens
-///   T3 to an outside AI client: T3 never goes outside (ChefFamille
+///   T3 to an outside AI client: T3 never goes outside (JF
 ///   2026-11-25, closing JF 2026-11-20's path, carnet#1544), and Dravr's own
 ///   agent and the human coach read the athlete's notes and their agent's
 ///   memory either way. A class guards no connect, since nothing
@@ -265,7 +265,7 @@ pub const SENSITIVE_T2: &str = "sensitive_t2";
 /// provider or import holds them: while it is not given, no model and no
 /// human coach reads one. No outside AI client (MCP, A2A, an API key) reads
 /// a T3 record or the athlete's notes and their agent's memory, given or not
-/// (ChefFamille 2026-11-25); Dravr's own agent and the human coach read the
+/// (JF 2026-11-25); Dravr's own agent and the human coach read the
 /// notes and memory without it ([`PROVIDER_NOTICES`]). Its acceptance is a row of
 /// `provider_terms_consents` under this key.
 pub const SENSITIVE_T3: &str = "sensitive_t3";

@@ -173,7 +173,7 @@ pub async fn approve_fact_handler(
 ///
 /// The agent's memory is the athlete's `RestrictedNotes` stream (T3), as the
 /// memory tools declare it, and T3 never goes to an outside client,
-/// `sensitive_t3` given or not (ChefFamille 2026-11-25, carnet#1544): the one
+/// `sensitive_t3` given or not (JF 2026-11-25, carnet#1544): the one
 /// tier rule ([`outside_client_reads`]) answers it.
 async fn refuse_outside_memory_read(
     resources: &ServerContext,

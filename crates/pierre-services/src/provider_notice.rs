@@ -359,7 +359,7 @@ pub async fn under_subject_ai_consent<F: Future>(
 /// `tier` records.
 ///
 /// By the one tier rule ([`tier_readable`](ai_scope::tier_readable)) under
-/// their consents: a T3 record never (ChefFamille 2026-11-25), a T2 record
+/// their consents: a T3 record never (JF 2026-11-25), a T2 record
 /// only through a grant that reaches it.
 ///
 /// For a route outside the tool executor serving such records to an outside

@@ -73,7 +73,7 @@ async fn create_endurance_test_executor() -> Result<Arc<UniversalToolExecutor>> 
 }
 
 /// `executor` on Dravr's own app: the dossier carries the agent's memory
-/// (T3), which never goes to an outside client (ChefFamille 2026-11-25), and
+/// (T3), which never goes to an outside client (JF 2026-11-25), and
 /// an executor declaring no transport serves as one.
 fn own_app(executor: &UniversalToolExecutor) -> UniversalToolExecutor {
     UniversalToolExecutor::new(Arc::clone(&executor.resources))

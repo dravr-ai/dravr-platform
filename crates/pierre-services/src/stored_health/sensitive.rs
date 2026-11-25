@@ -38,7 +38,7 @@ pub(super) fn withhold_clinical_readings(rows: &mut [StoredHealthMetrics]) {
 /// The note the athlete typed into their source's daily log is theirs, a T3
 /// record: an outside client (MCP, A2A, an API key) never reads it,
 /// `sensitive_t3` given or not, by the tier rule ([`ai_scope::tier_readable`];
-/// ChefFamille 2026-11-25), each nulled note tallied once as not served over
+/// JF 2026-11-25), each nulled note tallied once as not served over
 /// this interface. Dravr's own agent and the human coach read it under the
 /// athlete's consent as before (E3).
 pub(super) fn withhold_daily_notes(rows: &mut [StoredRecoveryMetrics]) {

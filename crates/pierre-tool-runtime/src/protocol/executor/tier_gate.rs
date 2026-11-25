@@ -8,7 +8,7 @@
 //!
 //! An outside AI client — MCP, A2A, an API key — never reads the athlete's
 //! notes and their agent's memory: T3 never goes to an outside client,
-//! `sensitive_t3` given or not (ChefFamille 2026-11-25, closing JF
+//! `sensitive_t3` given or not (JF 2026-11-25, closing JF
 //! 2026-11-20's "Gate for third parties" path). The memory tools declare the
 //! `RestrictedNotes` stream (T3) in their [`ToolData`](crate::tool_data::ToolData),
 //! so a call to a tool any of whose declared tiers

@@ -191,7 +191,7 @@ pub fn consented_read(provider: &str) -> AppResult<()> {
 enum TierRefusal {
     /// A T2 record served over an external transport without a grant that
     /// reaches it, or a T3 record served over one at all: T3 never goes to
-    /// an outside client (ChefFamille 2026-11-25, carnet#1544 slice 4b).
+    /// an outside client (JF 2026-11-25, carnet#1544 slice 4b).
     External,
     /// A read the athlete has not allowed: a model's or a human coach's read
     /// of a T2 or T3 record whose consent class they have not given.
@@ -206,7 +206,7 @@ enum TierRefusal {
 /// athlete gives [`SENSITIVE_T2`] and a T3 record only while they give
 /// [`SENSITIVE_T3`] ([`ai_consent_withheld`]), except that an external
 /// transport never reads T2 or T3, consent or not: T3 never goes to an
-/// outside client, `sensitive_t3` given or not (ChefFamille 2026-11-25), and
+/// outside client, `sensitive_t3` given or not (JF 2026-11-25), and
 /// Dravr's own agent is no external transport. Anywhere else — the athlete's
 /// own screens — every tier is read.
 fn tier_refusal(tier: Tier) -> Option<TierRefusal> {
@@ -548,7 +548,7 @@ mod tests {
     }
 
     /// T3 never goes to an outside client, `sensitive_t3` given or not
-    /// (ChefFamille 2026-11-25): the refusal is the interface's, not the
+    /// (JF 2026-11-25): the refusal is the interface's, not the
     /// athlete's choice, so no switch is named as the cure.
     #[tokio::test]
     async fn an_external_transport_never_reads_t3_even_with_consent() {

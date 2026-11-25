@@ -1092,7 +1092,7 @@ async fn a_stamped_message_is_withheld_and_an_unstamped_one_served_over_an_api_k
 }
 
 /// The athlete's memory over REST is the agent's memory like the tool's, T3:
-/// an API key never reads it, `sensitive_t3` given or not (ChefFamille
+/// an API key never reads it, `sensitive_t3` given or not (JF
 /// 2026-11-25, carnet#1544), and their own session reads it either way.
 #[tokio::test]
 async fn an_api_key_never_reads_the_memory_facts_even_under_sensitive_t3() {
