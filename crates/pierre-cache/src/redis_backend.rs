@@ -315,6 +315,40 @@ impl CacheProvider for RedisCache {
         .await
     }
 
+    /// `SET key value NX EX ttl`: one command, so the test and the write
+    /// cannot interleave with another process's.
+    ///
+    /// Not retried on a dropped connection. The server may have stored the
+    /// key before the socket died, and a retry would then report the caller's
+    /// own write as somebody else's; the caller sees the error instead.
+    async fn set_if_absent<T: Serialize + Send + Sync>(
+        &self,
+        key: &CacheKey,
+        value: &T,
+        ttl: Duration,
+    ) -> AppResult<bool> {
+        let serialized = to_vec(value)
+            .map_err(|e| AppError::internal(format!("Cache serialization failed: {e}")))?;
+        let redis_key = Self::build_key(key);
+        // EX 0 is refused by Redis, so an entry lives at least one second.
+        let ttl_secs = ttl.as_secs().max(1);
+
+        let mut conn = self.manager.clone();
+        let stored: Option<String> = redis::cmd("SET")
+            .arg(&redis_key)
+            .arg(serialized.as_slice())
+            .arg("NX")
+            .arg("EX")
+            .arg(ttl_secs)
+            .query_async(&mut conn)
+            .await
+            .map_err(|e| {
+                error!("Redis SET NX operation failed: {e}");
+                cache_error(&e)
+            })?;
+        Ok(stored.is_some())
+    }
+
     async fn get<T: for<'de> Deserialize<'de>>(&self, key: &CacheKey) -> AppResult<Option<T>> {
         let redis_key = Self::build_key(key);
         let data: Option<Vec<u8>> = retry_once("GET operation", || {
