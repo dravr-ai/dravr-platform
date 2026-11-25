@@ -107,7 +107,9 @@ source = "git-tag"
 # enforme the platform pins, or the duplicate gate refuses the bump.
 [dravr-barrage]
 repo       = "dravr-barrage"
-source     = "git-tag"
+# carnet#1550: git-rev while Cargo.toml pins the unreleased re-key branch's rev;
+# consolidation swaps to the next barrage tag and this back to "git-tag".
+source     = "git-rev"
 companions = "dravr-cageux:from-manifest"
 
 # ---------------------------------------------------------------------------

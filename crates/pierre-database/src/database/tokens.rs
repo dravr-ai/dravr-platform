@@ -19,9 +19,9 @@ use crate::backends::shared::encryption::HasEncryption;
 use crate::database::Database;
 use crate::repositories::tokens::{
     client_grant_from_row, device_authorization_from_row, impl_client_grant_writes,
-    impl_oauth2_server_repository, impl_pushed_request_store, oauth2_auth_code_from_row,
-    oauth2_client_from_row, oauth2_refresh_token_from_row, oauth2_state_from_row,
-    APPROVE_DEVICE_AUTHORIZATION_SQL, CONSUME_OAUTH2_AUTH_CODE_SQL,
+    impl_oauth2_server_repository, impl_pushed_request_store, impl_ungranted_refresh_families,
+    oauth2_auth_code_from_row, oauth2_client_from_row, oauth2_refresh_token_from_row,
+    oauth2_state_from_row, APPROVE_DEVICE_AUTHORIZATION_SQL, CONSUME_OAUTH2_AUTH_CODE_SQL,
     CONSUME_OAUTH2_REFRESH_TOKEN_SQL, CONSUME_OAUTH2_STATE_SQL, CREATE_DEVICE_AUTHORIZATION_SQL,
     DELETE_ABANDONED_OAUTH2_CLIENTS_SQL, DELETE_DEVICE_AUTHORIZATION_SQL,
     DELETE_EXPIRED_OAUTH2_CLIENTS_SQL, DELETE_OAUTH2_CLIENT_SQL, DENY_DEVICE_AUTHORIZATION_SQL,
@@ -40,3 +40,4 @@ use crate::repositories::OAuth2ServerRepository;
 impl_oauth2_server_repository!(Database);
 impl_client_grant_writes!(Database, SqliteRow);
 impl_pushed_request_store!(Database);
+impl_ungranted_refresh_families!(Database);

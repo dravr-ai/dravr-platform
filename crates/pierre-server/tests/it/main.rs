@@ -787,6 +787,7 @@ mod recipe_tools_integration_test;
 mod recipes_test;
 mod recommend_plan_flavour_tool_test;
 mod reconnect_prompt_on_served_turn_test;
+mod record_log_legacy_apple_test;
 mod redaction_middleware_test;
 mod redaction_test;
 mod register_approval_login_e2e_test;

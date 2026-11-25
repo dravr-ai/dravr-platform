@@ -202,6 +202,27 @@ expect "a bogus base still inspects the tip commit" "$code" 1
 grep -q "20260101000001_a.sql" "$OUT" || fail "fallback base must still name the edited file"
 rm -rf "$d"
 
+# --- 14. the freeze reads MIGRATION_FREEZE_BASE_REF ahead of GATE_BASE_REF -----
+# carnet#1318 on this gate: a branch adds a migration in push 1 and edits it in
+# push 2. $GATE_BASE_REF is push 1 (the before-sha), which already holds the
+# file; main never had it, so no deploy applied it. The fork point decides.
+d="$(make_repo)"
+fork="$(git -C "$d" rev-parse HEAD)"
+printf 'SELECT 1;\n' > "$d/migrations/20260101000001_a.sql"
+printf 'SELECT 1;\n' > "$d/migrations_pg/20260101000001_a.sql"
+git -C "$d" add -A
+git -C "$d" commit -q -m "push 1"
+before="$(git -C "$d" rev-parse HEAD)"
+printf 'SELECT 2;\n' >> "$d/migrations/20260101000001_a.sql"
+git -C "$d" commit -q -am "push 2"
+code=0
+( cd "$d" && GATE_BASE_REF="$before" MIGRATION_FREEZE_BASE_REF="$fork" "$UNDER_TEST" >"$OUT" 2>&1 ) || code=$?
+expect "a branch editing its own unlanded migration passes on the fork point" "$code" 0
+code=0
+( cd "$d" && GATE_BASE_REF="$fork" MIGRATION_FREEZE_BASE_REF="$before" "$UNDER_TEST" >"$OUT" 2>&1 ) || code=$?
+expect "the freeze base wins over GATE_BASE_REF when it names a landed copy" "$code" 1
+rm -rf "$d"
+
 echo
 if [ "$failures" -gt 0 ]; then
   echo "❌ $failures case(s) failed"

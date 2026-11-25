@@ -440,6 +440,7 @@ pub use strava_seat_reclaim_warnings::StravaSeatReclaimWarningRepository;
 pub use subscriptions::*;
 pub use system_settings::SystemSettingsRepository;
 pub use tenants::*;
+pub use tokens::grant_backfill::UngrantedRefreshFamilies;
 pub use tool_selection::*;
 pub use training_plans::*;
 pub use uploaded_activity_files::{

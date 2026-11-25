@@ -1455,7 +1455,7 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 [[package]]
 name = "dravr-barrage"
 version = "0.35.0"
-source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.35.0#d784759e36b63d4d8cec513b365e0217fe0da689"
+source = "git+https://github.com/dravr-ai/dravr-barrage.git?rev=c76b016715a3a1ffe4024ccecdb6ce5d6864e7c1#c76b016715a3a1ffe4024ccecdb6ce5d6864e7c1"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -5284,7 +5284,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.3",
  "rustls",
- "socket2 0.6.5",
+ "socket2 0.5.10",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -5322,7 +5322,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.5",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.61.2",
 ]
