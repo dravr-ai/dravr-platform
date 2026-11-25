@@ -279,8 +279,10 @@ pub mod memory_dedup;
 /// Folding an athlete's already-stored duplicate facts into their anchors.
 pub mod memory_dedup_backfill;
 pub mod memory_facts;
-/// The tier consent on the agent's memory: notes and memory under `sensitive_t3`, PAR-Q facts under `sensitive_t2`
+/// The tier consent on the agent's memory: notes and memory under `sensitive_t3`, health facts under `sensitive_t2`
 pub mod memory_tier;
+/// The one-time in-app question asking the athlete to allow the agent's tier consents
+pub mod agent_consent_prompt;
 /// Re-cutting a tenant's stored zone copies with cageux's one zone model.
 pub mod zone_backfill;
 

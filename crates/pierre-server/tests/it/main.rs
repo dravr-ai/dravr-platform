@@ -100,6 +100,7 @@ mod admin_user_usage_test;
 mod adopt_cache_test;
 mod agent_admin_notification_test;
 mod agent_command_alias_test;
+mod agent_consent_prompt_test;
 mod agent_draft_confirm_test;
 mod agent_drift_classification_test;
 mod agent_first_welcome_test;
