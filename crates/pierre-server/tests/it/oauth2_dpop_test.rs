@@ -371,7 +371,11 @@ async fn a_bound_code_mints_a_dpop_token_the_mcp_door_admits_with_its_proof() {
         "a third-party client's token lives 15 minutes"
     );
     let claims = insecure_decode::<Claims>(&access).unwrap().claims;
-    assert_eq!(claims.cnf.map(|cnf| cnf.jkt), Some(A.thumbprint().unwrap()));
+    assert_eq!(
+        claims.cnf.map(|cnf| cnf.jkt),
+        Some(A.thumbprint().unwrap()),
+        "bug: the access token is bound to the key the proof was signed with"
+    );
 
     let admitted = mcp_with(&world, &access, A).await;
     assert_eq!(admitted.status(), 200, "{}", admitted.body_text());
@@ -465,7 +469,11 @@ async fn a_proof_that_does_not_fit_the_request_the_token_or_the_key_is_refused()
     assert_eq!(forged.status(), 401, "{}", forged.body_text());
 
     // And the right proof still works.
-    assert_eq!(mcp_with(&world, &access, A).await.status(), 200);
+    assert_eq!(
+        mcp_with(&world, &access, A).await.status(),
+        200,
+        "bug: the bound token with a proof by its key is admitted"
+    );
 }
 
 /// A bound code is redeemed only with a proof by its key, and a refused
@@ -491,7 +499,7 @@ async fn a_bound_code_is_redeemed_only_with_its_key() {
 
     let proof = A.proof("POST", &token_url, None).unwrap();
     let (_, _, body) = issued(&exchange(&world, &client, &code, slice::from_ref(&proof)).await);
-    assert_eq!(body["token_type"], "DPoP");
+    assert_eq!(body["token_type"], "DPoP", "{body}");
 
     // The same proof again is a replay, whatever it is sent with.
     let second_code = bound_code(&world, &client, A).await;
@@ -526,9 +534,13 @@ async fn a_bound_refresh_token_rotates_only_with_its_key() {
     let proof = A.proof("POST", &token_url, None).unwrap();
     let (rotated_access, rotated_refresh, body) =
         issued(&refresh(&world, &client, &refresh_token, &[proof]).await);
-    assert_eq!(body["token_type"], "DPoP");
+    assert_eq!(body["token_type"], "DPoP", "{body}");
     let claims = insecure_decode::<Claims>(&rotated_access).unwrap().claims;
-    assert_eq!(claims.cnf.map(|cnf| cnf.jkt), Some(A.thumbprint().unwrap()));
+    assert_eq!(
+        claims.cnf.map(|cnf| cnf.jkt),
+        Some(A.thumbprint().unwrap()),
+        "bug: the access token is bound to the key the proof was signed with"
+    );
 
     // The successor is bound too.
     assert_proof_refused(&refresh(&world, &client, &rotated_refresh, &[]).await);
@@ -551,7 +563,7 @@ async fn an_unbound_client_still_gets_bearer_tokens_the_mcp_door_admits() {
     assert_refused_with_dpop_challenge(&mcp_with(&world, &access, A).await);
 
     let (_, _, refreshed) = issued(&refresh(&world, &client, &refresh_token, &[]).await);
-    assert_eq!(refreshed["token_type"], "Bearer");
+    assert_eq!(refreshed["token_type"], "Bearer", "{refreshed}");
 }
 
 /// A2A admits a bound token under the `DPoP` scheme with a proof for its own
@@ -583,13 +595,21 @@ async fn a_bound_token_calls_a2a_with_its_proof() {
 
     let bearer = call(format!("Bearer {access}"), None).await;
     assert_eq!(bearer.status(), 401, "{}", bearer.body_text());
+    let challenge = bearer.header("www-authenticate").unwrap_or_default();
+    assert!(
+        challenge.starts_with("DPoP error=\"invalid_token\""),
+        "a bound token presented as Bearer is named invalid_token (RFC 9449 §7.1): {challenge}"
+    );
     let other_key = B
         .proof("POST", &world.resource_url("/a2a/jsonrpc"), Some(&access))
         .unwrap();
     let refused = call(format!("DPoP {access}"), Some(other_key)).await;
     assert_eq!(refused.status(), 401, "{}", refused.body_text());
     let challenge = refused.header("www-authenticate").unwrap_or_default();
-    assert!(challenge.starts_with("DPoP algs="), "{challenge}");
+    assert!(
+        challenge.starts_with("DPoP error=\"invalid_dpop_proof\""),
+        "a proof by another key is named invalid_dpop_proof, as /mcp names it: {challenge}"
+    );
 }
 
 /// PAR takes `dpop_jkt` (RFC 9449 §10) as a parameter, and a proof and a

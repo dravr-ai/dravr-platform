@@ -384,7 +384,11 @@ mod tests {
             "bug: a live entry must refuse the second write"
         );
         let held: Option<String> = cache.get(&key).await.unwrap();
-        assert_eq!(held.as_deref(), Some("first"));
+        assert_eq!(
+            held.as_deref(),
+            Some("first"),
+            "bug: a refused write must leave the first value in place"
+        );
     }
 
     #[tokio::test]

@@ -388,7 +388,11 @@ mod tests {
             None,
             "bug: an origin that is none of the server's must never be an htu"
         );
-        assert_eq!(config.dialed_uri(None, None, "/mcp"), None);
+        assert_eq!(
+            config.dialed_uri(None, None, "/mcp"),
+            None,
+            "bug: a request naming no host dialed none of the server's origins"
+        );
     }
 
     /// The dev environment's MCP resource, read from where terraform sets it.

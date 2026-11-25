@@ -57,7 +57,7 @@ pub(super) fn auth_refusal(refusal: &AuthRefusal, resource_url: &str) -> AuthErr
     let bearer = www_authenticate_challenge(resource_url, Some("invalid_token"));
     let www_authenticate = refusal.dpop_error.map_or_else(
         || bearer.clone(),
-        |code| format!("{}, {bearer}", dpop_challenge(code)),
+        |code| format!("{}, {bearer}", dpop_challenge(Some(code))),
     );
     AuthError::Unauthorized { www_authenticate }
 }

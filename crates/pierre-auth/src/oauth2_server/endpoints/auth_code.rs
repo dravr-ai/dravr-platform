@@ -97,7 +97,7 @@ impl OAuth2AuthorizationServer {
         // 5. Audit Trail: Server-side validation provides security event logging
         //
         // Implementation: oauth2_states table (src/database/mod.rs:232)
-        // Consumption: validate_and_consume_auth_code() below (line ~457)
+        // Consumption: validate_and_consume_auth_code() in the parent `endpoints` module
         // Tests: tests/oauth2_state_validation_test.rs (7 security scenarios)
         if let Some(state_value) = params.state {
             let oauth2_state = OAuth2State {

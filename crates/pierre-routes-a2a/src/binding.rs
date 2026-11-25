@@ -44,14 +44,14 @@ use axum::{
 };
 use pierre_a2a::{
     protocol_types::{
-        error_info, retry_after_secs, A2ASpecError, StreamResponse, Task,
+        error_info, retry_after_secs, A2ASpecError, StreamResponse, Task, DPOP_ERROR_METADATA,
         RATE_LIMIT_EXCEEDED_REASON,
     },
     A2ARequest, A2AResponse, A2AServer, JsonRpcError, A2A_VERSION, A2A_VERSION_HEADER,
     INVALID_PARAMS, JSONRPC_VERSION, METHOD_NOT_FOUND, PARSE_ERROR, SERVER_ERROR_START,
 };
 use pierre_auth::config::{dialed_host, www_authenticate_challenge};
-use pierre_auth::dpop::{signing_algorithms, DPOP_SCHEME};
+use pierre_auth::dpop::dpop_challenge;
 use pierre_middleware::dpop_request::{used_dpop, PresentedCall};
 use pierre_runtime_context::{A2ACtx, MiddlewareCtx};
 use serde_json::{json, Value};
@@ -121,16 +121,17 @@ pub(crate) async fn challenge_unauthorized<C: MiddlewareCtx + A2ACtx>(
 
     let mut response = next.run(request).await;
     if response.status() == StatusCode::UNAUTHORIZED {
+        let dpop_error = response
+            .extensions()
+            .get::<DpopErrorCode>()
+            .map(|code| code.0.clone()); // Safe: a short code, owned past the borrow
         let resource = state
             .ctx
             .oauth2_server_config()
             .a2a_resource_for_host(host.as_deref());
         let bearer = www_authenticate_challenge(&resource, presented.then_some("invalid_token"));
-        let challenge = if used_dpop {
-            format!(
-                "{DPOP_SCHEME} algs=\"{}\", {bearer}",
-                signing_algorithms().join(" ")
-            )
+        let challenge = if used_dpop || dpop_error.is_some() {
+            format!("{}, {bearer}", dpop_challenge(dpop_error.as_deref()))
         } else {
             bearer
         };
@@ -250,7 +251,36 @@ fn jsonrpc_http_status(response: &A2AResponse) -> StatusCode {
 fn jsonrpc_response(response: A2AResponse) -> Response {
     let status = jsonrpc_http_status(&response);
     let retry_after = response.error.as_ref().and_then(refusal_retry_after);
-    with_retry_after((status, Json(response)).into_response(), retry_after)
+    let dpop_error = response.error.as_ref().and_then(dpop_error_of);
+    with_dpop_error(
+        with_retry_after((status, Json(response)).into_response(), retry_after),
+        dpop_error,
+    )
+}
+
+/// The RFC 9449 error a `DPoP` refusal named, carried from the protocol
+/// response to [`challenge_unauthorized`] as a response extension.
+#[derive(Clone, Debug)]
+struct DpopErrorCode(String);
+
+/// The RFC 9449 error an authentication refusal's `ErrorInfo` names under
+/// [`DPOP_ERROR_METADATA`].
+fn dpop_error_of(error: &JsonRpcError) -> Option<String> {
+    error
+        .data
+        .as_ref()
+        .and_then(Value::as_array)?
+        .iter()
+        .find_map(|detail| detail.get("metadata")?.get(DPOP_ERROR_METADATA)?.as_str())
+        .map(str::to_owned)
+}
+
+/// `response` carrying `dpop_error` for its challenge, when there is one.
+fn with_dpop_error(mut response: Response, dpop_error: Option<String>) -> Response {
+    if let Some(code) = dpop_error {
+        response.extensions_mut().insert(DpopErrorCode(code));
+    }
+    response
 }
 
 /// Read a `POST /a2a/jsonrpc` body into a request, or the error envelope to
@@ -380,9 +410,12 @@ fn rest_response(response: A2AResponse) -> Response {
     if let Some(error) = &response.error {
         let (status, code_name) = rest_error_mapping(error);
         let details = error.data.clone().unwrap_or_else(|| json!([])); // Safe: JSON value ownership for body
-        return with_retry_after(
-            rest_error_response(status, code_name, &error.message, &details),
-            refusal_retry_after(error),
+        return with_dpop_error(
+            with_retry_after(
+                rest_error_response(status, code_name, &error.message, &details),
+                refusal_retry_after(error),
+            ),
+            dpop_error_of(error),
         );
     }
     let result = response.result.unwrap_or(Value::Null);

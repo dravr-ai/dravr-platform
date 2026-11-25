@@ -21,8 +21,8 @@
 use crate::coaching::CoachingTurns;
 use crate::events::TASK_EVENTS;
 use crate::protocol_types::{
-    error_info, A2ASpecError, Artifact, Message, Part, PartContent, SendMessageRequest,
-    StreamResponse, Task, TaskState, WireTaskStatus,
+    authentication_required_info, error_info, A2ASpecError, Artifact, Message, Part, PartContent,
+    SendMessageRequest, StreamResponse, Task, TaskState, WireTaskStatus,
 };
 use crate::{A2ARequest, A2AResponse, JSONRPC_VERSION};
 use dravr_tronc::dates::SecondsFormat;
@@ -334,7 +334,22 @@ impl A2AServer {
             request_id,
             SERVER_ERROR_START,
             message,
-            error_info("AUTHENTICATION_REQUIRED"),
+            authentication_required_info(None),
+        )
+    }
+
+    /// An authentication refusal by the `DPoP` binding rules, naming the
+    /// RFC 9449 error `code` the 401 challenge carries.
+    fn dpop_auth_error(
+        message: impl Into<String>,
+        code: &str,
+        request_id: Option<Value>,
+    ) -> A2AResponse {
+        A2AResponse::error_with_data(
+            request_id,
+            SERVER_ERROR_START,
+            message,
+            authentication_required_info(Some(code)),
         )
     }
 

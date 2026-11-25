@@ -35,6 +35,27 @@ pub fn error_info(reason: &str) -> Value {
     }])
 }
 
+/// `google.rpc.ErrorInfo` `metadata` key naming the RFC 9449 error a `DPoP`
+/// refusal answers with; the HTTP bindings put it on the 401 challenge
+/// (RFC 9449 §7.1).
+pub const DPOP_ERROR_METADATA: &str = "dpop_error";
+
+/// The `google.rpc.ErrorInfo` detail array of an authentication refusal. A
+/// `DPoP` refusal also names its RFC 9449 error under
+/// [`DPOP_ERROR_METADATA`].
+#[must_use]
+pub fn authentication_required_info(dpop_error: Option<&str>) -> Value {
+    let mut info = json!({
+        "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+        "reason": "AUTHENTICATION_REQUIRED",
+        "domain": A2A_ERROR_DOMAIN,
+    });
+    if let Some(code) = dpop_error {
+        info["metadata"] = json!({ DPOP_ERROR_METADATA: code });
+    }
+    json!([info])
+}
+
 /// `google.rpc.ErrorInfo` reason of a refusal for a spent request budget.
 /// Both bindings map it to HTTP 429 with a `Retry-After` header.
 pub const RATE_LIMIT_EXCEEDED_REASON: &str = "RATE_LIMIT_EXCEEDED";

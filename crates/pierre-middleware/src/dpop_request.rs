@@ -104,13 +104,13 @@ impl<S: Send + Sync> FromRequestParts<S> for PresentedCall {
 /// The token the `Authorization` header presents, and the `metadata` that
 /// says how: the scheme, the HTTP method and the number of `DPoP` headers.
 ///
-/// A copy of tronc 7.5.0's private `presented_credential`
-/// (`mcp/transport/http.rs`) for a server that accepts the `DPoP` scheme, so
-/// `GET /mcp/tools` and A2A record exactly what `POST /mcp` does. Tronc
-/// branches `feature/export-presented-credential-7x` (7.x) and
-/// `feature/export-presented-credential` (main) export it; this copy is
-/// deleted for `dravr_tronc::mcp::transport::http::presented_credential`
-/// when the platform pins the release that carries it.
+/// A copy of tronc's private `presented_credential`
+/// (`mcp/transport/http.rs`, 7.5.0 and 8.1.0) for a server that accepts the
+/// `DPoP` scheme, so `GET /mcp/tools` and A2A record exactly what `POST /mcp`
+/// does. Tronc branch `feature/export-presented-credential` (off main, the
+/// 8.x line) exports it; this copy is deleted for
+/// `dravr_tronc::mcp::transport::http::presented_credential` when the
+/// platform pins the release that carries it.
 fn presented_credential(
     headers: &HeaderMap,
     http_method: &str,

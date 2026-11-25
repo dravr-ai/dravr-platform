@@ -67,13 +67,15 @@ pub fn signing_algorithms() -> Vec<String> {
 }
 
 /// The `WWW-Authenticate` challenge a refused `DPoP` request is answered with
-/// (RFC 9449 §7.1), beside the Bearer one.
+/// (RFC 9449 §7.1), beside the Bearer one: the accepted algorithms, and the
+/// error code when the refusal names one.
 #[must_use]
-pub fn dpop_challenge(error: &str) -> String {
-    format!(
-        "{DPOP_SCHEME} error=\"{error}\", algs=\"{}\"",
-        signing_algorithms().join(" ")
-    )
+pub fn dpop_challenge(error: Option<&str>) -> String {
+    let algs = signing_algorithms().join(" ");
+    match error {
+        Some(error) => format!("{DPOP_SCHEME} error=\"{error}\", algs=\"{algs}\""),
+        None => format!("{DPOP_SCHEME} algs=\"{algs}\""),
+    }
 }
 
 /// The scheme an access token was presented under.
@@ -344,9 +346,20 @@ mod tests {
     #[test]
     fn the_challenge_names_every_accepted_algorithm() {
         let algs = signing_algorithms();
-        assert!(algs.iter().any(|alg| alg == "ES256"));
-        let challenge = dpop_challenge("invalid_dpop_proof");
-        assert!(challenge.starts_with("DPoP error=\"invalid_dpop_proof\", algs=\""));
+        assert!(
+            algs.iter().any(|alg| alg == "ES256"),
+            "bug: ES256 is the algorithm every DPoP client signs with: {algs:?}"
+        );
+        let challenge = dpop_challenge(Some("invalid_dpop_proof"));
+        assert!(
+            challenge.starts_with("DPoP error=\"invalid_dpop_proof\", algs=\""),
+            "bug: the challenge names its error, then the algorithms: {challenge}"
+        );
+        let bare = dpop_challenge(None);
+        assert!(
+            bare.starts_with("DPoP algs=\"") && !bare.contains("error="),
+            "bug: a challenge with no error names only the algorithms: {bare}"
+        );
         for alg in &algs {
             assert!(
                 challenge.contains(alg.as_str()),
@@ -358,12 +371,22 @@ mod tests {
     #[test]
     fn exactly_one_proof_is_taken() {
         let proofs = |proof, count| PresentedProofs { proof, count };
-        assert!(proofs(None, 0).single().is_err());
-        assert_eq!(proofs(Some("a"), 1).single().ok(), Some("a"));
+        assert!(
+            proofs(None, 0).single().is_err(),
+            "bug: no DPoP header is no proof"
+        );
+        assert_eq!(
+            proofs(Some("a"), 1).single().ok(),
+            Some("a"),
+            "bug: one DPoP header is the proof"
+        );
         let counted_two = PresentedProofs {
             proof: Some("a"),
             count: 2,
         };
-        assert!(counted_two.single().is_err());
+        assert!(
+            counted_two.single().is_err(),
+            "bug: RFC 9449 §4.3 refuses more than one DPoP header"
+        );
     }
 }
