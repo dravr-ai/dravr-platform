@@ -36,6 +36,7 @@ use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 use uuid::Uuid;
 
 use crate::common::{create_test_server_resources_with_chat_provider, create_test_user};
+use crate::tier_consent_test::allow_memory_to_ai;
 
 const MODEL: &str = "room-facts-model";
 const ANSWER: &str = "On garde le cap.";
@@ -180,6 +181,9 @@ async fn a_room_turn_carries_the_north_star_stamped_in_the_athletes_own_workspac
 
     // Where the guided walk stamps the athlete's answer: their own workspace.
     seed_north_star(&resources, home, user).await;
+    // The North Star is the agent's memory: read under the athlete's
+    // sensitive_t3, given in the same workspace (carnet#1544).
+    allow_memory_to_ai(&resources.common.repos, home.as_uuid(), user).await;
 
     let conversation = resources
         .common

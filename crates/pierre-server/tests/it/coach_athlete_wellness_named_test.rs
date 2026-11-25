@@ -737,6 +737,14 @@ async fn a_coachs_recovery_and_sleep_reads_carry_only_what_the_consent_names() {
     let f = world().await;
     file_unnamed_health(&f).await;
     f.share_wellness(true).await;
+    // The daily note reaches the coach's agent only under the athlete's
+    // sensitive_t3 (carnet#1544); this test is about what the grant names.
+    crate::tier_consent_test::allow_memory_to_ai(
+        f.repos(),
+        f.athlete.tenant.as_uuid(),
+        f.athlete.id,
+    )
+    .await;
 
     let recovery = ok(
         f.in_thread("get_recovery_metrics", json!({})).await,

@@ -9,6 +9,7 @@
 
 use crate::common;
 use crate::helpers;
+use crate::tier_consent_test::allow_memory_to_ai;
 
 use common::{
     create_test_server_resources, create_test_server_resources_with_llm, create_test_user,
@@ -356,6 +357,9 @@ async fn the_llm_writes_member_reasons_and_never_leads_with_a_member() {
     let (user_id, tenant, auth) = athlete(&resources).await;
     let (fuelling, recovery, _) = rule_agents(&resources, user_id, tenant).await;
     set_goal(&resources, user_id, tenant, "A gran fondo in June").await;
+    // The goal's pillar is what makes the re-rank run, and it reaches the
+    // model only under the athlete's sensitive_t3 (carnet#1544).
+    allow_memory_to_ai(&resources.common.repos, tenant.as_uuid(), user_id).await;
     llm.answer_with(
         &json!([
             { "id": fuelling, "reason": "Plans what you eat on long days." },
@@ -686,4 +690,50 @@ fn the_catalogue_holds_the_team_agents_and_each_needs_no_provider() {
             agent.prerequisites.providers
         );
     }
+}
+
+/// JF 2026-11-25 ("Gate on tier consent", carnet#1544): the re-rank is a
+/// model call, and its pillar context is the agent's memory (T3). Without the
+/// athlete's sensitive_t3 none reaches the model — with nothing else to
+/// reason about the proposal takes the deterministic order — and the team
+/// rules beside it still read the goal, as the platform's own logic.
+#[tokio::test]
+async fn the_re_rank_reads_the_pillar_context_only_under_sensitive_t3() {
+    const CONTEXT: &str = "Has shared context on";
+    let llm = Arc::new(RecordingProvider::answering("[]"));
+    let resources = create_test_server_resources_with_llm(llm.clone())
+        .await
+        .unwrap();
+    let (user_id, tenant, auth) = athlete(&resources).await;
+    let (fuelling, _, _) = rule_agents(&resources, user_id, tenant).await;
+    set_goal(&resources, user_id, tenant, "A gran fondo in June").await;
+
+    let withheld = proposal(&resources, &auth).await;
+    assert!(
+        !llm.requests_since(0).iter().any(|request| format!(
+            "{}{}",
+            request.system, request.conversation
+        )
+        .contains(CONTEXT)),
+        "bug: the pillar context reached the re-rank without sensitive_t3"
+    );
+    let team = withheld.team.expect("a team is proposed");
+    assert!(
+        team.members
+            .iter()
+            .any(|member| member.agent.id == fuelling),
+        "the goal rule still picks its member"
+    );
+
+    allow_memory_to_ai(&resources.common.repos, tenant.as_uuid(), user_id).await;
+    let before = llm.calls_so_far();
+    proposal(&resources, &auth).await;
+    assert!(
+        llm.requests_since(before).iter().any(|request| format!(
+            "{}{}",
+            request.system, request.conversation
+        )
+        .contains(CONTEXT)),
+        "sensitive_t3 given: the re-rank reads the pillar context"
+    );
 }

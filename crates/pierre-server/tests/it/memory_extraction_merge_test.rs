@@ -183,7 +183,9 @@ async fn run(
             transport_policy: TransportPolicy::AnyTransport,
             recorder: None,
             ai_consent_sources: &[],
-            consent_withheld: None,
+            // An athlete who gave every consent: the extractor reads their
+            // whole memory (carnet#1544).
+            consent_withheld: Some(&[]),
         },
         CONFIG,
     )
@@ -377,7 +379,9 @@ async fn a_stored_plan_mints_no_schedule_fact_from_the_coachs_own_words() {
             transport_policy: TransportPolicy::AnyTransport,
             recorder: None,
             ai_consent_sources: &[],
-            consent_withheld: None,
+            // An athlete who gave every consent: the extractor reads their
+            // whole memory (carnet#1544).
+            consent_withheld: Some(&[]),
         },
         CONFIG,
     )
@@ -453,7 +457,9 @@ async fn the_same_prescription_survives_when_no_plan_was_saved() {
             transport_policy: TransportPolicy::AnyTransport,
             recorder: None,
             ai_consent_sources: &[],
-            consent_withheld: None,
+            // An athlete who gave every consent: the extractor reads their
+            // whole memory (carnet#1544).
+            consent_withheld: Some(&[]),
         },
         CONFIG,
     )

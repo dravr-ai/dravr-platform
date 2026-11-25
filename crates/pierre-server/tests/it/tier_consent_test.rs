@@ -22,8 +22,10 @@
 //! Slice 1b (JF 2026-11-20, "Gate for third parties") adds `sensitive_t3`:
 //! an outside client (MCP) calls the memory tools, which declare the T3
 //! `RestrictedNotes` stream, and reads the athlete's daily note only while it
-//! is given. Dravr's own agent and the human coach read both as before, and
-//! T2 stays off an outside client whatever the athlete gave.
+//! is given. T2 stays off an outside client whatever the athlete gave. JF
+//! 2026-11-25 ("Gate on tier consent") holds Dravr's own agent, the
+//! athlete's and their coach's, to the same consent; the coach's own screen
+//! is unchanged. Its prompt paths are `agent_tier_consent_test`'s.
 //!
 //! Slice 2 adds `get_health_records`: the coach's agent reads a T2 lab
 //! result under the same three conditions as glucose, as its stripped copy,
@@ -458,10 +460,11 @@ async fn the_export_carries_the_coach_health_records_flag() {
     assert!(row["coach_sensitive_t2_read_until"].is_string(), "{row}");
 }
 
-/// `user` gives `sensitive_t3`, so an outside client (MCP, A2A, an API key)
-/// reads their notes and their agent's memory: the setup of every suite that
-/// drives a memory tool from outside Dravr (carnet#1544).
-pub(crate) async fn allow_outside_memory(repos: &RepositoryRegistry, tenant: Uuid, user: Uuid) {
+/// `user` gives `sensitive_t3`, so any AI — an outside client (MCP, A2A, an
+/// API key) or Dravr's own agent — reads their notes and their agent's
+/// memory: the setup of every suite that reads the memory through a model
+/// (carnet#1544).
+pub(crate) async fn allow_memory_to_ai(repos: &RepositoryRegistry, tenant: Uuid, user: Uuid) {
     grant_consent(
         repos,
         tenant,
@@ -586,21 +589,39 @@ async fn an_mcp_client_reads_memory_and_the_dossier_only_under_sensitive_t3() {
 }
 
 #[tokio::test]
-async fn the_in_app_agent_reads_its_memory_without_the_tier_consent() {
+async fn the_in_app_agent_reads_its_memory_only_under_sensitive_t3() {
     let f = world().await;
     remember(&f).await;
+    // JF 2026-11-25 ("Gate on tier consent") replaced directive 2: Dravr's
+    // own agent is held to the athlete's tier consent too. The tools still
+    // answer, with the training they read and the withheld note for the
+    // memory, so the agent works on and is told why.
+    for tool in ["recall_user_memory", "export_dossier"] {
+        let own = f.own_read(f.athlete, tool, json!({})).await;
+        assert!(
+            !mentions(&own, REMEMBERED),
+            "bug: no memory reaches the agent without sensitive_t3: {tool}: {own}"
+        );
+        assert_eq!(
+            own["_withheld"]["reason"], "sensitive_tier",
+            "{tool}: {own}"
+        );
+        assert_eq!(own["_withheld"]["sensitive_withheld"], 1, "{tool}: {own}");
+    }
+
+    athlete_sets(&f, SENSITIVE_T3, true).await;
     for tool in ["recall_user_memory", "export_dossier"] {
         let own = f.own_read(f.athlete, tool, json!({})).await;
         assert!(
             mentions(&own, REMEMBERED),
-            "bug: the first-party agent keeps its memory (directive 2): {tool}: {own}"
+            "sensitive_t3 given: the agent reads its memory: {tool}: {own}"
         );
         assert!(own.get("_withheld").is_none(), "{tool}: {own}");
     }
 }
 
 #[tokio::test]
-async fn a_human_coachs_agent_is_unchanged() {
+async fn a_human_coachs_agent_reads_the_note_under_the_athletes_sensitive_t3() {
     let f = world().await;
     file_note(&f).await;
     f.share_wellness(true).await;
@@ -620,15 +641,46 @@ async fn a_human_coachs_agent_is_unchanged() {
         seat.result
     );
 
-    // The athlete's daily note, named by the wellness grant: read without
-    // sensitive_t3.
+    // The athlete's daily note, named by the wellness grant: the coach's
+    // agent reads it under the athlete's sensitive_t3 alone (JF 2026-11-25),
+    // the coach rules unchanged beside it.
     let recovery = ok(
         f.in_thread("get_recovery_metrics", json!({})).await,
         "recovery",
     );
     assert!(
-        mentions(&recovery, NOTE),
-        "bug: E3 keeps the note for the coach: {recovery}"
+        !mentions(&recovery, NOTE),
+        "bug: the coach's agent needs the athlete's sensitive_t3: {recovery}"
+    );
+    assert_eq!(
+        recovery["_withheld"]["reason"], "sensitive_tier",
+        "{recovery}"
+    );
+    assert!(
+        mentions(&recovery, "61.5"),
+        "the rest of the morning is served: {recovery}"
+    );
+
+    athlete_sets(&f, SENSITIVE_T3, true).await;
+    let given = ok(
+        f.in_thread("get_recovery_metrics", json!({})).await,
+        "recovery",
+    );
+    assert!(
+        mentions(&given, NOTE),
+        "the athlete's sensitive_t3 given: the coach's agent reads the note: {given}"
+    );
+
+    // Without the wellness grant the consent opens nothing for the coach.
+    f.share_wellness(false).await;
+    let unshared = f.in_thread("get_recovery_metrics", json!({})).await;
+    assert!(
+        !unshared
+            .result
+            .as_ref()
+            .is_some_and(|result| mentions(result, NOTE)),
+        "bug: the coach rules still hold: {:?}",
+        unshared.result
     );
 }
 
@@ -725,14 +777,15 @@ async fn the_daily_note_reaches_an_mcp_client_only_under_sensitive_t3() {
     );
     assert!(!mentions(&coach_withheld, NOTE), "{coach_withheld}");
 
-    // The in-app agent reads it without the consent.
+    // Nor does the in-app agent (JF 2026-11-25, "Gate on tier consent").
     let in_app = f
         .own_read(f.athlete, "get_recovery_metrics", json!({}))
         .await;
     assert!(
-        mentions(&in_app, NOTE),
-        "bug: E3 keeps the note in-app: {in_app}"
+        !mentions(&in_app, NOTE),
+        "bug: the in-app agent needs sensitive_t3 too: {in_app}"
     );
+    assert_eq!(in_app["_withheld"]["reason"], "sensitive_tier", "{in_app}");
 
     athlete_sets(&f, SENSITIVE_T3, true).await;
     let given = ok(
@@ -741,6 +794,13 @@ async fn the_daily_note_reaches_an_mcp_client_only_under_sensitive_t3() {
     );
     assert!(mentions(&given, NOTE), "sensitive_t3 given: {given}");
     assert!(given.get("_withheld").is_none(), "{given}");
+    let in_app = f
+        .own_read(f.athlete, "get_recovery_metrics", json!({}))
+        .await;
+    assert!(
+        mentions(&in_app, NOTE),
+        "sensitive_t3 given, in-app: {in_app}"
+    );
     let coach_given = ok(
         recovery_over_mcp(&f, f.coach, naming_mira(json!({}))).await,
         "the coach's recovery over MCP",

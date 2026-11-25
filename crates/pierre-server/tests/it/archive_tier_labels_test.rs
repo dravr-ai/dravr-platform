@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
-use crate::tier_consent_test::allow_outside_memory;
+use crate::tier_consent_test::allow_memory_to_ai;
 
 use std::sync::Arc;
 
@@ -451,7 +451,7 @@ async fn every_history_the_athlete_brought_in_is_the_devices_record() {
 async fn the_agents_memory_is_t3_sensitive_and_agent_written() {
     let resources = server().await;
     let rider = athlete(&resources).await;
-    allow_outside_memory(
+    allow_memory_to_ai(
         resources.agent.database.repositories(),
         rider.tenant.as_uuid(),
         rider.user_id,
@@ -513,7 +513,7 @@ async fn the_agents_memory_is_t3_sensitive_and_agent_written() {
 async fn the_dossier_carrying_the_agents_memory_is_t3_and_agent_written() {
     let resources = server().await;
     let rider = athlete(&resources).await;
-    allow_outside_memory(
+    allow_memory_to_ai(
         resources.agent.database.repositories(),
         rider.tenant.as_uuid(),
         rider.user_id,
@@ -582,7 +582,7 @@ async fn the_dossier_carrying_the_agents_memory_is_t3_and_agent_written() {
 async fn the_dossier_labels_the_sport_anchors_it_carries() {
     let resources = server().await;
     let rider = athlete(&resources).await;
-    allow_outside_memory(
+    allow_memory_to_ai(
         resources.agent.database.repositories(),
         rider.tenant.as_uuid(),
         rider.user_id,

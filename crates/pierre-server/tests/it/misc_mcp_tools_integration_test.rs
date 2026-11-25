@@ -26,6 +26,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::common;
+use crate::tier_consent_test::allow_memory_to_ai;
 
 // ============================================================================
 // Test setup
@@ -280,6 +281,14 @@ async fn test_recall_user_memory_empty() -> Result<()> {
 async fn test_recall_user_memory_returns_seeded_fact() -> Result<()> {
     let executor = create_misc_test_executor().await?;
     let (user_id, tenant) = create_test_user(&executor).await?;
+    // The agent reads its memory only under the athlete's sensitive_t3
+    // (carnet#1544).
+    allow_memory_to_ai(
+        executor.resources.repos(),
+        Uuid::parse_str(&tenant)?,
+        user_id,
+    )
+    .await;
 
     // Seed a fact via remember_fact. Outside a conversation there is no
     // athlete message to check it against, so it waits as a draft and recall,

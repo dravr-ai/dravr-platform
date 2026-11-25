@@ -121,6 +121,7 @@ mod agent_seeder_source_ownership_test;
 mod agent_seeder_translation_samples_test;
 mod agent_store_tools_test;
 mod agent_submit_for_review_test;
+mod agent_tier_consent_test;
 mod agent_tool_name_migration_test;
 mod agent_vocabulary_migration_test;
 mod agent_welcome_test;

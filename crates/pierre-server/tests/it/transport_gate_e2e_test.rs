@@ -9,7 +9,7 @@
 
 use crate::common;
 use crate::common::offline_provider_registry;
-use crate::tier_consent_test::allow_outside_memory;
+use crate::tier_consent_test::allow_memory_to_ai;
 
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
@@ -1120,7 +1120,7 @@ async fn an_api_key_reads_the_memory_facts_only_under_sensitive_t3() {
     assert_eq!(status, StatusCode::OK, "{own}");
     assert!(own.to_string().contains("morning runs"), "{own}");
 
-    allow_outside_memory(
+    allow_memory_to_ai(
         resources.agent.database.repositories(),
         rider.tenant.as_uuid(),
         rider.user_id,
@@ -1135,7 +1135,7 @@ async fn an_api_key_reads_the_memory_facts_only_under_sensitive_t3() {
 async fn facts_and_the_plan_derived_from_the_relay_are_withheld_and_the_rest_served() {
     let resources = server_with_relay().await;
     let rider = athlete_with_relay(&resources).await;
-    allow_outside_memory(
+    allow_memory_to_ai(
         resources.agent.database.repositories(),
         rider.tenant.as_uuid(),
         rider.user_id,
@@ -1244,7 +1244,7 @@ async fn facts_and_the_plan_derived_from_the_relay_are_withheld_and_the_rest_ser
 async fn a_turn_that_served_the_relay_stamps_what_its_tools_write() {
     let resources = server_with_relay().await;
     let rider = athlete_with_relay(&resources).await;
-    allow_outside_memory(
+    allow_memory_to_ai(
         resources.agent.database.repositories(),
         rider.tenant.as_uuid(),
         rider.user_id,
@@ -1408,7 +1408,7 @@ async fn a_thread_opened_from_a_relay_activity_is_withheld_whole_over_an_api_key
 async fn stamped_rows_filling_the_first_page_still_leave_an_external_page_full() {
     let resources = server_with_relay().await;
     let rider = athlete_with_relay(&resources).await;
-    allow_outside_memory(
+    allow_memory_to_ai(
         resources.agent.database.repositories(),
         rider.tenant.as_uuid(),
         rider.user_id,
@@ -2034,7 +2034,7 @@ async fn an_athlete_without_a_first_party_only_connection_keeps_api_key_access()
             .await
             .unwrap();
     // Memory over a key also needs the athlete's sensitive_t3 (carnet#1544).
-    allow_outside_memory(
+    allow_memory_to_ai(
         resources.agent.database.repositories(),
         tenant.as_uuid(),
         user_id,

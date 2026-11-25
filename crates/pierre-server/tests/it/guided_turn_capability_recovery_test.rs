@@ -445,6 +445,13 @@ mod guided_turn {
             })
             .await
             .unwrap();
+        // The goal reaches the model only under sensitive_t3 (carnet#1544).
+        crate::tier_consent_test::allow_memory_to_ai(
+            &fx.resources.common.repos,
+            fx.tenant_id.as_uuid(),
+            fx.user_id,
+        )
+        .await;
         start_season_walk(&fx, &[SeasonTopic::RaceCalendar]).await;
         seed_history(&fx, &[("user", "Salut !"), ("assistant", DOSSIER_QUESTION)]).await;
 
