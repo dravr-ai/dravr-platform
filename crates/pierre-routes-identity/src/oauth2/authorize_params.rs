@@ -39,14 +39,16 @@ impl OAuth2Routes {
             resource: field("resource"),
             request_uri: field("request_uri"),
             authorization_details: field("authorization_details"),
+            dpop_jkt: field("dpop_jkt"),
         };
         Self::authorize_params_url("/oauth2/authorize", &request)
     }
 
     /// `base` carrying the authorization request's parameters, every value
     /// URL-encoded: `client_id`, `redirect_uri`, `response_type` and `state`
-    /// always, the scope, PKCE challenge and method, the RFC 8707 resource
-    /// and the RFC 9396 `authorization_details` when present and non-empty.
+    /// always, the scope, PKCE challenge and method, the RFC 8707 resource,
+    /// the RFC 9396 `authorization_details` and the RFC 9449 `dpop_jkt` when
+    /// present and non-empty.
     /// The login page, the Google sign-in hop and the return to
     /// `/oauth2/authorize` all carry a pending request this one way. A pushed
     /// request (RFC 9126) carries only its `client_id` and `request_uri`: its
@@ -73,6 +75,7 @@ impl OAuth2Routes {
             ("code_challenge_method", &request.code_challenge_method),
             ("resource", &request.resource),
             ("authorization_details", &request.authorization_details),
+            ("dpop_jkt", &request.dpop_jkt),
         ];
         for (name, value) in optional {
             if let Some(value) = value.as_deref().filter(|v| !v.is_empty()) {
@@ -99,6 +102,7 @@ impl OAuth2Routes {
             resource: None,
             request_uri: Some(request_uri.clone()),
             authorization_details: None,
+            dpop_jkt: None,
         })
     }
 
@@ -135,6 +139,8 @@ impl OAuth2Routes {
         let request_uri = present(params, "request_uri").cloned();
         // The login and consent forms post it empty for a request with none.
         let authorization_details = present(params, "authorization_details").cloned();
+        // RFC 9449 §10: the DPoP key the code is to be bound to.
+        let dpop_jkt = present(params, "dpop_jkt").cloned();
 
         Ok(AuthorizeRequest {
             response_type,
@@ -147,6 +153,7 @@ impl OAuth2Routes {
             resource,
             request_uri,
             authorization_details,
+            dpop_jkt,
         })
     }
 }

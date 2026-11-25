@@ -49,7 +49,7 @@ const EXPIRED_AT: Pattern<Timestamp> = date_pattern!(Timestamp, "%Y-%m-%d %H:%M:
 mod delegated_token;
 mod method;
 mod session_token;
-pub use delegated_token::TokenLineage;
+pub use delegated_token::{oauth_access_token_lifetime_secs, TokenLineage};
 pub use method::{
     refuse_support_session, AuthMethod, ImpersonationGrant, IMPERSONATION_REFUSED_ACTION,
     IMPERSONATION_WRITE_REFUSED,
@@ -236,9 +236,45 @@ pub struct Claims {
     /// before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_grant_id: Option<String>,
+    /// The key the token is bound to (RFC 9449 §6.1, RFC 7800): present on a
+    /// token minted under a `DPoP` proof. The resource server then admits it
+    /// only under the `DPoP` scheme with a proof signed by that key, never as
+    /// Bearer. `None` on an unbound (Bearer) token and on any token minted
+    /// before this claim existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cnf: Option<Confirmation>,
 }
 
+/// A token's confirmation claim (RFC 7800 `cnf`), carrying the RFC 7638
+/// SHA-256 thumbprint of the `DPoP` key it is bound to (RFC 9449 §6.1).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Confirmation {
+    /// The key's RFC 7638 thumbprint, base64url without padding
+    pub jkt: String,
+}
+
+/// The token kinds (owl PDPP §5.1) this server mints, as the protected
+/// resource metadata lists them: `owner`, a session of Dravr's own apps, and
+/// `client`, a third party's delegated token. `agent_write` (4c) and
+/// `relay_ingest` (phase 8) join when the server can serve them.
+pub const PDPP_TOKEN_KINDS: [&str; 2] = ["owner", "client"];
+
 impl Claims {
+    /// The token's PDPP kind, derived and never stored: `owner` for a session
+    /// ([`Self::is_session`]), `client` for a delegated token
+    /// ([`Self::is_delegated`]); `None` for anything else (an impersonation,
+    /// a client-credentials token, a token minted before scopes).
+    #[must_use]
+    pub fn pdpp_token_kind(&self) -> Option<&'static str> {
+        if self.is_session() {
+            Some(PDPP_TOKEN_KINDS[0])
+        } else if self.is_delegated() {
+            Some(PDPP_TOKEN_KINDS[1])
+        } else {
+            None
+        }
+    }
+
     /// The client a client-credentials token was issued to; `None` for a
     /// token that acts for a user. RFC 9068 §2.2 makes such a token's `sub`
     /// the client itself, and no `client_id` this server assigns is a user's
@@ -515,6 +551,7 @@ impl AuthManager {
             client_id: client_id.map(str::to_owned),
             grant_id: None,
             client_grant_id: None,
+            cnf: None,
         };
 
         // Get active RSA key from JWKS manager
@@ -586,6 +623,7 @@ impl AuthManager {
             client_id: None,
             grant_id: None,
             client_grant_id: None,
+            cnf: None,
         };
 
         // Get active RSA key from JWKS manager
@@ -1030,6 +1068,7 @@ impl AuthManager {
             client_id: Some(client_id.to_owned()),
             grant_id: None,
             client_grant_id: None,
+            cnf: None,
         };
 
         // Get active RSA key from JWKS manager

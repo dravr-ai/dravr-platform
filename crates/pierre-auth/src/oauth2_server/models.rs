@@ -123,6 +123,12 @@ pub struct AuthorizeRequest {
     /// still opens.
     #[serde(default)]
     pub authorization_details: Option<String>,
+    /// RFC 9449 §10 `dpop_jkt`: the thumbprint of the `DPoP` key the code is
+    /// bound to, so only a proof by that key redeems it. Set from a proof at
+    /// PAR, or sent as a parameter. `None` mints an unbound code. Defaulted so
+    /// a request sealed before it existed still opens.
+    #[serde(default)]
+    pub dpop_jkt: Option<String>,
 }
 
 impl fmt::Debug for AuthorizeRequest {
@@ -141,6 +147,7 @@ impl fmt::Debug for AuthorizeRequest {
                 &self.request_uri.as_ref().map(|_| "[REDACTED]"),
             )
             .field("authorization_details", &self.authorization_details)
+            .field("dpop_jkt", &self.dpop_jkt)
             .finish()
     }
 }
@@ -359,6 +366,19 @@ impl OAuth2Error {
             error: "invalid_grant".to_owned(),
             error_description: Some(description.to_owned()),
             error_uri: Some("https://datatracker.ietf.org/doc/html/rfc6749#section-5.2".to_owned()),
+            retry_after: None,
+        }
+    }
+
+    /// Create an `invalid_dpop_proof` error (RFC 9449 §5): the `DPoP` proof
+    /// is missing where the grant is bound to a key, malformed, replayed, or
+    /// signed by another key than the grant's. Answered 400.
+    #[must_use]
+    pub fn invalid_dpop_proof(description: &str) -> Self {
+        Self {
+            error: crate::dpop::INVALID_DPOP_PROOF.to_owned(),
+            error_description: Some(description.to_owned()),
+            error_uri: Some("https://datatracker.ietf.org/doc/html/rfc9449#section-5".to_owned()),
             retry_after: None,
         }
     }

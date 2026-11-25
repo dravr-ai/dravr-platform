@@ -536,6 +536,11 @@ pub fn resolve_mcp_resource_url(
 /// order into [`OAuth2ServerConfig::mcp_resource_for_host`].
 pub const DIALED_HOST_HEADERS: [&str; 2] = ["x-forwarded-host", "host"];
 
+/// The request header that carries the scheme a client dialed, as the
+/// frontend proxy forwards it; read beside [`DIALED_HOST_HEADERS`] into
+/// [`OAuth2ServerConfig::dialed_uri`].
+pub const DIALED_PROTO_HEADER: &str = "x-forwarded-proto";
+
 /// The first of `explicit` and `base_url` that is set and not blank, else
 /// `http://localhost:{http_port}`.
 fn first_configured_url(explicit: Option<&str>, base_url: Option<&str>, http_port: u16) -> String {

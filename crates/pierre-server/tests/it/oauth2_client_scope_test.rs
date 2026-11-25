@@ -145,6 +145,7 @@ fn authorize_request(client_id: &str, scope: Option<&str>) -> AuthorizeRequest {
         resource: None,
         request_uri: None,
         authorization_details: None,
+        dpop_jkt: None,
     }
 }
 

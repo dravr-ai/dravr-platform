@@ -30,6 +30,6 @@ pub use oauth::{
     configured_credential, credential_env, provider_callback_uri, resolve_issuer_url,
     resolve_mcp_resource_url, ClientRetentionConfig, FirebaseConfig, OAuth2ServerConfig,
     OAuthConfig, OAuthProviderConfig, ProviderEndpointOverride, ProviderEndpointOverrides,
-    DIALED_HOST_HEADERS,
+    DIALED_HOST_HEADERS, DIALED_PROTO_HEADER,
 };
 pub use rate_limit::RateLimitConfig;

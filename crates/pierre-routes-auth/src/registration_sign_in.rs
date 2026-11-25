@@ -105,6 +105,7 @@ async fn mint_code(
         resource: None,
         request_uri: None,
         authorization_details: None,
+        dpop_jkt: None,
     };
     match authorization_server(resources)
         .authorize(request, Some(user_id), None)

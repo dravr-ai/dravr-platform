@@ -72,6 +72,7 @@ fn web_request(redirect_uri: String, resource: Option<&str>) -> AuthorizeRequest
         resource: resource.map(str::to_owned),
         request_uri: None,
         authorization_details: None,
+        dpop_jkt: None,
     }
 }
 

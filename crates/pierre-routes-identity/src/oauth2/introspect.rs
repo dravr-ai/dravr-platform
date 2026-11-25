@@ -39,7 +39,8 @@ use axum::{
     Json,
 };
 use dravr_tronc::dates::Timestamp;
-use pierre_auth::auth::{Claims, JwtValidationError};
+use pierre_auth::auth::{Claims, Confirmation, JwtValidationError};
+use pierre_auth::dpop::{BEARER_SCHEME, DPOP_SCHEME};
 use pierre_auth::oauth2_server::authorization_details::ResolvedDetails;
 use pierre_auth::oauth2_server::client_auth::{is_basic_authorization, resolve_client_credentials};
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
@@ -86,8 +87,15 @@ pub(super) struct Introspection {
     exp: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     iat: Option<i64>,
+    /// `DPoP` for a key-bound token, `Bearer` otherwise (RFC 9449 §6.2)
     #[serde(skip_serializing_if = "Option::is_none")]
     token_type: Option<&'static str>,
+    /// The key a bound token is confirmed by (RFC 9449 §6.2, RFC 7800)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cnf: Option<Confirmation>,
+    /// The token's PDPP kind (owl §5.1), derived from its claims
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pdpp_token_kind: Option<&'static str>,
     /// The consent grant the token was minted under (`client_grant_id`)
     #[serde(skip_serializing_if = "Option::is_none")]
     grant_id: Option<String>,
@@ -111,6 +119,12 @@ impl Introspection {
     /// The answer for an active token, from its verified claims and the
     /// details its grant was approved for.
     fn active(claims: Claims, authorization_details: Option<ResolvedDetails>) -> Self {
+        let token_type = if claims.cnf.is_some() {
+            DPOP_SCHEME
+        } else {
+            BEARER_SCHEME
+        };
+        let pdpp_token_kind = claims.pdpp_token_kind();
         Self {
             active: true,
             scope: Some(claims.scope),
@@ -120,7 +134,9 @@ impl Introspection {
             iss: Some(claims.iss),
             exp: Some(claims.exp),
             iat: Some(claims.iat),
-            token_type: Some("Bearer"),
+            token_type: Some(token_type),
+            cnf: claims.cnf,
+            pdpp_token_kind,
             grant_id: claims.client_grant_id,
             authorization_details,
             health_inactive_cause: None,

@@ -239,6 +239,7 @@ fn an_authorize_request_never_prints_its_state() {
         resource: None,
         request_uri: None,
         authorization_details: None,
+        dpop_jkt: None,
     };
     let printed = printed_without(&request, &["sentinel-state-7f3a"]);
     assert!(printed.contains("AuthorizeRequest"), "{printed}");
