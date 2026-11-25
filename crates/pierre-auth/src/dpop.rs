@@ -97,21 +97,6 @@ pub struct PresentedProofs<'a> {
 }
 
 impl<'a> PresentedProofs<'a> {
-    /// The proofs of a request whose `DPoP` header values are `values`.
-    #[must_use]
-    pub fn from_values<I>(values: I) -> Self
-    where
-        I: IntoIterator<Item = &'a str>,
-    {
-        let mut count = 0;
-        let mut proof = None;
-        for value in values {
-            count += 1;
-            proof.get_or_insert(value);
-        }
-        Self { proof, count }
-    }
-
     /// The one proof, or why there is not exactly one.
     fn single(&self) -> Result<&'a str, DpopRefusal> {
         match (self.count, self.proof) {
@@ -372,9 +357,9 @@ mod tests {
 
     #[test]
     fn exactly_one_proof_is_taken() {
-        assert!(PresentedProofs::from_values([]).single().is_err());
-        assert_eq!(PresentedProofs::from_values(["a"]).single().ok(), Some("a"));
-        assert!(PresentedProofs::from_values(["a", "b"]).single().is_err());
+        let proofs = |proof, count| PresentedProofs { proof, count };
+        assert!(proofs(None, 0).single().is_err());
+        assert_eq!(proofs(Some("a"), 1).single().ok(), Some("a"));
         let counted_two = PresentedProofs {
             proof: Some("a"),
             count: 2,
