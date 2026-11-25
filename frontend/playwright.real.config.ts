@@ -14,7 +14,11 @@ const CHROMIUM = {
 };
 
 /** The specs that start the scraper double (`e2e-real/sciotte-double.ts`). */
-const SCRAPER_DOUBLE_SPECS = ['**/home-sync.real.spec.ts', '**/coros-code-step.real.spec.ts'];
+const SCRAPER_DOUBLE_SPECS = [
+  '**/home-sync.real.spec.ts',
+  '**/coros-code-step.real.spec.ts',
+  '**/strava-sign-in-turned-down.real.spec.ts',
+];
 
 export default defineConfig({
   testDir: './e2e-real',
@@ -71,8 +75,8 @@ export default defineConfig({
 
   // No webServer — these specs require a real Pierre server already running
   // on port 8081 with seeded admin/coaches/demo data. The runner fails loudly
-  // if the server isn't up, by design. home-sync.real.spec.ts and
-  // coros-code-step.real.spec.ts need a server pointed at the scraper double
-  // they start: CI's integration lane starts one, and locally
-  // scripts/e2e-home-sync-local.sh boots one for home-sync.
+  // if the server isn't up, by design. The SCRAPER_DOUBLE_SPECS need a
+  // server pointed at the scraper double they start: CI's integration lane
+  // starts one, and locally scripts/e2e-home-sync-local.sh boots one (it runs
+  // home-sync, and any further spec its arguments name beside it).
 });

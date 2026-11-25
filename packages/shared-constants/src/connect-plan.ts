@@ -221,13 +221,20 @@ export function signInStartsWithExtension(card: Pick<ConnectPlanCard, 'connect_o
 }
 
 /**
- * Whether a refused sign-in falls back to its provider's OAuth when its card
- * offers one ({@link oauthFallbackTarget}): the sign-in could not complete
- * ({@link SIGN_IN_UNAVAILABLE}) or the provider stopped it at a challenge.
- * A sign-in the provider turns down answers `status: failed`, never a
- * refusal: the window then offers both a retry and the card's OAuth, since an
- * account the provider does not know by that email (one opened with Google or
- * Apple has no password there) is connected only through the OAuth.
+ * Whether a refused sign-in hands over to its provider's OAuth on its own,
+ * when its card offers one ({@link oauthFallbackTarget}): the sign-in could
+ * not complete ({@link SIGN_IN_UNAVAILABLE}) or the provider stopped it at a
+ * challenge. The mobile window opens that OAuth at once; the web window
+ * offers it as a button, since only a click may open the new tab it needs.
+ *
+ * Every other way a sign-in window fails — another refusal (a lapsed
+ * sign-in), a sign-in the provider turns down (`status: failed`: an account
+ * it does not know by that email, one opened with Google or Apple, has no
+ * password there), a failed code step, the in-browser or extension sign-in —
+ * shows the failure with a retry and, beside it, the card's OAuth, started by
+ * the athlete's click. A sign-in window never dead-ends (carnet#1477); the
+ * connect order (the extension, then the credentials, then the OAuth) only
+ * decides what starts first.
  */
 export function signInFallsBackToOAuth(reason: string | null | undefined): boolean {
   return reason === SIGN_IN_UNAVAILABLE || reason === SCIOTTE_LOGIN_CHALLENGE;

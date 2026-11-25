@@ -197,18 +197,19 @@ describe('SciotteLoginModal — a sign-in in the athlete\'s own browser', () => 
     expect(signInWithExtension).toHaveBeenCalledTimes(1);
   });
 
-  it('offers the form, never the OAuth, when the extension sign-in fails', async () => {
+  // A sign-in window never dead-ends (carnet#1477): the retry leads to the
+  // credentials, the next step of the order (extension, credentials, OAuth),
+  // and the card's OAuth sits beside it, opened only by the athlete's click.
+  it('offers the form and the OAuth beside it when the extension sign-in fails', async () => {
     detectSigninExtension.mockResolvedValue('0.2.0');
     signInWithExtension.mockResolvedValue(COOKIES);
-    // The refusal a credentials sign-in falls back to the OAuth on: the card
-    // offers its OAuth, so only the order (extension, credentials, OAuth)
-    // keeps it off this failure.
     browserSignin.mockRejectedValue(SIGN_IN_UNAVAILABLE_REFUSAL);
     const onFallBackToOAuth = vi.fn();
     renderModal({ extensionFirst: true, onFallBackToOAuth });
 
     const tryAgain = await screen.findByRole('button', { name: /try again/i });
-    expect(screen.queryByTestId('sciotte-oauth-fallback')).toBeNull();
+    expect(screen.getByTestId('sciotte-oauth-fallback')).toHaveTextContent('Continue with Garmin');
+    expect(onFallBackToOAuth).not.toHaveBeenCalled();
     await userEvent.setup().click(tryAgain);
 
     await screen.findByLabelText(/email/i);

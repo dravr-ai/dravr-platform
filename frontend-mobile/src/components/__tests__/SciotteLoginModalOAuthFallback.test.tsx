@@ -2,13 +2,14 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: A sign-in-first card's account sign-in that cannot complete hands over to the provider's OAuth (carnet#1477)
-// ABOUTME: Pins the refusals that fall back, the turned-down credentials that offer it beside a retry, the refusals that never do, and a window offered none
+// ABOUTME: Pins the refusals that fall back, every other failure offering it beside a retry (Garmin and Strava), and a window offered none
 
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { i18n } from '@pierre/i18n';
 import { SciotteLoginModal } from '../SciotteLoginModal';
 import { oauthApi } from '../../services/api';
+import type { SciotteTarget } from '@pierre/shared-types';
 
 jest.mock('expo-linking', () => ({ parse: jest.fn(), createURL: jest.fn() }));
 jest.mock('../../utils/oauth', () => ({ getOAuthCallbackUrl: () => 'dravr://oauth-callback' }));
@@ -24,17 +25,22 @@ jest.mock('../../services/api', () => ({
 jest.mock('../OAuthAppSetupModal', () => ({ OAuthAppSetupModal: () => null }));
 
 const sciotteLogin = oauthApi.sciotteLogin as jest.Mock;
+const sciotteSubmitOTP = oauthApi.sciotteSubmitOTP as jest.Mock;
 
-function signIn(onFallBackToOAuth?: () => void): void {
+function signIn(onFallBackToOAuth?: () => void, target: SciotteTarget = 'garmin'): void {
   render(
     <SciotteLoginModal
       visible
       onClose={jest.fn()}
       onConnected={jest.fn()}
-      target="garmin"
+      target={target}
       onFallBackToOAuth={onFallBackToOAuth}
     />,
   );
+  // A Strava window asks first how the athlete signs in: the email.
+  if (target === 'strava') {
+    fireEvent.press(screen.getByText(i18n.t('app.providerEmailLabel', { provider: 'Strava' })));
+  }
   fireEvent.changeText(screen.getByTestId('sciotte-email'), 'athlete@example.test');
   fireEvent.changeText(screen.getByTestId('sciotte-password'), 'not-a-real-password');
   fireEvent.press(screen.getByTestId('sciotte-login-submit'));
@@ -85,7 +91,9 @@ describe('SciotteLoginModal (mobile) — the OAuth a failed sign-in falls back t
     expect(screen.queryByTestId('sciotte-oauth-fallback')).toBeNull();
   });
 
-  it('keeps any other refusal in the window', async () => {
+  // A sign-in window never dead-ends: any other refusal keeps the athlete in
+  // the window with its retry, and the card's OAuth beside it.
+  it('keeps any other refusal in the window, offering the OAuth beside the retry', async () => {
     sciotteLogin.mockRejectedValue(refusal('login_flow_expired'));
     const onFallBackToOAuth = jest.fn();
 
@@ -93,8 +101,44 @@ describe('SciotteLoginModal (mobile) — the OAuth a failed sign-in falls back t
 
     expect(await screen.findByText(i18n.t('app.connectionFailed'))).toBeTruthy();
     expect(screen.getByText(i18n.t('app.tryAgain'))).toBeTruthy();
-    expect(screen.queryByTestId('sciotte-oauth-fallback')).toBeNull();
     expect(onFallBackToOAuth).not.toHaveBeenCalled();
+    fireEvent.press(screen.getByTestId('sciotte-oauth-fallback'));
+    expect(onFallBackToOAuth).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers the OAuth beside the retry when the code step fails', async () => {
+    sciotteLogin.mockResolvedValue({ status: 'otp_required' });
+    sciotteSubmitOTP.mockRejectedValue(refusal('login_flow_expired'));
+    const onFallBackToOAuth = jest.fn();
+
+    signIn(onFallBackToOAuth);
+    fireEvent.changeText(await screen.findByTestId('sciotte-otp'), '123456');
+    fireEvent.press(screen.getByTestId('sciotte-otp-submit'));
+
+    expect(await screen.findByText(i18n.t('app.connectionFailed'))).toBeTruthy();
+    expect(screen.getByText(i18n.t('app.tryAgain'))).toBeTruthy();
+    expect(screen.getByTestId('sciotte-oauth-fallback')).toBeTruthy();
+    expect(onFallBackToOAuth).not.toHaveBeenCalled();
+  });
+
+  // The 2026-11-24 dead end: Strava turned an email sign-in down for an
+  // account opened with Google or Apple. The window quotes Strava's reason,
+  // points at those methods, and offers Strava's OAuth beside the retry.
+  it('on a Strava card, quotes a turned-down email sign-in, advises Google or Apple and offers the OAuth', async () => {
+    sciotteLogin.mockResolvedValue({ status: 'failed', error: "Couldn't find this account" });
+    const onFallBackToOAuth = jest.fn();
+
+    signIn(onFallBackToOAuth, 'strava');
+
+    const reason = i18n.t('shell.sciotteTurnedDownReason', { provider: 'Strava', reason: "Couldn't find this account" });
+    const advice = i18n.t('shell.sciotteTurnedDownAdviceMethods', { provider: 'Strava' });
+    expect(advice).toMatch(/Google or Apple/);
+    expect(await screen.findByText(`${reason} ${advice}`)).toBeTruthy();
+    expect(screen.getByText(i18n.t('app.tryAgain'))).toBeTruthy();
+    const offer = screen.getByTestId('sciotte-oauth-fallback');
+    expect(offer).toHaveTextContent(i18n.t('app.continueWithProvider', { provider: 'Strava' }));
+    fireEvent.press(offer);
+    expect(onFallBackToOAuth).toHaveBeenCalledTimes(1);
   });
 
   it('shows the failure when its card offers no OAuth to fall back to', async () => {

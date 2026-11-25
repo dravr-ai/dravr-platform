@@ -33,7 +33,6 @@ import {
   SCIOTTE_NUMBER_MATCH_REPOLL_MS,
   loginIdentifierField,
   providerGlyphInk,
-  signInFallsBackToOAuth,
 } from '@pierre/shared-constants';
 import type { SciotteLoginResponse, SciotteTakeoverOutcome, SciotteTarget } from '@pierre/shared-types';
 import { parseLinkToken } from '../utils/tokenLink';
@@ -153,11 +152,6 @@ export default function SciotteLoginModal({
   const [method, setMethod] = useState<LoginMethod>('email');
   const [status, setStatus] = useState('');
   const [error, setError] = useState<string | null>(null);
-  // The failure on screen can hand over to the card's OAuth: a sign-in that
-  // could not complete (carnet#1477), a reconnect's included (carnet#1667).
-  // The athlete's click starts it, so the new tab it opens is never a popup
-  // the browser blocks.
-  const [oauthOffered, setOAuthOffered] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [otpCode, setOtpCode] = useState('');
@@ -205,7 +199,6 @@ export default function SciotteLoginModal({
     if (isOpen) {
       // Garmin and TrainingPeaks sign in with their own credentials — skip the choose phase
       setPhase(SCIOTTE_LOGIN_PRESETS[target].directCredentials ? 'credentials' : 'choose');
-      setOAuthOffered(false);
       setMethod('email');
       setConsentAccepted(false);
       setStatus('');
@@ -288,14 +281,12 @@ export default function SciotteLoginModal({
         // The provider turned the sign-in down: wrong credentials, or an
         // account it does not know by that email (one signed in to it with
         // Google or Apple has no password there). The athlete retypes, or
-        // takes the card's OAuth where it has one: a sign-in that failed is
-        // never a dead end.
-        setOAuthOffered(onFallBackToOAuth !== undefined);
+        // takes the card's OAuth where it has one (the failure's own button).
         setError(signInTurnedDown(t, providerLabel, data.error, method === 'email' && !preset.directCredentials));
         setPhase('error');
       }
     },
-    [method, onClose, onConnected, onFallBackToOAuth, preset.directCredentials, providerLabel, t]
+    [method, onClose, onConnected, preset.directCredentials, providerLabel, t]
   );
 
   // The sign-in run in the athlete's own browser: the extension opens the
@@ -351,21 +342,13 @@ export default function SciotteLoginModal({
     void handleBrowserSignin();
   }, [consentAccepted, extensionFirst, extensionReady, handleBrowserSignin, isOpen, notice, phase]);
 
-  // Show `message` as the failure, offering the card's OAuth when `err` is a
-  // refusal it falls back on.
-  const showFailure = useCallback(
-    (err: unknown, message: string) => {
-      setOAuthOffered(onFallBackToOAuth !== undefined && signInFallsBackToOAuth(refusalReason(err)));
-      setError(message);
-      setPhase('error');
-    },
-    [onFallBackToOAuth]
-  );
-
   // A refused credential login — or the same refusal a takeover ends with.
   const applyLoginRefusal = useCallback(
-    (err: unknown) => showFailure(err, refusalMessage(err, 'auth.loginFailed')),
-    [refusalMessage, showFailure]
+    (err: unknown) => {
+      setError(refusalMessage(err, 'auth.loginFailed'));
+      setPhase('error');
+    },
+    [refusalMessage]
   );
 
   // Email/password login — in-process headless Chrome
@@ -485,12 +468,13 @@ export default function SciotteLoginModal({
         }
       } catch (err) {
         if (signal.aborted) return;
-        showFailure(err, continuationError(err));
+        setError(continuationError(err));
+        setPhase('error');
       } finally {
         if (!signal.aborted) setIsLoading(false);
       }
     },
-    [beginRequest, attemptId, continuationError, onClose, onConnected, showFailure, t]
+    [beginRequest, attemptId, continuationError, onClose, onConnected, t]
   );
 
   // Auto-poll once when number-match phase is reached — the phone notification
@@ -572,12 +556,13 @@ export default function SciotteLoginModal({
         }
       } catch (err) {
         if (signal.aborted) return;
-        showFailure(err, continuationError(err));
+        setError(continuationError(err));
+        setPhase('error');
       } finally {
         if (!signal.aborted) setIsLoading(false);
       }
     },
-    [otpCode, beginRequest, attemptId, continuationError, onClose, onConnected, showFailure, t]
+    [otpCode, beginRequest, attemptId, continuationError, onClose, onConnected, t]
   );
 
 
@@ -995,15 +980,19 @@ export default function SciotteLoginModal({
                 </div>
                 <p className="text-error text-lg font-medium mb-2">{t('shell.sciotteLoginFailed')}</p>
                 <p className="text-on-surface/50 text-sm max-w-sm mb-4">{error}</p>
+                {/* A sign-in window never dead-ends (carnet#1477): whatever
+                    failed, the card's OAuth, where it has one, sits beside the
+                    retry. The athlete's click starts it, so the new tab it
+                    opens is never a popup the browser blocks. */}
                 <div className="flex flex-col items-center gap-2">
-                  {oauthOffered && onFallBackToOAuth && (
+                  {onFallBackToOAuth && (
                     <Button variant="primary" onClick={onFallBackToOAuth} data-testid="sciotte-oauth-fallback">
                       {t('app.continueWithProvider', { provider: providerLabel })}
                     </Button>
                   )}
                   <Button
                     variant="secondary"
-                    onClick={() => { setPhase(preset.directCredentials ? 'credentials' : 'choose'); setError(null); setOAuthOffered(false); }}
+                    onClick={() => { setPhase(preset.directCredentials ? 'credentials' : 'choose'); setError(null); }}
                   >
                     {t('chat.tryAgain')}
                   </Button>
