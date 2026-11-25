@@ -32,9 +32,11 @@ pub struct TokenLineage<'grant> {
     pub dpop_jkt: Option<&'grant str>,
 }
 
-/// How long an access token minted for `client_id` lives, in seconds: 15
-/// minutes for a third-party client, an hour for Dravr's own apps. The token's
-/// `exp`, the token response's `expires_in` and introspection all follow it.
+/// How long an access token minted for `client_id` lives, in seconds.
+///
+/// Fifteen minutes for a third-party client, an hour for Dravr's own apps.
+/// The token's `exp`, the token response's `expires_in` and introspection all
+/// follow it.
 #[must_use]
 pub fn oauth_access_token_lifetime_secs(client_id: &str) -> i64 {
     oauth_access_token_lifetime(client_id).num_seconds()
