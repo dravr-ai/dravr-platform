@@ -9,6 +9,7 @@
 
 use crate::common;
 use crate::tier_consent_test::allow_outside_memory;
+use crate::transport_gate_e2e_test::api_key;
 
 use std::sync::Arc;
 
@@ -639,7 +640,7 @@ async fn no_outside_surface_serves_t3_under_sensitive_t3() {
         "Bearer {}",
         common::generate_test_token(&resources, &rider.user).await
     );
-    let key = crate::transport_gate_e2e_test::api_key(&resources, rider.user_id).await;
+    let key = api_key(&resources, rider.user_id).await;
     let rest = |authorization: String| {
         let app = app.clone();
         async move {
