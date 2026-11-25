@@ -112,7 +112,7 @@ fn digested_page(template: &str, text: &ConsentText<'_>, subject: ConsentSubject
     let scope = OAuthScope::advertised_as_str().join(" ");
     OAuth2Routes::consent_html_from(
         template,
-        ConsentHtmlParams {
+        &ConsentHtmlParams {
             client_id: subject.client_id,
             redirect_uri,
             response_type: "code",

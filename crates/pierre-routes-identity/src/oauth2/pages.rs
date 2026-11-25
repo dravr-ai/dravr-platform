@@ -347,11 +347,11 @@ impl OAuth2Routes {
     /// Render the OAuth consent page for a client requesting access.
     #[must_use]
     pub fn generate_consent_html(params: ConsentHtmlParams<'_>) -> String {
-        Self::consent_html_from(Self::OAUTH_CONSENT_TEMPLATE, params)
+        Self::consent_html_from(Self::OAUTH_CONSENT_TEMPLATE, &params)
     }
 
     /// Render the consent page `template` lays out for `params`.
-    pub(super) fn consent_html_from(template: &str, params: ConsentHtmlParams<'_>) -> String {
+    pub(super) fn consent_html_from(template: &str, params: &ConsentHtmlParams<'_>) -> String {
         let text = params.text;
         // `admin` is never a scope the screen lists or the form echoes: it is
         // the Admin access box, offered to an admin alone.
