@@ -745,3 +745,12 @@ export type {
   CoachAttentionRestoreRequest,
   CoachAttentionRestoreResponse,
 } from './coach-roster';
+// The coach's morning brief of their To handle queue (carnet#1791)
+export type {
+  CoachBriefState,
+  CoachBriefOutcome,
+  CoachBriefRun,
+  CoachBrief,
+  CoachBriefUpdate,
+  CoachBriefOpenedRequest,
+} from './coach-brief';

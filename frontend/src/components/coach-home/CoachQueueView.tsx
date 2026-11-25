@@ -19,10 +19,12 @@ import {
   type QueueEntry,
 } from '@pierre/ui-logic';
 import { useIsMobile } from '../../hooks/useBreakpoint';
+import { useBriefOpenedPing } from '../../hooks/useCoachBrief';
 import { useDismissAttention, useRestoreAttention } from '../../hooks/useCoachRoster';
 import { EmptyState, useErrorToast } from '../ui';
 import { AthleteAvatar } from './parts';
 import { CoachAthletePane } from './CoachAthletePane';
+import { CoachBriefControl } from './CoachBrief';
 import type { CoachDestinations } from './useCoachDestinations';
 
 /** A character no sentence holds, standing where the buttons of the names go. */
@@ -117,6 +119,8 @@ function QueueList({
           <span className="font-mono text-xs font-normal">{total}</span>
         </button>
       </div>
+      {/* The morning brief of this queue: a note under its title, never a row of it. */}
+      <CoachBriefControl className="mb-3" />
 
       {queueCount(queue) === 0 && <EmptyState className="px-2" data-testid="coach-queue-empty">{t('coachHome.queue.empty')}</EmptyState>}
 
@@ -263,6 +267,10 @@ export function CoachQueueView({ athletes, selectedId, onSelect, onSeeAll, today
     // A wide screen opens on the first of the queue; a phone opens on the list.
     return isMobile ? null : firstQueued(queue);
   }, [athletes, isMobile, queue, selectedId]);
+
+  // An open is the coach asking for an athlete (`home/athlete/<id>`), not the
+  // wide screen showing the first of the queue on its own.
+  useBriefOpenedPing(selectedId !== null && selected?.user_id === selectedId ? selectedId : null);
 
   const entry = useMemo(() => {
     if (selected === null) return null;

@@ -47,6 +47,7 @@ mod pool_fault_test;
 mod provider_connections_repository_test;
 mod repository_registry_identity_test;
 mod request_log_deletion_overlap_test;
+mod routine_runs_test;
 mod seeder_repository_test;
 mod smoke_test;
 mod system_settings_test;

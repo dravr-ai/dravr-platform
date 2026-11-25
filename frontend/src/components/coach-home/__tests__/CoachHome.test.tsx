@@ -2,23 +2,28 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Coach Home's three views — À traiter, the team table and the season — and the actions that leave them
-// ABOUTME: Pins the queue's order, the dismiss and undo round trip, the non-sharer's status-only rows, the table's sort and where each action goes
+// ABOUTME: Pins the queue's order, the dismiss and undo round trip, the non-sharer's status-only rows, the table's sort, where each action goes, and the morning brief
 
 import { useState } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { civilDayNumber, civilFromDayNumber, civilShortDate, localToday } from '@pierre/ui-logic';
+import { i18n } from '@pierre/i18n';
+import type { CoachBrief, CoachBriefUpdate } from '@pierre/shared-types';
+import { applyBriefUpdate, civilDayNumber, civilFromDayNumber, civilShortDate, localToday } from '@pierre/ui-logic';
 import { ToastProvider } from '../../ui';
 import CoachHome from '../CoachHome';
 import { CoachHomeSwitch } from '../CoachHomeSwitch';
 import { coachHomeRoute, parseCoachHomeRoute, type CoachHomeRoute } from '../coachHomeRoute';
-import { buildRoster } from '../../../test/coachRosterFixtures';
+import { buildBrief, buildRoster } from '../../../test/coachRosterFixtures';
 
 const getRoster = vi.fn();
 const dismissAttention = vi.fn();
 const restoreAttention = vi.fn();
+const getBrief = vi.fn();
+const updateBrief = vi.fn();
+const markBriefOpened = vi.fn();
 const listReplies = vi.fn();
 const getConversations = vi.fn();
 const openAthleteThread = vi.fn();
@@ -30,6 +35,9 @@ vi.mock('../../../services/api', () => ({
     getRoster: (...a: unknown[]) => getRoster(...a),
     dismissAttention: (...a: unknown[]) => dismissAttention(...a),
     restoreAttention: (...a: unknown[]) => restoreAttention(...a),
+    getBrief: (...a: unknown[]) => getBrief(...a),
+    updateBrief: (...a: unknown[]) => updateBrief(...a),
+    markBriefOpened: (...a: unknown[]) => markBriefOpened(...a),
   },
   coachRepliesApi: { list: (...a: unknown[]) => listReplies(...a) },
   chatApi: {
@@ -48,6 +56,9 @@ vi.mock('../../../hooks/useBreakpoint', () => ({
 }));
 
 const TODAY = localToday();
+
+/** What the mocked server holds for the brief: a read answers it, a change moves it. */
+let storedBrief: CoachBrief = buildBrief(TODAY);
 
 function renderHome(initial: CoachHomeRoute = { view: 'queue', athleteId: null }, trains = true) {
   const navigate = vi.fn();
@@ -87,6 +98,13 @@ beforeEach(() => {
     dismissed_at: new Date().toISOString(),
   }));
   restoreAttention.mockImplementation(async (request: { reason_id: string }) => ({ reason_id: request.reason_id, restored: true }));
+  storedBrief = buildBrief(TODAY);
+  getBrief.mockImplementation(async () => storedBrief);
+  updateBrief.mockImplementation(async (update: CoachBriefUpdate) => {
+    storedBrief = applyBriefUpdate(storedBrief, update);
+    return storedBrief;
+  });
+  markBriefOpened.mockResolvedValue(undefined);
   listReplies.mockResolvedValue({ groups: [], athletes: [], replies: [], next_before: null });
   getConversations.mockResolvedValue({
     conversations: [{ id: 'room-tri', title: 'Tri', group_id: 'g-tri', created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-29T00:00:00Z', message_count: 3 }],
@@ -566,6 +584,130 @@ describe('on a phone', () => {
     expect(screen.queryByTestId('coach-queue')).not.toBeInTheDocument();
     await user.click(screen.getByTestId('coach-pane-back'));
     expect(await screen.findByTestId('coach-queue')).toBeInTheDocument();
+  });
+});
+
+describe('the morning brief', () => {
+  it('says where the brief stands under the queue\'s title, and nothing for a caller who coaches no one', async () => {
+    renderHome();
+    const brief = await screen.findByTestId('coach-brief');
+    expect(brief).toHaveAttribute('data-state', 'active');
+    expect(within(brief).getByTestId('coach-brief-status')).not.toBeEmptyDOMElement();
+    // It is a note on the queue, never one of its rows.
+    expect(within(screen.getByTestId('coach-queue')).getByTestId('coach-brief')).toBe(brief);
+    expect(screen.getByTestId('coach-queue-today')).not.toContainElement(brief);
+  });
+
+  it('draws no brief when the server refuses it (403)', async () => {
+    getBrief.mockRejectedValue({ response: { status: 403 } });
+    renderHome();
+    await screen.findByTestId('coach-queue');
+    await waitFor(() => expect(getBrief).toHaveBeenCalled());
+    expect(screen.queryByTestId('coach-brief')).not.toBeInTheDocument();
+  });
+
+  it('pauses, moves the hour and turns a reason off from its sheet, one change per save', async () => {
+    const user = userEvent.setup();
+    renderHome();
+    await user.click(await screen.findByTestId('coach-brief'));
+    const sheet = await screen.findByTestId('coach-brief-sheet');
+
+    await user.click(within(sheet).getByTestId('coach-brief-pause'));
+    await waitFor(() => expect(updateBrief).toHaveBeenLastCalledWith({ paused: true }));
+
+    await user.selectOptions(within(sheet).getByTestId('coach-brief-hour'), '6');
+    await waitFor(() => expect(updateBrief).toHaveBeenLastCalledWith({ hour: 6 }));
+
+    const fatigue = within(sheet).getByTestId('coach-brief-reason-deep_fatigue_streak');
+    expect(fatigue).toHaveAttribute('aria-checked', 'true');
+    await user.click(fatigue);
+    await waitFor(() => expect(updateBrief).toHaveBeenLastCalledWith({ reasons_off: ['deep_fatigue_streak'] }));
+    expect(within(sheet).getAllByRole('switch')).toHaveLength(7);
+  });
+
+  it('lists who is left out by their roster name and puts them back with the whole list', async () => {
+    storedBrief = buildBrief(TODAY, { muted: ['u-rosalie', 'u-gone', 'u-kevin'] });
+    const user = userEvent.setup();
+    renderHome();
+    await user.click(await screen.findByTestId('coach-brief'));
+    const muted = within(await screen.findByTestId('coach-brief-sheet')).getByTestId('coach-brief-muted');
+    // An id the roster no longer names has no row, and still travels in the list.
+    expect(within(muted).getAllByRole('listitem').map((row) => row.getAttribute('data-testid'))).toEqual([
+      'coach-brief-muted-u-rosalie',
+      'coach-brief-muted-u-kevin',
+    ]);
+    await user.click(within(muted).getByTestId('coach-brief-unmute-u-rosalie'));
+    await waitFor(() => expect(updateBrief).toHaveBeenCalledWith({ muted: ['u-gone', 'u-kevin'] }));
+  });
+
+  it('says nobody is left out when the list is empty', async () => {
+    storedBrief = buildBrief(TODAY, { muted: [] });
+    const user = userEvent.setup();
+    renderHome();
+    await user.click(await screen.findByTestId('coach-brief'));
+    expect(await screen.findByTestId('coach-brief-muted-none')).toBeInTheDocument();
+  });
+
+  it('says a refused leave-out failed, and keeps the athlete in the brief', async () => {
+    updateBrief.mockRejectedValue(new Error('down'));
+    const user = userEvent.setup();
+    renderHome();
+    await user.click(await screen.findByTestId('coach-queue-row-u-julien'));
+    await user.click(await screen.findByTestId('coach-brief-mute'));
+    await waitFor(() => expect(updateBrief).toHaveBeenCalled());
+    expect(await screen.findByText(i18n.t('coachHome.brief.save_failed'))).toBeInTheDocument();
+    expect(await screen.findByTestId('coach-brief-mute')).toBeInTheDocument();
+  });
+
+  it('says a refused save failed, and shows the stored brief again', async () => {
+    updateBrief.mockRejectedValue(new Error('down'));
+    const user = userEvent.setup();
+    renderHome();
+    await user.click(await screen.findByTestId('coach-brief'));
+    const sheet = await screen.findByTestId('coach-brief-sheet');
+    await user.click(within(sheet).getByTestId('coach-brief-reason-plan_ended'));
+    expect(await within(sheet).findByRole('alert')).toBeInTheDocument();
+    await waitFor(() => expect(within(sheet).getByTestId('coach-brief-reason-plan_ended')).toHaveAttribute('aria-checked', 'true'));
+  });
+
+  it('leaves the open athlete out of the brief and puts them back, sending the whole list each time', async () => {
+    const user = userEvent.setup();
+    renderHome();
+    await user.click(await screen.findByTestId('coach-queue-row-u-julien'));
+    const mute = await within(await screen.findByTestId('coach-athlete-pane')).findByTestId('coach-brief-mute');
+
+    await user.click(mute);
+    await waitFor(() => expect(updateBrief).toHaveBeenLastCalledWith({ muted: ['u-rosalie', 'u-julien'] }));
+    const unmute = await screen.findByTestId('coach-brief-unmute');
+    expect(screen.queryByTestId('coach-brief-mute')).not.toBeInTheDocument();
+
+    await user.click(unmute);
+    await waitFor(() => expect(updateBrief).toHaveBeenLastCalledWith({ muted: ['u-rosalie'] }));
+    expect(await screen.findByTestId('coach-brief-mute')).toBeInTheDocument();
+  });
+
+  it('tells the server once per athlete the coach opens, and not for the first of the queue shown on its own', async () => {
+    const user = userEvent.setup();
+    renderHome();
+    // A wide screen opens on the first of the queue: that is not an open.
+    await screen.findByTestId('coach-athlete-pane');
+    expect(markBriefOpened).not.toHaveBeenCalled();
+
+    await user.click(screen.getByTestId('coach-queue-row-u-julien'));
+    await waitFor(() => expect(markBriefOpened).toHaveBeenCalledWith('u-julien'));
+    await user.click(screen.getByTestId('coach-queue-row-u-julien'));
+    await user.click(screen.getByTestId('coach-queue-row-u-felix'));
+    await waitFor(() => expect(markBriefOpened).toHaveBeenCalledWith('u-felix'));
+    expect(markBriefOpened).toHaveBeenCalledTimes(2);
+  });
+
+  it('never lets a failed ping touch the pane', async () => {
+    markBriefOpened.mockRejectedValue(new Error('offline'));
+    const user = userEvent.setup();
+    renderHome();
+    await user.click(await screen.findByTestId('coach-queue-row-u-julien'));
+    await waitFor(() => expect(markBriefOpened).toHaveBeenCalled());
+    expect(screen.getByTestId('coach-athlete-pane')).toBeInTheDocument();
   });
 });
 

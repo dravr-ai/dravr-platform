@@ -46,6 +46,7 @@ import {
 import { coachRepliesApi } from '../../services/api';
 import { BADGE_TONE, Button, EmptyState } from '../ui';
 import { AthleteAvatar, FormStrip, StatusDot } from './parts';
+import { CoachBriefMuteAction } from './CoachBrief';
 import { phaseClass } from './phaseStyle';
 import { PhaseBand } from './PhaseBand';
 import type { CoachDestinations } from './useCoachDestinations';
@@ -421,6 +422,8 @@ export function CoachAthletePane({ athlete, entry, treatedReason, today, destina
           {t(hiddenNoteKey(athlete))}
         </p>
       )}
+
+      <CoachBriefMuteAction athleteId={athlete.user_id} />
     </div>
   );
 }

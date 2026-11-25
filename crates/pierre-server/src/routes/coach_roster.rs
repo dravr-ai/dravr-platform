@@ -330,101 +330,183 @@ pub async fn handle_roster(
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
     let coach = auth.user_id;
-    let repos = &resources.common.repos;
-    let groups = roster_groups(repos, coach).await?;
-
-    let outside = ai_scope::served_outside(auth.acts_for_outside_client());
-    let gathered = roster_served_to(repos, outside, auth.user_id, &groups).await?;
-    let scope = RosterScope {
-        visible_members: gathered.visible_members(),
-        roster_members: gathered.roster_members(),
-    };
-    // Served outside, the order reads only what the client may be shown
-    // (carnet#1511).
-    let terms = resources.provider_registry();
-    let outside_terms: Option<&dyn ProviderTerms> = outside.then_some(terms.as_ref());
-    let ordered = order_roster(repos, gathered.members, outside_terms).await?;
-    let offset = query.offset.unwrap_or(0).min(ordered.len());
-    let limit = query.limit.unwrap_or(DEFAULT_PAGE).clamp(1, MAX_PAGE);
-    let end = offset.saturating_add(limit).min(ordered.len());
-    let page = &ordered[offset..end];
-
-    // Each sharer on the page is asked the one coach-read gate before anything
-    // of theirs is read, and each read it lets through goes on the athlete's
-    // own record (carnet#1425, carnet#1445). A sharer it refuses is listed
-    // with no training and no plan.
-    let gated = gate_page_reads(
-        repos,
+    let groups = roster_groups(&resources.common.repos, coach).await?;
+    let read = RosterReader {
         coach,
-        page.to_vec(),
-        CoachReadSurface::Roster.as_str(),
-    )
-    .await?;
-    let refused = gated.refused_athletes();
-    if !refused.is_empty() {
-        info!(
-            coach = %coach,
-            refused = ?refused,
-            "coach roster: the coach-read gate refused sharers; their training is not read"
-        );
-    }
-    let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&resources);
-    // A human coach's read: each athlete's AI consents apply to it as to the
-    // agent's, and no other AI rule (carnet#1262, ADR-002 amendment 2026-10-30).
-    let snapshots =
-        ai_scope::for_human_coach(fetch_page_snapshots(&runtime, &gated.readable_members())).await;
-    let readable: HashMap<Uuid, CoachedAthleteAccess> = gated
-        .readable
-        .into_iter()
-        .map(|(member, access)| (member.member.user_id, access))
-        .collect();
-    // Only an athlete who shares can carry replies (their counts on a
-    // `shared` row, an unmatched figure on any sharer's): a page with none
-    // reads none.
-    let replies = if page
-        .iter()
-        .any(|m| m.member.status != RosterAthleteStatus::NoCoachConsent)
-    {
-        replies_this_week(&resources, coach).await?
-    } else {
-        WeekReplies::default()
+        outside: ai_scope::served_outside(auth.acts_for_outside_client()),
+        surface: CoachReadSurface::Roster,
+        for_model: false,
     };
-
-    let dismissals = page_dismissals(repos, coach, page).await?;
-    let read = PageRead {
-        coach,
-        readable: &readable,
-        snapshots: &snapshots,
-        replies: &replies,
-        dismissals: &dismissals,
-        thresholds: resources.common.config.coach_home,
+    let window = RosterWindow {
+        offset: query.offset.unwrap_or(0),
+        limit: query.limit.unwrap_or(DEFAULT_PAGE).clamp(1, MAX_PAGE),
     };
-    let rows: Vec<_> = page
-        .iter()
-        .map(|member| row(repos, &read, member))
-        .collect();
-    let athletes: Vec<RosterRow> = stream::iter(rows)
-        .buffered(ROSTER_LOOKUP_CONCURRENCY)
-        .try_collect()
-        .await?;
+    let roster = read.read(&resources, &groups, window).await?;
     info!(
         coach = %coach,
-        roster = scope.roster_members,
-        visible = scope.visible_members,
-        offset,
-        rows = athletes.len(),
+        roster = roster.scope.roster_members,
+        visible = roster.scope.visible_members,
+        offset = window.offset,
+        rows = roster.athletes.len(),
         "coach roster read"
     );
     Ok((
         StatusCode::OK,
         Json(RosterResponse {
+            scope: roster.scope,
+            groups: roster.groups,
+            athletes: roster.athletes,
+            next_offset: roster.next_offset,
+        }),
+    )
+        .into_response())
+}
+
+/// Which athletes of the ordered roster one read covers.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RosterWindow {
+    /// The first athlete, in roster order.
+    pub(crate) offset: usize,
+    /// How many athletes from there.
+    pub(crate) limit: usize,
+}
+
+impl RosterWindow {
+    /// Every athlete: what a morning brief reads.
+    pub(crate) const ALL: Self = Self {
+        offset: 0,
+        limit: usize::MAX,
+    };
+}
+
+/// Who reads a roster, and where the read goes on each athlete's record.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RosterReader {
+    /// The coach whose roster it is.
+    pub(crate) coach: Uuid,
+    /// The read is served to an outside client acting for the coach.
+    pub(crate) outside: bool,
+    /// The surface each sharer's who-read-my-data record names.
+    pub(crate) surface: CoachReadSurface,
+    /// A model reads the result (a morning brief's findings): every AI rule
+    /// applies, not only the athlete's consents a human coach's read honours.
+    pub(crate) for_model: bool,
+}
+
+/// One read of a coach's roster: the rows To handle is built from.
+#[derive(Debug)]
+pub(crate) struct RosterRead {
+    /// How many athletes are held and how many share with the coach.
+    pub(crate) scope: RosterScope,
+    /// The groups covered.
+    pub(crate) groups: Vec<RosterGroupSummary>,
+    /// The athletes the window covers, in roster order.
+    pub(crate) athletes: Vec<RosterRow>,
+    /// The `offset` of the next window; `None` after the last athlete.
+    pub(crate) next_offset: Option<usize>,
+    /// The sharers in the window the coach-read gate refused: listed with no
+    /// training and no plan.
+    pub(crate) refused: Vec<Uuid>,
+}
+
+impl RosterReader {
+    /// Read the athletes `window` covers of the roster over `groups`.
+    ///
+    /// Each sharer in the window is asked the one coach-read gate before
+    /// anything of theirs is read, and each read it lets through goes on the
+    /// athlete's own record under [`Self::surface`] (carnet#1425,
+    /// carnet#1445).
+    ///
+    /// # Errors
+    ///
+    /// The repository error when the roster, a plan or the dismissals cannot
+    /// be read.
+    pub(crate) async fn read(
+        self,
+        resources: &Arc<ServerContext>,
+        groups: &[CoachingGroup],
+        window: RosterWindow,
+    ) -> AppResult<RosterRead> {
+        let coach = self.coach;
+        let repos = &resources.common.repos;
+        let gathered = roster_served_to(repos, self.outside, coach, groups).await?;
+        let scope = RosterScope {
+            visible_members: gathered.visible_members(),
+            roster_members: gathered.roster_members(),
+        };
+        // Served outside, the order reads only what the client may be shown
+        // (carnet#1511).
+        let terms = resources.provider_registry();
+        let outside_terms: Option<&dyn ProviderTerms> = self.outside.then_some(terms.as_ref());
+        let ordered = order_roster(repos, gathered.members, outside_terms).await?;
+        let offset = window.offset.min(ordered.len());
+        let end = offset.saturating_add(window.limit).min(ordered.len());
+        let page = &ordered[offset..end];
+
+        // A sharer the gate refuses is listed with no training and no plan.
+        let gated = gate_page_reads(repos, coach, page.to_vec(), self.surface.as_str()).await?;
+        let refused = gated.refused_athletes();
+        if !refused.is_empty() {
+            info!(
+                coach = %coach,
+                refused = ?refused,
+                surface = self.surface.as_str(),
+                "coach roster: the coach-read gate refused sharers; their training is not read"
+            );
+        }
+        let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(resources);
+        // A human coach's read: each athlete's AI consents apply to it as to
+        // the agent's, and no other AI rule (carnet#1262, ADR-002 amendment
+        // 2026-10-30). A read a model will see keeps the model's full rules.
+        let readable_members = gated.readable_members();
+        let fetch = fetch_page_snapshots(&runtime, &readable_members);
+        let snapshots = if self.for_model {
+            ai_scope::for_model(fetch).await
+        } else {
+            ai_scope::for_human_coach(fetch).await
+        };
+        let readable: HashMap<Uuid, CoachedAthleteAccess> = gated
+            .readable
+            .into_iter()
+            .map(|(member, access)| (member.member.user_id, access))
+            .collect();
+        // Only an athlete who shares can carry replies (their counts on a
+        // `shared` row, an unmatched figure on any sharer's): a page with none
+        // reads none.
+        let replies = if page
+            .iter()
+            .any(|m| m.member.status != RosterAthleteStatus::NoCoachConsent)
+        {
+            replies_this_week(resources, coach).await?
+        } else {
+            WeekReplies::default()
+        };
+
+        let dismissals = page_dismissals(repos, coach, page).await?;
+        let read = PageRead {
+            coach,
+            readable: &readable,
+            snapshots: &snapshots,
+            replies: &replies,
+            dismissals: &dismissals,
+            thresholds: resources.common.config.coach_home,
+        };
+        let rows: Vec<_> = page
+            .iter()
+            .map(|member| row(repos, &read, member))
+            .collect();
+        let athletes: Vec<RosterRow> = stream::iter(rows)
+            .buffered(ROSTER_LOOKUP_CONCURRENCY)
+            .try_collect()
+            .await?;
+        Ok(RosterRead {
             scope,
             groups: gathered.groups,
             athletes,
             next_offset: (end < ordered.len()).then_some(end),
-        }),
-    )
-        .into_response())
+            refused,
+        })
+    }
 }
 
 /// The roster of `groups` as it is served to `coach`. An outside client

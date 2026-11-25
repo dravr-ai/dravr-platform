@@ -625,10 +625,11 @@ test.describe('design sweep — Home first arrival', () => {
   }
 });
 
-// A coach's Home (carnet#1250, #1252, #1253): À traiter with an athlete open,
-// the team table and the season, each on a roster tall enough that the list,
-// the table and the pane have to scroll inside themselves — the contract a
-// bleed surface owns — then the same three on a phone. The shared mocks model
+// A coach's Home (carnet#1250, #1252, #1253): À traiter with an athlete open
+// and its morning brief's settings (carnet#1791), the team table and the
+// season, each on a roster tall enough that the list, the table and the pane
+// have to scroll inside themselves — the contract a bleed surface owns — then
+// the same on a phone. The shared mocks model
 // an athlete, so none of this is reached by the registry walk.
 async function captureCoachPane(page: Page, theme: (typeof THEMES)[number], name: string) {
   await page.waitForTimeout(700);
@@ -645,7 +646,15 @@ async function sweepCoachHome(page: Page, theme: (typeof THEMES)[number]) {
 
   await page.getByTestId('coach-queue-row-u-lea').click();
   await expect(page.getByTestId('form-strip')).toBeVisible();
+  await expect(page.getByTestId('coach-brief')).toBeVisible();
   await captureCoachPane(page, theme, 'queue');
+
+  // The morning brief's settings (carnet#1791), from its line under the queue's title.
+  await page.getByTestId('coach-brief').click();
+  await expect(page.getByTestId('coach-brief-sheet')).toBeVisible();
+  await captureCoachPane(page, theme, 'brief-sheet');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('coach-brief-sheet')).toBeHidden();
 
   await page.getByTestId('coach-see-all').click();
   await expect(page.getByTestId('coach-roster')).toBeVisible();
@@ -666,6 +675,11 @@ async function sweepCoachHome(page: Page, theme: (typeof THEMES)[number]) {
   await page.getByTestId('coach-home-switch-athletes').click();
   await expect(page.getByTestId('coach-queue')).toBeVisible();
   await captureCoachPane(page, theme, 'queue-phone');
+  await page.getByTestId('coach-brief').click();
+  await expect(page.getByTestId('coach-brief-sheet')).toBeVisible();
+  await captureCoachPane(page, theme, 'brief-sheet-phone');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('coach-brief-sheet')).toBeHidden();
   await page.getByTestId('coach-queue-row-u-julien').click();
   await expect(page.getByTestId('coach-athlete-pane')).toBeVisible();
   await captureCoachPane(page, theme, 'athlete-phone');

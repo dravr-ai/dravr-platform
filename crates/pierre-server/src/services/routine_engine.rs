@@ -44,15 +44,19 @@
 //! the 3-hourly capture cron. Wakes are named by what they fire and when, so
 //! re-queuing a pending one queues nothing new.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fmt;
 use std::sync::{Arc, Weak};
 
 use dravr_tronc::dates::{Elapsed, Timestamp, Zone};
 use pierre_core::civil_time::resolve_zone;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{Routine, RoutineKind, TenantId, UserStatus};
-use pierre_database::repositories::NextFiring;
+use pierre_core::models::{
+    LeftOut, Routine, RoutineKind, RoutineScope, RunOutcome, Schedule, Tenant, TenantId,
+    UserStatus, Weekdays, MORNING_BRIEF_HOUR,
+};
+use pierre_database::repositories::{ListedItem, NewRoutineRun, NextFiring};
+use pierre_services::coach_roster::{roster_access, RosterAccess};
 #[cfg(feature = "client-notifications")]
 use pierre_services::notification_digest_scheduler;
 use tokio::sync::mpsc;
@@ -62,7 +66,8 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use crate::services::adapter_resolver::{config_adapter_resolver, AdapterResolver};
-use crate::services::check_in_post::{run_check_in, CheckInPoster, CheckInRun};
+use crate::services::check_in_post::{run_check_in, CheckInRun, RoutinePoster};
+use crate::services::morning_brief::{run_morning_brief, BriefRun};
 use crate::services::platform_post::{PlatformPost, PostSurface};
 use crate::services::post_delivery::{coach_quiet_hours, PostAthlete};
 use crate::services::routine_waker::{
@@ -124,6 +129,9 @@ pub enum WakeOutcome {
     Deferred(Timestamp),
     /// Nothing was posted for the slot, for that reason.
     Held(HoldReason),
+    /// A detector routine found nothing to report, so posted nothing (a
+    /// coach's brief with nobody to list). It moved on to its next slot.
+    Empty,
     /// The routine had nothing to say this slot: no data, its slot already
     /// claimed, an account no longer active. It moved on to its next slot.
     Skipped,
@@ -232,7 +240,17 @@ impl RoutineEngine {
             return Ok(ReconcileOutcome::default());
         };
         let mut outcome = ReconcileOutcome::default();
-        for tenant in resources.common.repos.tenants.get_all().await? {
+        let tenants = resources.common.repos.tenants.get_all().await?;
+        // Boxed for the same reason as the brief's firing: it reads every
+        // coach's groups.
+        Box::pin(ensure_morning_briefs(
+            &resources,
+            &tenants,
+            now,
+            &mut outcome,
+        ))
+        .await;
+        for tenant in tenants {
             self.reconcile_tenant(&resources, tenant.id, now, &mut outcome)
                 .await;
         }
@@ -477,17 +495,20 @@ impl RoutineEngine {
         Ok(None)
     }
 
-    /// Run the routine's action, then move it to its next slot.
+    /// Run the routine's action, record its run, then move it to its next
+    /// slot.
     async fn act(
         &self,
-        resources: &ServerContext,
+        resources: &Arc<ServerContext>,
         firing: &Firing<'_>,
         now: Timestamp,
     ) -> AppResult<WakeOutcome> {
         let routine = firing.routine;
+        let mut listed = Vec::new();
+        let mut left_out = LeftOut::default();
         let outcome = match routine.kind {
             RoutineKind::CheckIn => {
-                let poster = CheckInPoster {
+                let poster = RoutinePoster {
                     post: self.post.as_ref(),
                     resolver: self.resolver.as_ref(),
                 };
@@ -508,11 +529,66 @@ impl RoutineEngine {
                     }
                 }
             }
+            RoutineKind::MorningBrief => {
+                let poster = RoutinePoster {
+                    post: self.post.as_ref(),
+                    resolver: self.resolver.as_ref(),
+                };
+                // Boxed: the roster read behind it would otherwise size every wake's
+                // future past what a caller should hold on its stack.
+                let brief = Box::pin(run_morning_brief(
+                    resources,
+                    poster,
+                    routine,
+                    &firing.zone,
+                    now,
+                ));
+                match brief.await {
+                    BriefRun::Posted {
+                        surface,
+                        items,
+                        left_out: counted,
+                    } => {
+                        listed = items;
+                        left_out = counted;
+                        WakeOutcome::Posted(surface)
+                    }
+                    BriefRun::Withheld {
+                        surface,
+                        left_out: counted,
+                    } => {
+                        left_out = counted;
+                        WakeOutcome::Withheld(surface)
+                    }
+                    BriefRun::Empty(counted) => {
+                        left_out = counted;
+                        WakeOutcome::Empty
+                    }
+                    BriefRun::Unattempted => {
+                        return self
+                            .defer(resources, firing, now, HoldReason::Unattempted)
+                            .await;
+                    }
+                    BriefRun::NotACoach | BriefRun::AlreadyClaimed => WakeOutcome::Skipped,
+                }
+            }
         };
         let fired = matches!(outcome, WakeOutcome::Posted(_) | WakeOutcome::Withheld(_));
-        if let WakeOutcome::Posted(surface) | WakeOutcome::Withheld(surface) = outcome {
-            report_fired(routine, surface, matches!(outcome, WakeOutcome::Posted(_)));
+        match outcome {
+            WakeOutcome::Posted(surface) | WakeOutcome::Withheld(surface) => {
+                let grounded = matches!(outcome, WakeOutcome::Posted(_));
+                report_fired(routine, surface, grounded, listed.len());
+            }
+            WakeOutcome::Empty => report_empty(routine),
+            _ => {}
         }
+        let run = match outcome {
+            WakeOutcome::Posted(_) => RunOutcome::Posted,
+            WakeOutcome::Withheld(_) => RunOutcome::Withheld,
+            WakeOutcome::Empty => RunOutcome::Empty,
+            _ => RunOutcome::Skipped,
+        };
+        record_run(resources, firing, now, run, &listed, left_out).await;
         self.advance(resources, firing, now, fired).await?;
         Ok(outcome)
     }
@@ -578,6 +654,15 @@ impl RoutineEngine {
         reason: HoldReason,
     ) -> AppResult<WakeOutcome> {
         report_held(firing.routine, reason);
+        record_run(
+            resources,
+            firing,
+            now,
+            RunOutcome::Held,
+            &[],
+            LeftOut::default(),
+        )
+        .await;
         self.advance(resources, firing, now, false).await?;
         Ok(WakeOutcome::Held(reason))
     }
@@ -652,6 +737,88 @@ impl RoutineEngine {
     }
 }
 
+/// Give every coach who reads a roster their morning brief, active at
+/// [`MORNING_BRIEF_HOUR`] every day, unless they already have one in whatever
+/// state they left it (Phil, 2026-11-24: on for every coach). The brief lives
+/// in the coach's own home tenant, where their thread and phone are.
+async fn ensure_morning_briefs(
+    resources: &ServerContext,
+    tenants: &[Tenant],
+    now: Timestamp,
+    outcome: &mut ReconcileOutcome,
+) {
+    let Some(schedule) = Schedule::try_new(Weekdays::EVERY_DAY, MORNING_BRIEF_HOUR) else {
+        return;
+    };
+    for coach in roster_coaches(resources, tenants, outcome).await {
+        if let Err(e) = ensure_brief(resources, coach, schedule, now).await {
+            warn!(error = %e, %coach, "Routines: a coach's morning brief was not created");
+            outcome.errors += 1;
+        }
+    }
+}
+
+/// Every coach of an active group in any of `tenants` whose coach access
+/// holds. A tenant whose groups, or a coach whose access, is unreadable
+/// counts an error.
+async fn roster_coaches(
+    resources: &ServerContext,
+    tenants: &[Tenant],
+    outcome: &mut ReconcileOutcome,
+) -> Vec<Uuid> {
+    let repos = &resources.common.repos;
+    let mut coaches = BTreeSet::new();
+    for tenant in tenants {
+        match repos.groups.list_active_groups_for_tenant(tenant.id).await {
+            Ok(groups) => coaches.extend(groups.iter().filter_map(|group| group.coach_user_id)),
+            Err(e) => {
+                warn!(error = %e, tenant_id = %tenant.id, "Routines: a tenant's groups are unreadable; its coaches get no new brief");
+                outcome.errors += 1;
+            }
+        }
+    }
+    let mut granted = Vec::new();
+    for coach in coaches {
+        match roster_access(repos, coach).await {
+            Ok(RosterAccess::Granted(_)) => granted.push(coach),
+            Ok(RosterAccess::NoCoachAccess(_) | RosterAccess::NotACoach) => {}
+            Err(e) => {
+                warn!(error = %e, %coach, "Routines: a coach's access is unreadable; they get no new brief");
+                outcome.errors += 1;
+            }
+        }
+    }
+    granted
+}
+
+/// Create `coach`'s brief in their home tenant unless they have one.
+async fn ensure_brief(
+    resources: &ServerContext,
+    coach: Uuid,
+    schedule: Schedule,
+    now: Timestamp,
+) -> AppResult<()> {
+    let repos = &resources.common.repos;
+    let Some(home) = repos.tenants.first_for_user(coach).await? else {
+        return Ok(());
+    };
+    let created = repos
+        .routines
+        .ensure_builtin_routine(
+            home,
+            coach,
+            RoutineKind::MorningBrief,
+            RoutineScope::Roster,
+            schedule,
+            now,
+        )
+        .await?;
+    if created {
+        info!(%coach, "Routines: a coach's morning brief was created");
+    }
+    Ok(())
+}
+
 /// The recipient's own zone, from their user row; UTC when they have none.
 async fn recipient_zone(resources: &ServerContext, user_id: Uuid) -> AppResult<Zone> {
     let user = resources.common.repos.users.get_global(user_id).await?;
@@ -687,8 +854,9 @@ async fn run_persona_digest(_resources: &ServerContext) {
     debug!("Persona digest: push notifications are not compiled in; nothing to return");
 }
 
-/// Report a routine whose turn ran: where, and whether its reply grounded.
-fn report_fired(routine: &Routine, surface: PostSurface, grounded: bool) {
+/// Report a routine whose turn ran: where, whether its reply grounded, and
+/// how many athletes it listed (a brief's; 0 for any other kind).
+fn report_fired(routine: &Routine, surface: PostSurface, grounded: bool, items: usize) {
     info!(
         target: "notify",
         event = "routine.fired",
@@ -697,8 +865,45 @@ fn report_fired(routine: &Routine, surface: PostSurface, grounded: bool) {
         kind = routine.kind.as_str(),
         destination = %surface.destination(),
         grounded,
+        items,
         "routine fired"
     );
+}
+
+/// Report a detector routine that ran and found nothing to report.
+fn report_empty(routine: &Routine) {
+    info!(
+        target: "notify",
+        event = "routine.empty",
+        user_id = %routine.owner_user_id,
+        tenant_id = %routine.tenant_id,
+        kind = routine.kind.as_str(),
+        "routine found nothing to report"
+    );
+}
+
+/// Record the firing's run — what it did and whom it listed — so the
+/// Routines screen can say it ran and a later Handled counts as acted on.
+/// Logged when it fails: the firing itself already happened.
+async fn record_run(
+    resources: &ServerContext,
+    firing: &Firing<'_>,
+    now: Timestamp,
+    outcome: RunOutcome,
+    items: &[ListedItem],
+    left_out: LeftOut,
+) {
+    let run = NewRoutineRun {
+        routine: firing.routine,
+        slot: firing.slot,
+        ran_at: now,
+        outcome,
+        items,
+        left_out,
+    };
+    if let Err(e) = resources.common.repos.routines.record_run(&run).await {
+        warn!(routine_id = %firing.routine.id, error = %e, "routine run not recorded");
+    }
 }
 
 /// Report a slot that posted nothing, and why.

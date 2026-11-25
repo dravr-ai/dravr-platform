@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: E2E for a coach's Home (carnet#1250, #1252, #1253): the switch, À traiter and its pane, Tout voir and back, La saison, Traité and its undo
+// ABOUTME: E2E for a coach's Home (carnet#1250, #1252, #1253, #1791): the switch, À traiter and its pane, Tout voir and back, La saison, Traité and its undo, the morning brief
 // ABOUTME: Every route is mocked — the roster is dated from the day the spec runs — and the phone width gets the list-and-pane shape
 
 import { test, expect } from '@playwright/test';
@@ -93,6 +93,25 @@ test.describe('Coach Home', () => {
     await page.getByTestId('coach-treated-undo-u-julien').click();
     await expect(page.getByTestId('coach-queue-row-u-julien')).toBeVisible();
     expect(posted.restore).toEqual([{ athlete_user_id: 'u-julien', reason_id: 'nothing_received' }]);
+  });
+
+  test('the morning brief: its line opens its settings, an open athlete is told of once, and leaving one out sends the whole list', async ({ page }) => {
+    const posted = await mockCoach(page);
+    await expect(page.getByTestId('coach-brief-status')).toContainText('07:00');
+    await page.getByTestId('coach-queue-row-u-julien').click();
+    await expect.poll(() => posted.opened).toEqual([{ athlete_user_id: 'u-julien' }]);
+
+    await page.getByTestId('coach-brief-mute').click();
+    await expect(page.getByTestId('coach-brief-unmute')).toBeVisible();
+    expect(posted.brief).toEqual([{ muted: ['u-rosalie', 'u-julien'] }]);
+
+    await page.getByTestId('coach-brief').click();
+    const sheet = page.getByTestId('coach-brief-sheet');
+    await expect(sheet.getByTestId('coach-brief-muted-u-julien')).toBeVisible();
+    await sheet.getByTestId('coach-brief-pause').click();
+    await expect(page.getByTestId('coach-brief')).toHaveAttribute('data-state', 'paused');
+    expect(posted.brief.at(-1)).toEqual({ paused: true });
+    expect(posted.opened).toHaveLength(1);
   });
 
   test('"Écrire dans le groupe" opens the group\'s room', async ({ page }) => {

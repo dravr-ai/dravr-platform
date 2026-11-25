@@ -97,11 +97,15 @@ pub enum CoachReadSurface {
     /// Group info's view of the athlete's thresholds, where the coach also
     /// sets one (`GET`/`PUT /api/chat/athletes/{id}/physiology`, carnet#1561).
     PhysiologyView,
+    /// The coach's morning brief, which reads the whole roster as To handle
+    /// does (carnet#1791). Recorded each time it fires: once a morning, again
+    /// when a firing that could not post is retried.
+    MorningBrief,
 }
 
 impl CoachReadSurface {
     /// Every surface, for a caller that maps each to its words.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::PlanView,
         Self::PlanCommand,
         Self::Roster,
@@ -112,6 +116,7 @@ impl CoachReadSurface {
         Self::GroupHealth,
         Self::WeeklyDigest,
         Self::PhysiologyView,
+        Self::MorningBrief,
     ];
 
     /// The label the `tool_name` column stores for a read made here.
@@ -128,6 +133,7 @@ impl CoachReadSurface {
             Self::GroupHealth => "group_health",
             Self::WeeklyDigest => "weekly_digest",
             Self::PhysiologyView => "physiology_view",
+            Self::MorningBrief => "morning_brief",
         }
     }
 

@@ -28,6 +28,9 @@ pub enum PostPurpose {
     /// The note a reply carries when a science change moved numbers the
     /// athlete had already seen, claimed under the change's id (carnet#1718).
     ScienceNote,
+    /// A routine's post (ADR-036), claimed under the routine and the local
+    /// day it fired for, so one slot never posts twice.
+    Routine,
 }
 
 impl PostPurpose {
@@ -45,6 +48,7 @@ impl PostPurpose {
             Self::CheckIn => "check_in",
             Self::ActivityLanded => "activity_landed",
             Self::ScienceNote => "science_note",
+            Self::Routine => "routine",
         }
     }
 }

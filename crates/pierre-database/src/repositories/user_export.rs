@@ -388,6 +388,7 @@ user_export_tables_sql!(
     "user_unit_preferences" { rows: [uuid "user_id"], tenant: none, except: [], page: 5, key: [uuid "user_id"] },
     "user_check_in_preferences" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 5, key: [uuid "tenant_id", uuid "user_id"] },
     "routines" { rows: [uuid "owner_user_id"], tenant: "tenant_id", except: [], page: 50, key: [uuid "id"] },
+    "routine_runs" { rows: [uuid "owner_user_id"], tenant: "tenant_id", except: [], page: 100, key: [uuid "id"] },
     "user_onboarding" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "user_id", text "step_id"] },
     "calendar_preferences" { rows: [uuid "user_id"], tenant: "tenant_id", except: ["set_by"], page: 5, key: [text "tenant_id", uuid "user_id"] },
     "coach_data_reads" { rows: [uuid "user_id"], tenant: "tenant_id", except: ["coach_user_id", "impersonator_user_id"], page: 200, key: [uuid "id"] },
@@ -636,6 +637,10 @@ pub const USER_EXPORT_EXCLUDED_TABLES: &[(&str, &str)] = &[
     (
         "coach_attention_dismissals",
         "a human coach's own dismissals",
+    ),
+    (
+        "routine_run_items",
+        "a human coach's own record of the athletes their morning brief listed",
     ),
     (
         "coaching_groups",

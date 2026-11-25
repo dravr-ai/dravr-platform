@@ -1689,10 +1689,15 @@ jobs:
           # 125 (2026-11-21), back to about 1.5MB of headroom, and then the
           # thin ceiling to 153, the same headroom scaled to that build.
           #
+          # carnet#1791 (the coach morning brief, no new dependency) read thin
+          # 154MB against 153 (run 45631016824), with main on fat 124 of 125
+          # and thin 153 of 153. ChefFamille raised both ceilings by 2MB
+          # (2026-11-25): shipped 127, thin 155.
+          #
           # server-e2e.yml checks the thin binary against this ceiling
-          # scaled to that build (153), so a branch push that skips this job
+          # scaled to that build (155), so a branch push that skips this job
           # is still sized against it. Move both together.
-          MAX_SIZE_MB=125
+          MAX_SIZE_MB=127
           # Warn band at 95% of the ceiling. A bare pass/fail cliff gives no
           # signal until the build is already broken, and one fat dependency
           # can still cross the gap in a single change.

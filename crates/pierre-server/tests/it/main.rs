@@ -813,6 +813,7 @@ mod routes_dashboard_test;
 mod routes_health_http_test;
 mod routes_mcp_http_test;
 mod routes_test;
+mod routine_brief_test;
 mod routine_engine_test;
 mod rs256_integration_test;
 mod rsa_key_persistence_test;

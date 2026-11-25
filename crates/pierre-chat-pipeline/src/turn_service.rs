@@ -386,13 +386,12 @@ pub async fn execute(
     let outside = OutsideTurn::of(&request);
     // Everything the turn reads serves the transport its surface declared, and
     // accumulates into the turn's own provenance: every row the turn writes is
-    // stamped with what it served so far (carnet#769).
+    // stamped with what it served so far (carnet#769). Facts the platform put
+    // in the prompt start it with what they were read under.
+    let provenance = request.hooks.supplied_findings.clone().unwrap_or_default();
     let served = Box::pin(ai_scope::serve_over(
         request.transport,
-        ai_scope::tracking(
-            ai_scope::Provenance::new(),
-            execute_turn(ctx, request, profile),
-        ),
+        ai_scope::tracking(provenance, execute_turn(ctx, request, profile)),
     ))
     .await;
     if let Some(turn) = outside {

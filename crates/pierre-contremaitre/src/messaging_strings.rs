@@ -503,6 +503,25 @@ pub const KEY_PLATFORM_POST_CHECK_IN_THREE_PER_WEEK_PROMPT: &str =
 /// ended. No placeholders.
 pub const KEY_PLATFORM_POST_CHECK_IN_WEEKLY_PROMPT: &str = "platform_post.check_in.weekly_prompt";
 
+/// Key: the instruction for a coach's morning brief (carnet#1791). `{0}` =
+/// the findings the engine computed from the coach's To handle queue, one
+/// athlete per line.
+pub const KEY_PLATFORM_POST_MORNING_BRIEF_PROMPT: &str = "platform_post.morning_brief.prompt";
+
+/// Key: the morning brief's footer line for athletes left out because they
+/// don't share with the coach. `{0}` = how many.
+pub const KEY_PLATFORM_POST_MORNING_BRIEF_NOT_SHARING: &str =
+    "platform_post.morning_brief.not_sharing";
+
+/// Key: the morning brief's footer line for sharers whose data could not be
+/// read this morning. `{0}` = how many.
+pub const KEY_PLATFORM_POST_MORNING_BRIEF_UNREADABLE: &str =
+    "platform_post.morning_brief.unreadable";
+
+/// Key: the line that introduces the morning brief's links into To handle.
+/// No placeholder.
+pub const KEY_PLATFORM_POST_MORNING_BRIEF_LINKS: &str = "platform_post.morning_brief.links";
+
 /// Key: the instruction for the coach's reaction to a workout a live sync
 /// just landed (carnet#1486). `{0}` = the workout's local start
 /// (`YYYY-MM-DD HH:MM`), `{1}` = its activity id, `{2}` = its provider key.
@@ -1291,6 +1310,9 @@ pub const KEY_GROUP_READS_SOURCE_WEEKLY_DIGEST: &str = "commands.group.reads_sou
 /// (carnet#1561). No placeholder.
 pub const KEY_GROUP_READS_SOURCE_PHYSIOLOGY_VIEW: &str =
     "commands.group.reads_source_physiology_view";
+/// Key: `/group reads` words, in place of a tool, for a read made by the
+/// human coach's morning brief (carnet#1791). No placeholder.
+pub const KEY_GROUP_READS_SOURCE_MORNING_BRIEF: &str = "commands.group.reads_source_morning_brief";
 /// Key: the `/group join` reply's sharing line when the group has a human
 /// coach. `{0}` = the coach's name.
 pub const KEY_GROUP_COACH_SHARING_NAMED: &str = "commands.group.coach_sharing_named";

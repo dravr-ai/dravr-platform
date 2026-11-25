@@ -56,17 +56,22 @@ pub struct Grounding {
     /// load, goals — to the model, as the dispatch chokepoint records on the
     /// turn's provenance.
     pub provider_data_served: bool,
+    /// The platform put facts it computed into the prompt — a routine's
+    /// findings, such as the athletes a coach's morning brief lists — and the
+    /// reply is written from them.
+    pub findings_supplied: bool,
 }
 
 /// Whether a platform-composed reply may be posted.
 ///
-/// Grounded three ways. A list the tool loop captured is trusted whatever the
+/// Grounded four ways. A list the tool loop captured is trusted whatever the
 /// prose: the list is folded into what a channel shows, so the athlete
 /// receives their data even when the analysis around it is thin. A prefetched
-/// window and a provider read put the data in front of the model without
-/// making it use the data, so a reply grounded only that way is posted unless
-/// it is a refusal — the model had the data and declined, and a refusal sent
-/// unprompted reads as the coach volunteering that it cannot help.
+/// window, a provider read and findings the platform supplied put the data in
+/// front of the model without making it use the data, so a reply grounded
+/// only that way is posted unless it is a refusal — the model had the data and
+/// declined, and a refusal sent unprompted reads as the coach volunteering
+/// that it cannot help.
 ///
 /// Refusals are canonical: the system prompt interpolates the exact sentence
 /// per locale, so a reply carrying one is recognised rather than guessed at.
@@ -83,7 +88,9 @@ pub fn admits_platform_reply(
     if grounding.activity_list_captured {
         return true;
     }
-    (grounding.activities_prefetched || grounding.provider_data_served)
+    (grounding.activities_prefetched
+        || grounding.provider_data_served
+        || grounding.findings_supplied)
         && !carries_canonical_refusal(reply, canonical_refusals)
 }
 
@@ -128,6 +135,9 @@ pub(crate) struct PlatformReplyDraft<'a> {
     pub(crate) active_model: &'a str,
     pub(crate) provider_name: &'a str,
     pub(crate) activities_prefetched: bool,
+    /// The platform supplied the facts the prompt carries
+    /// ([`crate::PipelineHooks::supplied_findings`]).
+    pub(crate) findings_supplied: bool,
     pub(crate) identity_leak: Option<IdentityLeakMatch>,
     pub(crate) answered_by: Option<String>,
 }
@@ -154,6 +164,7 @@ pub(crate) fn withheld_platform_reply(
         activities_prefetched: draft.activities_prefetched,
         provider_data_served: ai_scope::current_provenance()
             .is_some_and(|provenance| provenance.served_provider_data()),
+        findings_supplied: draft.findings_supplied,
     };
     let refusals = canonical_refusals(&ctx.messaging_strings_registry, &profile.locale);
     if admits_platform_reply(&grounding, draft.content, &refusals) {
@@ -164,6 +175,7 @@ pub(crate) fn withheld_platform_reply(
         activity_list_captured = grounding.activity_list_captured,
         activities_prefetched = grounding.activities_prefetched,
         provider_data_served = grounding.provider_data_served,
+        findings_supplied = grounding.findings_supplied,
         "platform-composed reply withheld: not grounded in the athlete's data, or a refusal"
     );
     let unstored = MessageRecord {
@@ -294,7 +306,40 @@ mod tests {
             activity_list_captured: captured,
             activities_prefetched: prefetched,
             provider_data_served: served,
+            findings_supplied: false,
         }
+    }
+
+    /// A morning brief written from the findings the engine supplied is
+    /// grounded, though it read nothing of the coach's own; a refusal written
+    /// over the same findings is still withheld.
+    #[test]
+    fn a_brief_written_from_supplied_findings_is_posted_unless_it_refuses() {
+        let supplied = Grounding {
+            findings_supplied: true,
+            ..grounding(false, false, false)
+        };
+        assert!(
+            admits_platform_reply(
+                &supplied,
+                "Deux athlètes à voir aujourd'hui : rien reçu de Marie depuis 9 jours.",
+                &french_refusals(),
+            ),
+            "the brief was written from the findings the engine put in the prompt"
+        );
+        let refusal = french_refusals().into_iter().next().unwrap_or_default();
+        assert!(
+            !admits_platform_reply(&supplied, &refusal, &french_refusals()),
+            "a refusal sent unprompted is withheld whatever grounded the turn"
+        );
+        assert!(
+            !admits_platform_reply(
+                &grounding(false, false, false),
+                "Deux athlètes à voir aujourd'hui.",
+                &french_refusals(),
+            ),
+            "without the findings, a reply that read nothing is not grounded"
+        );
     }
 
     /// An answer built from the prefetched window is the athlete's answer.

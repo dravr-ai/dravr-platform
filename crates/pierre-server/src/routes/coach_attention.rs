@@ -49,6 +49,8 @@ use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use crate::routes::coach_roster::roster_groups;
+#[cfg(feature = "client-messaging")]
+use crate::services::morning_brief::{record_acted, ActedOn};
 
 /// Longest reason id or fingerprint a dismissal accepts. The server's own
 /// are a kind and an id or an instant; anything longer is not one of them.
@@ -289,6 +291,8 @@ pub async fn handle_dismiss(
         )
         .await?;
     info!(coach = %coach, athlete = %body.athlete_user_id, reason = reason_id, "coach attention dismissed");
+    #[cfg(feature = "client-messaging")]
+    record_acted(&resources, coach, body.athlete_user_id, ActedOn::Treated).await;
     Ok((
         StatusCode::OK,
         Json(DismissResponse {

@@ -147,6 +147,10 @@ pub mod first_sync_post;
 #[cfg(feature = "client-messaging")]
 pub mod check_in_post;
 
+/// The coach's morning brief of the athletes To handle holds (carnet#1791).
+#[cfg(feature = "client-messaging")]
+pub mod morning_brief;
+
 /// The one engine that decides when the platform speaks first (ADR-036).
 #[cfg(feature = "client-messaging")]
 pub mod routine_engine;

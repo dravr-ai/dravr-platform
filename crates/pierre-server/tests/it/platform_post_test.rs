@@ -271,6 +271,7 @@ async fn post(fx: &Fixture) -> Option<MessageRecord> {
             locale: "en",
             prompt: INSTRUCTION,
             access: PostAccess::Owner,
+            findings: None,
         })
         .await
         .map(|posted| posted.assistant.message)
@@ -626,6 +627,7 @@ async fn a_stored_post_ends_on_at_most_three_ranked_use_cases() {
             locale: "en",
             prompt: INSTRUCTION,
             access: PostAccess::Owner,
+            findings: None,
         })
         .await
         .expect("a reply grounded in the athlete's recovery is posted");

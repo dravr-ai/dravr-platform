@@ -82,6 +82,9 @@ pub mod coach_access;
 /// Coach Home's attention reasons on the roster, and the coach's dismissals (carnet#1252)
 #[cfg(feature = "tools-groups")]
 pub mod coach_attention;
+/// The coach's morning brief as To handle controls it (carnet#1791)
+#[cfg(feature = "client-messaging")]
+pub mod coach_brief;
 /// A coach's after-the-fact review of the agent's group replies (carnet#847)
 pub mod coach_replies;
 /// The human coach's roster read for Coach Home (carnet#1251)

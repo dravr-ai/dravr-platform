@@ -41,7 +41,7 @@ use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp, Zone};
 use pierre_config::coach_home::CoachHomeConfig;
 use pierre_core::models::groups::FormMorning;
 use pierre_core::models::FormBand;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::coach_roster::{RosterAthleteStatus, RosterJoin};
@@ -53,7 +53,7 @@ use reasons::{
 };
 
 /// What a reason is about.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AttentionKind {
     /// The athlete stopped sharing their training with the coach.

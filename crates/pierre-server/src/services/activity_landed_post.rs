@@ -355,6 +355,8 @@ impl ActivityLandedPoster {
                 // The athlete's own workout landing; moves onto the routine
                 // engine, and its read-only grant, with carnet#1795.
                 access: PostAccess::Owner,
+                findings: None,
+                push: false,
             },
         )
         .await;

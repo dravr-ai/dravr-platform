@@ -193,6 +193,7 @@ async fn a_platform_posts_turn_runs_its_tool_round_in_background() {
             locale: "en",
             prompt: "Tell the athlete what their recovery says about this week.",
             access: PostAccess::Owner,
+            findings: None,
         })
         .await;
 

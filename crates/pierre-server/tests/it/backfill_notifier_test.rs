@@ -549,6 +549,7 @@ impl PlatformPost for FakePost {
         }];
         blocks.extend(self.charts.iter().cloned());
         Some(PostedReply {
+            answered_by: None,
             assistant: AssistantTurn {
                 message: MessageRecord {
                     id: "msg-asst".to_owned(),
