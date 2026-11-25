@@ -351,6 +351,112 @@ git -C "$root" update-ref -d refs/remotes/origin/main
 run "$root"
 expect_output "no origin/main fails Check 8 closed" "Pin ownership cannot be judged"
 
+# 12b. The lane's stalled bump (carnet#1820). The lane parks a bump that breaks
+#      a client unit test on origin/contremaitre-bump/<rev8>; a human adds the
+#      test fix on top and squashes both onto main. Both moves pass Check 8 only
+#      while they match that parked bot commit byte for byte.
+BOT_NAME="github-actions[bot]"
+BOT_EMAIL="41898282+github-actions[bot]@users.noreply.github.com"
+REWORDED='{"common": {"greet": "Hello there {0}", "cancel": "Cancel {{name}}"}}'
+# stall_tree <name> <author-name> <subject> — origin/main at rev aaaaaaaa, and a
+# bump to bbbbbbbb with a reworded en copy at origin/contremaitre-bump/bbbbbbbb,
+# authored and committed as given; HEAD is that bump commit.
+stall_tree() {
+    local root
+    root="$(catalogue_tree "$1")"
+    sed -i.bak 's/aaaaaaaa/bbbbbbbb/g' "$root/Cargo.toml" "$root/Cargo.lock" && rm "$root"/Cargo.*.bak
+    printf '%s\n' "$REWORDED" > "$root/packages/i18n/src/locales/en/translation.json"
+    git -C "$root" add -A
+    GIT_COMMITTER_NAME="$2" GIT_COMMITTER_EMAIL="$BOT_EMAIL" \
+        git -C "$root" -c user.name="$2" -c user.email="$BOT_EMAIL" commit -q -m "$3" -m "Syncs the platform string copy to match: 1 locale file(s) changed."
+    git -C "$root" update-ref refs/remotes/origin/contremaitre-bump/bbbbbbbb HEAD
+    echo "$root"
+}
+LANE_SUBJECT="chore(contremaitre): bump dravr-contremaitre rev to bbbbbbbb"
+STALL_OK="carries the bump lane's stalled bump to bbbbbbbb"
+REFUSED="This branch moves the contremaitre pin, which only the bump lane does"
+
+root="$(stall_tree stall_fix "$BOT_NAME" "$LANE_SUBJECT")"
+mkdir -p "$root/frontend/src" && printf 'expect("Hello there")\n' > "$root/frontend/src/quote.test.ts"
+commit_all "$root" "fix(test): quote the reworded greeting"
+run "$root"
+expect_output "the lane's stalled bump plus a test fix passes Check 8" "$STALL_OK"
+expect_absent "no refusal over the lane's stalled bump" "$REFUSED"
+
+# The squash of that branch onto main: one human commit, same content.
+root="$(stall_tree stall_squash "$BOT_NAME" "$LANE_SUBJECT")"
+git -C "$root" reset -q --soft HEAD~1
+mkdir -p "$root/frontend/src" && printf 'expect("Hello there")\n' > "$root/frontend/src/quote.test.ts"
+commit_all "$root" "chore(contremaitre): bump to bbbbbbbb with its test fix"
+run "$root"
+expect_output "the squash of the stalled bump and its fix passes Check 8" "$STALL_OK"
+
+root="$(stall_tree stall_not_bot "jf" "$LANE_SUBJECT")"
+run "$root"
+expect_output "a stall branch whose tip a human authored fails Check 8" "$REFUSED"
+expect_output "the refusal says the tip is not the lane's commit" "is not the lane's bump commit"
+expect_absent "no exemption for a human-authored stall tip" "$STALL_OK"
+
+root="$(stall_tree stall_wrong_subject "$BOT_NAME" "chore(contremaitre): bump dravr-contremaitre rev to cccccccc")"
+run "$root"
+expect_output "a bot tip under another subject fails Check 8" "is not the lane's bump commit"
+
+root="$(stall_tree stall_copy_differs "$BOT_NAME" "$LANE_SUBJECT")"
+printf '{"common": {"greet": "Hello again {0}", "cancel": "Cancel {{name}}"}}\n' \
+    > "$root/packages/i18n/src/locales/fr/translation.json"
+commit_all "$root" "hand copy on the stall"
+run "$root"
+expect_output "a copy differing from the stall tip fails Check 8" "string copy differs from origin/contremaitre-bump/bbbbbbbb"
+expect_absent "no exemption over a hand-edited copy" "$STALL_OK"
+
+root="$(stall_tree stall_other_rev "$BOT_NAME" "$LANE_SUBJECT")"
+sed -i.bak 's/bbbbbbbb/cccccccc/g' "$root/Cargo.toml" "$root/Cargo.lock" && rm "$root"/Cargo.*.bak
+commit_all "$root" "hand bump past the stall"
+run "$root"
+expect_output "a rev no stall branch carries fails Check 8" "no stall branch origin/contremaitre-bump/cccccccc"
+expect_absent "no exemption for a rev with no stall branch" "$STALL_OK"
+
+root="$(stall_tree stall_lock_differs "$BOT_NAME" "$LANE_SUBJECT")"
+printf '[[package]]\nname = "dravr-contremaitre"\nsource = "git+https://github.com/dravr-ai/dravr-contremaitre.git?branch=main#bbbbbbbb"\n' \
+    > "$root/Cargo.lock"
+commit_all "$root" "hand lock on the stall"
+run "$root"
+expect_output "a lock source differing from the stall tip fails Check 8" "rev or Cargo.lock source differs"
+
+# A stale stall ref cannot carry a branch backward: main already pins
+# cccccccc, the stall branch for bbbbbbbb (cut from aaaaaaaa) is still
+# readable, and HEAD moves the pin to bbbbbbbb with the tip's exact copy.
+root="$(stall_tree stall_backward "$BOT_NAME" "$LANE_SUBJECT")"
+tip="$(git -C "$root" rev-parse HEAD)"
+git -C "$root" checkout -q --detach HEAD~1
+sed -i.bak 's/aaaaaaaa/cccccccc/g' "$root/Cargo.toml" "$root/Cargo.lock" && rm "$root"/Cargo.*.bak
+commit_all "$root" "chore(contremaitre): bump dravr-contremaitre rev to cccccccc"
+git -C "$root" update-ref refs/remotes/origin/main HEAD
+git -C "$root" checkout -q "$tip" -- Cargo.toml Cargo.lock packages/i18n/src/locales
+commit_all "$root" "move the pin back to the stalled rev"
+run "$root"
+expect_output "a pin moved back to a stale stall's rev fails Check 8" "$REFUSED"
+expect_output "the refusal names the base the stall was not cut from" "this branch starts from rev cccccccc, not the rev origin/contremaitre-bump/bbbbbbbb was cut from"
+expect_absent "no exemption for a backward move" "$STALL_OK"
+
+# A hand bump with no stall branch at all names that, and still fails (case 9).
+root="$(catalogue_tree hand_bump_no_stall)"
+sed -i.bak 's/rev = "aaaaaaaa"/rev = "bbbbbbbb"/' "$root/Cargo.toml" && rm "$root/Cargo.toml.bak"
+commit_all "$root" "hand bump"
+run "$root"
+expect_output "a hand bump with no stall branch fails Check 8" "$REFUSED"
+expect_output "the refusal names the missing stall branch" "no stall branch origin/contremaitre-bump/bbbbbbbb"
+
+# A copy edit under an unchanged rev is a hand edit even beside a stall branch.
+root="$(stall_tree stall_copy_only "$BOT_NAME" "$LANE_SUBJECT")"
+git -C "$root" update-ref refs/remotes/origin/main HEAD
+printf '{"common": {"greet": "Hello once more {0}", "cancel": "Cancel {{name}}"}}\n' \
+    > "$root/packages/i18n/src/locales/en/translation.json"
+commit_all "$root" "hand copy after the bump landed"
+run "$root"
+expect_output "a copy edit under the pinned rev fails Check 8 beside a stall branch" "$REFUSED"
+expect_absent "no exemption for a copy edit with no rev move" "$STALL_OK"
+
 # 13. Check 4 reads every locale. A line presenting a load ratio as injury risk
 # fails, the same line forbidding it passes, and a negation word from another
 # language excuses nothing: "no" is Spanish, and in Portuguese means "in the".

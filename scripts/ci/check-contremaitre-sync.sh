@@ -37,7 +37,8 @@
 #      never served.
 #   8. Pin ownership — a branch never moves the contremaitre pin, its
 #      Cargo.lock entry or the string copy; only contremaitre-bump.yml does, on
-#      main (carnet#826).
+#      main (carnet#826) — or a branch carrying the lane's own stalled bump,
+#      parked on contremaitre-bump/<rev8> when it broke a client unit test.
 #
 # Contremaitre is upstream, and every check above is one-directional so that a
 # change authored there first is valid on its own: strings, server-rendered
@@ -767,6 +768,27 @@ fi
 # predates a bump is fine, and the bump lane — which runs this on main before
 # committing — has nothing to judge. Fails closed when origin/main is absent:
 # a diff that could not be computed is not a clean one.
+#
+# One exception: the lane's own stalled bump. The lane runs the client unit
+# tests before it pushes, and a reworded string that a test quotes cannot land
+# on main (carnet#1820 reddened main exactly so). Nor can the test move first —
+# it would fail on main until the string arrives. So the lane parks its bump
+# commit on contremaitre-bump/<rev8> and files the stall, and a human puts the
+# test fix on top of that commit and squashes both onto main. That branch, and
+# that squash, move the pin by necessity. They pass here only when HEAD pins
+# exactly the rev of a bump commit that github-actions[bot] authored and
+# committed under the lane's subject at the tip of
+# origin/contremaitre-bump/<rev8>, with that tip's Cargo.lock source line and
+# byte-identical string copies, and only from the pin that bump was cut from:
+# the base's rev must be the rev of the tip's parent, so a stale stall ref
+# cannot carry a branch backward past a newer pin main already has. Any other
+# move fails as before, and so does a stall ref this checkout cannot read:
+# `git fetch origin` brings it.
+#
+# A process guard, not a security boundary: author, committer and subject are
+# what anyone with push access can forge on a contremaitre-bump/* branch. What
+# such a forgery could ship is bounded anyway, since Check 6 holds the copy to
+# the pinned strings byte for byte and the pin only names a contremaitre commit.
 if [[ -n "$CM_OVERRIDE" ]]; then
     echo -e "${BLUE}ℹ️  Pin ownership skipped: --contremaitre-root reads an unpinned tree.${NC}"
 elif ! PIN_BASE="$(git merge-base origin/main HEAD 2>/dev/null)"; then
@@ -799,9 +821,53 @@ else
     if [[ -n "$LOCALE_MOVES" ]]; then
         PIN_MOVES+="$LOCALE_MOVES"$'\n'
     fi
-    if [[ -n "$PIN_MOVES" ]]; then
+    # stalled_bump <rev> — 0 when HEAD carries the lane's parked bump to <rev>
+    # byte for byte; otherwise prints why not and returns 1.
+    stalled_bump() {
+        local short="${1:0:8}" tip who
+        local ref="refs/remotes/origin/contremaitre-bump/${short}"
+        local bot="github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+        if ! tip="$(git rev-parse -q --verify "${ref}^{commit}" 2>/dev/null)"; then
+            echo "no stall branch origin/contremaitre-bump/${short} in this checkout (git fetch origin, if the lane parked one)"
+            return 1
+        fi
+        who="$(git log -1 --format='%an <%ae>|%cn <%ce>|%s' "$tip" 2>/dev/null || true)"
+        if [[ "$who" != "${bot}|${bot}|chore(contremaitre): bump dravr-contremaitre rev to ${short}" ]]; then
+            echo "the tip of origin/contremaitre-bump/${short} (${tip:0:8}) is not the lane's bump commit"
+            return 1
+        fi
+        if [[ "$(pin_rev "$tip")" != "$1" ]] || [[ "$(lock_source "$tip")" != "$HEAD_LOCK" ]]; then
+            echo "HEAD's rev or Cargo.lock source differs from origin/contremaitre-bump/${short}"
+            return 1
+        fi
+        if ! git diff --quiet "$tip" HEAD -- packages/i18n/src/locales 2>/dev/null; then
+            echo "HEAD's string copy differs from origin/contremaitre-bump/${short}"
+            return 1
+        fi
+        if [[ -z "$(pin_rev "${tip}^")" ]] || [[ "$(pin_rev "$PIN_BASE")" != "$(pin_rev "${tip}^")" ]]; then
+            echo "this branch starts from rev $(pin_rev "$PIN_BASE" | cut -c1-8), not the rev origin/contremaitre-bump/${short} was cut from"
+            return 1
+        fi
+        return 0
+    }
+    # Only a move of the rev itself can be the lane's bump; a copy or lock edit
+    # under an unchanged rev is a hand edit whatever branch exists.
+    STALLED=false
+    STALL_REASON=""
+    if [[ -n "$PIN_MOVES" && -n "$HEAD_REV" && -n "$HEAD_LOCK" ]] \
+        && [[ "$(pin_rev "$PIN_BASE")" != "$HEAD_REV" ]]; then
+        if STALL_REASON="$(stalled_bump "$HEAD_REV")"; then
+            STALLED=true
+        fi
+    fi
+    if [[ "$STALLED" == "true" ]]; then
+        echo -e "${GREEN}✅ Pin ownership: this branch carries the bump lane's stalled bump to ${HEAD_REV:0:8} (origin/contremaitre-bump/${HEAD_REV:0:8}), byte for byte.${NC}"
+    elif [[ -n "$PIN_MOVES" ]]; then
         echo -e "${RED}❌ This branch moves the contremaitre pin, which only the bump lane does:${NC}"
         printf '%s' "$PIN_MOVES" | sed 's/^/   /'
+        if [[ -n "$STALL_REASON" ]]; then
+            echo -e "${YELLOW}   Not the lane's stalled bump: ${STALL_REASON}.${NC}"
+        fi
         echo -e "${YELLOW}   Restore those files from origin/main (git checkout origin/main -- <file>) and drop the${NC}"
         echo -e "${YELLOW}   hand bump. If the change needs newer strings: push them to dravr-contremaitre, wait for${NC}"
         echo -e "${YELLOW}   'chore(contremaitre): bump' on main (gh workflow run contremaitre-bump.yml to go now),${NC}"

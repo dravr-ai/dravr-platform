@@ -814,8 +814,9 @@ jobs:
             gh issue edit "${EXISTING}" --repo "$TRACKER" --title "$TITLE" --body "$BODY"
             echo "updated ${TRACKER}#${EXISTING}"
           else
+            # dravr-carnet has no `dependency` label: asking for it failed every
+            # create, and the silent unlabelled retry filed every stall untagged.
             gh issue create --repo "$TRACKER" --title "$TITLE" --body "$BODY" \
-              --label "dravr-platform" --label "dependency" 2>/dev/null \
-              || gh issue create --repo "$TRACKER" --title "$TITLE" --body "$BODY"
+              --label "dravr-platform"
             echo "opened a new issue on ${TRACKER}"
           fi
