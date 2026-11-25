@@ -191,7 +191,7 @@ impl OAuth2Routes {
         };
         let scope = OAuth2AuthorizationServer::granted_scope(&checked, access);
         // The standing-policy box, read only where the screen offered it:
-        // beside a preset, to anyone but an admin, while it is switched on.
+        // beside a preset, to anyone but an admin.
         let standing_policy = picker::standing_policy_ticked(
             &form,
             &checked,

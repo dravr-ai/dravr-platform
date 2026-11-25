@@ -341,8 +341,8 @@ impl AuthService {
     /// Anyone can register an address they do not hold and wait for its
     /// owner to sign in with Google. So when a sign-in proves an address the
     /// account never verified, the device refresh tokens, `OAuth2` refresh
-    /// tokens, connector grants, MCP tokens and API keys issued so far are
-    /// revoked here. The caller's link then replaces the password by the
+    /// tokens, connector grants (with the standing policies that would renew
+    /// them), MCP tokens and API keys issued so far are revoked here. The caller's link then replaces the password by the
     /// federated-only marker and drops a Firebase link other than this
     /// sign-in's, in its one write on the user row
     /// ([`Self::attach_federated_user`]). A first-party access JWT already

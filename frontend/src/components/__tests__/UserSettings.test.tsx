@@ -101,6 +101,9 @@ const withdrawAiConsent = vi.fn().mockResolvedValue(undefined);
 const listConnectedApps = vi.fn().mockResolvedValue([]);
 const getImports = vi.fn().mockResolvedValue({ imports: [] });
 const revokeConnectedApp = vi.fn().mockResolvedValue(undefined);
+const listStandingPolicies = vi.fn().mockResolvedValue([]);
+const removeStandingPolicy = vi.fn().mockResolvedValue(undefined);
+const listGrantReceipts = vi.fn().mockResolvedValue([]);
 
 // Mock API service - factory must be self-contained (vi.mock is hoisted)
 vi.mock('../../services/api', () => ({
@@ -132,6 +135,9 @@ vi.mock('../../services/api', () => ({
     disconnectIntervalsIcu: vi.fn().mockResolvedValue(undefined),
     listConnectedApps: (...args: unknown[]) => listConnectedApps(...args),
     revokeConnectedApp: (...args: unknown[]) => revokeConnectedApp(...args),
+    listStandingPolicies: (...args: unknown[]) => listStandingPolicies(...args),
+    removeStandingPolicy: (...args: unknown[]) => removeStandingPolicy(...args),
+    listGrantReceipts: (...args: unknown[]) => listGrantReceipts(...args),
   },
   pierreApi: {
     adapter: {
@@ -239,6 +245,11 @@ async function continueConsents(user: ReturnType<typeof userEvent.setup>) {
 describe('UserSettings Component', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // clearAllMocks keeps implementations: a test that set its own list hands
+    // the next one the empty default back.
+    listConnectedApps.mockResolvedValue([]);
+    listStandingPolicies.mockResolvedValue([]);
+    listGrantReceipts.mockResolvedValue([]);
   });
 
   // A connect's result outlives the test that left it (a grant is left in
@@ -543,6 +554,163 @@ describe('UserSettings Component', () => {
       await waitFor(() => expect(within(section).queryByText('Claude')).not.toBeInTheDocument());
       expect(listConnectedApps).toHaveBeenCalledTimes(2);
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    // carnet#1544: the apps the athlete always allows, each with Stop, and a
+    // mark on their Connected-apps rows.
+    it('lists the always-allowed apps, marks their rows, and stops a policy', async () => {
+      const user = userEvent.setup();
+      const grant = {
+        id: 'g1',
+        client_id: 'client-coach',
+        client_name: 'Coach app',
+        client_host: 'coach.example',
+        scope: 'fitness:read',
+        granted_at: '2026-11-01T10:00:00Z',
+        preset: 'training_coach',
+        max_tier: 'T1',
+        expires_at: null,
+      };
+      const policy = {
+        id: 'p1',
+        client_id: 'client-coach',
+        client_name: 'Coach app',
+        client_host: 'coach.example',
+        preset: 'training_coach',
+        created_at: '2026-11-02T10:00:00Z',
+      };
+      listConnectedApps.mockResolvedValue([grant]);
+      listStandingPolicies.mockResolvedValueOnce([policy]).mockResolvedValue([]);
+
+      await act(async () => {
+        renderUserSettings({ initialTab: 'account' });
+      });
+
+      const policies = await screen.findByTestId('standing-policies');
+      const row = await within(policies).findByTestId('standing-policy-p1');
+      expect(row).toHaveTextContent('Coach app');
+      expect(row).toHaveTextContent(i18n.t('tokens.connectedAppsPresetTrainingCoach'));
+      expect(row).toHaveTextContent(i18n.t('tokens.standingPolicySince', { date: 'Nov 2, 2026' }));
+      expect(await screen.findByTestId('connected-app-always-allowed-g1')).toHaveTextContent(
+        i18n.t('tokens.connectedAppsAlwaysAllowed'),
+      );
+
+      await user.click(
+        within(policies).getByRole('button', { name: i18n.t('tokens.standingPolicyStopLabel', { app: 'Coach app' }) }),
+      );
+      const confirm = screen.getByRole('dialog');
+      expect(confirm).toHaveTextContent(i18n.t('tokens.standingPolicyStopConfirm', { app: 'Coach app' }));
+      await user.click(within(confirm).getByRole('button', { name: i18n.t('tokens.standingPolicyStop') }));
+
+      await waitFor(() => expect(removeStandingPolicy).toHaveBeenCalledWith('p1'));
+      expect(await within(policies).findByText(i18n.t('tokens.standingPoliciesEmpty'))).toBeInTheDocument();
+      expect(screen.queryByTestId('connected-app-always-allowed-g1')).not.toBeInTheDocument();
+      expect(revokeConnectedApp).not.toHaveBeenCalled();
+    });
+
+    // A revoke also ends the app's standing policies on the server, so the
+    // shared revoke rereads them: the app leaves "Always allowed" and its mark goes.
+    it('revokes an always-allowed app with the plain confirmation, and its policy leaves the list', async () => {
+      const user = userEvent.setup();
+      const grant = {
+        id: 'g1',
+        client_id: 'client-coach',
+        client_name: 'Coach app',
+        client_host: 'coach.example',
+        scope: 'fitness:read',
+        granted_at: '2026-11-01T10:00:00Z',
+        preset: 'training_coach',
+        max_tier: 'T1',
+        expires_at: null,
+      };
+      const policy = {
+        id: 'p1',
+        client_id: 'client-coach',
+        client_name: 'Coach app',
+        client_host: 'coach.example',
+        preset: 'training_coach',
+        created_at: '2026-11-02T10:00:00Z',
+      };
+      listConnectedApps.mockResolvedValue([grant]);
+      listStandingPolicies.mockResolvedValue([policy]);
+
+      await act(async () => {
+        renderUserSettings({ initialTab: 'account' });
+      });
+
+      const policies = await screen.findByTestId('standing-policies');
+      await within(policies).findByTestId('standing-policy-p1');
+      const section = screen.getByTestId('account-section-connected-mcp-apps');
+      await user.click(within(section).getByRole('button', { name: i18n.t('settingsUi.revoke') }));
+      const dialog = screen.getByRole('dialog');
+      expect(dialog).toHaveTextContent(i18n.t('app.confirmRevokeAppAccess', { app: 'Coach app' }));
+
+      // The server ended the grant and the policy with it.
+      listConnectedApps.mockResolvedValue([]);
+      listStandingPolicies.mockResolvedValue([]);
+      await user.click(within(dialog).getByRole('button', { name: i18n.t('app.revoke') }));
+
+      await waitFor(() => expect(revokeConnectedApp).toHaveBeenCalledWith('g1'));
+      expect(await within(policies).findByText(i18n.t('tokens.standingPoliciesEmpty'))).toBeInTheDocument();
+      expect(screen.queryByTestId('connected-app-always-allowed-g1')).not.toBeInTheDocument();
+      expect(removeStandingPolicy).not.toHaveBeenCalled();
+    });
+
+    it('lists the consent history by app and outcome, a deleted app by its id, and pages older receipts', async () => {
+      const user = userEvent.setup();
+      const receipt = (id: string, event: string, actor: string, clientId: string, approval = {}) => ({
+        id,
+        client_grant_id: `grant-${id}`,
+        event,
+        actor,
+        at: '2026-11-20T10:00:00Z',
+        payload: { grant: { client_id: clientId }, approval: { actor, ...approval } },
+        payload_sha256: 'ab',
+        jws: null,
+        logged_at: null,
+      });
+      listConnectedApps.mockResolvedValue([
+        {
+          id: 'g1',
+          client_id: 'client-coach',
+          client_name: 'Coach app',
+          client_host: null,
+          scope: 'fitness:read',
+          granted_at: '2026-11-01T10:00:00Z',
+          preset: null,
+          max_tier: null,
+          expires_at: null,
+        },
+      ]);
+      const firstPage = [
+        receipt('r1', 'issue', 'auto', 'client-coach', { standing_policy_ref: { id: 'p1' } }),
+        receipt('r2', 'revoke', 'client', 'client-gone'),
+        ...Array.from({ length: 48 }, (_, n) => receipt(`f${n}`, 'issue', 'user', 'client-coach')),
+      ];
+      listGrantReceipts.mockImplementation(async (page?: { offset?: number }) =>
+        (page?.offset ?? 0) === 0 ? firstPage : [receipt('r99', 'expire', 'auto', 'client-coach')],
+      );
+
+      await act(async () => {
+        renderUserSettings({ initialTab: 'account' });
+      });
+
+      const history = await screen.findByTestId('grant-history');
+      const renewed = await within(history).findByTestId('grant-receipt-r1');
+      expect(renewed).toHaveTextContent('Coach app');
+      expect(renewed).toHaveTextContent(i18n.t('tokens.grantEventRenewed'));
+      const ended = within(history).getByTestId('grant-receipt-r2');
+      expect(ended).toHaveTextContent('client-gone');
+      expect(ended).toHaveTextContent(i18n.t('tokens.grantEventEndedByApp'));
+      expect(listGrantReceipts).toHaveBeenCalledWith({ limit: 50, offset: 0 });
+
+      await user.click(within(history).getByTestId('grant-history-older'));
+      expect(await within(history).findByTestId('grant-receipt-r99')).toHaveTextContent(
+        i18n.t('tokens.grantEventExpired'),
+      );
+      expect(listGrantReceipts).toHaveBeenCalledWith({ limit: 50, offset: 50 });
+      // The older page is not full, so nothing older is offered.
+      expect(within(history).queryByTestId('grant-history-older')).not.toBeInTheDocument();
     });
 
     it('should display member since date', async () => {

@@ -27,10 +27,10 @@
 //!
 //! Beside a preset choice, never the plain one and never for an admin, the
 //! screen may offer the standing-policy box, "Always allow this app this
-//! preset" ([`STANDING_POLICY_BOX`]): ticked, the approval also stores a
-//! standing policy that renews the same grant without the screen. The box is
-//! held off until the athlete can see and remove their policies, and a box
-//! field a form carries while it is off is ignored ([`standing_policy_ticked`]).
+//! preset" ([`offers_standing_policy_box`]): ticked, the approval also stores a
+//! standing policy that renews the same grant without the screen. Connected
+//! apps lists the athlete's policies with a way to remove each, and a box
+//! field the screen did not offer is ignored ([`standing_policy_ticked`]).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -46,7 +46,7 @@ use pierre_contremaitre::consent_strings::{
     KEY_CONSENT_GRANT_PURPOSE, KEY_CONSENT_GRANT_REQUESTED, KEY_CONSENT_GRANT_SLEEP_COACH,
     KEY_CONSENT_GRANT_SLEEP_COACH_HINT, KEY_CONSENT_GRANT_TRAINING_COACH,
     KEY_CONSENT_GRANT_TRAINING_COACH_HINT, KEY_CONSENT_GRANT_TRAINING_COACH_SUMMARY_HINT,
-    PRESET_KEY_STANDING_POLICY,
+    KEY_CONSENT_STANDING_POLICY,
 };
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::time_constants;
@@ -86,19 +86,12 @@ const FIELD_DIGEST: &str = "review_digest";
 /// each carry theirs as `standing_policy_<preset>`.
 const FIELD_STANDING_POLICY: &str = "standing_policy";
 
-/// Whether the consent screen offers the standing-policy box beside a preset
-/// choice. Off until the athlete's Connected apps list their policies with a
-/// way to remove them, and the catalogue words the box
-/// (`feature-phases.yaml`, `consent-standing-policy`): a policy the athlete
-/// cannot see is never created.
-pub(super) const STANDING_POLICY_BOX: bool = false;
-
-/// Whether `user`'s consent screen may offer the standing-policy box: while
-/// [`STANDING_POLICY_BOX`] is on, and never to an admin, whose access is
-/// chosen per connection. The screen and the submit both read it, so a box
-/// the screen never offered is never read from a form.
+/// Whether `user`'s consent screen may offer the standing-policy box: never
+/// to an admin, whose access is chosen per connection. The screen and the
+/// submit both read it, so a box the screen never offered is never read from
+/// a form.
 pub(super) const fn offers_standing_policy_box(user: &User) -> bool {
-    STANDING_POLICY_BOX && !user.role.is_admin()
+    !user.role.is_admin()
 }
 
 /// The refusal of an approval whose screen changed while it was open.
@@ -150,8 +143,8 @@ impl GrantChoice {
     /// What the screen for `checked` offers, read in `text` for `subject`.
     /// `raw` is the request's `authorization_details` parameter, echoed by a
     /// form whose request was not pushed. `standing_policy_box` places the
-    /// box beside each preset choice: [`STANDING_POLICY_BOX`] for anyone but
-    /// an admin, and only while the catalogue words it.
+    /// box beside each preset choice: for anyone but an admin
+    /// ([`offers_standing_policy_box`]), and only while the catalogue words it.
     pub(super) fn for_screen(
         checked: &CheckedAuthorization,
         raw: Option<&str>,
@@ -160,7 +153,7 @@ impl GrantChoice {
         standing_policy_box: bool,
     ) -> Result<Self, OAuth2Error> {
         let standing_policy_box =
-            standing_policy_box && !text.line(PRESET_KEY_STANDING_POLICY).is_empty();
+            standing_policy_box && !text.line(KEY_CONSENT_STANDING_POLICY).is_empty();
         let offer = Self::offer(checked, raw, text, subject)?;
         Ok(Self {
             offer,
@@ -282,7 +275,7 @@ fn standing_policy_box_html(field: &str, client: &str, text: &ConsentText<'_>) -
     format!(
         r#"<label class="check standing-policy"><input type="checkbox" name="{}" value="on"> <span>{}</span></label>"#,
         escape_html_attribute(field),
-        text.html(PRESET_KEY_STANDING_POLICY, &[client])
+        text.html(KEY_CONSENT_STANDING_POLICY, &[client])
     )
 }
 
@@ -462,7 +455,7 @@ pub(super) fn chosen(
 
 /// Whether the athlete ticked the standing-policy box beside the preset they
 /// approved with `form` for `checked`, the screen read in `text`. Never
-/// while the box is not offered (`offered_box`: [`STANDING_POLICY_BOX`], for
+/// while the box is not offered (`offered_box`: [`offers_standing_policy_box`],
 /// anyone but an admin; and `text` words it), and never on the plain grant:
 /// a forged field is ignored.
 pub(super) fn standing_policy_ticked(
@@ -471,7 +464,7 @@ pub(super) fn standing_policy_ticked(
     text: &ConsentText<'_>,
     offered_box: bool,
 ) -> bool {
-    if !offered_box || text.line(PRESET_KEY_STANDING_POLICY).is_empty() {
+    if !offered_box || text.line(KEY_CONSENT_STANDING_POLICY).is_empty() {
         return false;
     }
     let field = if checked.details.is_some() {
@@ -578,7 +571,7 @@ mod tests {
     fn worded() -> MessagingStringsRegistry {
         let strings = MessagingStringsRegistry::new();
         strings.update(
-            PRESET_KEY_STANDING_POLICY,
+            KEY_CONSENT_STANDING_POLICY,
             "en",
             "Always allow {0} this preset".to_owned(),
             "worded".to_owned(),
@@ -591,7 +584,7 @@ mod tests {
     fn unworded() -> MessagingStringsRegistry {
         let strings = MessagingStringsRegistry::new();
         strings.update(
-            PRESET_KEY_STANDING_POLICY,
+            KEY_CONSENT_STANDING_POLICY,
             "en",
             String::new(),
             "blank".to_owned(),
@@ -673,7 +666,7 @@ mod tests {
         let off = GrantChoice::for_screen(&checked, None, &text, subject(), false).unwrap();
         assert!(
             !off.render("", "Client", &text).contains("standing_policy"),
-            "bug: the box shows while it is switched off"
+            "bug: the box shows on a screen that offers none"
         );
         let unworded = unworded();
         let unworded_text = ConsentText::new(&unworded, "en");

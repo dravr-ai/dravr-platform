@@ -1,5 +1,5 @@
 // ABOUTME: Standing policies renew a preset grant without the consent screen, and only on their own terms
-// ABOUTME: Seeded through the repository (no screen creates one yet), driven through the real authorize, consent and routes
+// ABOUTME: Created by the consent screen's box or seeded through the repository, driven through the real authorize, consent and routes
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,21 +9,22 @@
 
 //! Owl phase 5 slice 3b, item 5 (carnet#1544, design row 35, owl §6.4).
 //!
-//! The consent screen's box is held off (`STANDING_POLICY_BOX`), so these
-//! tests seed a policy through the repository from a preset grant the
-//! athlete approved on the screen: its terms, digest and language. The
-//! renewal answers where the screen would be skipped, records a grant citing
-//! the policy as the AS, and that grant's own skip answers the next
-//! authorization. Other terms, an admin, a client returning to a local
-//! program, a changed consent text, two policies, a removed policy and a
-//! deleted client all show the screen again.
+//! The consent screen's box beside a preset stores a policy with the
+//! approved grant's terms, digest and language; the other tests seed one
+//! through the repository from such a grant. The renewal answers where the
+//! screen would be skipped, records a grant citing the policy as the AS, and
+//! that grant's own skip answers the next authorization. Other terms, an
+//! admin, a client returning to a local program, a changed consent text, two
+//! policies, a removed policy, a revoked grant (which removes its client's
+//! policies) and a deleted client all show the screen again.
 
 use crate::common;
 use crate::helpers::axum_test::AxumTestRequest;
 use crate::helpers::consent_form::{authorize_query, hidden_field};
 use crate::oauth2_grant_details_test::{
     access_detail, approve_with, authorize_query_as, challenge, code_of, constraints_detail,
-    forget_standing, fresh_state, live_grants, register, request_query, world, Client, World,
+    forget_standing, fresh_state, live_grants, register, request_query, shown, world, Client,
+    World,
 };
 
 use std::sync::Arc;
@@ -31,7 +32,7 @@ use std::sync::Arc;
 use axum::http::StatusCode;
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::oauth2_server::authorization_details::{preset_defaults, Preset, ResolvedDetails};
-use pierre_contremaitre::consent_strings::KEY_CONSENT_EXPRESS;
+use pierre_contremaitre::consent_strings::{KEY_CONSENT_EXPRESS, KEY_CONSENT_STANDING_POLICY};
 use pierre_core::models::{
     GrantActor, GrantEvent, OAuth2Client, OAuthClientGrant, OAuthGrantEvent, OAuthStandingPolicy,
 };
@@ -176,6 +177,16 @@ async fn a_policy_renews_its_expired_preset_grant_as_the_as_and_the_renewal_skip
         .await
         .expect("bug: no renewed grant");
     assert_ne!(grant.id, expired, "bug: the expired row was not replaced");
+    // Replacing the expired grant is not a revoke: the policy stands.
+    assert_eq!(
+        policies(&world)
+            .await
+            .iter()
+            .map(|live| live.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![policy.id.as_str()],
+        "bug: the renewal ended the policy that renewed it"
+    );
     assert_eq!(
         (
             grant.consent_version.as_deref(),
@@ -476,6 +487,40 @@ fn preset_terms(world: &World) -> String {
 }
 
 #[tokio::test]
+async fn revoking_a_grant_removes_its_clients_policies_so_nothing_renews_it() {
+    let world = world().await;
+    let client = register(&world).await;
+    let grant = approve_preset(&world, &client, "training_coach").await;
+    seed_policy(&world, &grant).await;
+    let other_client = register(&world).await;
+    let other_grant = approve_preset(&world, &other_client, "sleep_coach").await;
+    let other_policy = seed_policy(&world, &other_grant).await;
+    let session = common::generate_test_token(&world.resources, &world.user).await;
+
+    AxumTestRequest::delete(&format!("/api/me/oauth-grants/{}", grant.id))
+        .header("Authorization", &format!("Bearer {session}"))
+        .send(OAuthGrantsRoutes::routes(Arc::clone(&world.resources)))
+        .await
+        .assert_status(StatusCode::NO_CONTENT);
+
+    assert_eq!(
+        policies(&world)
+            .await
+            .iter()
+            .map(|policy| policy.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![other_policy.id.as_str()],
+        "bug: the revoked client's policy stands, or another client's went with it"
+    );
+    forget_standing(&world, &client).await;
+    assert_eq!(
+        authorize(&world, &client).await,
+        200,
+        "bug: a policy renewed the grant the athlete revoked"
+    );
+}
+
+#[tokio::test]
 async fn removing_a_policy_stops_renewals_and_leaves_its_grants() {
     let world = world().await;
     let client = register(&world).await;
@@ -612,9 +657,35 @@ async fn deleting_the_client_or_sweeping_its_orphan_revokes_its_policies() {
 }
 
 #[tokio::test]
-async fn a_ticked_box_on_a_screen_that_offers_none_creates_no_policy() {
+async fn the_box_ticked_beside_a_preset_stores_the_policy_that_renews_it() {
     let world = world().await;
     let client = register(&world).await;
+    let screen =
+        authorize_query_as(&world, &request_query(&client, &fresh_state(), &[]), true).await;
+    assert_eq!(screen.status(), 200, "{}", screen.body_text());
+    let page = screen.body_text();
+    for preset in Preset::ALL {
+        assert!(
+            page.contains(&format!(r#"name="standing_policy_{}""#, preset.name())),
+            "bug: no box beside {}: {page}",
+            preset.name()
+        );
+    }
+    assert!(
+        !page.contains(r#"name="standing_policy_everything""#),
+        "bug: the plain choice carries a box: {page}"
+    );
+    let line = shown(
+        &world,
+        KEY_CONSENT_STANDING_POLICY,
+        &[r#"<span class="client">Grant details client</span>"#],
+    );
+    assert_eq!(
+        page.matches(line.as_str()).count(),
+        Preset::ALL.len(),
+        "bug: the box's line is not shown beside each preset: {page}"
+    );
+
     let approved = approve_with(
         &world,
         &client,
@@ -623,9 +694,98 @@ async fn a_ticked_box_on_a_screen_that_offers_none_creates_no_policy() {
     )
     .await;
     assert_eq!(approved.status(), 303, "{}", approved.body_text());
+    let grant = live_grant(&world, &client).await.expect("the preset grant");
+    let stored = policies(&world).await;
+    assert_eq!(
+        stored.len(),
+        1,
+        "bug: {} policies from one box",
+        stored.len()
+    );
+    let policy = &stored[0];
+    assert_eq!(
+        (
+            policy.client_id.as_str(),
+            policy.preset.as_str(),
+            Some(policy.consent_version.as_str()),
+            Some(policy.consent_locale.as_str()),
+        ),
+        (
+            client.id.as_str(),
+            "training_coach",
+            grant.consent_version.as_deref(),
+            grant.consent_locale.as_deref(),
+        ),
+        "bug: the policy is not the approved grant's preset, digest and language"
+    );
+    let details =
+        ResolvedDetails::from_document(grant.authorization_details.as_deref().unwrap()).unwrap();
+    let terms = ResolvedDetails::from_document(&policy.authorization_details).unwrap();
+    assert!(
+        details.same_terms(&terms),
+        "bug: the policy does not hold the approved terms"
+    );
+
+    expire(&world, &grant.id).await;
+    forget_standing(&world, &client).await;
+    assert_eq!(
+        authorize(&world, &client).await,
+        303,
+        "bug: the policy the box stored did not renew its grant"
+    );
+}
+
+#[tokio::test]
+async fn a_box_on_the_plain_choice_or_from_an_admin_creates_no_policy() {
+    let world = world().await;
+    let client = register(&world).await;
+    let plain = approve_with(
+        &world,
+        &client,
+        &[
+            ("standing_policy_everything", "on"),
+            ("standing_policy_training_coach", "on"),
+        ],
+        Some("everything"),
+    )
+    .await;
+    assert_eq!(plain.status(), 303, "{}", plain.body_text());
     assert!(
         policies(&world).await.is_empty(),
-        "bug: a forged box created a policy while the box is off"
+        "bug: a box beside the plain choice created a policy"
+    );
+
+    let admin_client = register(&world).await;
+    world
+        .resources
+        .common
+        .repos
+        .users
+        .set_admin_status(world.user.id, true)
+        .await
+        .unwrap();
+    let screen = authorize_query_as(
+        &world,
+        &request_query(&admin_client, &fresh_state(), &[]),
+        true,
+    )
+    .await;
+    assert_eq!(screen.status(), 200, "{}", screen.body_text());
+    assert!(
+        !screen.body_text().contains("standing_policy"),
+        "bug: an admin's screen offers the box"
+    );
+    let forged = approve_with(
+        &world,
+        &admin_client,
+        &[("standing_policy_training_coach", "on")],
+        Some("training_coach"),
+    )
+    .await;
+    assert_eq!(forged.status(), 303, "{}", forged.body_text());
+    assert!(
+        policies(&world).await.is_empty(),
+        "bug: a forged box from an admin created a policy"
     );
 }
 

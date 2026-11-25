@@ -912,6 +912,16 @@ ${glyphRules}
   margin: 12px 0 0 28px;
 }
 
+/* The standing-policy box under a preset: indented with its hint, read as
+   body text rather than a second heading. */
+.grant-option .standing-policy,
+.grant-requested .standing-policy {
+  margin: 10px 0 0 28px;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+}
+
 /* A request's own details: the same neutral frame, information rather than a warning. */
 .grant-requested p {
   font-size: 14px;

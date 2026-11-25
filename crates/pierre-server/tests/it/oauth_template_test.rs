@@ -17,6 +17,7 @@
 
 use crate::common::offline_provider_registry;
 use crate::helpers::axum_test::AxumTestRequest;
+use pierre_contremaitre::consent_strings::KEY_CONSENT_STANDING_POLICY;
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::html::escape_html_attribute;
 use pierre_core::models::SUPPORTED_LOCALES;
@@ -1131,13 +1132,15 @@ fn every_consent_flow_key_has_text_and_the_slots_english_has_in_every_locale() {
 fn a_french_consent_page_says_every_line_in_french() {
     // The grant picker's lines and a preset grant's own lines are read in the
     // athlete's language where those screens are served, in
-    // oauth2_grant_details_test; this page is the plain screen.
+    // oauth2_grant_details_test, and the standing-policy box beside a preset
+    // in oauth_standing_policy_test; this page is the plain screen.
     let keys: Vec<&str> = consent_flow_keys()
         .into_iter()
         .filter(|key| {
             key.starts_with("oauth.consent.")
                 && !key.starts_with("oauth.consent.grant")
                 && !key.ends_with("Preset")
+                && *key != KEY_CONSENT_STANDING_POLICY
         })
         .collect();
     let french = every_consent_line_in("fr");

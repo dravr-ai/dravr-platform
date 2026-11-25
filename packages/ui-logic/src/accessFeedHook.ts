@@ -44,9 +44,11 @@ export function createConnectedAppsHook(oauthApi: Pick<OAuthApi, 'listConnectedA
 /**
  * Build `useRevokeConnectedApps` over one client's OAuth API: revoke every
  * grant id it is given (a client may hold one grant per scope), then reread
- * the Connected-apps list and the access feed. It rereads them after a
- * failure too, since a revoke that failed part-way still revoked something.
- * Callers pass their own `onSuccess` / `onError` to `mutate`.
+ * the Connected-apps list, the access feed and the standing policies (a
+ * revoke also ends the athlete's policies for the client, carnet#1544). It
+ * rereads them after a failure too, since a revoke that failed part-way
+ * still revoked something. Callers pass their own `onSuccess` / `onError` to
+ * `mutate`.
  */
 export function createRevokeConnectedAppsHook(oauthApi: Pick<OAuthApi, 'revokeConnectedApp'>) {
   return function useRevokeConnectedApps() {
@@ -59,6 +61,7 @@ export function createRevokeConnectedAppsHook(oauthApi: Pick<OAuthApi, 'revokeCo
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.oauth.connectedApps() }),
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.accessFeed.feed() }),
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.oauth.standingPolicies() }),
         ]);
       },
     });
