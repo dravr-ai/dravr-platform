@@ -771,10 +771,13 @@ fn spawn_background_workers(
     // tombstones, baselines unlogged records, renames content-named
     // originals to their keyed names where a blob store keeps them, sweeps
     // orphaned logs, and, with a signer, cuts the hourly checkpoint anchoring
-    // the deletion receipt chain. Skipped for an in-memory database like the
+    // the deletion receipt chain; then baselines, logs and (with a signer)
+    // signs consent grant receipts (carnet#1544). Skipped for an in-memory database like the
     // other ledger workers.
     if !resources.common.config.database.url.is_memory() {
-        use pierre_services::record_log_worker::{start_record_log_worker, RecordLogWorker};
+        use pierre_services::record_log_worker::{
+            start_record_log_worker, GrantReceiptOutbox, RecordLogWorker,
+        };
         let repos = &resources.common.repos;
         start_record_log_worker(
             Arc::new(RecordLogWorker::new(
@@ -782,6 +785,12 @@ fn spawn_background_workers(
                 Arc::clone(&repos.import_tombstones),
                 Arc::clone(&repos.account_deletion),
                 Arc::clone(&repos.users),
+                // The issuer `/.well-known/did.json` names the key under, so a
+                // receipt's `kid` resolves to the published key.
+                GrantReceiptOutbox {
+                    events: Arc::clone(&repos.oauth_grant_events),
+                    issuer_url: resources.common.config.oauth2_server.issuer_url.clone(),
+                },
                 checkpoint_signer,
                 blobs.map(|blobs| barrage.with_blobs(blobs)),
             )),

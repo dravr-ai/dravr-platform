@@ -25,22 +25,13 @@ use axum::{
 };
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine as _;
-use pierre_services::barrage_keys::{published_checkpoint_key, CheckpointKey};
+use pierre_services::barrage_keys::{
+    checkpoint_did, checkpoint_key_id, published_checkpoint_key, CheckpointKey,
+};
 use serde_json::{json, Value};
 use tracing::error;
-use url::Url;
 
 use super::{OAuth2Context, OAuth2Routes};
-
-/// The `did:web` identifier of `issuer_url`: its host, a port percent-encoded.
-fn did_web(issuer_url: &str) -> Option<String> {
-    let url = Url::parse(issuer_url).ok()?;
-    let host = url.host_str()?;
-    Some(url.port().map_or_else(
-        || format!("did:web:{host}"),
-        |port| format!("did:web:{host}%3A{port}"),
-    ))
-}
 
 impl OAuth2Routes {
     /// `did:web` document naming the checkpoint signing key: built from the
@@ -63,8 +54,8 @@ fn did_document(context: &OAuth2Context) -> Response {
 /// The `did:web` document naming `key` under `issuer_url`'s host; `None`
 /// when the issuer URL has no host.
 fn did_document_json(key: &CheckpointKey, issuer_url: &str) -> Option<Value> {
-    let did = did_web(issuer_url)?;
-    let method = format!("{did}#checkpoint");
+    let did = checkpoint_did(issuer_url)?;
+    let method = checkpoint_key_id(issuer_url)?;
     Some(json!({
         "@context": [
             "https://www.w3.org/ns/did/v1",
@@ -116,22 +107,7 @@ mod tests {
     use base64::Engine as _;
     use pierre_services::barrage_keys::CheckpointKey;
 
-    use super::{did_document_json, did_web};
-
-    #[test]
-    fn a_did_web_names_the_issuer_host_and_encodes_a_port() {
-        assert_eq!(
-            did_web("https://api.dravr.ai").as_deref(),
-            Some("did:web:api.dravr.ai"),
-            "bug: the issuer host is not the did"
-        );
-        assert_eq!(
-            did_web("http://localhost:8081/").as_deref(),
-            Some("did:web:localhost%3A8081"),
-            "bug: a port is not percent-encoded"
-        );
-        assert_eq!(did_web("not a url"), None, "bug: a non-URL made a did");
-    }
+    use super::did_document_json;
 
     #[test]
     fn the_did_document_names_the_checkpoint_key_as_an_ed25519_jwk() {

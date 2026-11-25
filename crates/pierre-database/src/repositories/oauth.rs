@@ -10,10 +10,10 @@ use pierre_core::errors::AppResult;
 
 use pierre_core::models::TenantId;
 use pierre_core::models::{
-    ClientGrantStanding, ConnectionType, DeviceAuthorization, OAuth2AuthCode, OAuth2Client,
-    OAuth2ClientSweep, OAuth2PushedRequest, OAuth2RefreshToken, OAuth2State, OAuthClientGrant,
-    OAuthClientState, ProviderAccountRole, ProviderConnection, ReauthMark, StravaPoolApp,
-    StravaSeatHolder, StravaTokenApp, UserOAuthApp, UserOAuthToken,
+    ClientGrantStanding, ConnectionType, DeviceAuthorization, GrantActor, GrantApproval,
+    OAuth2AuthCode, OAuth2Client, OAuth2ClientSweep, OAuth2PushedRequest, OAuth2RefreshToken,
+    OAuth2State, OAuthClientGrant, OAuthClientState, ProviderAccountRole, ProviderConnection,
+    ReauthMark, StravaPoolApp, StravaSeatHolder, StravaTokenApp, UserOAuthApp, UserOAuthToken,
 };
 use uuid::Uuid;
 
@@ -253,8 +253,9 @@ pub trait OAuth2ServerRepository: Send + Sync {
     async fn extend_client_expiry(&self, client_id: &str, expires_at: Timestamp) -> AppResult<()>;
     /// Delete the client registration `client_id` names, with the codes,
     /// refresh tokens and states issued through it and the consent grants that
-    /// name it. Returns `true` when a registration was deleted, `false` when
-    /// none matched.
+    /// name it. Each live grant gets its ending receipt first, by the client
+    /// (every caller acts for an A2A client's owner). Returns `true` when a
+    /// registration was deleted, `false` when none matched.
     async fn delete_client(&self, client_id: &str) -> AppResult<bool>;
     /// Delete the client registrations retention no longer keeps: those whose
     /// `expires_at` is before `expired_before`, and those still pending (see
@@ -264,7 +265,10 @@ pub trait OAuth2ServerRepository: Send + Sync {
     /// deleted here. Codes, refresh tokens and states go with their client by
     /// cascade; consent grants naming a client that no longer exists, and
     /// the RFC 9126 pushed requests past their expiry at `now`, are deleted
-    /// in the same transaction.
+    /// in the same transaction. Before the orphan delete, every un-revoked
+    /// grant past its expiry at `now` with no ending receipt gets its
+    /// `expire` receipt (the row stays, listed as expired); each live grant
+    /// the orphan delete removes gets its ending receipt, by the AS.
     async fn delete_stale_clients(
         &self,
         expired_before: Timestamp,
@@ -346,7 +350,15 @@ pub trait OAuth2ServerRepository: Send + Sync {
     /// Returns the id of the row that holds the grant: `grant.id` for a new
     /// one, the existing row's on a re-consent. That id is what the codes it
     /// mints carry.
-    async fn store_client_grant(&self, grant: &OAuthClientGrant) -> AppResult<String>;
+    ///
+    /// The grant's `issue` receipt is written in the same transaction, stating
+    /// the stored row and `approval` (who approved it, and the standing policy
+    /// that renewed it, whose id is stored in `standing_policy_id`).
+    async fn store_client_grant(
+        &self,
+        grant: &OAuthClientGrant,
+        approval: &GrantApproval,
+    ) -> AppResult<String>;
     /// Replace the live grant `live_id` with `grant`, whose details differ:
     /// in one transaction the live row is revoked as
     /// [`revoke_client_grant`](Self::revoke_client_grant) revokes one (the
@@ -356,11 +368,13 @@ pub trait OAuth2ServerRepository: Send + Sync {
     /// re-consent to other details, or onto an expired row, is a new grant.
     /// The client's other live grants are revoked with it, as
     /// [`store_client_grant`](Self::store_client_grant) revokes them.
-    /// Returns the id of the grant stored, `grant.id`.
+    /// Returns the id of the grant stored, `grant.id`. Each grant ended gets
+    /// its ending receipt, by `approval.actor`, and the new one its `issue`.
     async fn replace_client_grant(
         &self,
         live_id: &str,
         grant: &OAuthClientGrant,
+        approval: &GrantApproval,
     ) -> AppResult<String>;
     /// One grant by its id, live or revoked, when `user_id` holds it in
     /// `tenant_id`; `None` otherwise.
@@ -402,11 +416,16 @@ pub trait OAuth2ServerRepository: Send + Sync {
     /// holds in that tenant through the grant's client, so the client's next
     /// refresh is `invalid_grant` rather than a silent extension of a consent
     /// the user withdrew. Unredeemed authorization codes go with them.
+    ///
+    /// The grant's ending receipt is written in the same transaction, caused
+    /// by `actor` (or, for a grant already past its expiry, an `expire` by
+    /// the AS at its expiry).
     async fn revoke_client_grant(
         &self,
         id: &str,
         user_id: &str,
         tenant_id: &str,
+        actor: GrantActor,
     ) -> AppResult<bool>;
 
     /// Store an RFC 9126 pushed authorization request, keyed by the SHA-256
@@ -454,7 +473,8 @@ pub trait OAuth2ServerRepository: Send + Sync {
     ///
     /// A client that has no grant row at all gets a revoked one carrying
     /// `scope`, so a token it holds reads as withdrawn rather than as a consent
-    /// that was never recorded, which runs to its expiry.
+    /// that was never recorded, which runs to its expiry. Each grant ended,
+    /// and a row born revoked, gets its ending receipt, by the client.
     async fn withdraw_client_access(
         &self,
         user_id: &str,

@@ -94,6 +94,8 @@ pub mod first_run_progress;
 pub mod fitness_config;
 /// Every batch Garmin pushes, written before the 200 and worked under a lease (Postgres)
 pub mod garmin_push_inbox;
+/// A consent grant's receipts (`Postgres`) backing `OAuthGrantEventRepository`.
+pub mod grant_events;
 /// Health persistence: data sources, sleep, recovery, health snapshots
 pub mod health_persistence;
 /// Health records: self-reports, clinical records and lab documents (carnet#1544).
@@ -165,6 +167,8 @@ pub mod short_links;
 pub mod signup_codes;
 /// The new-user cohort the admin console and the daily digest read (Postgres)
 pub mod signup_cohort;
+/// An athlete's standing policies (`Postgres`) backing `OAuthStandingPolicyRepository`.
+pub mod standing_policies;
 /// Store listings repository implementation (marketplace publishing workflow)
 pub mod store_listings;
 /// Warnings sent before a Strava seat is reclaimed (`PostgreSQL`)

@@ -263,6 +263,17 @@ pub use tool_selection::{
     ToolAvailabilitySummary, ToolCatalogEntry, ToolCategory, ToolEnablementSource,
 };
 
+// A consent grant's receipts (carnet#1544)
+mod grant_receipt;
+pub use grant_receipt::{
+    details_member, GrantActor, GrantApproval, GrantEvent, GrantReceipt, OAuthGrantEvent,
+    ReceiptApproval, StandingPolicyRef,
+};
+
+// An athlete's standing policies: renewals of a preset grant without the screen (carnet#1544)
+mod standing_policy;
+pub use standing_policy::OAuthStandingPolicy;
+
 // OAuth 2.0 server persistence models
 mod oauth2_server;
 pub use oauth2_server::{

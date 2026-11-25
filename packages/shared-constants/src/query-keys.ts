@@ -108,6 +108,12 @@ export const QUERY_KEYS = {
      * the access feed's Revoke, and reread after every revoke.
      */
     connectedApps: () => ['oauth', 'connected-apps'] as const,
+    /** One connected app grant's receipts (`GET /api/me/oauth-grants/{id}/receipts`). */
+    connectedAppReceipts: (grantId: string) => ['oauth', 'connected-apps', grantId, 'receipts'] as const,
+    /** Every receipt of the athlete's grants (`GET /api/me/oauth-grant-receipts`), one page. */
+    grantReceipts: (limit: number, offset: number) => ['oauth', 'grant-receipts', limit, offset] as const,
+    /** The athlete's standing policies (`GET /api/me/oauth-standing-policies`), reread after a removal. */
+    standingPolicies: () => ['oauth', 'standing-policies'] as const,
   },
 
   // ==================== ACCESS FEED ====================

@@ -33,8 +33,8 @@ use jsonwebtoken::dangerous::insecure_decode;
 use pierre_auth::auth::{Claims, DelegatedGrant};
 use pierre_core::constants::oauth_providers::WAHOO;
 use pierre_core::models::{
-    Activity, ActivityBuilder, ConnectionType, CreateUserMcpTokenRequest, OAuthClientGrant,
-    SportType, TenantId, UserOAuthToken,
+    Activity, ActivityBuilder, ConnectionType, CreateUserMcpTokenRequest, GrantApproval,
+    OAuthClientGrant, SportType, TenantId, UserOAuthToken,
 };
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
@@ -430,19 +430,22 @@ async fn connected_apps_show_a_preset_grants_preset_tier_and_expiry() {
             .common
             .repos
             .oauth2_server
-            .store_client_grant(&OAuthClientGrant {
-                id: Uuid::new_v4().to_string(),
-                user_id: world.user.id.to_string(),
-                tenant_id: world.tenant_id.clone(),
-                client_id: other.id.clone(),
-                scope: "fitness:read".to_owned(),
-                granted_at: Timestamp::now(),
-                revoked_at: None,
-                consent_version: None,
-                consent_locale: None,
-                authorization_details: details.map(str::to_owned),
-                expires_at: None,
-            })
+            .store_client_grant(
+                &OAuthClientGrant {
+                    id: Uuid::new_v4().to_string(),
+                    user_id: world.user.id.to_string(),
+                    tenant_id: world.tenant_id.clone(),
+                    client_id: other.id.clone(),
+                    scope: "fitness:read".to_owned(),
+                    granted_at: Timestamp::now(),
+                    revoked_at: None,
+                    consent_version: None,
+                    consent_locale: None,
+                    authorization_details: details.map(str::to_owned),
+                    expires_at: None,
+                },
+                &GrantApproval::by_user(),
+            )
             .await
             .unwrap();
     }
@@ -548,19 +551,22 @@ async fn a_preset_approval_revokes_the_clients_older_grant_of_another_scope() {
         .common
         .repos
         .oauth2_server
-        .store_client_grant(&OAuthClientGrant {
-            id: Uuid::new_v4().to_string(),
-            user_id: world.user.id.to_string(),
-            tenant_id: world.tenant_id.clone(),
-            client_id: client.id.clone(),
-            scope: "fitness:read".to_owned(),
-            granted_at: Timestamp::now(),
-            revoked_at: None,
-            consent_version: None,
-            consent_locale: None,
-            authorization_details: None,
-            expires_at: None,
-        })
+        .store_client_grant(
+            &OAuthClientGrant {
+                id: Uuid::new_v4().to_string(),
+                user_id: world.user.id.to_string(),
+                tenant_id: world.tenant_id.clone(),
+                client_id: client.id.clone(),
+                scope: "fitness:read".to_owned(),
+                granted_at: Timestamp::now(),
+                revoked_at: None,
+                consent_version: None,
+                consent_locale: None,
+                authorization_details: None,
+                expires_at: None,
+            },
+            &GrantApproval::by_user(),
+        )
         .await
         .unwrap();
     connect(&world, &client, &[], Some("training_coach")).await;

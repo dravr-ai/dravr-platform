@@ -290,6 +290,8 @@ user_owned_tables!(
     "provider_data_purges",
     "oauth_client_states",
     "oauth_client_grants",
+    "oauth_grant_events",
+    "oauth_standing_policies",
     "oauth2_auth_codes",
     "oauth2_refresh_tokens",
     "oauth2_states",

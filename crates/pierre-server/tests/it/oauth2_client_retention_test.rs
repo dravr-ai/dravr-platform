@@ -35,8 +35,8 @@ use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::models::{
-    OAuth2AuthCode, OAuth2Client, OAuth2ClientSweep, OAuth2RefreshToken, OAuth2State,
-    OAuthClientGrant,
+    GrantApproval, OAuth2AuthCode, OAuth2Client, OAuth2ClientSweep, OAuth2RefreshToken,
+    OAuth2State, OAuthClientGrant,
 };
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::database::generate_encryption_key;
@@ -185,19 +185,22 @@ async fn grant(database: &Database, client_id: &str) {
     database
         .repositories()
         .oauth2_server
-        .store_client_grant(&OAuthClientGrant {
-            id: Uuid::new_v4().to_string(),
-            user_id: Uuid::new_v4().to_string(),
-            tenant_id: Uuid::new_v4().to_string(),
-            client_id: client_id.to_owned(),
-            scope: "read:fitness".to_owned(),
-            granted_at: Timestamp::now(),
-            revoked_at: None,
-            consent_version: None,
-            consent_locale: None,
-            authorization_details: None,
-            expires_at: None,
-        })
+        .store_client_grant(
+            &OAuthClientGrant {
+                id: Uuid::new_v4().to_string(),
+                user_id: Uuid::new_v4().to_string(),
+                tenant_id: Uuid::new_v4().to_string(),
+                client_id: client_id.to_owned(),
+                scope: "read:fitness".to_owned(),
+                granted_at: Timestamp::now(),
+                revoked_at: None,
+                consent_version: None,
+                consent_locale: None,
+                authorization_details: None,
+                expires_at: None,
+            },
+            &GrantApproval::by_user(),
+        )
         .await
         .unwrap();
 }
@@ -329,6 +332,7 @@ async fn an_expired_registration_past_its_grace_goes_with_everything_issued_thro
             expired: 1,
             abandoned: 0,
             orphaned_grants: 1,
+            expired_grants: 0,
             expired_pushed_requests: 0,
         }
     );
@@ -379,6 +383,7 @@ async fn a_registration_no_user_authorized_is_reclaimed_after_a_day() {
             expired: 0,
             abandoned: 1,
             orphaned_grants: 1,
+            expired_grants: 0,
             expired_pushed_requests: 0,
         }
     );
@@ -545,6 +550,7 @@ async fn the_register_endpoint_answers_past_the_ceiling_with_429_and_an_rfc7591_
     let router = OAuth2Routes::routes(OAuth2Context {
         database: Arc::clone(&database),
         oauth2_server: Arc::clone(&repos.oauth2_server),
+        standing_policies: Arc::clone(&repos.oauth_standing_policies),
         tenants: Arc::clone(&repos.tenants),
         users: Arc::clone(&repos.users),
         auth_manager: common::create_test_auth_manager(),

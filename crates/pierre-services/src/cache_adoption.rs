@@ -52,8 +52,16 @@ impl CacheKeyKind {
     pub fn of(provider: &str) -> Self {
         match SourceKey::parse(provider) {
             Ok(SourceKey::Live(_)) => Self::Live,
-            Ok(_) => Self::Archive,
-            Err(_) => Self::Unknown,
+            Ok(
+                SourceKey::StravaArchive
+                | SourceKey::GarminArchive
+                | SourceKey::AppleHealthArchive
+                | SourceKey::CorosArchive
+                | SourceKey::WhoopArchive,
+            ) => Self::Archive,
+            // A consent grant's log entries name it; no record is kept
+            // under it, so no cache row is one.
+            Ok(SourceKey::OAuthGrant) | Err(_) => Self::Unknown,
         }
     }
 }
@@ -319,6 +327,11 @@ mod tests {
             CacheKeyKind::of("no such key"),
             CacheKeyKind::Unknown,
             "bug: a key the store refuses is not reported"
+        );
+        assert_eq!(
+            CacheKeyKind::of("oauth_grant"),
+            CacheKeyKind::Unknown,
+            "bug: a consent grant's log source is read as an archive and skipped"
         );
     }
 

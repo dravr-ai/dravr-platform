@@ -33,7 +33,7 @@ use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_contremaitre::messaging_strings::format_template;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::html::escape_html_attribute;
-use pierre_core::models::{OAuthClientGrant, User};
+use pierre_core::models::{GrantActor, OAuthClientGrant, User};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -548,7 +548,12 @@ async fn a_token_naming_a_revoked_grant_is_refused_at_mcp() {
     let revoked = live_grants(&world).await[0].id.clone();
     let repository = &world.resources.common.repos.oauth2_server;
     assert!(repository
-        .revoke_client_grant(&revoked, &world.user.id.to_string(), &world.tenant_id)
+        .revoke_client_grant(
+            &revoked,
+            &world.user.id.to_string(),
+            &world.tenant_id,
+            GrantActor::User
+        )
         .await
         .unwrap());
     // Past the second of the revocation, which `iat` cannot tell apart.

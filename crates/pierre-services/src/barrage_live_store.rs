@@ -274,8 +274,15 @@ fn live_source(provider: &str) -> AppResult<LiveSource> {
         .map_err(|e| AppError::invalid_input(format!("activity source {provider}: {e}")))?
     {
         SourceKey::Live(live) => Ok(live),
-        _ => Err(AppError::invalid_input(format!(
+        SourceKey::StravaArchive
+        | SourceKey::GarminArchive
+        | SourceKey::AppleHealthArchive
+        | SourceKey::CorosArchive
+        | SourceKey::WhoopArchive => Err(AppError::invalid_input(format!(
             "{provider} is an archive: its records arrive through an import"
+        ))),
+        SourceKey::OAuthGrant => Err(AppError::invalid_input(format!(
+            "{provider} is not an activity source: it names a consent grant's log entries"
         ))),
     }
 }
@@ -1095,7 +1102,7 @@ mod tests {
     use dravr_tronc::dates::{Elapsed, Timestamp};
     use uuid::Uuid;
 
-    use super::{sqlite_file_dir, sqlite_stores, stamped_after};
+    use super::{live_source, sqlite_file_dir, sqlite_stores, stamped_after};
     use crate::barrage_keys::PlatformKeyed;
 
     #[test]
@@ -1119,6 +1126,24 @@ mod tests {
         assert!(
             stamped_after(written + Elapsed::microseconds(1), written),
             "bug: a copy stamped a microsecond later read as the write's own"
+        );
+    }
+
+    #[test]
+    fn only_a_live_source_keeps_live_records() {
+        assert!(
+            live_source("strava").is_ok(),
+            "bug: a live provider is refused"
+        );
+        let archive = live_source("strava_archive").map(|_| ()).unwrap_err();
+        assert!(
+            archive.to_string().contains("is an archive"),
+            "bug: an archive is not refused as one: {archive}"
+        );
+        let grant = live_source("oauth_grant").map(|_| ()).unwrap_err();
+        assert!(
+            grant.to_string().contains("not an activity source"),
+            "bug: a consent grant's log source is not refused as a non-activity source: {grant}"
         );
     }
 

@@ -24,6 +24,13 @@
 //! A picker whose lines read empty in English is not shown ([`offered`]):
 //! the screen then offers the plain grant alone, and an athlete is never
 //! handed an unlabelled choice.
+//!
+//! Beside a preset choice, never the plain one and never for an admin, the
+//! screen may offer the standing-policy box, "Always allow this app this
+//! preset" ([`STANDING_POLICY_BOX`]): ticked, the approval also stores a
+//! standing policy that renews the same grant without the screen. The box is
+//! held off until the athlete can see and remove their policies, and a box
+//! field a form carries while it is off is ignored ([`standing_policy_ticked`]).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -39,11 +46,12 @@ use pierre_contremaitre::consent_strings::{
     KEY_CONSENT_GRANT_PURPOSE, KEY_CONSENT_GRANT_REQUESTED, KEY_CONSENT_GRANT_SLEEP_COACH,
     KEY_CONSENT_GRANT_SLEEP_COACH_HINT, KEY_CONSENT_GRANT_TRAINING_COACH,
     KEY_CONSENT_GRANT_TRAINING_COACH_HINT, KEY_CONSENT_GRANT_TRAINING_COACH_SUMMARY_HINT,
+    PRESET_KEY_STANDING_POLICY,
 };
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::time_constants;
 use pierre_core::html::escape_html_attribute;
-use pierre_core::models::OAuthClientGrant;
+use pierre_core::models::{OAuthClientGrant, User};
 use tracing::{error, warn};
 
 use super::consent_text::ConsentText;
@@ -73,6 +81,25 @@ const EVERYTHING: &str = "everything";
 /// The form field carrying a plain screen's or a request's review digest;
 /// the picker's choices each carry theirs as `review_digest_<choice>`.
 const FIELD_DIGEST: &str = "review_digest";
+
+/// The form field of a request's standing-policy box; the picker's presets
+/// each carry theirs as `standing_policy_<preset>`.
+const FIELD_STANDING_POLICY: &str = "standing_policy";
+
+/// Whether the consent screen offers the standing-policy box beside a preset
+/// choice. Off until the athlete's Connected apps list their policies with a
+/// way to remove them, and the catalogue words the box
+/// (`feature-phases.yaml`, `consent-standing-policy`): a policy the athlete
+/// cannot see is never created.
+pub(super) const STANDING_POLICY_BOX: bool = false;
+
+/// Whether `user`'s consent screen may offer the standing-policy box: while
+/// [`STANDING_POLICY_BOX`] is on, and never to an admin, whose access is
+/// chosen per connection. The screen and the submit both read it, so a box
+/// the screen never offered is never read from a form.
+pub(super) const fn offers_standing_policy_box(user: &User) -> bool {
+    STANDING_POLICY_BOX && !user.role.is_admin()
+}
 
 /// The refusal of an approval whose screen changed while it was open.
 pub(super) const CONSENT_CHANGED: &str =
@@ -111,20 +138,43 @@ enum Offer {
 }
 
 /// What the consent screen offers the athlete to grant, each choice with the
-/// review digest it is rendered under.
+/// review digest it is rendered under, and whether a preset choice carries
+/// the standing-policy box.
 #[derive(Debug, Clone)]
-pub struct GrantChoice(Offer);
+pub struct GrantChoice {
+    offer: Offer,
+    standing_policy_box: bool,
+}
 
 impl GrantChoice {
     /// What the screen for `checked` offers, read in `text` for `subject`.
     /// `raw` is the request's `authorization_details` parameter, echoed by a
-    /// form whose request was not pushed.
+    /// form whose request was not pushed. `standing_policy_box` places the
+    /// box beside each preset choice: [`STANDING_POLICY_BOX`] for anyone but
+    /// an admin, and only while the catalogue words it.
     pub(super) fn for_screen(
         checked: &CheckedAuthorization,
         raw: Option<&str>,
         text: &ConsentText<'_>,
         subject: ConsentSubject<'_>,
+        standing_policy_box: bool,
     ) -> Result<Self, OAuth2Error> {
+        let standing_policy_box =
+            standing_policy_box && !text.line(PRESET_KEY_STANDING_POLICY).is_empty();
+        let offer = Self::offer(checked, raw, text, subject)?;
+        Ok(Self {
+            offer,
+            standing_policy_box,
+        })
+    }
+
+    /// What the screen for `checked` offers to grant.
+    fn offer(
+        checked: &CheckedAuthorization,
+        raw: Option<&str>,
+        text: &ConsentText<'_>,
+        subject: ConsentSubject<'_>,
+    ) -> Result<Offer, OAuth2Error> {
         let version = consent_version(text, subject);
         let digest = |details: Option<&ResolvedDetails>| {
             review_digest(&version, details).map_err(|e| {
@@ -133,20 +183,20 @@ impl GrantChoice {
             })
         };
         if let Some(details) = &checked.details {
-            return Ok(Self(Offer::Requested {
+            return Ok(Offer::Requested {
                 details: Box::new(details.clone()),
                 raw: raw.unwrap_or_default().to_owned(),
                 review_digest: digest(Some(details))?,
-            }));
+            });
         }
         let Some(source) = checked
             .preset_source
             .as_deref()
             .filter(|_| offered(text.strings()))
         else {
-            return Ok(Self(Offer::Plain {
+            return Ok(Offer::Plain {
                 review_digest: digest(None)?,
-            }));
+            });
         };
         let mut choices = vec![Choice {
             value: EVERYTHING,
@@ -161,20 +211,34 @@ impl GrantChoice {
                 details: Some(details),
             });
         }
-        Ok(Self(Offer::Picker { choices }))
+        Ok(Offer::Picker { choices })
     }
 
     /// The choice's markup: the picker places `admin_box` beside
     /// Everything; a request's own details never show it.
     pub(super) fn render(&self, admin_box: &str, client: &str, text: &ConsentText<'_>) -> String {
-        match &self.0 {
+        let policy_box = |field: &str| {
+            if self.standing_policy_box {
+                standing_policy_box_html(field, client, text)
+            } else {
+                String::new()
+            }
+        };
+        match &self.offer {
             Offer::Plain { review_digest } => hidden(FIELD_DIGEST, review_digest),
             Offer::Requested {
                 details,
                 raw,
                 review_digest,
-            } => requested_html(details, raw, review_digest, client, text),
-            Offer::Picker { choices } => picker_html(choices, admin_box, client, text),
+            } => requested_html(
+                details,
+                raw,
+                review_digest,
+                client,
+                text,
+                &policy_box(FIELD_STANDING_POLICY),
+            ),
+            Offer::Picker { choices } => picker_html(choices, admin_box, client, text, &policy_box),
         }
     }
 
@@ -182,13 +246,13 @@ impl GrantChoice {
     /// page places none of its own: the picker shows it beside Everything,
     /// and a request's own details never show it.
     pub(super) const fn places_admin_box(&self) -> bool {
-        !matches!(self.0, Offer::Plain { .. })
+        !matches!(self.offer, Offer::Plain { .. })
     }
 
     /// Whether the screen grants one preset alone: a request's own details,
     /// which always narrow a preset. The picker offers Everything too.
     pub(super) const fn is_preset(&self) -> bool {
-        matches!(self.0, Offer::Requested { .. })
+        matches!(self.offer, Offer::Requested { .. })
     }
 }
 
@@ -204,6 +268,22 @@ fn hidden(name: &str, value: &str) -> String {
 /// The field carrying `choice`'s digest on the picker.
 fn picker_digest_field(choice: &str) -> String {
     format!("{FIELD_DIGEST}_{choice}")
+}
+
+/// The field carrying the standing-policy box of preset `choice` on the
+/// picker.
+fn picker_policy_field(choice: &str) -> String {
+    format!("{FIELD_STANDING_POLICY}_{choice}")
+}
+
+/// The standing-policy box, unticked, named `field`: always allow `client`
+/// this preset.
+fn standing_policy_box_html(field: &str, client: &str, text: &ConsentText<'_>) -> String {
+    format!(
+        r#"<label class="check standing-policy"><input type="checkbox" name="{}" value="on"> <span>{}</span></label>"#,
+        escape_html_attribute(field),
+        text.html(PRESET_KEY_STANDING_POLICY, &[client])
+    )
 }
 
 /// A preset's name and what it reads, in `text`'s language.
@@ -250,12 +330,14 @@ fn lasts_line(details: &ResolvedDetails, text: &ConsentText<'_>) -> String {
 }
 
 /// The picker: Everything preselected with the Admin access box beside it,
-/// then each preset, and every choice's digest.
+/// then each preset with the standing-policy box `policy_box` makes for its
+/// field (empty when the screen offers none), and every choice's digest.
 fn picker_html(
     choices: &[Choice],
     admin_box: &str,
     client: &str,
     text: &ConsentText<'_>,
+    policy_box: &dyn Fn(&str) -> String,
 ) -> String {
     let mut html = format!(
         r#"<fieldset class="scopes grant-choice"><legend class="scopes-title">{}</legend>"#,
@@ -283,6 +365,8 @@ fn picker_html(
         .ok();
         if choice.details.is_none() {
             html.push_str(admin_box);
+        } else {
+            html.push_str(&policy_box(&picker_policy_field(choice.value)));
         }
         html.push_str(&hidden(
             &picker_digest_field(choice.value),
@@ -295,13 +379,15 @@ fn picker_html(
 }
 
 /// A request's own details as they resolved: the preset, what it reads and
-/// for how long, and the client's purpose and commitments in its own words.
+/// for how long, the client's purpose and commitments in its own words, and
+/// the standing-policy box `policy_box` (empty when the screen offers none).
 fn requested_html(
     details: &ResolvedDetails,
     raw: &str,
     review_digest: &str,
     client: &str,
     text: &ConsentText<'_>,
+    policy_box: &str,
 ) -> String {
     let (label, hint) = preset_lines(details, text);
     let mut html = format!(
@@ -336,6 +422,7 @@ fn requested_html(
         }
         html.push_str("</ul>");
     }
+    html.push_str(policy_box);
     html.push_str(&hidden("authorization_details", raw));
     html.push_str(&hidden(FIELD_DIGEST, review_digest));
     html.push_str("</div>");
@@ -371,6 +458,31 @@ pub(super) fn chosen(
                 )
             },
         )
+}
+
+/// Whether the athlete ticked the standing-policy box beside the preset they
+/// approved with `form` for `checked`, the screen read in `text`. Never
+/// while the box is not offered (`offered_box`: [`STANDING_POLICY_BOX`], for
+/// anyone but an admin; and `text` words it), and never on the plain grant:
+/// a forged field is ignored.
+pub(super) fn standing_policy_ticked(
+    form: &HashMap<String, String>,
+    checked: &CheckedAuthorization,
+    text: &ConsentText<'_>,
+    offered_box: bool,
+) -> bool {
+    if !offered_box || text.line(PRESET_KEY_STANDING_POLICY).is_empty() {
+        return false;
+    }
+    let field = if checked.details.is_some() {
+        FIELD_STANDING_POLICY.to_owned()
+    } else {
+        match chosen(form, checked, text.strings()).0 {
+            Some(details) => picker_policy_field(details.preset().name()),
+            None => return false,
+        }
+    };
+    form.get(&field).is_some_and(|ticked| ticked == "on")
 }
 
 /// Refuse an approval whose screen no longer reads as it did: the digest the
@@ -432,4 +544,133 @@ pub(super) fn skip_accepts(
         }
     }
     super::consent_version::approved_under_current_text(strings, grant, stored.as_ref(), subject)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SOURCE: &str = "https://api.dravr.test/mcp";
+
+    fn subject() -> ConsentSubject<'static> {
+        ConsentSubject {
+            client_id: "https://client.example/meta.json",
+            redirect_uri: "https://client.example/callback",
+            first_party_only_sources: &[],
+        }
+    }
+
+    /// A scope-only request the picker answers.
+    fn scope_only() -> CheckedAuthorization {
+        CheckedAuthorization {
+            scope: "fitness:read".to_owned(),
+            resource: None,
+            client_name: None,
+            consent_every_time: false,
+            unstored_client: None,
+            admin_grantable: false,
+            details: None,
+            preset_source: Some(SOURCE.to_owned()),
+        }
+    }
+
+    /// The catalogue, with the standing-policy box worded in English.
+    fn worded() -> MessagingStringsRegistry {
+        let strings = MessagingStringsRegistry::new();
+        strings.update(
+            PRESET_KEY_STANDING_POLICY,
+            "en",
+            "Always allow {0} this preset".to_owned(),
+            "worded".to_owned(),
+        );
+        strings
+    }
+
+    fn form(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn the_box_is_read_only_beside_the_chosen_preset_while_it_is_offered() {
+        let strings = worded();
+        let text = ConsentText::new(&strings, "en");
+        let checked = scope_only();
+        let ticked = form(&[
+            ("grant", "training_coach"),
+            ("standing_policy_training_coach", "on"),
+        ]);
+        assert!(
+            standing_policy_ticked(&ticked, &checked, &text, true),
+            "bug: a ticked box beside the chosen preset is not read"
+        );
+        assert!(
+            !standing_policy_ticked(&ticked, &checked, &text, false),
+            "bug: a box field is read while the box is not offered"
+        );
+        let plain = form(&[
+            ("grant", "everything"),
+            ("standing_policy_training_coach", "on"),
+        ]);
+        assert!(
+            !standing_policy_ticked(&plain, &checked, &text, true),
+            "bug: a box is read on the plain grant"
+        );
+        let other = form(&[
+            ("grant", "sleep_coach"),
+            ("standing_policy_training_coach", "on"),
+        ]);
+        assert!(
+            !standing_policy_ticked(&other, &checked, &text, true),
+            "bug: another preset's box is read for the chosen one"
+        );
+        let unworded = MessagingStringsRegistry::new();
+        assert!(
+            !standing_policy_ticked(&ticked, &checked, &ConsentText::new(&unworded, "en"), true),
+            "bug: a box the catalogue does not word is read"
+        );
+    }
+
+    #[test]
+    fn the_box_renders_beside_each_preset_only_when_offered_and_worded() {
+        let strings = worded();
+        let text = ConsentText::new(&strings, "en");
+        let checked = scope_only();
+        let offered = GrantChoice::for_screen(&checked, None, &text, subject(), true).unwrap();
+        let page = offered.render("<admin-box>", "Client", &text);
+        for preset in Preset::ALL {
+            assert!(
+                page.contains(&format!(r#"name="standing_policy_{}""#, preset.name())),
+                "bug: no box beside {}: {page}",
+                preset.name()
+            );
+        }
+        assert!(
+            page.contains("Always allow Client this preset"),
+            "bug: the box's line is not shown: {page}"
+        );
+        assert_eq!(
+            page.matches("standing-policy").count(),
+            Preset::ALL.len(),
+            "bug: the plain choice carries a box: {page}"
+        );
+
+        let off = GrantChoice::for_screen(&checked, None, &text, subject(), false).unwrap();
+        assert!(
+            !off.render("", "Client", &text).contains("standing_policy"),
+            "bug: the box shows while it is switched off"
+        );
+        let unworded = MessagingStringsRegistry::new();
+        let unworded_text = ConsentText::new(&unworded, "en");
+        let unlabelled =
+            GrantChoice::for_screen(&checked, None, &unworded_text, subject(), true).unwrap();
+        assert!(
+            !unlabelled
+                .render("", "Client", &unworded_text)
+                .contains("standing_policy"),
+            "bug: an unlabelled box is shown"
+        );
+    }
 }

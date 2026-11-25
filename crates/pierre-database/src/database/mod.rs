@@ -90,6 +90,8 @@ pub mod first_run_progress;
 pub mod fitness_configurations;
 /// Every batch Garmin pushes, written before the 200 and worked under a lease (`SQLite`)
 pub mod garmin_push_inbox;
+/// A consent grant's receipts (`SQLite`) backing `OAuthGrantEventRepository`.
+pub mod grant_events;
 /// Health persistence: data sources, sleep, recovery, health snapshots
 pub mod health_persistence;
 /// Health records: self-reports, clinical records and lab documents (carnet#1544).
@@ -165,6 +167,8 @@ pub mod short_links;
 pub mod signup_codes;
 /// The new-user cohort the admin console and the daily digest read (`SQLite`)
 pub mod signup_cohort;
+/// An athlete's standing policies (`SQLite`) backing `OAuthStandingPolicyRepository`.
+pub mod standing_policies;
 /// Store listings for agent publishing workflow (`SQLite`)
 pub mod store_listings;
 /// Warnings sent before a Strava seat is reclaimed (`SQLite`)

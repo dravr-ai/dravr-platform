@@ -727,6 +727,7 @@ async fn oauth2_routes(limiter: OAuth2RateLimiter) -> (Router, String) {
     let routes = OAuth2Routes::routes(OAuth2Context {
         database: Arc::clone(&database),
         oauth2_server: Arc::clone(&repos.oauth2_server),
+        standing_policies: Arc::clone(&repos.oauth_standing_policies),
         tenants: Arc::clone(&repos.tenants),
         users: Arc::clone(&repos.users),
         auth_manager: common::create_test_auth_manager(),

@@ -13,6 +13,9 @@ import type {
   BrowserSigninCatalog,
   BrowserSigninCookie,
   OAuthGrant,
+  OAuthGrantReceipt,
+  OAuthGrantReceiptPage,
+  OAuthStandingPolicy,
   SciotteCancelResponse,
   SciotteLoginResponse,
   SciotteTarget,
@@ -291,6 +294,50 @@ export function createOAuthApi(axios: AxiosInstance) {
      */
     async revokeConnectedApp(id: string): Promise<void> {
       await axios.delete(ENDPOINTS.OAUTH.CONNECTED_APP(id));
+    },
+
+    /**
+     * One connected app grant's signed receipts (issue, revoke, expire),
+     * newest first, a page at a time; a grant deleted with its client keeps
+     * them.
+     */
+    async listConnectedAppReceipts(id: string, page: OAuthGrantReceiptPage = {}): Promise<OAuthGrantReceipt[]> {
+      const response = await axios.get<{ receipts: OAuthGrantReceipt[] }>(
+        ENDPOINTS.OAUTH.CONNECTED_APP_RECEIPTS(id),
+        { params: page },
+      );
+      return response.data.receipts;
+    },
+
+    /**
+     * Every signed receipt of the caller's connected app grants, newest
+     * first, a page at a time: the grant history.
+     */
+    async listGrantReceipts(page: OAuthGrantReceiptPage = {}): Promise<OAuthGrantReceipt[]> {
+      const response = await axios.get<{ receipts: OAuthGrantReceipt[] }>(
+        ENDPOINTS.OAUTH.GRANT_RECEIPTS,
+        { params: page },
+      );
+      return response.data.receipts;
+    },
+
+    /**
+     * The caller's live standing policies ("Always allow this app this
+     * preset"), newest first.
+     */
+    async listStandingPolicies(): Promise<OAuthStandingPolicy[]> {
+      const response = await axios.get<{ policies: OAuthStandingPolicy[] }>(
+        ENDPOINTS.OAUTH.STANDING_POLICIES,
+      );
+      return response.data.policies;
+    },
+
+    /**
+     * Remove one standing policy: its preset grant is no longer renewed
+     * without the consent screen; the grants it renewed stay as they are.
+     */
+    async removeStandingPolicy(id: string): Promise<void> {
+      await axios.delete(ENDPOINTS.OAUTH.STANDING_POLICY(id));
     },
 
     /**

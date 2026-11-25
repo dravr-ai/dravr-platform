@@ -25,7 +25,7 @@ use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_contremaitre::consent_strings::KEY_CONSENT_EXPRESS;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
-use pierre_core::models::{OAuthClientGrant, User};
+use pierre_core::models::{GrantApproval, OAuthClientGrant, User};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -282,19 +282,22 @@ async fn a_grant_recorded_without_a_version_asks_again() {
         .common
         .repos
         .oauth2_server
-        .store_client_grant(&OAuthClientGrant {
-            id: Uuid::new_v4().to_string(),
-            user_id: who.user.id.to_string(),
-            tenant_id: tenant.to_string(),
-            client_id: client_id.clone(),
-            scope: OAuthScope::render_granted(&OAuthScope::default_grant()),
-            granted_at: Timestamp::now(),
-            revoked_at: None,
-            consent_version: None,
-            consent_locale: None,
-            authorization_details: None,
-            expires_at: None,
-        })
+        .store_client_grant(
+            &OAuthClientGrant {
+                id: Uuid::new_v4().to_string(),
+                user_id: who.user.id.to_string(),
+                tenant_id: tenant.to_string(),
+                client_id: client_id.clone(),
+                scope: OAuthScope::render_granted(&OAuthScope::default_grant()),
+                granted_at: Timestamp::now(),
+                revoked_at: None,
+                consent_version: None,
+                consent_locale: None,
+                authorization_details: None,
+                expires_at: None,
+            },
+            &GrantApproval::by_user(),
+        )
         .await
         .unwrap();
 

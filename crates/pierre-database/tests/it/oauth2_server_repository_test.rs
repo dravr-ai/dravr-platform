@@ -18,8 +18,8 @@
 
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{
-    DeviceAuthorization, OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken, OAuth2State,
-    OAuthClientGrant,
+    DeviceAuthorization, GrantActor, GrantApproval, OAuth2AuthCode, OAuth2Client,
+    OAuth2RefreshToken, OAuth2State, OAuthClientGrant,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
@@ -394,7 +394,7 @@ async fn a_client_grant_is_idempotent_and_revocable_by_its_owner_only() {
     };
     let stored = repos
         .oauth2_server
-        .store_client_grant(&grant)
+        .store_client_grant(&grant, &GrantApproval::by_user())
         .await
         .unwrap();
     assert_eq!(stored, grant.id, "a new grant is stored under its own id");
@@ -407,7 +407,7 @@ async fn a_client_grant_is_idempotent_and_revocable_by_its_owner_only() {
     };
     let restored = repos
         .oauth2_server
-        .store_client_grant(&again)
+        .store_client_grant(&again, &GrantApproval::by_user())
         .await
         .unwrap();
     assert_eq!(
@@ -462,7 +462,7 @@ async fn a_client_grant_is_idempotent_and_revocable_by_its_owner_only() {
     assert!(
         !repos
             .oauth2_server
-            .revoke_client_grant(&grant.id, "someone-else", "tenant-d")
+            .revoke_client_grant(&grant.id, "someone-else", "tenant-d", GrantActor::User)
             .await
             .unwrap(),
         "another user cannot revoke the grant"
@@ -470,7 +470,7 @@ async fn a_client_grant_is_idempotent_and_revocable_by_its_owner_only() {
     assert!(
         repos
             .oauth2_server
-            .revoke_client_grant(&grant.id, &user_id, "tenant-d")
+            .revoke_client_grant(&grant.id, &user_id, "tenant-d", GrantActor::User)
             .await
             .unwrap(),
         "the owner revokes it"
@@ -478,7 +478,7 @@ async fn a_client_grant_is_idempotent_and_revocable_by_its_owner_only() {
     assert!(
         !repos
             .oauth2_server
-            .revoke_client_grant(&grant.id, &user_id, "tenant-d")
+            .revoke_client_grant(&grant.id, &user_id, "tenant-d", GrantActor::User)
             .await
             .unwrap(),
         "revoking twice changes nothing"
@@ -695,18 +695,21 @@ async fn a_client_grant_keeps_its_details_and_expiry_and_is_read_by_its_owner() 
     };
     let id = repos
         .oauth2_server
-        .store_client_grant(&grant)
+        .store_client_grant(&grant, &GrantApproval::by_user())
         .await
         .unwrap();
     // A re-consent offering other details keeps the row's own.
     repos
         .oauth2_server
-        .store_client_grant(&OAuthClientGrant {
-            id: Uuid::new_v4().to_string(),
-            authorization_details: None,
-            expires_at: None,
-            ..grant.clone()
-        })
+        .store_client_grant(
+            &OAuthClientGrant {
+                id: Uuid::new_v4().to_string(),
+                authorization_details: None,
+                expires_at: None,
+                ..grant.clone()
+            },
+            &GrantApproval::by_user(),
+        )
         .await
         .unwrap();
 

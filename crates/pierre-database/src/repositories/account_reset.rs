@@ -360,6 +360,8 @@ pub const RESET_KEEP: &[(&str, &str)] = &[
     ("oauth2_states", "OAuth server state of the account's connected MCP clients (sign-in)"),
     ("oauth_client_states", "OAuth client authorization state"),
     ("oauth_client_grants", "OAuth client authorization grants"),
+    ("oauth_grant_events", "the signed receipts of the account's OAuth client grants, which stay with the grants"),
+    ("oauth_standing_policies", "the account's standing approvals of OAuth clients, which stay with the grants"),
     ("audit_events", "the admin audit trail, the record of this reset included"),
     ("usage_counters", "quota metering: a reset is not a new quota"),
     ("llm_usage", "the LLM cost ledger"),

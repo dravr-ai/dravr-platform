@@ -24,8 +24,8 @@ use axum::http::{Request, StatusCode};
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_core::models::{
-    CallOutcome, ConversationTurnId, DelegatedRead, InsertLlmUsage, OAuth2Client, OAuthClientGrant,
-    OutsideReadKind, Tenant, TenantId,
+    CallOutcome, ConversationTurnId, DelegatedRead, GrantApproval, InsertLlmUsage, OAuth2Client,
+    OAuthClientGrant, OutsideReadKind, Tenant, TenantId,
 };
 use pierre_core::permissions::impersonation::{CallerCredential, CredentialKind};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -963,19 +963,22 @@ async fn grant_client(f: &Fixture, scope: &str) -> String {
     let id = Uuid::new_v4().to_string();
     f.repos()
         .oauth2_server
-        .store_client_grant(&OAuthClientGrant {
-            id: id.clone(),
-            user_id: f.athlete.id.to_string(),
-            tenant_id: f.athlete.tenant.to_string(),
-            client_id: OAUTH_CLIENT_ID.to_owned(),
-            scope: scope.to_owned(),
-            granted_at: Timestamp::now(),
-            revoked_at: None,
-            consent_version: None,
-            consent_locale: None,
-            authorization_details: None,
-            expires_at: None,
-        })
+        .store_client_grant(
+            &OAuthClientGrant {
+                id: id.clone(),
+                user_id: f.athlete.id.to_string(),
+                tenant_id: f.athlete.tenant.to_string(),
+                client_id: OAUTH_CLIENT_ID.to_owned(),
+                scope: scope.to_owned(),
+                granted_at: Timestamp::now(),
+                revoked_at: None,
+                consent_version: None,
+                consent_locale: None,
+                authorization_details: None,
+                expires_at: None,
+            },
+            &GrantApproval::by_user(),
+        )
         .await
         .unwrap();
     id

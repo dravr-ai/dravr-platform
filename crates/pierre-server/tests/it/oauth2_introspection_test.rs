@@ -26,7 +26,7 @@ use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
-use pierre_core::models::User;
+use pierre_core::models::{GrantActor, User};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -300,7 +300,12 @@ async fn a_revoked_grant_answers_revoked() {
         .common
         .repos
         .oauth2_server
-        .revoke_client_grant(&held, &world.user.id.to_string(), &world.tenant_id)
+        .revoke_client_grant(
+            &held,
+            &world.user.id.to_string(),
+            &world.tenant_id,
+            GrantActor::User
+        )
         .await
         .unwrap());
     forget_standing(&world, &client).await;
@@ -597,7 +602,12 @@ async fn token_validate_follows_introspection() {
         .common
         .repos
         .oauth2_server
-        .revoke_client_grant(&held, &world.user.id.to_string(), &world.tenant_id)
+        .revoke_client_grant(
+            &held,
+            &world.user.id.to_string(),
+            &world.tenant_id,
+            GrantActor::User
+        )
         .await
         .unwrap());
     forget_standing(&world, &client).await;

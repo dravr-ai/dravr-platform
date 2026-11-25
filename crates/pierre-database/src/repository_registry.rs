@@ -29,14 +29,14 @@ use crate::repositories::{
     HomePreferencesRepository, ImpersonationRepository, ImportTombstoneRepository,
     LlmCredentialRepository, LlmUsageRepository, McpTaskRepository, MemoryExtractionJobRepository,
     MessagingRepository, MobilityRepository, NotificationRepository, OAuth2ServerRepository,
-    OAuthClientStateRepository, OAuthTokenRepository, PasswordResetRepository,
-    PeerDataReadRepository, PersonaDigestReturnRepository, PersonalBestRepository,
-    PlatformPostClaimRepository, PlaybookRepository, PreApprovedEmailRepository,
-    PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository,
-    ProviderDataRepository, PushedDataRepository, RecipeRepository, RecoveryRepository,
-    ResumableTurnRepository, RouteSummaryRepository, RoutineRepository, SecurityRepository,
-    SeederRepository, SessionRefreshTokenRepository, ShortLinkRepository, SignupCodeRepository,
-    SignupCohortRepository, SleepRepository, StoreListingsRepository,
+    OAuthClientStateRepository, OAuthGrantEventRepository, OAuthStandingPolicyRepository,
+    OAuthTokenRepository, PasswordResetRepository, PeerDataReadRepository,
+    PersonaDigestReturnRepository, PersonalBestRepository, PlatformPostClaimRepository,
+    PlaybookRepository, PreApprovedEmailRepository, PrescribedWorkoutRepository, ProfileRepository,
+    ProviderConnectionRepository, ProviderDataRepository, PushedDataRepository, RecipeRepository,
+    RecoveryRepository, ResumableTurnRepository, RouteSummaryRepository, RoutineRepository,
+    SecurityRepository, SeederRepository, SessionRefreshTokenRepository, ShortLinkRepository,
+    SignupCodeRepository, SignupCohortRepository, SleepRepository, StoreListingsRepository,
     StravaSeatReclaimWarningRepository, SubscriptionsRepository, SyncCursorRepository,
     SystemSettingsRepository, TenantRepository, ToolSelectionRepository, TrainingHistoryRepository,
     TrainingPlanRepository, UnitPreferencesRepository, UploadedActivityFileRepository,
@@ -266,6 +266,12 @@ pub struct RepositoryRegistry {
     /// Deleted accounts whose imported history dravr-barrage still holds:
     /// written by the account delete, drained by the erasure sweep.
     pub archive_erasures: Arc<dyn ArchiveErasureRepository>,
+    /// A consent grant's receipts: written by the grant writes, logged and
+    /// signed by the `record_log` worker, read by the athlete.
+    pub oauth_grant_events: Arc<dyn OAuthGrantEventRepository>,
+    /// An athlete's standing policies ("always allow this app this preset"):
+    /// written by the consent screen, read where it would be skipped.
+    pub oauth_standing_policies: Arc<dyn OAuthStandingPolicyRepository>,
     /// Firebase identities still to delete at Google after their account
     /// went: written by the account delete, drained by its post-commit call
     /// and the retry sweep.
@@ -438,6 +444,8 @@ impl RepositoryRegistry {
             provider_data: db.clone(),
             feature_flags: db.clone(),
             archive_erasures: db.clone(),
+            oauth_grant_events: db.clone(),
+            oauth_standing_policies: db.clone(),
             firebase_identity_deletions: db.clone(),
             garmin_push_inbox: db.clone(),
             pushed_data: db.clone(),
@@ -559,6 +567,8 @@ impl RepositoryRegistry {
             provider_data: db.clone(),
             feature_flags: db.clone(),
             archive_erasures: db.clone(),
+            oauth_grant_events: db.clone(),
+            oauth_standing_policies: db.clone(),
             firebase_identity_deletions: db.clone(),
             garmin_push_inbox: db.clone(),
             pushed_data: db.clone(),

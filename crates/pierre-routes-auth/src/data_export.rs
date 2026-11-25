@@ -22,6 +22,9 @@
 //!
 //! Each key of `tables` is a database table and each row an object of its
 //! columns; a column holding a JSON document is that document, not a string.
+//! One key is a projection rather than a table: `consent_records`, just after
+//! `oauth_grant_events`, holds each of those receipts as a W3C DPV consent
+//! record (`grant_receipts`).
 //!
 //! # What is in it, and what is not
 //!
@@ -117,10 +120,13 @@ use pierre_runtime_context::{resolve_tenant_in, TenantMode};
 use pierre_services::barrage_keys::published_checkpoint_key;
 
 use self::barrage::{write_barrage, ExportSources, Section};
+use self::grant_receipts::write_consent_records;
 use crate::AuthRoutesContext;
 
 /// Barrage's records, erasures and `record_log` in the export.
 mod barrage;
+/// The athlete's consent grant receipts as DPV consent records.
+mod grant_receipts;
 
 /// How many exports one account may start in [`RATE_WINDOW`].
 const MAX_EXPORTS_PER_WINDOW: u64 = 3;
@@ -336,6 +342,9 @@ async fn write_export<S: ChunkSink>(
             }
             Section::Records | Section::Erased | Section::Log => {
                 write_barrage(*section, &sources, user_id, &mut writer, &mut summary).await;
+            }
+            Section::ConsentRecords => {
+                write_consent_records(&sources, user_id, &mut writer, &mut summary).await;
             }
         }
     }
@@ -617,6 +626,7 @@ pub(crate) async fn handle_user_export(
         let sources = ExportSources {
             repository: repos.user_export.as_ref(),
             records: records.as_ref(),
+            grant_events: repos.oauth_grant_events.as_ref(),
             tenants: &tenants,
             originals,
             checkpoint_key: published_checkpoint_key(),
@@ -674,7 +684,10 @@ pub(crate) async fn handle_user_export(
 mod tests {
     use async_trait::async_trait;
     use dravr_barrage::store::memory::MemoryActivityRecordStore;
-    use pierre_database::repositories::{UserExportPage, USER_EXPORT_TABLES};
+    use pierre_core::models::OAuthGrantEvent;
+    use pierre_database::repositories::{
+        OAuthGrantEventRepository, UserExportPage, USER_EXPORT_TABLES,
+    };
     use pierre_services::barrage_keys::memory_records;
     use tokio::task;
 
@@ -683,10 +696,66 @@ mod tests {
     /// No barrage history: the platform tables' tests read none.
     static NO_RECORDS: LazyLock<MemoryActivityRecordStore> = LazyLock::new(memory_records);
 
+    /// An athlete who never connected an outside app: no receipt to project.
+    /// The consent records' own writing is driven against the real repository
+    /// in `pierre-server`'s `oauth_grant_receipts_test` (export case).
+    pub(super) struct NoReceipts;
+
+    #[async_trait]
+    impl OAuthGrantEventRepository for NoReceipts {
+        async fn list_unlogged(&self, _limit: u32) -> AppResult<Vec<OAuthGrantEvent>> {
+            Ok(Vec::new())
+        }
+        async fn mark_logged(
+            &self,
+            _tenant_id: &str,
+            _user_id: &str,
+            _id: &str,
+            _at: Timestamp,
+        ) -> AppResult<bool> {
+            Ok(false)
+        }
+        async fn list_unsigned(&self, _limit: u32) -> AppResult<Vec<OAuthGrantEvent>> {
+            Ok(Vec::new())
+        }
+        async fn record_failure(
+            &self,
+            _tenant_id: &str,
+            _user_id: &str,
+            _id: &str,
+            _at: Timestamp,
+        ) -> AppResult<Option<u32>> {
+            Ok(None)
+        }
+        async fn set_jws(
+            &self,
+            _tenant_id: &str,
+            _user_id: &str,
+            _id: &str,
+            _jws: &str,
+        ) -> AppResult<bool> {
+            Ok(false)
+        }
+        async fn list_for_user(
+            &self,
+            _tenant_id: &str,
+            _user_id: &str,
+            _client_grant_id: Option<&str>,
+            _limit: u32,
+            _offset: u32,
+        ) -> AppResult<Vec<OAuthGrantEvent>> {
+            Ok(Vec::new())
+        }
+        async fn baseline_live_grants(&self, _limit: u32) -> AppResult<u64> {
+            Ok(0)
+        }
+    }
+
     pub(super) fn sources(repository: &FakeRepository) -> ExportSources<'_> {
         ExportSources {
             repository,
             records: &*NO_RECORDS,
+            grant_events: &NoReceipts,
             tenants: &[],
             originals: Value::Null,
             checkpoint_key: None,

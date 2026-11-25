@@ -24,13 +24,22 @@
 //! ## Why the key can sign both
 //!
 //! The key is the `record_log` checkpoint signer
-//! ([`pierre_services::barrage_keys::checkpoint_signer`]). The only other
-//! message it signs is a checkpoint note body, which barrage's
-//! `cut_checkpoint` writes as `"<origin>\n<size>\n<root>\n"` with the origin
-//! [`pierre_services::barrage_keys::CHECKPOINT_ORIGIN`]
-//! (`dravr.ai/barrage-log`): its first line is never `dravr.ai/tool-def`, so
-//! no tool-definition message is a checkpoint note and no checkpoint note is a
-//! tool-definition message.
+//! ([`pierre_services::barrage_keys::checkpoint_signer`]). It signs two
+//! other message families:
+//!
+//! - a checkpoint note body, which barrage's `cut_checkpoint` writes as
+//!   `"<origin>\n<size>\n<root>\n"` with the origin
+//!   [`pierre_services::barrage_keys::CHECKPOINT_ORIGIN`]
+//!   (`dravr.ai/barrage-log`): its first line is never `dravr.ai/tool-def`;
+//! - a consent grant receipt's compact-JWS signing input
+//!   ([`pierre_services::grant_receipt_jws`], carnet#1544),
+//!   `BASE64URL(header) '.' BASE64URL(payload)`: it starts with `eyJ` (the
+//!   base64url of `{"`) and holds no newline, so it has no first line of
+//!   either form.
+//!
+//! So no tool-definition message is a message of another family, and no
+//! message of another family is a tool-definition message
+//! (`grant_receipt_jws`'s domain-separation test pins all three apart).
 //!
 //! ## When it is signed
 //!
@@ -56,13 +65,10 @@ use dravr_barrage::keyed::Signer;
 use dravr_tronc::mcp::schema::{Tool, TOOL_META_KEY};
 use futures_util::stream::{self, StreamExt};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_services::barrage_keys::TOOL_DEF_SIG_CONTEXT;
 use serde_json::{Map, Value};
 use tokio::time::{self, Instant};
 use tracing::warn;
-
-/// The domain-separation prefix of every signed tool-definition message:
-/// the signed bytes are this text followed by the served `def_hash`.
-const TOOL_DEF_SIG_CONTEXT: &str = "dravr.ai/tool-def\n";
 
 /// The field of the `_meta["ai.dravr.vault/tool"]` object that carries the signature.
 ///

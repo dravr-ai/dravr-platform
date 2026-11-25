@@ -33,7 +33,9 @@ mod support_session_assistant_tests {
     use axum::Router;
     use dravr_tronc::dates::{Elapsed, Timestamp};
     use pierre_auth::auth::{DelegatedGrant, TokenLineage, IMPERSONATION_WRITE_REFUSED};
-    use pierre_core::models::{OAuth2Client, OAuth2RefreshToken, OAuthClientGrant};
+    use pierre_core::models::{
+        GrantActor, GrantApproval, OAuth2Client, OAuth2RefreshToken, OAuthClientGrant,
+    };
     use pierre_core::permissions::impersonation::{
         BoundCredential, ImpersonationSession, ENDED_ACTION, EXPIRED_ACTION, STARTED_ACTION,
     };
@@ -948,19 +950,22 @@ mod support_session_assistant_tests {
         let consent = Uuid::new_v4().to_string();
         let oauth = &world.res.common.repos.oauth2_server;
         oauth
-            .store_client_grant(&OAuthClientGrant {
-                id: consent.clone(),
-                user_id: world.admin.id.to_string(),
-                tenant_id: world.admin.tenant.to_string(),
-                client_id: ADMIN_CLIENT.to_owned(),
-                scope: "admin".to_owned(),
-                granted_at: Timestamp::now(),
-                revoked_at: None,
-                consent_version: None,
-                consent_locale: None,
-                authorization_details: None,
-                expires_at: None,
-            })
+            .store_client_grant(
+                &OAuthClientGrant {
+                    id: consent.clone(),
+                    user_id: world.admin.id.to_string(),
+                    tenant_id: world.admin.tenant.to_string(),
+                    client_id: ADMIN_CLIENT.to_owned(),
+                    scope: "admin".to_owned(),
+                    granted_at: Timestamp::now(),
+                    revoked_at: None,
+                    consent_version: None,
+                    consent_locale: None,
+                    authorization_details: None,
+                    expires_at: None,
+                },
+                &GrantApproval::by_user(),
+            )
             .await
             .unwrap();
         world
@@ -977,6 +982,7 @@ mod support_session_assistant_tests {
                     &consent,
                     &world.admin.id.to_string(),
                     &world.admin.tenant.to_string(),
+                    GrantActor::User,
                 )
                 .await
                 .unwrap(),

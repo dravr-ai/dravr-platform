@@ -208,6 +208,8 @@ pub mod live_activities;
 pub mod barrage_keys;
 /// The activity store over dravr-barrage, its record store opener and its projection into the cache (carnet#1482)
 pub mod barrage_live_store;
+/// A consent grant's receipt as a compact JWS signed by the checkpoint key (carnet#1544).
+pub mod grant_receipt_jws;
 /// The hourly `record_log` worker: keyed backfills, baseline, orphan sweep, signed checkpoints (carnet#1542).
 pub mod record_log_worker;
 

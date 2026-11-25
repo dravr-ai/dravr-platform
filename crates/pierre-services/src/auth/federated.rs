@@ -29,7 +29,8 @@ use pierre_auth::google_oidc::GOOGLE_PROVIDER;
 use pierre_core::constants::{limits, tiers};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    default_locale, normalize_email, CoachingPersona, User, UserTier, FEDERATED_ONLY_PASSWORD_HASH,
+    default_locale, normalize_email, CoachingPersona, GrantActor, User, UserTier,
+    FEDERATED_ONLY_PASSWORD_HASH,
 };
 use pierre_core::permissions::UserRole;
 use pierre_database::repositories::FederatedLink;
@@ -372,7 +373,7 @@ impl AuthService {
             {
                 if repos
                     .oauth2_server
-                    .revoke_client_grant(&grant.id, &user_id, &tenant_id)
+                    .revoke_client_grant(&grant.id, &user_id, &tenant_id, GrantActor::Auto)
                     .await?
                 {
                     grants += 1;

@@ -39,6 +39,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::supported_ui_locale;
 use pierre_database::backends::{factory::Database, OAuth2ServerRepository};
 use pierre_database::database::repositories::{TenantRepository, UserRepository};
+use pierre_database::repositories::OAuthStandingPolicyRepository;
 use pierre_services::auth::AuthService;
 use secrecy::{ExposeSecret, SecretString};
 use std::fmt;
@@ -87,6 +88,8 @@ mod picker;
 mod revoke;
 /// The sign-in cookie: its name, value and reading.
 mod session;
+/// A standing policy's renewal of a preset grant without the consent screen
+mod standing_policy;
 /// `POST /oauth2/token-validate`: the SDK's check of its own token
 mod token_validate;
 /// did:web for the checkpoint key and the newest signed checkpoint (carnet#1542)
@@ -109,6 +112,9 @@ pub struct OAuth2Context {
     pub database: Arc<Database>,
     /// `OAuth2` server repository for client registration, auth codes, and tokens
     pub oauth2_server: Arc<dyn OAuth2ServerRepository>,
+    /// The athletes' standing policies: stored from the consent screen, read
+    /// where it would be skipped
+    pub standing_policies: Arc<dyn OAuthStandingPolicyRepository>,
     /// Tenant repository for user-tenant lookups
     pub tenants: Arc<dyn TenantRepository>,
     /// User repository for credential and profile lookups
@@ -503,11 +509,36 @@ impl OAuth2Routes {
             )
             .await;
         }
+        // No live grant answers: a standing policy may renew the preset grant
+        // the request names, under the same gate.
+        if let Some(tid) = grant_tenant.as_deref().filter(|_| skippable) {
+            if let Some(renewed) =
+                Self::renew_under_standing_policy(context, &user, tid, checked, subject).await
+            {
+                return Self::mint_authorization_code(
+                    context,
+                    request,
+                    authenticated_user_id,
+                    tenant_id,
+                    redirect_uri,
+                    AdminAccess::Withheld,
+                    Some(renewed),
+                )
+                .await;
+            }
+        }
 
         let text = ConsentText::for_reader(&context.strings, Some(&user.locale), headers);
         let role = Self::consent_role(context, &user, checked.admin_grantable).await;
         let raw_details = request.authorization_details.as_deref();
-        let choice = match GrantChoice::for_screen(checked, raw_details, &text, subject) {
+        let standing_policy_box = picker::offers_standing_policy_box(&user);
+        let choice = match GrantChoice::for_screen(
+            checked,
+            raw_details,
+            &text,
+            subject,
+            standing_policy_box,
+        ) {
             Ok(choice) => choice,
             Err(error) => return Self::render_oauth_error_response(&error, &text),
         };

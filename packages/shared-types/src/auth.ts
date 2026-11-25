@@ -806,6 +806,63 @@ export interface OAuthGrant {
   expires_at: string | null;
 }
 
+/**
+ * One of the athlete's standing policies (`GET /api/me/oauth-standing-policies`):
+ * "Always allow this app this preset". While it stands, the preset grant it
+ * names is renewed without the consent screen; removing it stops the renewals
+ * and leaves the grants it renewed as they are.
+ */
+export interface OAuthStandingPolicy {
+  /** Policy id — pass to the remove endpoint. Every grant it renewed cites it. */
+  id: string;
+  /** The client it always allows. */
+  client_id: string;
+  /** The name the client registered, which it chose for itself; show it with `client_host`. */
+  client_name: string | null;
+  /** Where the client is, as Connected apps shows it. */
+  client_host: string | null;
+  /** The preset it renews (`training_coach`, `sleep_coach`). */
+  preset: string;
+  /** When the athlete ticked the box (RFC 3339). */
+  created_at: string;
+}
+
+/** What happened to a grant: given (or re-consented to), ended early, or reached its expiry. */
+export type OAuthGrantEventKind = 'issue' | 'revoke' | 'expire';
+
+/** Who caused a grant event: the athlete, the client (RFC 7009, its owner deleting it), or Dravr itself (a standing policy, a sweep). */
+export type OAuthGrantActor = 'user' | 'client' | 'auto';
+
+/**
+ * One signed receipt of a consent grant's event (`GET /api/me/oauth-grant-receipts`,
+ * `GET /api/me/oauth-grants/{id}/receipts`), newest first. A grant deleted with
+ * its client keeps its receipts.
+ */
+export interface OAuthGrantReceipt {
+  /** The receipt's id (`receipt_id` in its payload). */
+  id: string;
+  /** The grant it is about. */
+  client_grant_id: string;
+  event: OAuthGrantEventKind;
+  actor: OAuthGrantActor;
+  /** When it happened (RFC 3339). */
+  at: string;
+  /** The receipt payload, as signed. */
+  payload: Record<string, unknown>;
+  /** Hex SHA-256 of the stored payload bytes: the athlete's record_log entry names it. */
+  payload_sha256: string;
+  /** The compact JWS over the payload; `null` until it is signed. */
+  jws: string | null;
+  /** When its record_log entry was appended (RFC 3339); `null` until then. */
+  logged_at: string | null;
+}
+
+/** A page of receipts: the server holds `limit` to 1..100 (50 when absent). */
+export interface OAuthGrantReceiptPage {
+  limit?: number;
+  offset?: number;
+}
+
 // ========== MCP TOKEN TYPES ==========
 
 /** An MCP token for API access */

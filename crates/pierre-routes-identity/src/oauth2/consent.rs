@@ -15,9 +15,9 @@ use dravr_tronc::dates::{Timestamp, Zone};
 use pierre_auth::oauth2_server::authorization_details::{athlete_zone, ResolvedDetails};
 use pierre_auth::oauth2_server::endpoints::{AdminAccess, OAuth2AuthorizationServer};
 use pierre_auth::oauth2_server::models::{AuthorizeRequest, OAuth2Error};
-use pierre_core::errors::AppError;
-use pierre_core::models::{OAuthClientGrant, User, UserStatus};
-use tracing::{error, warn};
+use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::{GrantApproval, OAuthClientGrant, OAuthStandingPolicy, User, UserStatus};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use super::admin_access;
@@ -62,6 +62,28 @@ struct Approval<'form> {
     review_digest: String,
     /// The athlete's zone, which the details' window is frozen in
     zone: Zone,
+    /// Whether the athlete ticked the standing-policy box beside the preset
+    standing_policy: bool,
+}
+
+/// A grant being recorded, by the athlete on the consent screen or by the AS
+/// under a standing policy: the one shape [`OAuth2Routes::record_approval`]
+/// stores.
+pub(super) struct ApprovedGrant<'grant> {
+    /// The client approved
+    pub(super) client_id: &'grant str,
+    /// The scope the grant and its code carry
+    pub(super) scope: &'grant str,
+    /// The details approved; `None` for a plain grant
+    pub(super) details: Option<&'grant ResolvedDetails>,
+    /// The review digest the approval was given under
+    pub(super) consent_version: String,
+    /// The language of the consent text it was given under
+    pub(super) consent_locale: String,
+    /// The athlete's zone, which the details' window is frozen in
+    pub(super) zone: Zone,
+    /// Who approved it, and the policy that did when one did
+    pub(super) approval: GrantApproval,
 }
 
 impl OAuth2Routes {
@@ -168,6 +190,14 @@ impl OAuth2Routes {
             admin_access::decided(&form, &user, &checked, &text)
         };
         let scope = OAuth2AuthorizationServer::granted_scope(&checked, access);
+        // The standing-policy box, read only where the screen offered it:
+        // beside a preset, to anyone but an admin, while it is switched on.
+        let standing_policy = picker::standing_policy_ticked(
+            &form,
+            &checked,
+            &text,
+            picker::offers_standing_policy_box(&user),
+        );
 
         // A client first seen in this flow gets its row before the grant naming it.
         if let Err(error) = server.enroll_checked_client(&checked).await {
@@ -192,6 +222,7 @@ impl OAuth2Routes {
                 details: details.as_ref(),
                 review_digest,
                 zone: athlete_zone(user.timezone.as_deref()),
+                standing_policy,
             },
             user_id,
             tenant_id.clone(),
@@ -221,18 +252,16 @@ impl OAuth2Routes {
         .await
     }
 
-    /// Record the athlete's approval of `scope`, the grant the authorization
-    /// was checked to carry, with the review digest and language of the
-    /// consent text it was given under, and the details it grants with their
-    /// window frozen now and their expiry. A live grant with the same terms
-    /// keeps its row and takes the new digest at the storage layer. A grant's
-    /// details never change under it, so an approval of other details, or one
-    /// onto a row past its expiry, revokes that row and stores a new grant.
-    /// Returns the id of the row that holds the grant.
+    /// Record the athlete's approval of `scope` on the consent screen, the
+    /// grant the authorization was checked to carry, with the review digest
+    /// and language of the consent text it was given under
+    /// ([`Self::record_approval`]); with the standing-policy box ticked, also
+    /// store the policy that renews it. Returns the id of the row that holds
+    /// the grant.
     ///
     /// # Errors
-    /// `server_error` when the grant's tenant cannot be resolved or the grant
-    /// cannot be written.
+    /// `server_error` when the grant's tenant cannot be resolved, or the
+    /// grant or its policy cannot be written.
     async fn record_consent(
         context: &OAuth2Context,
         approval: Approval<'_>,
@@ -246,6 +275,7 @@ impl OAuth2Routes {
             details,
             review_digest,
             zone,
+            standing_policy,
         } = approval;
         let Some(tid) = Self::resolve_grant_tenant(context, user_id, tenant_id).await else {
             error!(user_id = %user_id, client_id, "OAuth consent not recorded: the grant has no tenant");
@@ -255,52 +285,125 @@ impl OAuth2Routes {
             error!(user_id = %user_id, client_id, "Failed to persist OAuth client grant: {e}");
             OAuth2Error::server_error(CONSENT_NOT_RECORDED)
         };
+        let policy = match details.filter(|_| standing_policy) {
+            Some(details) => Some(
+                standing_policy_of(
+                    &PolicyApproval {
+                        user_id,
+                        tenant_id: &tid,
+                        client_id,
+                        scope,
+                        details,
+                        review_digest: &review_digest,
+                        locale: text.lang(),
+                    },
+                    Timestamp::now(),
+                )
+                .map_err(not_recorded)?,
+            ),
+            None => None,
+        };
+        let client_grant_id = Self::record_approval(
+            context,
+            ApprovedGrant {
+                client_id,
+                scope,
+                details,
+                consent_version: review_digest,
+                consent_locale: text.lang().to_owned(),
+                zone,
+                approval: GrantApproval::by_user(),
+            },
+            user_id,
+            &tid,
+        )
+        .await
+        .map_err(not_recorded)?;
+        if let Some(policy) = policy {
+            context
+                .standing_policies
+                .store_standing_policy(&policy)
+                .await
+                .map_err(not_recorded)?;
+            info!(user_id = %user_id, client_id, policy_id = %policy.id, preset = %policy.preset, "Standing policy stored");
+        }
+        Ok(client_grant_id)
+    }
+
+    /// Record `approved` for `user_id` in `tenant_id`: the one approval both
+    /// the consent screen and a standing policy's renewal store through. The
+    /// details are frozen now, their window from the athlete's local
+    /// midnight, and the grant expires their lifetime from now. A live grant
+    /// with the same terms keeps its row and takes the new digest at the
+    /// storage layer. A grant's details never change under it, so an approval
+    /// of other details, or one onto a row past its expiry, revokes that row
+    /// and stores a new grant. A resource server's cached standing of the
+    /// client is dropped, so the token about to be minted is not refused on
+    /// it. Returns the id of the row that holds the grant.
+    ///
+    /// # Errors
+    /// A database error when the grant cannot be read or written, an
+    /// internal one when its dates fall outside the calendar.
+    pub(super) async fn record_approval(
+        context: &OAuth2Context,
+        approved: ApprovedGrant<'_>,
+        user_id: Uuid,
+        tenant_id: &str,
+    ) -> AppResult<String> {
+        let ApprovedGrant {
+            client_id,
+            scope,
+            details,
+            consent_version,
+            consent_locale,
+            zone,
+            approval,
+        } = approved;
         let granted_at = Timestamp::now();
         let (document, expires_at) = match details {
             Some(details) => {
-                let (frozen, expires_at) =
-                    details.freeze(granted_at, &zone).map_err(not_recorded)?;
-                (
-                    Some(frozen.to_document().map_err(not_recorded)?),
-                    Some(expires_at),
-                )
+                let (frozen, expires_at) = details.freeze(granted_at, &zone)?;
+                (Some(frozen.to_document()?), Some(expires_at))
             }
             None => (None, None),
         };
         let grant = OAuthClientGrant {
             id: Uuid::new_v4().to_string(),
             user_id: user_id.to_string(),
-            tenant_id: tid.clone(),
+            tenant_id: tenant_id.to_owned(),
             client_id: client_id.to_owned(),
             scope: scope.to_owned(),
             granted_at,
             revoked_at: None,
-            consent_version: Some(review_digest),
-            consent_locale: Some(text.lang().to_owned()),
+            consent_version: Some(consent_version),
+            consent_locale: Some(consent_locale),
             authorization_details: document,
             expires_at,
         };
         let live = context
             .oauth2_server
-            .find_active_client_grant(&grant.user_id, &tid, client_id, scope)
-            .await
-            .map_err(not_recorded)?;
-        let stored = match live {
+            .find_active_client_grant(&grant.user_id, tenant_id, client_id, scope)
+            .await?;
+        let client_grant_id = match live {
             Some(live) if !same_terms(&live, details) || !live.is_live_at(grant.granted_at) => {
                 context
                     .oauth2_server
-                    .replace_client_grant(&live.id, &grant)
-                    .await
+                    .replace_client_grant(&live.id, &grant, &approval)
+                    .await?
             }
-            _ => context.oauth2_server.store_client_grant(&grant).await,
+            _ => {
+                context
+                    .oauth2_server
+                    .store_client_grant(&grant, &approval)
+                    .await?
+            }
         };
-        let client_grant_id = stored.map_err(not_recorded)?;
         // A resource server may hold this client as withdrawn from before: the
-        // token this consent is about to mint must not be refused on that.
+        // token this approval is about to mint must not be refused on that.
         context
             .accounts
             .grant_standings()
-            .forget(user_id, &tid, client_id)
+            .forget(user_id, tenant_id, client_id)
             .await;
         Ok(client_grant_id)
     }
@@ -429,6 +532,47 @@ impl OAuth2Routes {
     }
 }
 
+/// The approval a standing policy is made from: the preset grant the
+/// athlete approved with the box ticked, and the screen it was approved on.
+struct PolicyApproval<'approval> {
+    user_id: Uuid,
+    tenant_id: &'approval str,
+    client_id: &'approval str,
+    /// The OAuth scope approved
+    scope: &'approval str,
+    /// The preset details approved
+    details: &'approval ResolvedDetails,
+    /// The review digest the box was ticked under
+    review_digest: &'approval str,
+    /// The language of the screen
+    locale: &'approval str,
+}
+
+/// The standing policy `approval` creates at `now`: the details' terms (the
+/// window not frozen), which a renewal must equal, under the digest and
+/// language the box was ticked in.
+///
+/// # Errors
+/// An internal error if the details cannot be serialized.
+fn standing_policy_of(
+    approval: &PolicyApproval<'_>,
+    now: Timestamp,
+) -> AppResult<OAuthStandingPolicy> {
+    Ok(OAuthStandingPolicy {
+        id: Uuid::new_v4().to_string(),
+        tenant_id: approval.tenant_id.to_owned(),
+        user_id: approval.user_id.to_string(),
+        client_id: approval.client_id.to_owned(),
+        preset: approval.details.preset().name().to_owned(),
+        scope: approval.scope.to_owned(),
+        authorization_details: approval.details.terms().to_document()?,
+        consent_version: approval.review_digest.to_owned(),
+        consent_locale: approval.locale.to_owned(),
+        created_at: now,
+        revoked_at: None,
+    })
+}
+
 /// Whether the live grant `live` grants exactly `details` (none for a plain
 /// grant), whenever it was approved. A stored document that does not read
 /// grants nothing anyone can name, so it is replaced.
@@ -437,5 +581,68 @@ fn same_terms(live: &OAuthClientGrant, details: Option<&ResolvedDetails>) -> boo
         (Ok(None), None) => true,
         (Ok(Some(stored)), Some(details)) => stored.same_terms(details),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pierre_auth::oauth2_server::authorization_details::{preset_defaults, Preset};
+
+    use super::*;
+
+    #[test]
+    fn a_policy_holds_the_approved_terms_under_the_screens_digest_and_language() {
+        let details = preset_defaults(Preset::SleepCoach, "https://api.dravr.test/mcp");
+        let (frozen, _) = details
+            .freeze(Timestamp::now(), &Zone::utc())
+            .expect("fixture: the window freezes");
+        let user_id = Uuid::new_v4();
+        let now = Timestamp::now();
+        let policy = standing_policy_of(
+            &PolicyApproval {
+                user_id,
+                tenant_id: "tenant-1",
+                client_id: "client-1",
+                scope: "fitness:read",
+                details: &frozen,
+                review_digest: "digest-1",
+                locale: "fr",
+            },
+            now,
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                policy.user_id.as_str(),
+                policy.tenant_id.as_str(),
+                policy.client_id.as_str(),
+                policy.preset.as_str(),
+                policy.consent_version.as_str(),
+                policy.consent_locale.as_str(),
+                policy.created_at,
+                policy.revoked_at,
+            ),
+            (
+                user_id.to_string().as_str(),
+                "tenant-1",
+                "client-1",
+                "sleep_coach",
+                "digest-1",
+                "fr",
+                now,
+                None,
+            ),
+            "bug: the policy does not state the approval it was made from"
+        );
+        let terms = ResolvedDetails::from_document(&policy.authorization_details).unwrap();
+        assert_eq!(
+            terms.since(),
+            None,
+            "bug: the policy froze the approval's window, so no renewal equals it"
+        );
+        assert!(
+            terms.same_terms(&details),
+            "bug: the policy's terms are not the approved ones"
+        );
     }
 }

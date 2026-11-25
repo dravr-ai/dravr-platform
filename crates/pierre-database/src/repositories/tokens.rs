@@ -37,8 +37,8 @@
 //! Postgres, so one statement serves both drivers and cannot drift between
 //! them.
 
-/// Revoking and replacing a consent grant, one body for both
-mod grant_writes;
+/// Every statement that starts or ends a consent grant, and its receipts
+pub(crate) mod grant_writes;
 /// The RFC 9126 pushed authorization request store
 pub(crate) mod pushed;
 mod rows;
@@ -92,12 +92,6 @@ pub(crate) const DELETE_OAUTH2_CLIENT_SQL: &str = r"
             DELETE FROM oauth2_clients WHERE client_id = $1
             ";
 
-/// The consent grants naming client `$1`, which has no foreign key to cascade
-/// them.
-pub(crate) const DELETE_CLIENT_GRANTS_FOR_CLIENT_SQL: &str = r"
-            DELETE FROM oauth_client_grants WHERE client_id = $1
-            ";
-
 /// Registrations whose expiry passed before `$1`, the grace cutoff. A row
 /// without an expiry was not written by dynamic registration and never matches.
 pub(crate) const DELETE_EXPIRED_OAUTH2_CLIENTS_SQL: &str = r"
@@ -110,16 +104,6 @@ pub(crate) const DELETE_EXPIRED_OAUTH2_CLIENTS_SQL: &str = r"
 pub(crate) const DELETE_ABANDONED_OAUTH2_CLIENTS_SQL: &str = r"
             DELETE FROM oauth2_clients
             WHERE expires_at IS NOT NULL AND last_authorized_at IS NULL AND created_at < $1
-            ";
-
-/// Consent grants naming a client that no longer exists. `oauth_client_grants`
-/// has no foreign key to `oauth2_clients`, so deleting a client cascades to its
-/// codes, refresh tokens and states but not to these.
-pub(crate) const DELETE_ORPHANED_CLIENT_GRANTS_SQL: &str = r"
-            DELETE FROM oauth_client_grants
-            WHERE NOT EXISTS (
-                SELECT 1 FROM oauth2_clients c WHERE c.client_id = oauth_client_grants.client_id
-            )
             ";
 
 /// Record that a refresh token was issued through client `$1` at `$2`. Only a
@@ -231,25 +215,6 @@ pub(crate) const CONSUME_OAUTH2_STATE_SQL: &str = r"
             RETURNING state, client_id, user_id, tenant_id, redirect_uri, scope, code_challenge, code_challenge_method, created_at, expires_at, used
             ";
 
-/// Record a consent. The active partial-unique index keeps one live grant:
-/// the conflict target names that index, which both engines resolve. A
-/// re-consent to the same grant keeps its row and records the consent text
-/// it was given under, so a screen asked again because its text changed is
-/// not asked again on the next authorization. The details and expiry are
-/// written with the row and never by the re-consent: a grant's details do not
-/// change under it. Returns the id of the row that holds the grant, the
-/// existing one on a re-consent.
-pub(crate) const STORE_CLIENT_GRANT_SQL: &str = r"
-            INSERT INTO oauth_client_grants
-                (id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
-                 consent_version, consent_locale, authorization_details, expires_at)
-            VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, NULL, $6, $7, $8, $9)
-            ON CONFLICT (user_id, tenant_id, client_id, scope) WHERE revoked_at IS NULL
-            DO UPDATE SET consent_version = excluded.consent_version,
-                          consent_locale = excluded.consent_locale
-            RETURNING id
-            ";
-
 /// The ids of a user's live grants to one client in one tenant, but one:
 /// what an approval of that one revokes.
 pub(crate) const LIST_OTHER_LIVE_CLIENT_GRANTS_SQL: &str = r"
@@ -286,36 +251,12 @@ pub(crate) const GET_CLIENT_GRANT_SQL: &str = r"
             WHERE id = $1 AND user_id = $2 AND tenant_id = $3
             ";
 
-/// Soft-delete a grant; `user_id` + `tenant_id` in the filter is the
-/// ownership check. Returns the client the grant belonged to, so the same
-/// transaction can retire that client's refresh tokens.
-pub(crate) const REVOKE_CLIENT_GRANT_SQL: &str = r"
-            UPDATE oauth_client_grants
-            SET revoked_at = CURRENT_TIMESTAMP
-            WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND revoked_at IS NULL
-            RETURNING client_id
-            ";
-
 /// Every grant, live or revoked, a user gave one client in one tenant.
 pub(crate) const LIST_CLIENT_GRANT_HISTORY_SQL: &str = r"
             SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
                    consent_version, consent_locale, authorization_details, expires_at
             FROM oauth_client_grants
             WHERE user_id = $1 AND tenant_id = $2 AND client_id = $3
-            ";
-
-/// Soft-delete every active grant a user gave one client in one tenant.
-pub(crate) const WITHDRAW_CLIENT_GRANTS_SQL: &str = r"
-            UPDATE oauth_client_grants
-            SET revoked_at = CURRENT_TIMESTAMP
-            WHERE user_id = $1 AND tenant_id = $2 AND client_id = $3 AND revoked_at IS NULL
-            ";
-
-/// Record a client's access as withdrawn when it has no grant row to revoke.
-pub(crate) const STORE_WITHDRAWN_CLIENT_GRANT_SQL: &str = r"
-            INSERT INTO oauth_client_grants
-                (id, user_id, tenant_id, client_id, scope, granted_at, revoked_at)
-            VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             ";
 
 /// Revoke every live refresh token one user holds in one tenant through one
@@ -528,11 +469,10 @@ macro_rules! impl_oauth2_server_repository {
                     .await
                     .map_err(delete_error)?
                     .rows_affected();
-                sqlx::query(DELETE_CLIENT_GRANTS_FOR_CLIENT_SQL)
-                    .bind(client_id)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(delete_error)?;
+                // Its only callers act for the client's owner (an A2A
+                // client deactivated, or its creation undone): the client
+                // ended the grants.
+                Self::delete_client_grants_in(&mut tx, client_id, GrantActor::Client).await?;
                 // Its refresh families went with it: so do the support
                 // sessions bound to one (carnet#1511).
                 Self::end_sessions_of_revoked(
@@ -568,11 +508,10 @@ macro_rules! impl_oauth2_server_repository {
                     .await
                     .map_err(sweep_error)?
                     .rows_affected();
-                let orphaned_grants = sqlx::query(DELETE_ORPHANED_CLIENT_GRANTS_SQL)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(sweep_error)?
-                    .rows_affected();
+                // Before the orphan delete, so an expired grant of a deleted
+                // client ends as expired.
+                let expired_grants = Self::expire_grants_in(&mut tx, now).await?;
+                let orphaned_grants = Self::delete_orphaned_grants_in(&mut tx).await?;
                 let expired_pushed_requests = sqlx::query(
                     $crate::repositories::tokens::pushed::DELETE_EXPIRED_PUSHED_REQUESTS_SQL,
                 )
@@ -593,6 +532,7 @@ macro_rules! impl_oauth2_server_repository {
                     expired,
                     abandoned,
                     orphaned_grants,
+                    expired_grants,
                     expired_pushed_requests,
                 })
             }
@@ -855,8 +795,12 @@ macro_rules! impl_oauth2_server_repository {
                 row.map(|row| oauth2_state_from_row(&row)).transpose()
             }
 
-            async fn store_client_grant(&self, grant: &OAuthClientGrant) -> AppResult<String> {
-                self.store_grant_rows(grant).await
+            async fn store_client_grant(
+                &self,
+                grant: &OAuthClientGrant,
+                approval: &GrantApproval,
+            ) -> AppResult<String> {
+                self.store_grant_rows(grant, approval).await
             }
 
             async fn get_client_grant(
@@ -921,16 +865,18 @@ macro_rules! impl_oauth2_server_repository {
                 id: &str,
                 user_id: &str,
                 tenant_id: &str,
+                actor: GrantActor,
             ) -> AppResult<bool> {
-                self.revoke_grant_rows(id, user_id, tenant_id).await
+                self.revoke_grant_rows(id, user_id, tenant_id, actor).await
             }
 
             async fn replace_client_grant(
                 &self,
                 live_id: &str,
                 grant: &OAuthClientGrant,
+                approval: &GrantApproval,
             ) -> AppResult<String> {
-                self.replace_grant_rows(live_id, grant).await
+                self.replace_grant_rows(live_id, grant, approval).await
             }
 
             async fn store_pushed_request(&self, request: &OAuth2PushedRequest) -> AppResult<()> {
@@ -1000,34 +946,7 @@ macro_rules! impl_oauth2_server_repository {
                 };
                 let mut tx = self.pool().begin().await.map_err(withdraw_error)?;
 
-                let withdrawn = sqlx::query(WITHDRAW_CLIENT_GRANTS_SQL)
-                    .bind(user_id)
-                    .bind(tenant_id)
-                    .bind(client_id)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(withdraw_error)?
-                    .rows_affected();
-                if withdrawn == 0 {
-                    let history = sqlx::query(LIST_CLIENT_GRANT_HISTORY_SQL)
-                        .bind(user_id)
-                        .bind(tenant_id)
-                        .bind(client_id)
-                        .fetch_optional(&mut *tx)
-                        .await
-                        .map_err(withdraw_error)?;
-                    if history.is_none() {
-                        sqlx::query(STORE_WITHDRAWN_CLIENT_GRANT_SQL)
-                            .bind(Uuid::new_v4().to_string())
-                            .bind(user_id)
-                            .bind(tenant_id)
-                            .bind(client_id)
-                            .bind(scope)
-                            .execute(&mut *tx)
-                            .await
-                            .map_err(withdraw_error)?;
-                    }
-                }
+                Self::withdraw_grants_in(&mut tx, user_id, tenant_id, client_id, scope).await?;
 
                 sqlx::query(REVOKE_CLIENT_OAUTH2_REFRESH_TOKENS_SQL)
                     .bind(tenant_id)
@@ -1187,3 +1106,92 @@ macro_rules! impl_oauth2_server_repository {
     };
 }
 pub(crate) use impl_oauth2_server_repository;
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    /// The table every grant receipt is written beside.
+    const GRANTS_TABLE: &str = "oauth_client_grants";
+
+    /// The statements that start, change or end a grant row.
+    const WRITE_VERBS: [&str; 3] = ["insert into", "update", "delete from"];
+
+    /// Every `.rs` file under `dir`, recursively.
+    fn rust_files(dir: &Path, into: &mut Vec<PathBuf>) {
+        for entry in fs::read_dir(dir).expect("the crate's source directory reads") {
+            let path = entry.expect("a directory entry reads").path();
+            if path.is_dir() {
+                rust_files(&path, into);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                into.push(path);
+            }
+        }
+    }
+
+    /// `text` lowercased with every run of whitespace one space, so a
+    /// statement split over lines reads as one.
+    fn collapsed(text: &str) -> String {
+        text.split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase()
+    }
+
+    /// The SQL write forms on `oauth_client_grants` that `text` holds.
+    fn grant_writes_in(text: &str) -> Vec<String> {
+        let text = collapsed(text);
+        WRITE_VERBS
+            .iter()
+            .map(|verb| format!("{verb} {GRANTS_TABLE}"))
+            .filter(|needle| text.contains(needle.as_str()))
+            .collect()
+    }
+
+    /// Every SQL text that inserts into, updates or deletes from
+    /// `oauth_client_grants` is defined in `tokens/grant_writes.rs`, where
+    /// each primitive running one writes the grant's receipt in its
+    /// transaction (carnet#1544). That each primitive does write its event
+    /// is held by the integration suite `oauth_grant_receipts_test`, one test
+    /// per caller path; this holds the location only.
+    ///
+    /// The account delete's table list (`user_references.rs`) builds its
+    /// statements with `concat!` from the bare table name, so it holds no
+    /// such text and needs no exemption: the receipts go with the account
+    /// in that same purge.
+    #[test]
+    fn every_grant_write_is_defined_beside_its_receipt() {
+        // A scan that enforces a rule across the crate's source, which no
+        // lint can express: the files are the data under test.
+        let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let home = src.join("repositories/tokens/grant_writes.rs");
+        let mut files = Vec::new();
+        rust_files(&src, &mut files);
+        assert!(
+            files.len() > 100,
+            "bug: the scan found {} source files, not the crate's",
+            files.len()
+        );
+        let home_text = fs::read_to_string(&home).expect("grant_writes.rs reads");
+        assert_eq!(
+            grant_writes_in(&home_text).len(),
+            WRITE_VERBS.len(),
+            "bug: grant_writes.rs does not hold every grant write, so the scan checks nothing"
+        );
+        let strays: Vec<String> = files
+            .iter()
+            .filter(|path| **path != home)
+            .filter_map(|path| {
+                let text = fs::read_to_string(path).expect("a source file reads");
+                let writes = grant_writes_in(&text);
+                (!writes.is_empty()).then(|| format!("{}: {writes:?}", path.display()))
+            })
+            .collect();
+        assert!(
+            strays.is_empty(),
+            "bug: a statement writes {GRANTS_TABLE} outside tokens/grant_writes.rs, so it writes \
+             no receipt: {strays:?}"
+        );
+    }
+}

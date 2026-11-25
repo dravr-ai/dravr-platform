@@ -42,7 +42,10 @@ use pierre_cache::{Cache, CacheConfig};
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::errors::ErrorCode;
-use pierre_core::models::{OAuth2RefreshToken, OAuthClientGrant, TenantId, User, UserStatus};
+use pierre_core::models::{
+    GrantActor, GrantApproval, GrantEvent, OAuth2RefreshToken, OAuthClientGrant, TenantId, User,
+    UserStatus,
+};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
@@ -65,6 +68,7 @@ fn oauth2_routes(resources: &Arc<ServerContext>) -> Router {
     let context = OAuth2Context {
         database: resources.agent.database.clone(),
         oauth2_server: resources.common.repos.oauth2_server.clone(),
+        standing_policies: resources.common.repos.oauth_standing_policies.clone(),
         tenants: resources.common.repos.tenants.clone(),
         users: resources.common.repos.users.clone(),
         auth_manager: resources.auth.auth_manager.clone(),
@@ -209,19 +213,22 @@ async fn connect(world: &World) -> Connection {
         .common
         .repos
         .oauth2_server
-        .store_client_grant(&OAuthClientGrant {
-            id: grant_id.clone(),
-            user_id: world.user_id.to_string(),
-            tenant_id: world.tenant_id.to_string(),
-            client_id: client.id.clone(),
-            scope: SCOPE.to_owned(),
-            granted_at: Timestamp::now(),
-            revoked_at: None,
-            consent_version: None,
-            consent_locale: None,
-            authorization_details: None,
-            expires_at: None,
-        })
+        .store_client_grant(
+            &OAuthClientGrant {
+                id: grant_id.clone(),
+                user_id: world.user_id.to_string(),
+                tenant_id: world.tenant_id.to_string(),
+                client_id: client.id.clone(),
+                scope: SCOPE.to_owned(),
+                granted_at: Timestamp::now(),
+                revoked_at: None,
+                consent_version: None,
+                consent_locale: None,
+                authorization_details: None,
+                expires_at: None,
+            },
+            &GrantApproval::by_user(),
+        )
         .await
         .unwrap();
     Connection {
@@ -302,6 +309,39 @@ async fn every_access_token_of_one_authorization_names_its_refresh_family() {
     );
 }
 
+/// The consent submit records the athlete's approval as the grant's
+/// `issue` receipt (carnet#1544).
+#[tokio::test]
+async fn a_consent_writes_the_athletes_issue_receipt() {
+    let world = world().await;
+    let connection = connect(&world).await;
+    let receipts = world
+        .resources
+        .common
+        .repos
+        .oauth_grant_events
+        .list_for_user(
+            &world.tenant_id.to_string(),
+            &world.user_id.to_string(),
+            Some(&connection.grant_id),
+            10,
+            0,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        receipts.len(),
+        1,
+        "bug: the consent wrote {} receipts",
+        receipts.len()
+    );
+    assert_eq!(
+        (receipts[0].event, receipts[0].actor),
+        (GrantEvent::Issue, GrantActor::User),
+        "bug: the consent's receipt is not the athlete's issue"
+    );
+}
+
 /// O6: the defect. Revoking the grant leaves the refresh token alive.
 #[tokio::test]
 async fn revoking_a_grant_ends_the_clients_refresh_family() {
@@ -372,6 +412,7 @@ async fn a_code_issued_before_its_grant_was_revoked_is_not_redeemed() {
             &connection.grant_id,
             &world.user_id.to_string(),
             &world.tenant_id.to_string(),
+            GrantActor::User,
         )
         .await
         .unwrap());
@@ -405,7 +446,7 @@ async fn a_token_written_after_its_grant_was_revoked_does_not_survive() {
     let tenant_id = world.tenant_id.to_string();
     assert!(repos
         .oauth2_server
-        .revoke_client_grant(&connection.grant_id, &user_id, &tenant_id)
+        .revoke_client_grant(&connection.grant_id, &user_id, &tenant_id, GrantActor::User)
         .await
         .unwrap());
 
@@ -870,19 +911,22 @@ async fn consenting_again_does_not_revive_a_token_from_before_the_revocation() {
         .common
         .repos
         .oauth2_server
-        .store_client_grant(&OAuthClientGrant {
-            id: Uuid::new_v4().to_string(),
-            user_id: world.user_id.to_string(),
-            tenant_id: world.tenant_id.to_string(),
-            client_id: connection.client.id.clone(),
-            scope: SCOPE.to_owned(),
-            granted_at: Timestamp::now(),
-            revoked_at: None,
-            consent_version: None,
-            consent_locale: None,
-            authorization_details: None,
-            expires_at: None,
-        })
+        .store_client_grant(
+            &OAuthClientGrant {
+                id: Uuid::new_v4().to_string(),
+                user_id: world.user_id.to_string(),
+                tenant_id: world.tenant_id.to_string(),
+                client_id: connection.client.id.clone(),
+                scope: SCOPE.to_owned(),
+                granted_at: Timestamp::now(),
+                revoked_at: None,
+                consent_version: None,
+                consent_locale: None,
+                authorization_details: None,
+                expires_at: None,
+            },
+            &GrantApproval::by_user(),
+        )
         .await
         .unwrap();
     world
@@ -942,7 +986,12 @@ async fn a_standing_is_held_for_its_window_and_forgotten_on_demand() {
     assert!(read().await.unwrap().active);
 
     assert!(repository
-        .revoke_client_grant(&connection.grant_id, &world.user_id.to_string(), &tenant)
+        .revoke_client_grant(
+            &connection.grant_id,
+            &world.user_id.to_string(),
+            &tenant,
+            GrantActor::User
+        )
         .await
         .unwrap());
     assert!(
@@ -955,19 +1004,22 @@ async fn a_standing_is_held_for_its_window_and_forgotten_on_demand() {
 
     // An entry nobody forgets ends with its window.
     repository
-        .store_client_grant(&OAuthClientGrant {
-            id: Uuid::new_v4().to_string(),
-            user_id: world.user_id.to_string(),
-            tenant_id: tenant.clone(),
-            client_id: client.to_owned(),
-            scope: SCOPE.to_owned(),
-            granted_at: Timestamp::now(),
-            revoked_at: None,
-            consent_version: None,
-            consent_locale: None,
-            authorization_details: None,
-            expires_at: None,
-        })
+        .store_client_grant(
+            &OAuthClientGrant {
+                id: Uuid::new_v4().to_string(),
+                user_id: world.user_id.to_string(),
+                tenant_id: tenant.clone(),
+                client_id: client.to_owned(),
+                scope: SCOPE.to_owned(),
+                granted_at: Timestamp::now(),
+                revoked_at: None,
+                consent_version: None,
+                consent_locale: None,
+                authorization_details: None,
+                expires_at: None,
+            },
+            &GrantApproval::by_user(),
+        )
         .await
         .unwrap();
     assert!(!read().await.unwrap().active, "still inside the window");

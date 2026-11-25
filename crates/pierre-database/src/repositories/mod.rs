@@ -127,6 +127,8 @@ pub mod first_run_progress;
 pub mod fitness_config;
 /// `GarminPushInboxRepository`: every batch Garmin pushes, written before the 200.
 pub mod garmin_push_inbox;
+/// A consent grant's receipts: the `record_log` worker's outbox, the athlete's grant history.
+pub mod grant_events;
 /// Connecting a group to a messaging chat from the web app (carnet#1683): its repository trait and shared body.
 pub mod group_chat_connect;
 /// Shared statements for a group's weekly digest lease, run by the coaching-group repository body.
@@ -227,6 +229,8 @@ pub mod short_links;
 pub mod signup_codes;
 /// Repository trait and statements for the new-user cohort: each account created in a window and its activation milestones.
 pub mod signup_cohort;
+/// An athlete's standing policies: "always allow this app this preset" (carnet#1544).
+pub mod standing_policies;
 /// Repository trait for the agent marketplace: review workflow, catalogue browsing, installs, the @handle.
 pub mod store_listings;
 pub(crate) mod store_listings_backend;
@@ -383,6 +387,7 @@ pub use firebase_identity_deletions::{
 pub use first_run_progress::{FirstRunDay, FirstRunProgressRepository};
 pub use fitness_config::*;
 pub use garmin_push_inbox::*;
+pub use grant_events::{OAuthGrantEventRepository, MAX_GRANT_RECEIPT_ATTEMPTS};
 pub use group_chat_connect::GroupChatConnectRepository;
 pub use harness_memory::*;
 pub use health::*;
@@ -423,6 +428,7 @@ pub use seeder::*;
 pub use short_links::*;
 pub use signup_codes::SignupCodeRepository;
 pub use signup_cohort::{NewUserMilestones, NewUserTurn, SignupCohortRepository};
+pub use standing_policies::OAuthStandingPolicyRepository;
 pub use store_listings::*;
 pub use strava_seat_reclaim_warnings::StravaSeatReclaimWarningRepository;
 pub use subscriptions::*;

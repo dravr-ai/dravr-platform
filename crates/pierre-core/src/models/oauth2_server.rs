@@ -50,6 +50,9 @@ pub struct OAuth2ClientSweep {
     pub abandoned: u64,
     /// Consent grants deleted because the client they name no longer exists
     pub orphaned_grants: u64,
+    /// `expire` receipts written for grants past their expiry that had not
+    /// ended (the grant rows stay, listed as expired)
+    pub expired_grants: u64,
     /// RFC 9126 pushed authorization requests deleted past their expiry
     pub expired_pushed_requests: u64,
 }

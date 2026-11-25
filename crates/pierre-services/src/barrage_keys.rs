@@ -45,6 +45,7 @@ use ring::hmac;
 use ring::rand::{SecureRandom, SystemRandom};
 use ring::signature::{Ed25519KeyPair, KeyPair};
 use tracing::{info, warn};
+use url::Url;
 use uuid::Uuid;
 
 /// The key name a checkpoint signed by Dravr's KMS key carries (C2SP note).
@@ -52,6 +53,17 @@ pub const CHECKPOINT_KEY_NAME: &str = "dravr.ai/barrage-log";
 
 /// The origin line of every checkpoint note.
 pub const CHECKPOINT_ORIGIN: &str = "dravr.ai/barrage-log";
+
+/// The context a tool definition's `def_sig` message starts with: the
+/// checkpoint key signs this text followed by the served `def_hash`
+/// (`tool_def_sig`).
+///
+/// The checkpoint key signs three message families, each kept apart by its
+/// form: a checkpoint note (first line [`CHECKPOINT_ORIGIN`]), a tool
+/// definition (first line `dravr.ai/tool-def`), and a grant receipt's JWS
+/// signing input (`grant_receipt_jws`), which starts with `eyJ` and holds
+/// no newline.
+pub const TOOL_DEF_SIG_CONTEXT: &str = "dravr.ai/tool-def\n";
 
 /// The key name of a checkpoint signed by a local key: never mistaken for
 /// the KMS key's.
@@ -299,6 +311,29 @@ pub struct CheckpointKey {
     pub public_key: [u8; 32],
 }
 
+/// The `did:web` identifier Dravr's checkpoint key is published under for
+/// `issuer_url`: its host, a port percent-encoded; `None` when the issuer URL
+/// has no host.
+#[must_use]
+pub fn checkpoint_did(issuer_url: &str) -> Option<String> {
+    let url = Url::parse(issuer_url).ok()?;
+    let host = url.host_str()?;
+    Some(url.port().map_or_else(
+        || format!("did:web:{host}"),
+        |port| format!("did:web:{host}%3A{port}"),
+    ))
+}
+
+/// The verification method naming the checkpoint key under `issuer_url`.
+///
+/// `did:web:<host>#checkpoint`: what `/.well-known/did.json` publishes and
+/// what a grant receipt's JWS names as its `kid`. `None` when the issuer URL
+/// has no host.
+#[must_use]
+pub fn checkpoint_key_id(issuer_url: &str) -> Option<String> {
+    checkpoint_did(issuer_url).map(|did| format!("{did}#checkpoint"))
+}
+
 /// The checkpoint key, published once at boot by [`checkpoint_signer`].
 static PUBLISHED_KEY: OnceLock<CheckpointKey> = OnceLock::new();
 
@@ -491,6 +526,30 @@ mod tests {
             ephemeral.local_seed().unwrap(),
             seed_of(&seed_identity(&ephemeral)),
             "bug: an ephemeral local seed is not derived from its identity"
+        );
+    }
+
+    #[test]
+    fn the_checkpoint_did_names_the_issuer_host_and_encodes_a_port() {
+        assert_eq!(
+            checkpoint_did("https://api.dravr.ai").as_deref(),
+            Some("did:web:api.dravr.ai"),
+            "bug: the issuer host is not the did"
+        );
+        assert_eq!(
+            checkpoint_did("http://localhost:8081/").as_deref(),
+            Some("did:web:localhost%3A8081"),
+            "bug: a port is not percent-encoded"
+        );
+        assert_eq!(
+            checkpoint_did("not a url"),
+            None,
+            "bug: a non-URL made a did"
+        );
+        assert_eq!(
+            checkpoint_key_id("https://api.dravr.ai").as_deref(),
+            Some("did:web:api.dravr.ai#checkpoint"),
+            "bug: the key id is not the did's checkpoint method"
         );
     }
 

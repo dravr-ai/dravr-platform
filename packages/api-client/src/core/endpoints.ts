@@ -171,6 +171,14 @@ export const ENDPOINTS = {
     CONNECTED_APPS: '/api/me/oauth-grants',
     /** Revoke one connected MCP OAuth app grant by id */
     CONNECTED_APP: (id: string) => `/api/me/oauth-grants/${id}`,
+    /** One connected app grant's signed receipts, newest first */
+    CONNECTED_APP_RECEIPTS: (id: string) => `/api/me/oauth-grants/${id}/receipts`,
+    /** Every receipt of the caller's grants, newest first, a page at a time */
+    GRANT_RECEIPTS: '/api/me/oauth-grant-receipts',
+    /** The caller's live standing policies ("always allow this app this preset") */
+    STANDING_POLICIES: '/api/me/oauth-standing-policies',
+    /** Remove one standing policy by id */
+    STANDING_POLICY: (id: string) => `/api/me/oauth-standing-policies/${id}`,
   },
 
   // ==================== ACCESS FEED ====================

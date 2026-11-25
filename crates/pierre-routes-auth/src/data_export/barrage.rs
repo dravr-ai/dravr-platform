@@ -15,13 +15,16 @@ use dravr_barrage::{BarrageError, Scope};
 use futures_util::stream::{self, BoxStream, StreamExt};
 use futures_util::TryStreamExt;
 use pierre_core::models::TenantId;
-use pierre_database::repositories::{UserExportRepository, UserExportTable, USER_EXPORT_TABLES};
+use pierre_database::repositories::{
+    OAuthGrantEventRepository, UserExportRepository, UserExportTable, USER_EXPORT_TABLES,
+};
 use pierre_services::barrage_keys::CheckpointKey;
 use serde::Serialize;
 use serde_json::Value;
 use tracing::warn;
 use uuid::Uuid;
 
+use super::grant_receipts::{CONSENT_RECORDS_AFTER, CONSENT_RECORDS_TABLE};
 use super::{ChunkSink, ExportSummary, Writer};
 
 /// The platform table barrage's sections come just before: the projection
@@ -34,6 +37,8 @@ pub(super) struct ExportSources<'src> {
     pub(super) repository: &'src dyn UserExportRepository,
     /// Barrage's records and erasures: the context's one record store.
     pub(super) records: &'src dyn ActivityRecordStore,
+    /// The athlete's consent grant receipts, projected as consent records.
+    pub(super) grant_events: &'src dyn OAuthGrantEventRepository,
     /// The tenants the athlete's rows reach.
     pub(super) tenants: &'src [TenantId],
     /// The latest originals bundle's view, or `null`.
@@ -55,6 +60,8 @@ pub(super) enum Section {
     /// `barrage.record_log`: the athlete's log, how each record pairs with
     /// it, and the signed checkpoint's proof.
     Log,
+    /// `consent_records`: each consent grant receipt as a DPV consent record.
+    ConsentRecords,
 }
 
 impl Section {
@@ -64,18 +71,23 @@ impl Section {
             Self::Records => RECORDS_TABLE,
             Self::Erased => ERASED_TABLE,
             Self::Log => RECORD_LOG_TABLE,
+            Self::ConsentRecords => CONSENT_RECORDS_TABLE,
         }
     }
 
     /// Every section: the platform's tables, barrage's three just before
-    /// [`BARRAGE_BEFORE`].
+    /// [`BARRAGE_BEFORE`], the consent records just after the receipts they
+    /// project ([`CONSENT_RECORDS_AFTER`]).
     pub(super) fn all() -> Vec<Self> {
-        let mut sections = Vec::with_capacity(USER_EXPORT_TABLES.len() + 3);
+        let mut sections = Vec::with_capacity(USER_EXPORT_TABLES.len() + 4);
         for table in USER_EXPORT_TABLES {
             if table.name == BARRAGE_BEFORE {
                 sections.extend([Self::Records, Self::Erased, Self::Log]);
             }
             sections.push(Self::Platform(table));
+            if table.name == CONSENT_RECORDS_AFTER {
+                sections.push(Self::ConsentRecords);
+            }
         }
         sections
     }
@@ -218,7 +230,9 @@ mod tests {
     use pierre_services::barrage_keys::memory_records;
     use serde_json::json;
 
-    use super::super::tests::{collector, document, sources, Collector, FakeRepository, ROOMY};
+    use super::super::tests::{
+        collector, document, sources, Collector, FakeRepository, NoReceipts, ROOMY,
+    };
     use super::super::{write_export, ExportLimits};
     use super::*;
 
@@ -320,6 +334,7 @@ mod tests {
             ExportSources {
                 repository: &repository,
                 records: &records,
+                grant_events: &NoReceipts,
                 tenants: &[tenant],
                 originals: Value::Null,
                 checkpoint_key: Some(&key),
@@ -376,6 +391,7 @@ mod tests {
             ExportSources {
                 repository: &repository,
                 records: &records,
+                grant_events: &NoReceipts,
                 tenants: &[tenant],
                 originals: json!({ "bundle_id": "b" }),
                 checkpoint_key: None,
@@ -451,6 +467,7 @@ mod tests {
             ExportSources {
                 repository: &repository,
                 records: &records,
+                grant_events: &NoReceipts,
                 tenants: &[tenant],
                 originals: Value::Null,
                 checkpoint_key: None,

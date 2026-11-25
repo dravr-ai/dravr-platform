@@ -45,8 +45,8 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::groups::{CoachingGroup, GroupDigestMode, GroupRespondMode};
 use pierre_core::models::{
-    ActivityBuilder, ConnectionType, DataSource, DeviceType, SportType, StoredSleepSession, Tenant,
-    TenantId, User, UserOAuthToken, UserStatus,
+    ActivityBuilder, ConnectionType, DataSource, DeviceType, GrantApproval, OAuthClientGrant,
+    SportType, StoredSleepSession, Tenant, TenantId, User, UserOAuthToken, UserStatus,
 };
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::{
@@ -69,7 +69,7 @@ use pierre_services::barrage_keys::{
 };
 use pierre_services::import_tombstones::clear_by_admin;
 use pierre_services::provider_revocation::{DisconnectReason, RevocationOutcome};
-use pierre_services::record_log_worker::{KeyedNamesPage, RecordLogWorker};
+use pierre_services::record_log_worker::{GrantReceiptOutbox, KeyedNamesPage, RecordLogWorker};
 use pierre_services::user_removal::{
     remove_user, ProviderDisconnector, RemovalReport, UserRemoval,
 };
@@ -980,6 +980,10 @@ async fn a_checkpoint_anchors_the_receipt_chain_head() {
         Arc::clone(&repos.import_tombstones),
         Arc::clone(&repos.account_deletion),
         Arc::clone(&repos.users),
+        GrantReceiptOutbox {
+            events: Arc::clone(&repos.oauth_grant_events),
+            issuer_url: "https://api.dravr.test".to_owned(),
+        },
         Some(signer.clone()),
         None,
     );
@@ -1065,6 +1069,7 @@ fn transparency_routes(resources: &Arc<ServerContext>) -> Router {
     let context = OAuth2Context {
         database: resources.agent.database.clone(),
         oauth2_server: resources.common.repos.oauth2_server.clone(),
+        standing_policies: resources.common.repos.oauth_standing_policies.clone(),
         tenants: resources.common.repos.tenants.clone(),
         users: resources.common.repos.users.clone(),
         auth_manager: resources.auth.auth_manager.clone(),
@@ -1134,11 +1139,38 @@ async fn the_well_known_documents_publish_a_checkpoint_its_key_verifies() {
         )
         .await
         .unwrap();
+    // A consent grant, whose receipt the same tick signs with the published
+    // key (carnet#1544). Here, not in the receipts suite: the published key
+    // is one per process, and this test is the one that publishes it.
+    let grant_id = repos
+        .oauth2_server
+        .store_client_grant(
+            &OAuthClientGrant {
+                id: Uuid::new_v4().to_string(),
+                user_id: athlete.to_string(),
+                tenant_id: athlete_tenant.to_string(),
+                client_id: "https://client.example/meta.json".to_owned(),
+                scope: "fitness:read".to_owned(),
+                granted_at: Timestamp::now(),
+                revoked_at: None,
+                consent_version: Some("digest".to_owned()),
+                consent_locale: Some("en".to_owned()),
+                authorization_details: None,
+                expires_at: None,
+            },
+            &GrantApproval::by_user(),
+        )
+        .await
+        .unwrap();
     let anchored = RecordLogWorker::new(
         records.clone(),
         Arc::clone(&repos.import_tombstones),
         Arc::clone(&repos.account_deletion),
         Arc::clone(&repos.users),
+        GrantReceiptOutbox {
+            events: Arc::clone(&repos.oauth_grant_events),
+            issuer_url: resources.common.config.oauth2_server.issuer_url.clone(),
+        },
         Some(signer),
         None,
     )
@@ -1181,6 +1213,40 @@ async fn the_well_known_documents_publish_a_checkpoint_its_key_verifies() {
     let key_name = method["c2spKeyName"]
         .as_str()
         .expect("bug: did.json names no C2SP key name");
+
+    // The grant's receipt names did.json's method as its kid and verifies
+    // under its key.
+    let receipt = repos
+        .oauth_grant_events
+        .list_for_user(
+            &athlete_tenant.to_string(),
+            &athlete.to_string(),
+            Some(&grant_id),
+            10,
+            0,
+        )
+        .await
+        .unwrap()
+        .pop()
+        .expect("the grant has its issue receipt");
+    let jws = receipt.jws.expect("bug: the tick did not sign the receipt");
+    let (input, signature) = jws.rsplit_once('.').unwrap();
+    let header: Value = serde_json::from_slice(
+        &URL_SAFE_NO_PAD
+            .decode(input.split('.').next().unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        header["kid"], method["id"],
+        "bug: the receipt's kid is not did.json's verification method"
+    );
+    UnparsedPublicKey::new(&ED25519, public_key)
+        .verify(
+            input.as_bytes(),
+            &URL_SAFE_NO_PAD.decode(signature).unwrap(),
+        )
+        .expect("bug: the receipt does not verify under did.json's key");
 
     let checkpoint = AxumTestRequest::get("/.well-known/dravr-checkpoint")
         .send(routes)
@@ -1315,6 +1381,10 @@ async fn a_failed_anchor_write_is_repaired_on_the_next_tick() {
         Arc::clone(&repos.import_tombstones),
         failing,
         Arc::clone(&repos.users),
+        GrantReceiptOutbox {
+            events: Arc::clone(&repos.oauth_grant_events),
+            issuer_url: "https://api.dravr.test".to_owned(),
+        },
         Some(Arc::new(LocalSigner::random().unwrap())),
         None,
     );
@@ -1422,6 +1492,10 @@ async fn the_worker_renames_content_named_originals_and_reports_what_remains() {
         Arc::clone(&repos.import_tombstones),
         Arc::clone(&repos.account_deletion),
         Arc::clone(&repos.users),
+        GrantReceiptOutbox {
+            events: Arc::clone(&repos.oauth_grant_events),
+            issuer_url: "https://api.dravr.test".to_owned(),
+        },
         None,
         Some(BarrageStores {
             blobs: blobs.clone(),
@@ -1472,6 +1546,10 @@ async fn the_worker_renames_content_named_originals_and_reports_what_remains() {
         Arc::clone(&repos.import_tombstones),
         Arc::clone(&repos.account_deletion),
         Arc::clone(&repos.users),
+        GrantReceiptOutbox {
+            events: Arc::clone(&repos.oauth_grant_events),
+            issuer_url: "https://api.dravr.test".to_owned(),
+        },
         None,
         None,
     );
@@ -1510,6 +1588,10 @@ async fn the_keyed_name_backfill_resumes_across_ticks_and_restarts_after_a_sweep
         Arc::clone(&repos.import_tombstones),
         Arc::clone(&repos.account_deletion),
         Arc::clone(&repos.users),
+        GrantReceiptOutbox {
+            events: Arc::clone(&repos.oauth_grant_events),
+            issuer_url: "https://api.dravr.test".to_owned(),
+        },
         None,
         Some(BarrageStores {
             blobs: Arc::new(MemoryBlobStore::new()),

@@ -325,6 +325,14 @@ export {
   groupAccessFeedApps,
   revokedInKeySettings,
 } from './accessFeedHook';
+// A Connected app's signed grant receipts and the athlete's standing policies (carnet#1544).
+export {
+  createConnectedAppReceiptsHook,
+  createGrantReceiptsHook,
+  createRemoveStandingPolicyHook,
+  createStandingPoliciesHook,
+  GRANT_RECEIPT_PAGE,
+} from './grantHistoryHooks';
 // Statutory access requests to a company: the letter the athlete sends and its legal deadline (carnet#1646).
 export {
   type DataAccessAction,
