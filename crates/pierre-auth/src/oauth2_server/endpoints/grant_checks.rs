@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use super::details::granted_details;
 use super::OAuth2AuthorizationServer;
+use crate::dpop::{BEARER_SCHEME, DPOP_SCHEME};
 use crate::oauth2_server::authorization_details::ResolvedDetails;
 use crate::oauth2_server::models::{OAuth2Error, OAuth2RefreshToken};
 use crate::oauth2_server::resource::{token_audience, ResourceServers};
@@ -32,9 +33,9 @@ pub struct TokenGrant {
 /// key `dpop_jkt` names (RFC 9449 §5), `Bearer` otherwise.
 pub(super) const fn token_type(dpop_jkt: Option<&str>) -> &'static str {
     if dpop_jkt.is_some() {
-        crate::dpop::DPOP_SCHEME
+        DPOP_SCHEME
     } else {
-        crate::dpop::BEARER_SCHEME
+        BEARER_SCHEME
     }
 }
 

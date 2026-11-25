@@ -12,6 +12,7 @@ use std::fmt;
 use uuid::Uuid;
 
 use super::authorization_details::ResolvedDetails;
+use crate::dpop::INVALID_DPOP_PROOF;
 
 /// The error code a throttled OAuth endpoint answers with, alongside HTTP 429.
 const TOO_MANY_REQUESTS: &str = "too_many_requests";
@@ -376,7 +377,7 @@ impl OAuth2Error {
     #[must_use]
     pub fn invalid_dpop_proof(description: &str) -> Self {
         Self {
-            error: crate::dpop::INVALID_DPOP_PROOF.to_owned(),
+            error: INVALID_DPOP_PROOF.to_owned(),
             error_description: Some(description.to_owned()),
             error_uri: Some("https://datatracker.ietf.org/doc/html/rfc9449#section-5".to_owned()),
             retry_after: None,
