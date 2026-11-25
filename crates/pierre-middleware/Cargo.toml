@@ -28,7 +28,7 @@ bitflags = "2"
 dravr-tronc = { workspace = true }
 futures-util = "0.3"
 http = "1"
-jsonwebtoken = { version = "10.4", features = ["rust_crypto", "use_pem"], default-features = false }
+jsonwebtoken = { version = "12", features = ["rust_crypto", "use_pem"], default-features = false }
 opentelemetry = { version = "0.32", features = ["trace", "metrics"], optional = true }
 regex = "1"
 tracing-opentelemetry = { version = "0.33", optional = true }
