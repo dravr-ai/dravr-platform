@@ -352,7 +352,7 @@ dravr-sciotte = { workspace = true, features = ["client"] }
 # fails a normal dependency nothing under src/ names.
 argon2 = "0.5"
 bcrypt = "0.16"
-jsonwebtoken = { version = "10.4", features = ["rust_crypto", "use_pem"], default-features = false }
+jsonwebtoken = { version = "12", features = ["rust_crypto", "use_pem"], default-features = false }
 pierre-agent-parser = { version = "0.3.0", path = "../pierre-agent-parser" }
 pierre-evals = { version = "0.3.0", path = "../pierre-evals" }
 pierre-formatters = { version = "0.3.0", path = "../pierre-formatters" }
