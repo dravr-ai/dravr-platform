@@ -130,6 +130,8 @@ mod sciotte_installer;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_prefetch;
 #[cfg(feature = "provider-sciotte")]
+mod sciotte_rejection;
+#[cfg(feature = "provider-sciotte")]
 mod sciotte_session_reuse;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_takeover;

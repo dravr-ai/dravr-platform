@@ -280,6 +280,10 @@ export function SciotteLoginModal({
   const [method, setMethod] = useState<LoginMethod>('email');
   const [status, setStatus] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // The failure on screen offers the card's OAuth beside the retry: set only
+  // when the provider turned the sign-in down, so any other failure keeps
+  // the athlete in the window.
+  const [oauthOffered, setOAuthOffered] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [otpCode, setOtpCode] = useState('');
@@ -316,6 +320,7 @@ export function SciotteLoginModal({
       setConsentAccepted(false);
       setStatus('');
       setError(null);
+      setOAuthOffered(false);
       setEmail('');
       setPassword('');
       setOtpCode('');
@@ -413,10 +418,11 @@ export function SciotteLoginModal({
       setPhase('takeover');
       setStatus('');
     } else {
+      setOAuthOffered(onFallBackToOAuth !== undefined);
       setError(signInTurnedDown(t, platformName, data.error, method === 'email' && !preset.directCredentials));
       setPhase('error');
     }
-  }, [method, onClose, onConnected, platformName, preset.directCredentials, t]);
+  }, [method, onClose, onConnected, onFallBackToOAuth, platformName, preset.directCredentials, t]);
 
   // The sign-in run on the athlete's phone (carnet#1617): the provider's own
   // page in a WebView, on the phone's network, signed in with the athlete's
@@ -1066,7 +1072,7 @@ export function SciotteLoginModal({
           <Text className="text-base font-medium text-text-primary mb-1">{t('app.connectionFailed')}</Text>
           <Text className="text-sm text-error text-center mb-5 px-4">{error}</Text>
           <TouchableOpacity
-            onPress={() => setPhase('credentials')}
+            onPress={() => { setPhase('credentials'); setOAuthOffered(false); }}
             activeOpacity={0.8}
           >
             <LinearGradient
@@ -1080,7 +1086,7 @@ export function SciotteLoginModal({
           </TouchableOpacity>
           {/* A sign-in the provider turned down is never a dead end: the
               card's OAuth, where it has one, connects the same account. */}
-          {onFallBackToOAuth && (
+          {oauthOffered && onFallBackToOAuth && (
             <TouchableOpacity
               onPress={onFallBackToOAuth}
               activeOpacity={0.8}

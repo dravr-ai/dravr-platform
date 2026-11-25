@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: A sign-in-first card's account sign-in that cannot complete hands over to the provider's OAuth (carnet#1477)
-// ABOUTME: Pins the refusals that fall back, the turned-down credentials that offer it beside a retry, and a window offered none
+// ABOUTME: Pins the refusals that fall back, the turned-down credentials that offer it beside a retry, the refusals that never do, and a window offered none
 
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
@@ -83,6 +83,18 @@ describe('SciotteLoginModal (mobile) — the OAuth a failed sign-in falls back t
 
     expect(await screen.findByText(i18n.t('app.connectionFailed'))).toBeTruthy();
     expect(screen.queryByTestId('sciotte-oauth-fallback')).toBeNull();
+  });
+
+  it('keeps any other refusal in the window', async () => {
+    sciotteLogin.mockRejectedValue(refusal('login_flow_expired'));
+    const onFallBackToOAuth = jest.fn();
+
+    signIn(onFallBackToOAuth);
+
+    expect(await screen.findByText(i18n.t('app.connectionFailed'))).toBeTruthy();
+    expect(screen.getByText(i18n.t('app.tryAgain'))).toBeTruthy();
+    expect(screen.queryByTestId('sciotte-oauth-fallback')).toBeNull();
+    expect(onFallBackToOAuth).not.toHaveBeenCalled();
   });
 
   it('shows the failure when its card offers no OAuth to fall back to', async () => {

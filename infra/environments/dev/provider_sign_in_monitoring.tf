@@ -21,11 +21,11 @@
 # the log line's extracted labels (provider, reason) into the Slack message; a
 # metric threshold would only say that a count went up.
 #
-# Matched on the message text and the tracing target, never on severity: the
-# line was INFO when this landed and is being raised to WARN with `provider`
-# and `reason` fields (then `method_used` and a masked `account`), and the alert
-# must hold on both sides of that deploy. Before it those labels read (null);
-# user_id, tenant_id and http_request_id are there on both.
+# Matched on the message text and the tracing target, never on severity, so a
+# change of the line's level never silences the alert. The line is logged at
+# WARN by crates/pierre-routes-auth/src/sciotte_rejection.rs, which pins its
+# target to the one below, masks the account and any address in the reason,
+# and holds the parity test against this filter and its label extractors.
 
 resource "google_monitoring_alert_policy" "provider_sign_in_rejected" {
   project      = var.project_id

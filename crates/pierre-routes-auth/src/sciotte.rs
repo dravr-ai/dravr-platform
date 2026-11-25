@@ -41,6 +41,7 @@ use crate::sciotte_cancel::{
     login_cancelled_refusal, refuse_cancelled_attempt, refuse_cancelled_outcome, StepAttempt,
 };
 use crate::sciotte_prefetch::spawn_activity_prefetch;
+use crate::sciotte_rejection::log_sign_in_rejected;
 use crate::sciotte_session_reuse::{stored_session_use, StoredSessionUse};
 use crate::sciotte_takeover::takeover_required;
 use crate::sign_in_grant::{connected_response, replace_dead_grant};
@@ -49,7 +50,6 @@ use crate::AuthRoutesContext;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::redaction::redact_url;
 use pierre_middleware::provider_link_token::CONNECT_PROVIDER;
-use pierre_middleware::redaction::mask_email;
 
 /// The parked remote-login state the platform remembers between the initial
 /// login call and its OTP/2FA continuations. The heavy state — parked browser +
@@ -628,22 +628,7 @@ pub(crate) async fn remote_login_to_response(
         }
         LoginOutcome::Failed { reason } => {
             forget_remote_flow(&resources.cache, tenant_id, user_id).await;
-            // An athlete the provider turned away is stuck until someone
-            // looks: the ops alert reads this line and every field on it.
-            let (method_used, account) = match step {
-                LoginStep::Login {
-                    method, account, ..
-                } => (format!("{method:?}"), mask_email(account)),
-                LoginStep::Continuation { .. } => ("Continuation".to_owned(), String::new()),
-            };
-            warn!(
-                user_id = %user_id,
-                provider = %provider,
-                reason = %reason,
-                method_used = %method_used,
-                account = %account,
-                "Sciotte remote login rejected by provider (user credentials)"
-            );
+            log_sign_in_rejected(step, user_id, &reason);
             Ok(Json(serde_json::json!({"status": "failed", "error": reason})).into_response())
         }
         LoginOutcome::TakeoverRequired { flow_id, .. } => {
