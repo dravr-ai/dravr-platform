@@ -1257,7 +1257,7 @@ async fn a_refused_login_links_back_with_every_oauth_parameter_and_the_resource(
     assert!(page.contains("Invalid email or password"), "{page}");
     assert!(!page.contains("{{"), "every placeholder is filled: {page}");
     let retry = format!(
-        "href=\"/oauth2/login?client_id=client%20%22quoted%22%20%3Cid%3E&redirect_uri={}&response_type=code&state={}&scope=fitness%3Aread&code_challenge={challenge}&code_challenge_method=S256&resource={}&ui_locales=en\"",
+        "href=\"/oauth2/login?client_id=client%20%22quoted%22%20%3Cid%3E&redirect_uri={}&response_type=code&state={}&scope=fitness%3Aread&code_challenge={challenge}&code_challenge_method=S256&resource={}&dpop_jkt=&ui_locales=en\"",
         urlencoding::encode(REDIRECT),
         urlencoding::encode(STATE),
         urlencoding::encode(MCP_RESOURCE),
