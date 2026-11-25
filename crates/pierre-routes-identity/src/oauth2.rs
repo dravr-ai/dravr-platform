@@ -710,9 +710,8 @@ impl OAuth2Routes {
             form.get("client_id")
         );
 
-        Self::parse_token_request(form, headers).map_err(|error| {
+        Self::parse_token_request(form, headers).inspect_err(|error| {
             warn!(error_code = %error.error, "OAuth token request parsing failed");
-            error
         })
     }
 
