@@ -19,6 +19,7 @@
 use clap::{error::ErrorKind, Parser};
 use dravr_barrage::blob::BlobStore;
 use dravr_barrage::keyed::Signer;
+use dravr_tronc::dates::Timestamp;
 use dravr_tronc::mcp::transport::stdio;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase_identity::FirebaseIdentityDeleter;
@@ -34,6 +35,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::factory::Database;
 use pierre_database::backends::shared::key_material::KeyStoreQueue;
+use pierre_database::backends::OAuth2ServerRepository;
 use pierre_database::RepositoryRegistry;
 use pierre_llm::config::LlmChain;
 use pierre_mcp_server::analytics_sink::{PierreAnalyticsProvider, PierreNotifyEnricher};
@@ -614,6 +616,33 @@ fn select_turn_runner(timeouts: &ServerTimeouts) -> Arc<TurnRunner> {
 }
 
 /// Spawn background workers (messaging outbound, Discord, Slack), returning shared resources
+/// Log each live refresh-token family group that names no grant, by tenant,
+/// client and user, and how many there are (carnet#1550). Never a token or
+/// family id.
+async fn report_ungranted_refresh_families(oauth2: &dyn OAuth2ServerRepository) {
+    match oauth2
+        .refresh_families_without_grant(Timestamp::now())
+        .await
+    {
+        Ok(groups) => {
+            for group in &groups {
+                info!(
+                    tenant_id = %group.tenant_id,
+                    client_id = %group.client_id,
+                    user_id = %group.user_id,
+                    families = group.families,
+                    "Live refresh-token families with no named grant: the grant backfill matched none, or several"
+                );
+            }
+            info!(
+                groups = groups.len(),
+                "Refresh-token grant backfill: groups left without a grant"
+            );
+        }
+        Err(e) => warn!(error = %e, "Could not read refresh tokens without a grant"),
+    }
+}
+
 /// The deployment's blob store, which keeps every original file (an import's
 /// recordings and the files athletes upload), and the archive imports on it.
 async fn select_original_stores(
@@ -767,6 +796,16 @@ fn spawn_background_workers(
         start_retention_sweep_worker(&resources, Arc::clone(&barrage.records), blobs.clone());
     }
 
+    // Name, once per boot, the live refresh-token families the one-time grant
+    // backfill (migration 20261126001550, carnet#1550) left without a grant:
+    // no live grant matched their tenant, client and user, or several did.
+    // They keep being admitted as before; the log says who they are, by
+    // tenant, client and user only. Detached, as nothing waits on it.
+    {
+        let oauth2 = Arc::clone(&resources.common.repos.oauth2_server);
+        tokio::spawn(async move { report_ungranted_refresh_families(oauth2.as_ref()).await });
+    }
+
     // Start the record_log worker (carnet#1542): keys erasures and
     // tombstones, baselines unlogged records, renames content-named
     // originals and uploaded files to their keyed names where a blob store
@@ -775,6 +814,7 @@ fn spawn_background_workers(
     // and (with a signer) signs consent grant receipts (carnet#1544).
     // Skipped for an in-memory database like the other ledger workers.
     if !resources.common.config.database.url.is_memory() {
+        use pierre_mcp_server::services::archive_import::ops::importer_over;
         use pierre_services::record_log_worker::{
             start_record_log_worker, GrantReceiptOutbox, KeyedNameStores, RecordLogWorker,
         };
@@ -792,9 +832,16 @@ fn spawn_background_workers(
                     issuer_url: resources.common.config.oauth2_server.issuer_url.clone(),
                 },
                 checkpoint_signer,
-                blobs.map(|blobs| KeyedNameStores {
-                    originals: barrage.with_blobs(blobs),
-                    uploads: Arc::clone(&resources.common.originals),
+                blobs.map(|blobs| {
+                    let originals = barrage.with_blobs(blobs);
+                    KeyedNameStores {
+                        // Re-keys legacy Apple ids and projects them as an
+                        // import does, whether or not imports run here
+                        // (carnet#1550).
+                        legacy_ids: Some(importer_over(&resources, originals.clone())),
+                        originals,
+                        uploads: Arc::clone(&resources.common.originals),
+                    }
                 }),
             )),
             Arc::clone(&repos.worker_runs),

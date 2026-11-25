@@ -1,5 +1,5 @@
 // ABOUTME: The hourly record_log worker: keys erasures and tombstones, baselines records, renames originals, sweeps orphans, cuts checkpoints
-// ABOUTME: Then drains consent grant receipts: baselines them, logs their SHA-256 to the athlete's log, signs them as JWS
+// ABOUTME: Then drains consent grant receipts (baseline, log, JWS) and re-keys one page of legacy apple- records
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -39,10 +39,18 @@
 //! 8. with a signer, signs each receipt not yet signed as a compact JWS
 //!    ([`crate::grant_receipt_jws`]); without one they wait, unsigned.
 //!
-//! Steps 6 to 8 run after the checkpoint, so a failing grant step never
-//! stops checkpointing; each takes one page a tick, and a row a step cannot
-//! finish is left for the next tick. Neither barrage's store nor the signer
-//! is ever inside a grant's transaction: the event row is the outbox.
+//! 9. with an importer, moves one page of Apple records still stored under
+//!    their legacy `apple-<hex16>` id to their keyed id, the legacy id kept
+//!    as the alias erasures match (`Importer::rekey_legacy_apple`,
+//!    carnet#1550, JF 2026-11-25: "re-key them once"), resuming where the
+//!    last tick stopped, and logs how many remain, every tick. The pass is
+//!    done when what remains is what the sweep refused (records the athlete
+//!    deleted under one of their ids, which the deletion removes).
+//!
+//! Steps 6 to 9 run after the checkpoint, so a failing grant step or re-key
+//! never stops checkpointing; each takes one page a tick, and a row a step
+//! cannot finish is left for the next tick. Neither barrage's store nor the
+//! signer is ever inside a grant's transaction: the event row is the outbox.
 
 use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -55,7 +63,7 @@ use dravr_barrage::record_log::checkpoint::{Anchor, Checkpoint};
 use dravr_barrage::record_log::entry::EntryKind;
 use dravr_barrage::record_log::{cut_checkpoint, standing_checkpoint, LOG_PAGE};
 use dravr_barrage::store::{ActivityRecordStore, BarrageStores, RecordPlace};
-use dravr_barrage::{BarrageError, Scope, UserId};
+use dravr_barrage::{BarrageError, Importer, Scope, UserId};
 use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{GrantEvent, OAuthGrantEvent};
@@ -108,6 +116,32 @@ pub struct RecordLogTick {
     pub grant_receipts_logged: u64,
     /// Grant receipts signed; 0 without a signer.
     pub grant_receipts_signed: u64,
+    /// Legacy Apple records re-keyed; `None` without an importer.
+    pub legacy_apple: Option<LegacyApplePage>,
+}
+
+/// What one tick's page of the legacy Apple re-key did.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct LegacyApplePage {
+    /// Records moved to their keyed id, or whose legacy record was retired
+    /// beside a keyed one already held.
+    pub rekeyed: u64,
+    /// Records of the page left under their legacy id because the athlete
+    /// deleted the activity under one of its ids.
+    pub refused: u64,
+    /// Records still under a legacy Apple id, in every scope.
+    pub remaining: u64,
+    /// Whether this page ended a sweep over every record.
+    pub sweep_done: bool,
+}
+
+/// Where the legacy Apple re-key resumes, and what its sweep refused.
+#[derive(Debug, Default)]
+struct LegacyAppleSweep {
+    /// The next page's start; `None` starts a sweep.
+    cursor: Option<RecordPlace>,
+    /// Records the sweep refused so far.
+    refused: u64,
 }
 
 /// What one tick's page of the keyed-name backfill did.
@@ -165,12 +199,16 @@ pub struct KeyedNameStores {
     pub originals: BarrageStores,
     /// The uploaded files, copied to their keyed names.
     pub uploads: Arc<OriginalsStore>,
+    /// The importer over `originals` that re-keys legacy Apple records and
+    /// projects them as an import would; `None` re-keys nothing.
+    pub legacy_ids: Option<Importer>,
 }
 
 impl fmt::Debug for KeyedNameStores {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("KeyedNameStores")
             .field("uploads", &self.uploads)
+            .field("rekeys", &self.legacy_ids.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -231,6 +269,9 @@ pub struct RecordLogWorker {
     /// Where the uploaded files' copy resumes: one page per tick, one table
     /// after the other, wrapping around.
     upload_names: Mutex<UploadNamesSweep>,
+    /// Where the legacy Apple re-key resumes: one page per tick, wrapping
+    /// around.
+    legacy_apple: Mutex<LegacyAppleSweep>,
 }
 
 impl fmt::Debug for RecordLogWorker {
@@ -269,6 +310,7 @@ impl RecordLogWorker {
             orphan_cursor: Mutex::new(None),
             keyed_names: Mutex::new(KeyedNamesSweep::default()),
             upload_names: Mutex::new(UploadNamesSweep::default()),
+            legacy_apple: Mutex::new(LegacyAppleSweep::default()),
         }
     }
 
@@ -313,7 +355,60 @@ impl RecordLogWorker {
         if let Some(signer) = &self.signer {
             tick.grant_receipts_signed = self.sign_grant_receipts(signer.as_ref()).await?;
         }
+        if let Some(importer) = self
+            .renames
+            .as_ref()
+            .and_then(|renames| renames.legacy_ids.as_ref())
+        {
+            tick.legacy_apple = Some(self.rekey_legacy_apple(importer).await?);
+        }
         Ok(tick)
+    }
+
+    /// Re-key one page of Apple records still under their legacy id, after
+    /// where the last tick stopped, and log what remains: once it equals
+    /// what the sweep refused, every record that can move has.
+    async fn rekey_legacy_apple(&self, importer: &Importer) -> AppResult<LegacyApplePage> {
+        let cursor = self
+            .legacy_apple
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .cursor
+            .clone();
+        let report = importer
+            .rekey_legacy_apple(cursor.as_ref(), BACKFILL_PER_TICK)
+            .await
+            .map_err(|e| AppError::internal(format!("record_log legacy apple ids: {e}")))?;
+        let sweep_done = report.next.is_none();
+        let swept_refused = {
+            let mut sweep = self
+                .legacy_apple
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            sweep.refused += report.refused;
+            let refused = sweep.refused;
+            if sweep_done {
+                *sweep = LegacyAppleSweep::default();
+            } else {
+                sweep.cursor.clone_from(&report.next);
+            }
+            refused
+        };
+        info!(
+            rekeyed = report.rekeyed,
+            refused = report.refused,
+            remaining = report.remaining,
+            sweep_refused = swept_refused,
+            sweep_done,
+            done = sweep_done && report.remaining == swept_refused,
+            "Legacy Apple id re-key page"
+        );
+        Ok(LegacyApplePage {
+            rekeyed: report.rekeyed,
+            refused: report.refused,
+            remaining: report.remaining,
+            sweep_done,
+        })
     }
 
     /// Append one page of unlogged grant receipts to their athletes' logs

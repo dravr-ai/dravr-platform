@@ -2029,6 +2029,7 @@ fn rename_stores(
             Arc::clone(records),
             Arc::clone(&resources.common.repos.uploaded_activity_files),
         )),
+        legacy_ids: None,
     }
 }
 
