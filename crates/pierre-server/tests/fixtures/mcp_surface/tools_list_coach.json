@@ -19840,7 +19840,7 @@
             "type": "object"
           },
           "FuelingProtocol": {
-            "description": "Per-session fuelling target carried by a planned day.\n\nMirrors `$defs.FuelingProtocol` in dravr-contremaitre's\n`structured-workout.schema.json`, which the ultra and heat builder coaches\nalready emit on every long session.\n\nOne deliberate divergence from that schema: `sodium_mg_per_h` is optional\nhere. The schema requires it, which pushes a coach with no sweat estimate\ninto inventing one — and sodium is where an invented number does the most\nharm. It is an estimated sweat *loss*, never a prescribed intake.",
+            "description": "Per-session fuelling target carried by a planned day.\n\n`sodium_mg_per_h` is optional: requiring it would push a coach with no\nsweat estimate into inventing one — and sodium is where an invented number\ndoes the most harm. It is an estimated sweat *loss*, never a prescribed\nintake.",
             "properties": {
               "carb_source": {
                 "description": "Carbohydrate source when the rate depends on it — \"glucose:fructose\n1:0.8\". A rate above 60 g/h is only reachable with multiple\ntransportable carbohydrates, so this is what makes such a rate honest.",
@@ -21868,7 +21868,7 @@
       },
       "_meta": {
         "ai.dravr.vault/tool": {
-          "def_hash": "sha256:98d9e9bbf2858a4cfaa0e8dfcb9ab6558c5e8d498feef3cfafb03cf0677f69cc"
+          "def_hash": "sha256:71bdc640e5ce44f5785bb9056601b825ff07c5f9d4a8bd93a8fc62e37f6b56e9"
         }
       }
     },
