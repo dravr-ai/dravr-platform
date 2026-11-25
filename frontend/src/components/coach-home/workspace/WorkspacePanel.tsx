@@ -2,10 +2,10 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The athlete workspace's one panel beside the calendar — Historique, the coach's private thread with Dravr, and the athlete's room
-// ABOUTME: Text tabs over one body; the threads are the chat surface's own, drawn without a plan card twice or the room's private lane (carnet#1816)
+// ABOUTME: Text tabs over one body, or a button per tab opening it as a sheet below lg; the threads are the chat surface's own, drawn without a plan card twice or the room's private lane (carnet#1816)
 
-import { Lock } from 'lucide-react';
-import { useTranslation } from '@pierre/i18n';
+import { History, Lock, Users, type LucideIcon } from 'lucide-react';
+import { useTranslation, type TFunction } from '@pierre/i18n';
 import { GROUP_ROOM_KEYS, PRIVATE_LANE_KEYS } from '@pierre/chat-utils';
 import type { CoachRosterAthlete } from '@pierre/shared-types';
 import { PLAN_WORKSPACE_KEYS, planHistoryLine } from '@pierre/ui-logic';
@@ -21,10 +21,62 @@ export type WorkspaceTab = 'history' | 'dravr' | 'group';
 /** The id prefix the tabs and the panel body share. */
 const PANEL_ID = 'athlete-workspace';
 
-/** What the Groupe tab holds: the athlete's room, or why there is none. */
+/** What the Groupe tab holds: the athlete's room, why there is none, or the groups' read that failed. */
 export type WorkspaceGroupTab =
   | { kind: 'room'; room: WorkspaceRoom }
-  | { kind: 'noRoom' };
+  | { kind: 'noRoom' }
+  | { kind: 'failed'; retry: () => void };
+
+/** The panel's tabs in the reader's words: Historique, the agent by its name, and Groupe when there is one. */
+function tabWords(t: TFunction, agentName: string, hasGroup: boolean): { id: WorkspaceTab; label: string }[] {
+  return [
+    { id: 'history', label: t('home.personal.history') },
+    { id: 'dravr', label: agentName },
+    ...(hasGroup ? [{ id: 'group' as const, label: t('app.group') }] : []),
+  ];
+}
+
+const OPENER_ICON: Record<WorkspaceTab, LucideIcon> = { history: History, dravr: Lock, group: Users };
+
+/**
+ * The panel's way in below `lg`, where it is a sheet: one button per tab,
+ * each opening the sheet on its own tab.
+ */
+export function WorkspacePanelOpeners({
+  agentName,
+  hasGroup,
+  onOpen,
+}: {
+  agentName: string;
+  hasGroup: boolean;
+  onOpen: (tab: WorkspaceTab) => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <nav
+      aria-label={t(PLAN_WORKSPACE_KEYS.panel)}
+      className="flex shrink-0 items-center gap-1 border-b ghost-border px-2 py-1"
+      data-testid="workspace-panel-open"
+    >
+      {tabWords(t, agentName, hasGroup).map(({ id, label }) => {
+        const Icon = OPENER_ICON[id];
+        return (
+          <button
+            key={id}
+            type="button"
+            aria-haspopup="dialog"
+            onClick={() => onOpen(id)}
+            data-testid={`workspace-open-${id}`}
+            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium text-on-surface-variant transition-colors hover:bg-surface-container-low hover:text-on-surface focus-ring touch-target"
+          >
+            <Icon className="h-4 w-4" aria-hidden="true" />
+            {label}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
 
 interface WorkspacePanelProps {
   tab: WorkspaceTab;
@@ -136,11 +188,9 @@ export function WorkspacePanel({
   onComposerActionConsumed,
 }: WorkspacePanelProps) {
   const { t } = useTranslation();
-  const tabs: (Tab & { id: WorkspaceTab })[] = [
-    { id: 'history', label: t('home.personal.history') },
-    { id: 'dravr', label: agentName, icon: <Lock className="h-3 w-3" aria-hidden="true" /> },
-    ...(group !== null ? [{ id: 'group' as const, label: t('app.group') }] : []),
-  ];
+  const tabs: (Tab & { id: WorkspaceTab })[] = tabWords(t, agentName, group !== null).map((entry) =>
+    entry.id === 'dravr' ? { ...entry, icon: <Lock className="h-3 w-3" aria-hidden="true" /> } : entry,
+  );
   const active = tabs.some((entry) => entry.id === tab) ? tab : 'history';
 
   let body: React.ReactNode;
@@ -193,6 +243,17 @@ export function WorkspacePanel({
             }
           />
         </div>
+      </div>
+    );
+  } else if (group?.kind === 'failed') {
+    body = (
+      <div className="px-4 py-3">
+        <EmptyState
+          action={{ label: t('common.retry'), onClick: group.retry, 'data-testid': 'workspace-room-retry' }}
+          data-testid="workspace-room-failed"
+        >
+          {t(GROUP_ROOM_KEYS.openError)}
+        </EmptyState>
       </div>
     );
   } else {

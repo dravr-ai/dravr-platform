@@ -5,35 +5,16 @@
 // ABOUTME: Reads the plan thread's subject plan and writes through the day editor's hooks; the panel beside it from lg, a sheet below (carnet#1816)
 
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, History, Lock, Users } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useTranslation, type TFunction } from '@pierre/i18n';
 import type { CoachRosterAthlete, DraftState, PlanSubject, WorkoutPlan } from '@pierre/shared-types';
-import {
-  PLAN_DRAFT_KEYS,
-  PLAN_THREAD_KEYS,
-  countKey,
-  planProposedDates,
-  prePublishChecks,
-  type PrePublishItem,
-} from '@pierre/chat-utils';
-import {
-  API_ERROR_KEYS,
-  PLAN_WORKSPACE_KEYS,
-  SESSION_EDITOR_KEYS,
-  describeApiError,
-  formatCivilDate,
-  isSessionMoved,
-  openThreadRefusalText,
-  planCalendarWeeks,
-  sessionExpect,
-  type PlanCalendarDay,
-} from '@pierre/ui-logic';
+import { PLAN_DRAFT_KEYS, PLAN_THREAD_KEYS, countKey, planProposedDates, prePublishChecks } from '@pierre/chat-utils';
+import { PLAN_WORKSPACE_KEYS, formatCivilDate, openThreadRefusalText, planCalendarWeeks } from '@pierre/ui-logic';
 import { useAuth } from '../../../hooks/useAuth';
 import { useIsDesktop, useIsMobile } from '../../../hooks/useBreakpoint';
 import { usePlanDraftCard, useSubjectPlan } from '../../../hooks/useCoachPlan';
-import { useRereadPlan, useRevertDraftDate, useSetCoachCall } from '../../../hooks/useSessionEditor';
-import { Button, EmptyState, IconButton, Sheet, useErrorToast } from '../../ui';
+import { Button, EmptyState, IconButton, Sheet } from '../../ui';
 import { PlanDraftActions } from '../../chat/PlanDraftControls';
 import type { SessionEditorOpening } from '../../chat/SessionEditorSheet';
 import type { PendingComposerAction, WorkspacePlanSurface } from '../../chat/types';
@@ -44,7 +25,8 @@ import { coachHomeRoute } from '../coachHomeRoute';
 import type { CoachDestinations } from '../useCoachDestinations';
 import { PrePublishCheck } from './PrePublishCheck';
 import { WorkspaceCalendar } from './WorkspaceCalendar';
-import { WorkspacePanel, type WorkspaceGroupTab, type WorkspaceTab } from './WorkspacePanel';
+import { WorkspacePanel, WorkspacePanelOpeners, type WorkspaceGroupTab, type WorkspaceTab } from './WorkspacePanel';
+import { useWorkspaceAnswers } from './useWorkspaceAnswers';
 import { useWorkspaceThreads } from './useWorkspaceThreads';
 
 // The editor loads when a coach first opens it, never before first paint, as
@@ -60,11 +42,6 @@ interface AthleteWorkspaceProps {
   onNavigate: (route: string) => void;
   /** Where Coach Home's actions go: « Écrire dans le groupe » for an athlete with no room of their own. */
   destinations: CoachDestinations;
-}
-
-/** A date's entries as the acceptance of its proposal was given on: a changed date asks again. */
-function entriesSignature(day: PlanCalendarDay): string {
-  return JSON.stringify(day.entries);
 }
 
 /**
@@ -166,7 +143,6 @@ export default function AthleteWorkspace({ athlete, onNavigate, destinations }: 
   const { t, language } = useTranslation();
   const isDesktop = useIsDesktop();
   const isMobile = useIsMobile();
-  const showError = useErrorToast();
   const threads = useWorkspaceThreads(athlete);
   const { planThreadId } = threads;
   const { read, isLoading, isError, refetch } = useSubjectPlan(planThreadId, planThreadId !== null);
@@ -196,48 +172,7 @@ export default function AthleteWorkspace({ athlete, onNavigate, destinations }: 
   }, [draftState]);
   const publishDraft = draftState ?? heldDraft;
 
-  // « Accepter » acknowledges a date's proposal as it stands, for this
-  // session: a date whose entries change again asks again.
-  const [accepted, setAccepted] = useState<ReadonlyMap<string, string>>(new Map());
-  const isAccepted = useCallback(
-    (day: PlanCalendarDay) => accepted.get(day.date) === entriesSignature(day),
-    [accepted],
-  );
-  const accept = useCallback((day: PlanCalendarDay) => {
-    setAccepted((held) => new Map(held).set(day.date, entriesSignature(day)));
-  }, []);
-
-  const revert = useRevertDraftDate(planThreadId, language);
-  const refuse = (date: string) => {
-    revert.mutate(
-      { date },
-      {
-        onError: (error) =>
-          showError(t(PLAN_WORKSPACE_KEYS.refuseFailed), describeApiError(error, { t, fallbackKey: API_ERROR_KEYS.unknown })),
-      },
-    );
-  };
-  const refusing = revert.isPending ? (revert.variables?.date ?? null) : null;
-
-  // « C'est mon choix », as the plan card makes it: a call whose session moved
-  // reads the plan again, never lands on whichever session sits there now.
-  const coachCall = useSetCoachCall(planThreadId, language);
-  const reread = useRereadPlan(planThreadId);
-  const keep = (item: PrePublishItem) => {
-    coachCall.mutate(
-      { date: item.day.date, position: item.position, expect: sessionExpect(item.day), on: true },
-      {
-        onError: (error) => {
-          if (isSessionMoved(error)) {
-            showError(t(SESSION_EDITOR_KEYS.sessionMoved));
-            reread();
-            return;
-          }
-          showError(t(SESSION_EDITOR_KEYS.saveFailed), describeApiError(error, { t, fallbackKey: API_ERROR_KEYS.unknown }));
-        },
-      },
-    );
-  };
+  const answers = useWorkspaceAnswers(planThreadId);
 
   const [editing, setEditing] = useState<SessionEditorOpening | null>(null);
   const [tab, setTab] = useState<WorkspaceTab>('history');
@@ -269,12 +204,10 @@ export default function AthleteWorkspace({ athlete, onNavigate, destinations }: 
   };
 
   const agentName = threads.planGroup?.agent_title?.trim() || t('shell.brandName');
-  const groupTab: WorkspaceGroupTab | null =
-    threads.room !== null
-      ? { kind: 'room', room: threads.room }
-      : threads.roomKnown && athlete.groups.length > 0
-        ? { kind: 'noRoom' }
-        : null;
+  let groupTab: WorkspaceGroupTab | null = null;
+  if (threads.room !== null) groupTab = { kind: 'room', room: threads.room };
+  else if (threads.groupsFailed) groupTab = { kind: 'failed', retry: threads.retryGroups };
+  else if (threads.roomKnown && athlete.groups.length > 0) groupTab = { kind: 'noRoom' };
 
   const goal = shown?.goal_race ?? null;
 
@@ -285,6 +218,12 @@ export default function AthleteWorkspace({ athlete, onNavigate, destinations }: 
     calendar = (
       <EmptyState action={{ label: t('common.retry'), onClick: threads.retryPlanThread }} data-testid="workspace-thread-failed">
         {openThreadRefusalText(threads.planError, name, t)}
+      </EmptyState>
+    );
+  } else if (planThreadId === null && threads.groupsFailed) {
+    calendar = (
+      <EmptyState action={{ label: t('common.retry'), onClick: threads.retryGroups }} data-testid="workspace-thread-failed">
+        {t(PLAN_THREAD_KEYS.openError)}
       </EmptyState>
     );
   } else if (planThreadId === null || isLoading) {
@@ -316,17 +255,18 @@ export default function AthleteWorkspace({ athlete, onNavigate, destinations }: 
         <PrePublishCheck
           items={checks}
           athleteName={name}
-          onKeep={keep}
-          keeping={coachCall.isPending}
+          onKeep={answers.keep}
+          keeping={answers.keeping}
           onReview={(item) => setEditing({ day: item.day, entries: item.entries, mode: 'edit' })}
+          onCleared={() => calendarRef.current?.focus()}
         />
         <SeasonBand plan={shown} />
         <WorkspaceCalendar
           weeks={weeks}
-          isAccepted={isAccepted}
-          onAccept={accept}
-          onRefuse={refuse}
-          refusing={refusing}
+          isAccepted={answers.isAccepted}
+          onAccept={answers.accept}
+          onRefuse={answers.refuse}
+          refusing={answers.refusing}
           onEdit={setEditing}
         />
       </div>
@@ -389,31 +329,7 @@ export default function AthleteWorkspace({ athlete, onNavigate, destinations }: 
 
       {!isDesktop && (
         // Below lg the panel is a sheet: each tab opens it on itself.
-        <nav
-          aria-label={t(PLAN_WORKSPACE_KEYS.panel)}
-          className="flex shrink-0 items-center gap-1 border-b ghost-border px-2 py-1"
-          data-testid="workspace-panel-open"
-        >
-          {(
-            [
-              { id: 'history', label: t('home.personal.history'), Icon: History },
-              { id: 'dravr', label: agentName, Icon: Lock },
-              ...(groupTab !== null ? [{ id: 'group' as const, label: t('app.group'), Icon: Users }] : []),
-            ] as const
-          ).map(({ id, label, Icon }) => (
-            <button
-              key={id}
-              type="button"
-              aria-haspopup="dialog"
-              onClick={() => openTab(id)}
-              data-testid={`workspace-open-${id}`}
-              className="inline-flex items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium text-on-surface-variant transition-colors hover:bg-surface-container-low hover:text-on-surface focus-ring touch-target"
-            >
-              <Icon className="h-4 w-4" aria-hidden="true" />
-              {label}
-            </button>
-          ))}
-        </nav>
+        <WorkspacePanelOpeners agentName={agentName} hasGroup={groupTab !== null} onOpen={openTab} />
       )}
 
       <div className="flex min-h-0 flex-1">

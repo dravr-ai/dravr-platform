@@ -164,6 +164,17 @@ function withWednesdayRefused(): SubjectPlanResponse {
   return { ...plan, draft: { ...draft, weeks } };
 }
 
+/** The plan once the coach kept each of `dates` as their call. */
+function withCalls(dates: string[]): SubjectPlanResponse {
+  const plan = subjectPlan();
+  const draft = plan.draft as WorkoutPlan;
+  const weeks = draft.weeks.map((week) => ({
+    ...week,
+    days: week.days.map((entry) => (dates.includes(entry.date) ? { ...entry, coach_call: true } : entry)),
+  }));
+  return { ...plan, draft: { ...draft, weeks } };
+}
+
 const HISTORY: SubjectPlanHistory = {
   events: [
     { kind: 'agent_draft', source: 'agent', dates: ['2026-11-25', '2026-11-26'], created_at: '2026-11-25T10:05:00Z' },
@@ -240,6 +251,9 @@ const dateCell = (date: string) => screen.getByTestId(`workspace-date-${date}`);
 
 /** Every date cell, its chips aside. */
 const dateCells = () => screen.getAllByTestId(/^workspace-date-\d/);
+
+/** A date's heading, which says where its proposal stands. */
+const dateHeading = (date: string) => within(dateCell(date)).getByRole('heading', { level: 3 });
 
 describe('the athlete workspace (carnet#1816)', () => {
   // The editor loads lazily on first open; loaded once here so the first test
@@ -356,6 +370,55 @@ describe('the athlete workspace (carnet#1816)', () => {
     expect(api.setSubjectDraftDayCoachCall).not.toHaveBeenCalled();
   });
 
+  it('says each date’s proposal in its heading, and leaves focus on the date once the coach answers', async () => {
+    api.revertSubjectDraftDate.mockImplementation(async () => {
+      api.getSubjectPlan.mockResolvedValue(withWednesdayRefused());
+      return withWednesdayRefused();
+    });
+    const user = userEvent.setup();
+    renderWorkspace();
+    await screen.findByTestId('workspace-calendar');
+
+    expect(dateHeading('2026-11-26')).toHaveAccessibleName(`Thursday, November 26, ${i18n.t('plan.workspace.proposed')}`);
+    expect(dateHeading('2026-11-27')).toHaveAccessibleName('Friday, November 27');
+
+    // « Accepter » goes away once pressed: the date's heading takes focus and says it.
+    await user.click(screen.getByTestId('workspace-accept-2026-11-26'));
+    expect(dateHeading('2026-11-26')).toHaveFocus();
+    expect(dateHeading('2026-11-26')).toHaveAccessibleName(`Thursday, November 26, ${i18n.t('plan.workspace.accepted')}`);
+
+    // Both answers go once the date is put back: focus stays on the date.
+    await user.click(screen.getByTestId('workspace-refuse-2026-11-25'));
+    await waitFor(() => expect(dateHeading('2026-11-25')).toHaveAccessibleName('Wednesday, November 25'));
+    expect(dateHeading('2026-11-25')).toHaveFocus();
+  });
+
+  it('leaves the coach on « Refuser » and says why when the date cannot be put back', async () => {
+    api.revertSubjectDraftDate.mockRejectedValue(new Error('network down'));
+    const user = userEvent.setup();
+    renderWorkspace();
+    await screen.findByTestId('workspace-calendar');
+
+    const refuse = screen.getByTestId('workspace-refuse-2026-11-25');
+    await user.click(refuse);
+    expect(await screen.findByText(i18n.t('plan.workspace.refuseFailed'))).toBeInTheDocument();
+    expect(refuse).toHaveFocus();
+    expect(refuse).not.toHaveAttribute('aria-disabled');
+    expect(dateCell('2026-11-25')).toHaveAttribute('data-proposed', 'true');
+  });
+
+  it('describes a session block by its length, the editor’s mark and where its evidence sits', async () => {
+    renderWorkspace();
+    await screen.findByTestId('workspace-calendar');
+
+    expect(screen.getByTestId('workspace-session-2026-11-28-1')).toHaveAccessibleDescription(
+      new RegExp(`Z2 ${i18n.t('plan.editor.added')}$`),
+    );
+    expect(screen.getByTestId('workspace-session-2026-11-29-0')).toHaveAccessibleDescription(
+      new RegExp(`Z2 ${i18n.t('messaging.evidence.convention')}$`),
+    );
+  });
+
   it('asks before publishing about convention and outside sessions from today on that are not the coach’s call', async () => {
     const user = userEvent.setup();
     renderWorkspace();
@@ -380,6 +443,27 @@ describe('the athlete workspace (carnet#1816)', () => {
 
     await user.click(within(check).getByTestId('workspace-check-review-2026-12-06-0'));
     expect(await screen.findByRole('dialog', { name: i18n.t('plan.editor.editTitle', { date: 'Sun, Dec 6' }) })).toBeInTheDocument();
+  });
+
+  it('moves focus to the next session the check names once one is kept, and past the check after the last', async () => {
+    const kept: string[] = [];
+    api.setSubjectDraftDayCoachCall.mockImplementation(async (...args: unknown[]) => {
+      kept.push(args[1] as string);
+      api.getSubjectPlan.mockResolvedValue(withCalls(kept));
+      return withCalls(kept);
+    });
+    const user = userEvent.setup();
+    renderWorkspace();
+    const check = await screen.findByTestId('workspace-prepublish');
+
+    await user.click(within(check).getByTestId('workspace-check-keep-2026-11-29-0'));
+    await waitFor(() => expect(screen.queryByTestId('workspace-check-2026-11-29-0')).not.toBeInTheDocument());
+    expect(screen.getByTestId('workspace-check-keep-2026-12-06-0')).toHaveFocus();
+
+    await user.click(screen.getByTestId('workspace-check-keep-2026-12-06-0'));
+    await waitFor(() => expect(screen.queryByTestId('workspace-prepublish')).not.toBeInTheDocument());
+    expect(screen.getByTestId('workspace-calendar-section')).toHaveFocus();
+    expect(kept).toEqual(['2026-11-29', '2026-12-06']);
   });
 
   it('lists the history newest first, the coach as "you" and the agent by its name', async () => {
@@ -421,6 +505,25 @@ describe('the athlete workspace (carnet#1816)', () => {
     expect(screen.getByTestId('workspace-no-room')).toHaveTextContent(i18n.t('plan.workspace.noRoom', { name: LEA.display_name }));
     await user.click(screen.getByTestId('workspace-write-group'));
     expect(routes.writeToGroup).toHaveBeenCalledWith(ATHLETE, null);
+  });
+
+  it('says the room could not be read when a group read fails, opens no plan thread under a guess, and asks again', async () => {
+    api.getConversations.mockResolvedValue({ conversations: [room], total: 1 });
+    api.getGroup.mockRejectedValueOnce(new Error('network down'));
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    const failed = await screen.findByTestId('workspace-thread-failed');
+    expect(failed).toHaveTextContent(i18n.t('humanCoach.planThread.openError'));
+    expect(api.openAthleteThread).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('tab', { name: i18n.t('app.group') }));
+    expect(screen.getByTestId('workspace-room-failed')).toHaveTextContent(i18n.t('humanCoach.groupRoom.openError'));
+
+    await user.click(screen.getByTestId('workspace-room-retry'));
+    await waitFor(() => expect(api.openAthleteThread).toHaveBeenCalledWith(LEA.user_id, GROUP.id));
+    expect(await screen.findByTestId('workspace-calendar')).toBeInTheDocument();
+    const roomThread = within(screen.getByTestId('workspace-panel-group')).getByTestId('embedded-chat-stub');
+    expect(roomThread).toHaveAttribute('data-conversation', ROOM_ID);
   });
 
   it('opens the plan thread when the coach holds none on the athlete', async () => {

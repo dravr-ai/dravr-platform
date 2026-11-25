@@ -37,6 +37,10 @@ export interface WorkspaceThreads {
   room: WorkspaceRoom | null;
   /** The groups have been read, so `room` is known. */
   roomKnown: boolean;
+  /** A group's read failed: which group is the athlete's room is not known, so no plan thread is opened. */
+  groupsFailed: boolean;
+  /** Read the failed groups again. */
+  retryGroups: () => void;
   /** Open the coach's conversation in the room, which the server finds or opens. */
   openRoom: () => void;
   roomOpening: boolean;
@@ -76,7 +80,14 @@ export function useWorkspaceThreads(athlete: CoachRosterAthlete): WorkspaceThrea
     () => groupReads.map((read) => read.data).filter((group): group is CoachingGroup => group !== undefined),
     [groupReads],
   );
-  const roomKnown = groupReads.every((read) => !read.isLoading);
+  // Known only once every group answered: a failed read would otherwise read
+  // as a group holding other athletes, and the plan thread would be opened
+  // under a group that is not the athlete's room.
+  const roomKnown = groupReads.every((read) => read.isSuccess);
+  const groupsFailed = groupReads.some((read) => read.isError);
+  const retryGroups = () => {
+    for (const read of groupReads) if (read.isError) void read.refetch();
+  };
 
   const roomGroup = useMemo(
     () => athleteRoomGroup(groups, athlete.user_id, viewerId),
@@ -139,6 +150,8 @@ export function useWorkspaceThreads(athlete: CoachRosterAthlete): WorkspaceThrea
     retryPlanThread,
     room: roomGroup === null ? null : { group: roomGroup, conversationId: roomConversationId },
     roomKnown,
+    groupsFailed,
+    retryGroups,
     openRoom,
     roomOpening: pendingRoomAthleteId === athlete.user_id,
     roomError,

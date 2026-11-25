@@ -4,7 +4,7 @@
 // ABOUTME: The athlete workspace's two weeks — seven dates a row from lg, a day list below it — each session a button to its editor, each date a « + Séance »
 // ABOUTME: A date the draft changes is « Proposé » with Accepter and Refuser; only a convention or outside-evidence session carries the diamond mark (carnet#1816)
 
-import { useId } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { Check, Diamond, Pencil, Plus } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useTranslation, type TFunction } from '@pierre/i18n';
@@ -34,8 +34,8 @@ interface WorkspaceCalendarProps {
   /** Whether the coach accepted the proposal on a date this session (decision W1). */
   isAccepted: (day: PlanCalendarDay) => boolean;
   onAccept: (day: PlanCalendarDay) => void;
-  /** « Refuser »: put the live plan back on the date. */
-  onRefuse: (date: string) => void;
+  /** « Refuser »: put the live plan back on the date; resolves whether it was. */
+  onRefuse: (date: string) => Promise<boolean>;
   /** The date whose refusal is being written, while one is. */
   refusing: string | null;
   /** Open the session editor on a session, or on a blank one after a date's sessions. */
@@ -78,7 +78,7 @@ function SessionBlock({
   onEdit: (opening: SessionEditorOpening) => void;
 }) {
   const { t, language } = useTranslation();
-  const markId = useId();
+  const partId = useId();
   const title = day.rest ? t('chat.restDay') : day.workout;
   const meta = [
     day.duration_min !== undefined ? t('plan.editor.minutes', { count: day.duration_min }) : null,
@@ -86,18 +86,32 @@ function SessionBlock({
   ].filter((part): part is string => typeof part === 'string' && part.length > 0);
   const badge = day.added ? t(SESSION_EDITOR_KEYS.added) : day.edited ? t(SESSION_EDITOR_KEYS.edited) : null;
   const mark = sessionMark(day, t);
+  const showsMeta = meta.length > 0 && !day.rest;
+  // The button's name is the session and its date; what else the block
+  // shows — its sport and length, the editor's mark, its evidence — is its
+  // description.
+  const described = [
+    !day.rest && `${partId}-sport`,
+    showsMeta && `${partId}-meta`,
+    badge !== null && `${partId}-badge`,
+    mark !== null && `${partId}-mark`,
+  ]
+    .filter((id): id is string => typeof id === 'string')
+    .join(' ');
   return (
     <button
       type="button"
       aria-haspopup="dialog"
       aria-label={t(PLAN_WORKSPACE_KEYS.editSession, { session: title, date: formatCivilDate(day.date, language, ROW_DATE) })}
-      aria-describedby={mark !== null ? markId : undefined}
+      aria-describedby={described || undefined}
       onClick={() => onEdit({ day, entries, mode: 'edit' })}
       data-testid={`workspace-session-${day.date}-${position}`}
       className="flex w-full flex-col gap-0.5 rounded-md p-1.5 text-left transition-colors hover:bg-surface-container-low focus-ring lg:p-1 xl:p-1.5"
     >
       <span className="flex w-full items-center justify-between gap-1">
-        <span className="truncate text-xs text-on-surface-variant">{day.rest ? '' : sportLabel(t, day.sport)}</span>
+        <span id={`${partId}-sport`} className="truncate text-xs text-on-surface-variant">
+          {day.rest ? '' : sportLabel(t, day.sport)}
+        </span>
         <Pencil className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
       </span>
       <span
@@ -108,13 +122,19 @@ function SessionBlock({
       >
         {title}
       </span>
-      {meta.length > 0 && !day.rest && <span className="text-xs text-on-surface-variant">{meta.join(' · ')}</span>}
+      {showsMeta && (
+        <span id={`${partId}-meta`} className="text-xs text-on-surface-variant">
+          {meta.join(' · ')}
+        </span>
+      )}
       {badge !== null && (
-        <span className={`${BADGE_TONE.neutral.tone} self-start rounded-full px-1.5 text-xs font-medium`}>{badge}</span>
+        <span id={`${partId}-badge`} className={`${BADGE_TONE.neutral.tone} self-start rounded-full px-1.5 text-xs font-medium`}>
+          {badge}
+        </span>
       )}
       {mark !== null && (
         <span
-          id={markId}
+          id={`${partId}-mark`}
           className="flex min-w-0 items-start gap-1 text-xs text-on-surface-variant"
           data-testid={mark.kind === 'call' ? 'workspace-session-coach-call' : 'workspace-session-evidence'}
         >
@@ -143,16 +163,44 @@ function DateCell({
   day: PlanCalendarDay;
   accepted: boolean;
   onAccept: () => void;
-  onRefuse: () => void;
+  /** Resolves whether the date was put back to the live plan. */
+  onRefuse: () => Promise<boolean>;
   refusing: boolean;
   onEdit: (opening: SessionEditorOpening) => void;
 }) {
   const { t, language } = useTranslation();
   const dateId = useId();
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const today = day.timing === 'today';
   const past = day.timing === 'past';
   const full = !canAddSession(day.entries);
   const rowDate = formatCivilDate(day.date, language, ROW_DATE);
+  // Where the proposal stands, said by the date's heading: heading by heading
+  // a screen reader hears which dates are proposed, and each answer below is
+  // described by it.
+  const proposal = day.proposed ? t(accepted ? PLAN_WORKSPACE_KEYS.accepted : PLAN_WORKSPACE_KEYS.proposed) : null;
+
+  // An answer takes away the button it was given with — « Accepter » once
+  // pressed, both once the date is put back — so focus moves to the date's
+  // heading, which says where the proposal stands now, instead of falling to
+  // the start of the page.
+  const acceptedHere = useRef(false);
+  useEffect(() => {
+    if (!accepted || !acceptedHere.current) return;
+    acceptedHere.current = false;
+    headingRef.current?.focus();
+  }, [accepted]);
+  const accept = () => {
+    acceptedHere.current = true;
+    onAccept();
+  };
+  const refuse = () => {
+    if (refusing) return;
+    void onRefuse().then((refused) => {
+      if (refused) headingRef.current?.focus();
+    });
+  };
+
   return (
     <li
       aria-current={today ? 'date' : undefined}
@@ -172,8 +220,10 @@ function DateCell({
       <div className="flex flex-wrap items-center justify-between gap-x-1.5 gap-y-1">
         <h3
           id={dateId}
+          ref={headingRef}
+          tabIndex={-1}
           className={clsx(
-            'm-0 font-mono text-sm',
+            'm-0 rounded-sm font-mono text-sm focus-ring-visible',
             today ? 'font-semibold text-primary' : past ? 'text-outline' : 'text-on-surface-variant',
           )}
         >
@@ -183,11 +233,16 @@ function DateCell({
           <span aria-hidden="true" className="hidden lg:inline">
             {formatCivilDate(day.date, language, { day: 'numeric' })}
           </span>
-          <span className="sr-only">{formatCivilDate(day.date, language, LONG_DATE)}</span>
+          <span className="sr-only">
+            {formatCivilDate(day.date, language, LONG_DATE)}
+            {proposal !== null && `, ${proposal}`}
+          </span>
         </h3>
+        {/* The heading says the same to a screen reader. */}
         {day.proposed &&
           (accepted ? (
             <span
+              aria-hidden="true"
               className={`${BADGE_TONE.neutral.tone} inline-flex max-w-full items-center gap-1 rounded-full px-1.5 text-xs font-semibold`}
               data-testid="workspace-date-accepted"
             >
@@ -196,6 +251,7 @@ function DateCell({
             </span>
           ) : (
             <span
+              aria-hidden="true"
               className={`${BADGE_TONE.accent.tone} max-w-full truncate rounded-full px-1.5 text-xs font-semibold`}
               data-testid="workspace-date-proposed"
             >
@@ -219,21 +275,24 @@ function DateCell({
             <button
               type="button"
               aria-describedby={dateId}
-              onClick={onAccept}
+              onClick={accept}
               data-testid={`workspace-accept-${day.date}`}
               className="max-w-full truncate rounded text-primary transition-colors hover:text-primary-hover focus-ring touch-target"
             >
               {t(PLAN_WORKSPACE_KEYS.accept)}
             </button>
           )}
+          {/* Held back while the date is put back, but never disabled: a
+              disabled button drops the focus it holds, and a refusal that
+              fails leaves the coach where they were. */}
           <button
             type="button"
             aria-describedby={dateId}
-            disabled={refusing}
+            aria-disabled={refusing || undefined}
             aria-busy={refusing}
-            onClick={onRefuse}
+            onClick={refuse}
             data-testid={`workspace-refuse-${day.date}`}
-            className="max-w-full truncate rounded text-on-surface-variant transition-colors hover:text-on-surface disabled:cursor-not-allowed disabled:opacity-50 focus-ring touch-target"
+            className="max-w-full truncate rounded text-on-surface-variant transition-colors hover:text-on-surface aria-disabled:cursor-not-allowed aria-disabled:opacity-50 focus-ring touch-target"
           >
             {t(PLAN_WORKSPACE_KEYS.refuse)}
           </button>

@@ -18,6 +18,7 @@ export const {
   usePlanDraftCard,
   usePlanThreadDraft,
   useSubjectPlan,
+  useCardSubjectPlan,
 } = createCoachPlanHooks({
   chatApi: {
     openAthleteThread: (athleteUserId, groupId) => chatApi.openAthleteThread(athleteUserId, groupId),

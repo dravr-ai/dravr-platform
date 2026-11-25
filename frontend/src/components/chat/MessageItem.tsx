@@ -350,6 +350,7 @@ const MessageItem = memo(function MessageItem({
               key={key}
               conversationId={conversationId}
               plan={plan}
+              draft={planCardDraft(block)?.draft ?? null}
               onShowCalendar={planSurface.onShowCalendar}
             />
           );

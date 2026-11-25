@@ -7,15 +7,17 @@
 import { CalendarDays } from 'lucide-react';
 import { useTranslation } from '@pierre/i18n';
 import { countKey, planProposedDates } from '@pierre/chat-utils';
-import type { WorkoutPlan } from '@pierre/shared-types';
+import type { DraftState, WorkoutPlan } from '@pierre/shared-types';
 import { PLAN_WORKSPACE_KEYS } from '@pierre/ui-logic';
-import { useSubjectPlan } from '../../hooks/useCoachPlan';
+import { useCardSubjectPlan } from '../../hooks/useCoachPlan';
 
 interface PlanChangeEntryProps {
   /** The coach's plan thread the card is in; its subject-plan read is the live plan the card is measured against. */
   conversationId: string | null;
   /** The plan the card carries. */
   plan: WorkoutPlan;
+  /** The coach's draft the card shows, when it shows one: a draft newer than the plan read reads it again. */
+  draft: DraftState | null;
   /** Bring the workspace's calendar into view. */
   onShowCalendar: () => void;
 }
@@ -25,11 +27,13 @@ interface PlanChangeEntryProps {
  * already draws the plan, so the thread only says one was proposed, how many
  * of its days differ from what the athlete has now, and leads to the
  * calendar. The count waits for the live plan; until then the line names no
- * number rather than a wrong one.
+ * number rather than a wrong one. A card a turn just added reads the plan
+ * again, as a full card does, so the calendar beside it draws that turn's
+ * draft.
  */
-export default function PlanChangeEntry({ conversationId, plan, onShowCalendar }: PlanChangeEntryProps) {
+export default function PlanChangeEntry({ conversationId, plan, draft, onShowCalendar }: PlanChangeEntryProps) {
   const { t, language } = useTranslation();
-  const { read } = useSubjectPlan(conversationId, conversationId !== null);
+  const { read } = useCardSubjectPlan(conversationId, draft, conversationId !== null);
   const changed = read?.status === 'ok' ? planProposedDates(plan, read.plan.live).length : null;
   const parts = [t(PLAN_WORKSPACE_KEYS.changeEntry)];
   if (changed !== null && changed > 0) {

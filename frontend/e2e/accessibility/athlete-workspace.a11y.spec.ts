@@ -10,6 +10,16 @@ import { mockCoach } from '../coach-home-mocks';
 import { WORKSPACE_ATHLETE_ID, mockWorkspace, trifectaRoster } from '../athlete-workspace-mocks';
 
 async function scan(page: Page): Promise<string> {
+  // A sheet slides in and its scrim fades in: a scan taken mid-way measures
+  // half-transparent text over a half-drawn ground. Scan the page at rest;
+  // looping animations (the spinner) never finish, so only finite ones are
+  // waited on.
+  await page.waitForFunction(() =>
+    document
+      .getAnimations()
+      .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+      .every((animation) => animation.playState !== 'running'),
+  );
   const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
   return results.violations
     .map((v) => `${v.id} (${v.impact}): ${v.help}\n${v.nodes.slice(0, 4).map((n) => `    ${n.target.join(' ')}`).join('\n')}`)

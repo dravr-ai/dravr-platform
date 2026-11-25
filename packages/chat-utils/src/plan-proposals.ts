@@ -14,6 +14,18 @@ import type { PlanDay, WorkoutPlan } from '@pierre/shared-types';
  */
 const COACH_MARKS = ['coach_call', 'edited', 'added', 'position'] as const;
 
+/**
+ * The fields the server words in a language when it draws a day and stores
+ * none of — the outside-evidence warning, "Counts as …": it compares the
+ * session it stores, and the field beside each (`outside`,
+ * `counts_as_purpose`) carries what it says. Left out, so a plan card saved
+ * in one language reads alike with the same plan read in another.
+ */
+const WORDED_FIELDS = ['outside_evidence', 'counts_as'] as const;
+
+/** The evidence chip's words in a language; its `kind`, `basis` and `note_kind` say the same. */
+const WORDED_EVIDENCE_FIELDS = ['label', 'note'] as const;
+
 /** `value` with every object's keys in one order and its absent fields dropped, so two equal days print alike. */
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
@@ -29,10 +41,15 @@ function canonical(value: unknown): unknown {
   return value;
 }
 
-/** A day as the comparison reads it: the session the athlete trains on, the coach's marks aside. */
+/** A day as the comparison reads it: the session the athlete trains on, the coach's marks and the server's words aside. */
 function trainingContent(day: PlanDay): string {
   const content: Record<string, unknown> = { ...day };
-  for (const mark of COACH_MARKS) delete content[mark];
+  for (const field of [...COACH_MARKS, ...WORDED_FIELDS]) delete content[field];
+  if (day.evidence) {
+    const evidence: Record<string, unknown> = { ...day.evidence };
+    for (const field of WORDED_EVIDENCE_FIELDS) delete evidence[field];
+    content.evidence = evidence;
+  }
   return JSON.stringify(canonical(content));
 }
 
@@ -52,7 +69,8 @@ function contentOn(days: readonly PlanDay[], date: string): string[] {
  * when the live plan holds none; a week only the live plan holds is not
  * compared. A date differs when its entries do, in order and in every field
  * but the coach's call and editor marks — a session rewritten, added, taken
- * away or moved within the date. With no live plan, every date the draft
+ * away or moved within the date — and the words the server drew in a
+ * language, which it never stores. With no live plan, every date the draft
  * holds differs.
  */
 export function planProposedDates(draft: WorkoutPlan, live: WorkoutPlan | null): string[] {

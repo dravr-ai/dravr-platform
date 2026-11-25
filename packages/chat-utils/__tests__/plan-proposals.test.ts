@@ -81,6 +81,29 @@ describe('planProposedDates', () => {
     expect(planProposedDates(plan([week('2026-11-23', reKeyed)]), LIVE)).toEqual([]);
   });
 
+  it('reads a session the server worded in another language as the same, and a changed evidence kind as a change', () => {
+    const english = {
+      evidence: { kind: 'convention' as const, label: 'Coaching convention', note: 'No study backs it.', note_kind: 'no_basis_convention' as const },
+      outside: true,
+      outside_evidence: 'Outside the evidence',
+      counts_as: 'Counts as endurance',
+      counts_as_purpose: 'endurance',
+    };
+    const french = {
+      evidence: { kind: 'convention' as const, label: "Convention d'entraînement", note: 'Aucune étude ne la fonde.', note_kind: 'no_basis_convention' as const },
+      outside: true,
+      outside_evidence: 'Hors des données probantes',
+      counts_as: 'Compte comme endurance',
+      counts_as_purpose: 'endurance',
+    };
+    const live = plan([week('2026-11-23', [day('2026-11-23', 'Long ride', english)])]);
+    expect(planProposedDates(plan([week('2026-11-23', [day('2026-11-23', 'Long ride', french)])]), live)).toEqual([]);
+    const transposed = { ...french, evidence: { ...french.evidence, kind: 'transposed' as const } };
+    expect(planProposedDates(plan([week('2026-11-23', [day('2026-11-23', 'Long ride', transposed)])]), live)).toEqual([
+      '2026-11-23',
+    ]);
+  });
+
   it('compares a week with the live week of the same Monday, and every date of a week live never held', () => {
     const next = [day('2026-11-30', 'Powerwatts'), day('2026-12-01', 'CrossFit')];
     const draft = plan([week('2026-11-23', LIVE_WEEK), week('2026-11-30', next)]);

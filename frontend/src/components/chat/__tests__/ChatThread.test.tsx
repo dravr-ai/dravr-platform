@@ -608,6 +608,21 @@ describe("ChatThread in a coach's own threads", () => {
       expect(onShowCalendar).toHaveBeenCalledTimes(1);
     });
 
+    it('reads the plan again for a card whose draft is newer than the read, so the calendar draws that turn', async () => {
+      getSubjectPlan.mockResolvedValue({ ...subjectPlan(DRAFT), live, draft: proposed });
+      const saved = { ...DRAFT, updated_at: new Date(Date.now() + 60_000).toISOString() };
+      getConversationMessages.mockResolvedValue({
+        messages: [
+          { ...PROPOSAL_ROW, scene_blocks: JSON.stringify([{ kind: 'workout_plan', plan: proposed, subject: ALICE, draft: saved }]) },
+        ],
+      });
+      renderThread({ initial: PLAN_ID, openThread, planSurface: { kind: 'workspace', onShowCalendar: vi.fn() } });
+
+      await screen.findByTestId('plan-change-entry');
+      await waitFor(() => expect(getSubjectPlan).toHaveBeenCalledTimes(2));
+      expect(getSubjectPlan).toHaveBeenLastCalledWith(PLAN_ID);
+    });
+
     it('draws no open draft for a thread whose rows never carried it', async () => {
       getSubjectPlan.mockResolvedValue({ ...subjectPlan(DRAFT), live, draft: proposed });
       getConversationMessages.mockResolvedValue({ messages: EARLIER });
