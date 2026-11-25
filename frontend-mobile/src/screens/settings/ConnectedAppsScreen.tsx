@@ -1,32 +1,21 @@
-// ABOUTME: Connected apps pane — one Section of 52 rows, the external MCP OAuth clients (e.g. Claude Desktop) approved on the consent screen
-// ABOUTME: Each row names the client with its preset (else scope), grant date and expiry under it and an ink Revoke on the trailing side
+// ABOUTME: Connected apps pane — the external MCP OAuth clients approved on the consent screen, the apps always allowed, and the consent history
+// ABOUTME: Each app row names the client with its preset (else scope), grant date and expiry under it and an ink Revoke on the trailing side
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, ActivityIndicator, Alert, RefreshControl } from 'react-native';
 import type { OAuthGrant } from '@pierre/shared-types';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { EmptyState, PaneScrollView, Row, Section } from '../../components/ui';
 import { useConnectedApps, useRevokeConnectedApps } from '../../hooks/useAccessFeed';
+import { useStandingPolicies } from '../../hooks/useGrantHistory';
 import { useTranslation } from '@pierre/i18n';
-import { describeApiError } from '@pierre/ui-logic';
+import { alwaysAllowedClients, describeApiError } from '@pierre/ui-logic';
 import { formatDate } from '@pierre/chat-utils';
-
-/**
- * The name of the preset a grant was approved for, or `null` for a plain grant and for a preset
- * this build does not know yet. Each key is a literal so the catalogue gate sees it.
- */
-const presetLabel = (preset: string | null, t: (key: string) => string): string | null => {
-  switch (preset) {
-    case 'training_coach':
-      return t('tokens.connectedAppsPresetTrainingCoach');
-    case 'sleep_coach':
-      return t('tokens.connectedAppsPresetSleepCoach');
-    default:
-      return null;
-  }
-};
+import { presetLabel } from './connectedAppPreset';
+import { StandingPoliciesSection } from './StandingPoliciesSection';
+import { GrantHistorySection } from './GrantHistorySection';
 
 /** Whether a grant ending at `expiresAt` has already ended. */
 const grantHasExpired = (expiresAt: string): boolean => Date.parse(expiresAt) <= Date.now();
@@ -41,6 +30,10 @@ export function ConnectedAppsScreen(): React.JSX.Element {
   const { data, isLoading, isError, error, refetch, isFetching } = useConnectedApps();
   // The shared revoke rereads this list and the privacy screen's access feed alike.
   const revokeMutation = useRevokeConnectedApps();
+  // Revoking an always-allowed app's grant leaves its policy, which renews the
+  // grant on the app's next connection: its row and its confirmation say so.
+  const { data: policies } = useStandingPolicies();
+  const alwaysAllowed = useMemo(() => alwaysAllowedClients(policies ?? []), [policies]);
 
   const grants = data ?? [];
 
@@ -49,7 +42,9 @@ export function ConnectedAppsScreen(): React.JSX.Element {
       t('app.revokeAccessQ'),
       // The same sentence the web card's confirmation uses, from the same key:
       // revoking is the same act on both, so it cannot promise two things.
-      t('app.confirmRevokeAppAccess', { app: connectedAppName(grant) }),
+      alwaysAllowed.has(grant.client_id)
+        ? t('app.confirmRevokeAlwaysAllowedApp', { app: connectedAppName(grant) })
+        : t('app.confirmRevokeAppAccess', { app: connectedAppName(grant) }),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {
@@ -123,6 +118,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
                     subtitle={[
                       grant.client_host,
                       presetLabel(grant.preset, t) ?? grant.scope,
+                      alwaysAllowed.has(grant.client_id) ? t('tokens.connectedAppsAlwaysAllowed') : null,
                       t('app.connectedOn', { date: formatDate(grant.granted_at, language) }),
                       grant.expires_at && !expired
                         ? t('apiKeys.expiresOn', { date: formatDate(grant.expires_at, language) })
@@ -153,6 +149,8 @@ export function ConnectedAppsScreen(): React.JSX.Element {
               })
             )}
           </Section>
+          <StandingPoliciesSection />
+          <GrantHistorySection grants={grants} policies={policies ?? []} />
         </PaneScrollView>
       )}
     </View>

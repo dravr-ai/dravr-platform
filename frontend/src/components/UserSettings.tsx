@@ -76,6 +76,10 @@ import { formatCompactNumber, formatCount, formatDate, formatResetTime } from '@
 import { useUsageStatus } from '../hooks/useUsageStatus';
 import { useAiConsent } from '../hooks/useAiConsent';
 import { useConnectedApps, useRevokeConnectedApps } from '../hooks/useAccessFeed';
+import { useStandingPolicies } from '../hooks/useGrantHistory';
+import { connectedAppPresetLabel } from './settings/connectedAppPreset';
+import StandingPoliciesSection from './settings/StandingPoliciesSection';
+import GrantHistorySection from './settings/GrantHistorySection';
 import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
 import SciotteLoginModal from './SciotteLoginModal';
 import { ProviderNoticeDialog } from './ProviderNotice';
@@ -86,7 +90,7 @@ import PreferredCalendarSettings from './settings/PreferredCalendarSettings';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { ownAppDevPortal } from '@pierre/domain-utils';
-import { describeApiError, followConnectPlan, MIN_PASSWORD_LENGTH, isPasswordLongEnough } from '@pierre/ui-logic';
+import { alwaysAllowedClients, describeApiError, followConnectPlan, MIN_PASSWORD_LENGTH, isPasswordLongEnough } from '@pierre/ui-logic';
 
 // Garmin's offered consents, asked before its connect: loaded on the first
 // connect that offers them, so the dialog stays out of the entry bundle.
@@ -96,21 +100,6 @@ const ConnectConsentDialog = lazy(() => import('./ConnectConsentDialog'));
 // use the Sciotte hosted-login flow (credentials handled in SciotteLoginModal)
 // and have no developer-app registration step the user controls.
 const PROVIDERS = [{ id: 'whoop', name: PROVIDER_BRAND.whoop }];
-
-/**
- * The name of the preset a connected app's grant was approved for, or `null` for a plain grant
- * and for a preset this build does not know yet. Each key is a literal so the catalogue gate sees it.
- */
-function connectedAppPresetLabel(preset: string | null, t: (key: string) => string): string | null {
-  switch (preset) {
-    case 'training_coach':
-      return t('tokens.connectedAppsPresetTrainingCoach');
-    case 'sleep_coach':
-      return t('tokens.connectedAppsPresetSleepCoach');
-    default:
-      return null;
-  }
-}
 
 /** Whether a connected app's grant, ending at `expiresAt`, has already ended. */
 function grantHasExpired(expiresAt: string): boolean {
@@ -392,6 +381,10 @@ export default function UserSettings({
   // Revoke a connected OAuth app (external MCP client): the shared revoke
   // rereads this list and the privacy pane's access feed alike.
   const revokeConnectedAppMutation = useRevokeConnectedApps();
+  // Revoking an always-allowed app's grant leaves its policy, which renews the
+  // grant on the app's next connection: its row and its confirmation say so.
+  const { data: standingPolicies } = useStandingPolicies(isAuthenticated);
+  const alwaysAllowed = useMemo(() => alwaysAllowedClients(standingPolicies ?? []), [standingPolicies]);
 
   // Change password mutation
   const changePasswordMutation = useMutation({
@@ -1541,6 +1534,11 @@ Authorization: Bearer <your-token-here>`}
                                   <p className="text-sm text-on-surface-variant break-words">
                                     {connectedAppPresetLabel(app.preset, t) ?? app.scope}
                                   </p>
+                                  {alwaysAllowed.has(app.client_id) && (
+                                    <Badge variant="primary" className="mt-1" data-testid={`connected-app-always-allowed-${app.id}`}>
+                                      {t('tokens.connectedAppsAlwaysAllowed')}
+                                    </Badge>
+                                  )}
                                   <p className="text-xs text-outline mt-1">
                                     {t('app.connectedOn', { date: formatDate(app.granted_at, language) })}
                                   </p>
@@ -1576,6 +1574,8 @@ Authorization: Bearer <your-token-here>`}
                           <EmptyState>{t('tokens.connectedAppsEmpty')}</EmptyState>
                         )}
                         </Section>
+                        <StandingPoliciesSection />
+                        <GrantHistorySection grants={connectedApps ?? []} policies={standingPolicies ?? []} />
                       </div>
                   );
                 case 'sign-out':
@@ -1708,7 +1708,11 @@ Authorization: Bearer <your-token-here>`}
           revokeConnectedAppMutation.mutate([appToRevoke.id], { onSuccess: () => setAppToRevoke(null) })
         }
         title={t('tokens.revokeAccess')}
-        message={t('app.confirmRevokeAppAccess', { app: appToRevoke?.client_name || appToRevoke?.client_id || '' })}
+        message={
+          appToRevoke && alwaysAllowed.has(appToRevoke.client_id)
+            ? t('app.confirmRevokeAlwaysAllowedApp', { app: appToRevoke.client_name || appToRevoke.client_id })
+            : t('app.confirmRevokeAppAccess', { app: appToRevoke?.client_name || appToRevoke?.client_id || '' })
+        }
         confirmLabel={t('app.revoke')}
         variant="danger"
         isLoading={revokeConnectedAppMutation.isPending}

@@ -71,6 +71,8 @@ export interface AccessFeedAppGroup {
   key: string;
   /** `support`: Dravr support's reads, whose client is the admin's and is never named. */
   kind: 'app' | 'support';
+  /** The app's client id; null for support, whose client is the admin's, and when the read names none. */
+  clientId: string | null;
   /** The app's name, its client id when it registered none; null when neither is known or for support. */
   name: string | null;
   host: string | null;
@@ -109,6 +111,7 @@ export function groupAccessFeedApps(
       groups.set(key, {
         key,
         kind: 'support',
+        clientId: null,
         name: null,
         host: null,
         credential: null,
@@ -122,6 +125,7 @@ export function groupAccessFeedApps(
     groups.set(key, {
       key,
       kind: 'app',
+      clientId: read.client_id,
       name: read.client_name ?? clientGrants[0]?.client_name ?? read.client_id,
       host: read.client_host ?? clientGrants[0]?.client_host ?? null,
       credential: read.credential,

@@ -38,7 +38,11 @@ const {
 vi.mock('../../services/api', () => ({
   userApi: { updateAnalyticsConsent: mockUpdateAnalyticsConsent },
   accessFeedApi: { getAccessFeed: mockGetAccessFeed },
-  oauthApi: { listConnectedApps: mockListConnectedApps, revokeConnectedApp: mockRevokeConnectedApp },
+  oauthApi: {
+    listConnectedApps: mockListConnectedApps,
+    revokeConnectedApp: mockRevokeConnectedApp,
+    listStandingPolicies: () => Promise.resolve([]),
+  },
 }))
 vi.mock('../../hooks/useAuth', () => ({ useAuth: () => mockUseAuth() }))
 // The two neighbouring sections read their own endpoints; they are not under test.

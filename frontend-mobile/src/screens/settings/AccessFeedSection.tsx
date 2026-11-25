@@ -21,6 +21,7 @@ import {
   coachReadClassKey,
 } from '@pierre/shared-constants';
 import {
+  alwaysAllowedClients,
   describeApiError,
   groupAccessFeedApiKeyDays,
   groupAccessFeedApps,
@@ -32,6 +33,7 @@ import { useTranslation } from '@pierre/i18n';
 import { EmptyState, Section } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { useAccessFeed, useConnectedApps, useRevokeConnectedApps } from '../../hooks/useAccessFeed';
+import { useStandingPolicies } from '../../hooks/useGrantHistory';
 
 /**
  * One read an app made, and when: a tool it called, or a turn of Dravr's
@@ -246,6 +248,8 @@ export function AccessFeedSection(): React.JSX.Element {
   const { data: feed, isLoading, isError } = useAccessFeed();
   const { data: grants } = useConnectedApps();
   const revoke = useRevokeConnectedApps();
+  // An always-allowed app's policy renews the grant this revokes on its next connection.
+  const { data: policies } = useStandingPolicies();
 
   const groups = useMemo(() => groupAccessFeedApps(feed?.app_reads ?? [], grants ?? []), [feed, grants]);
   const apiKeys = useMemo(() => groupAccessFeedApiKeyDays(feed?.api_key_days ?? []), [feed]);
@@ -255,7 +259,11 @@ export function AccessFeedSection(): React.JSX.Element {
 
   const handleRevoke = (group: AccessFeedAppGroup): void => {
     const app = group.name ?? t(ACCESS_FEED_KEYS.unknownApp);
-    Alert.alert(t('app.revokeAccessQ'), t('app.confirmRevokeAppAccess', { app }), [
+    const alwaysAllowed = group.clientId !== null && alwaysAllowedClients(policies ?? []).has(group.clientId);
+    const message = alwaysAllowed
+      ? t('app.confirmRevokeAlwaysAllowedApp', { app })
+      : t('app.confirmRevokeAppAccess', { app });
+    Alert.alert(t('app.revokeAccessQ'), message, [
       { text: t('common.cancel'), style: 'cancel' },
       {
         text: t('app.revoke'),

@@ -20,6 +20,7 @@ import {
   coachReadClassKey,
 } from '@pierre/shared-constants';
 import {
+  alwaysAllowedClients,
   groupAccessFeedApiKeyDays,
   groupAccessFeedApps,
   revokedInKeySettings,
@@ -28,6 +29,7 @@ import {
 } from '@pierre/ui-logic';
 import { useTranslation } from '@pierre/i18n';
 import { Button, ConfirmDialog, EmptyState, Section } from '../ui';
+import { useStandingPolicies } from '../../hooks/useGrantHistory';
 import { useAccessFeed, useConnectedApps, useRevokeConnectedApps } from '../../hooks/useAccessFeed';
 
 /**
@@ -262,6 +264,10 @@ export default function AccessFeedSection() {
   const peerDays = feed?.peer_days ?? [];
   const nothingRead = groups.length === 0 && apiKeys.length === 0 && coachDays.length === 0 && peerDays.length === 0;
   const appName = toRevoke?.name ?? t(ACCESS_FEED_KEYS.unknownApp);
+  // An always-allowed app's policy renews the grant this revokes on its next connection.
+  const { data: policies } = useStandingPolicies();
+  const revokingAlwaysAllowed =
+    toRevoke?.clientId != null && alwaysAllowedClients(policies ?? []).has(toRevoke.clientId);
 
   return (
     <Section
@@ -324,7 +330,11 @@ export default function AccessFeedSection() {
           toRevoke && revoke.mutate(toRevoke.revokeGrantIds, { onSuccess: () => setToRevoke(null) })
         }
         title={t('app.revokeAccessQ')}
-        message={t('app.confirmRevokeAppAccess', { app: appName })}
+        message={
+          revokingAlwaysAllowed
+            ? t('app.confirmRevokeAlwaysAllowedApp', { app: appName })
+            : t('app.confirmRevokeAppAccess', { app: appName })
+        }
         confirmLabel={t('app.revoke')}
         variant="danger"
         isLoading={revoke.isPending}

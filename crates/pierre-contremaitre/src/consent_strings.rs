@@ -125,18 +125,9 @@ pub const KEY_CONSENT_GRANT_REQUESTED: &str = "oauth.consent.grantRequested";
 pub const KEY_CONSENT_GRANT_PURPOSE: &str = "oauth.consent.grantPurpose";
 /// Key: above the client's commitments, each quoted: `{0}`, the client
 pub const KEY_CONSENT_GRANT_COMMITMENTS: &str = "oauth.consent.grantCommitments";
-
-// The standing-policy box's line (owl Phase 5, slice 3b): listed in
-// CONSENT_SCREEN_KEYS ahead of the catalogue, so the pin that brings it never
-// ships a consent line the consent version does not cover, and named
-// PRESET_KEY_*, not KEY_*, while the catalogue lacks it: the platform's
-// contremaitre coupling check holds every KEY_ to a key dravr-contremaitre
-// lists. It takes its KEY_CONSENT_STANDING_POLICY name once the pin carries
-// the text.
-
 /// Key: the box beside a preset choice: always allow `{0}`, the client, this
 /// preset, renewing it without asking again
-pub const PRESET_KEY_STANDING_POLICY: &str = "oauth.consent.standingPolicy";
+pub const KEY_CONSENT_STANDING_POLICY: &str = "oauth.consent.standingPolicy";
 
 /// Every line the consent screen can show.
 ///
@@ -197,7 +188,7 @@ pub const CONSENT_SCREEN_KEYS: [&str; 52] = [
     KEY_CONSENT_GRANT_REQUESTED,
     KEY_CONSENT_GRANT_PURPOSE,
     KEY_CONSENT_GRANT_COMMITMENTS,
-    PRESET_KEY_STANDING_POLICY,
+    KEY_CONSENT_STANDING_POLICY,
 ];
 
 /// Key: "Connection Failed": the error page's title and heading. No format placeholders.

@@ -13,10 +13,16 @@ jest.mock('expo-router', () => ({
 
 const mockListConnectedApps = jest.fn();
 const mockRevokeConnectedApp = jest.fn();
+const mockListStandingPolicies = jest.fn();
+const mockRemoveStandingPolicy = jest.fn();
+const mockListGrantReceipts = jest.fn();
 jest.mock('../src/services/api', () => ({
   oauthApi: {
     listConnectedApps: () => mockListConnectedApps(),
     revokeConnectedApp: (id: string) => mockRevokeConnectedApp(id),
+    listStandingPolicies: () => mockListStandingPolicies(),
+    removeStandingPolicy: (id: string) => mockRemoveStandingPolicy(id),
+    listGrantReceipts: (page?: { limit?: number; offset?: number }) => mockListGrantReceipts(page),
   },
 }));
 
@@ -60,6 +66,101 @@ describe('ConnectedAppsScreen', () => {
     jest.clearAllMocks();
     mockListConnectedApps.mockResolvedValue([GRANT]);
     mockRevokeConnectedApp.mockResolvedValue(undefined);
+    mockListStandingPolicies.mockResolvedValue([]);
+    mockRemoveStandingPolicy.mockResolvedValue(undefined);
+    mockListGrantReceipts.mockResolvedValue([]);
+  });
+
+  // carnet#1544: the apps the athlete always allows, each with Stop. Revoking
+  // such an app's grant leaves its policy, so its row and its confirmation say
+  // it comes back on its next connection.
+  const POLICY = {
+    id: 'policy-1',
+    client_id: GRANT.client_id,
+    client_name: 'Claude Desktop' as string | null,
+    client_host: null as string | null,
+    preset: 'training_coach',
+    created_at: '2026-08-02T10:00:00Z',
+  };
+
+  it('marks an always-allowed app and warns that revoking it is undone on its next connection', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    mockListStandingPolicies.mockResolvedValue([POLICY]);
+    renderScreen();
+    const always = i18n.t('tokens.connectedAppsAlwaysAllowed');
+    expect(always).not.toEqual('tokens.connectedAppsAlwaysAllowed');
+    await waitFor(() =>
+      expect(screen.getByText(`fitness:read · ${always} · Connected Aug 1, 2026`)).toBeTruthy(),
+    );
+    fireEvent.press(screen.getByTestId(`revoke-${GRANT.id}`));
+    expect(alertSpy).toHaveBeenCalledWith(
+      i18n.t('app.revokeAccessQ'),
+      i18n.t('app.confirmRevokeAlwaysAllowedApp', { app: 'Claude Desktop' }),
+      expect.any(Array),
+    );
+    alertSpy.mockRestore();
+  });
+
+  it('lists the always-allowed apps and stops one after asking, rereading the policies', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
+    mockListStandingPolicies.mockResolvedValue([POLICY]);
+    renderScreen();
+    const training = i18n.t('tokens.connectedAppsPresetTrainingCoach');
+    const since = i18n.t('tokens.standingPolicySince', { date: 'Aug 2, 2026' });
+    await waitFor(() => expect(screen.getByText(`${training} · ${since}`)).toBeTruthy());
+
+    fireEvent.press(screen.getByLabelText(i18n.t('tokens.standingPolicyStopLabel', { app: 'Claude Desktop' })));
+    expect(alertSpy).toHaveBeenCalledWith(
+      i18n.t('tokens.standingPolicyStopQ'),
+      i18n.t('tokens.standingPolicyStopConfirm', { app: 'Claude Desktop' }),
+      expect.any(Array),
+    );
+    // The reread after the removal finds the policy gone.
+    mockListStandingPolicies.mockResolvedValue([]);
+    const buttons = alertSpy.mock.calls[0][2] as AlertButton[];
+    buttons.find((button) => button.style === 'destructive')?.onPress?.();
+
+    await waitFor(() => expect(mockRemoveStandingPolicy).toHaveBeenCalledWith(POLICY.id));
+    await waitFor(() => expect(screen.getByTestId('standing-policies-empty')).toBeTruthy());
+    expect(mockRevokeConnectedApp).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+  });
+
+  it('lists the consent history by app and outcome, a deleted app by its id, and pages older receipts', async () => {
+    const receipt = (id: string, event: string, actor: string, clientId: string, approval = {}) => ({
+      id,
+      client_grant_id: `grant-${id}`,
+      event,
+      actor,
+      at: '2026-11-20T10:00:00Z',
+      payload: { grant: { client_id: clientId }, approval: { actor, ...approval } },
+      payload_sha256: 'ab',
+      jws: null,
+      logged_at: null,
+    });
+    const firstPage = [
+      receipt('r1', 'issue', 'auto', GRANT.client_id, { standing_policy_ref: { id: 'p1' } }),
+      receipt('r2', 'revoke', 'user', 'client-gone'),
+      ...Array.from({ length: 48 }, (_, n) => receipt(`f${n}`, 'issue', 'user', GRANT.client_id)),
+    ];
+    mockListGrantReceipts.mockImplementation(async (page?: { offset?: number }) =>
+      (page?.offset ?? 0) === 0 ? firstPage : [receipt('r99', 'expire', 'auto', GRANT.client_id)],
+    );
+    renderScreen();
+
+    const renewed = await screen.findByTestId('grant-receipt-r1');
+    expect(renewed).toHaveTextContent(/Claude Desktop/);
+    expect(renewed).toHaveTextContent(new RegExp(i18n.t('tokens.grantEventRenewed')));
+    const ended = screen.getByTestId('grant-receipt-r2');
+    expect(ended).toHaveTextContent(/client-gone/);
+    expect(ended).toHaveTextContent(new RegExp(i18n.t('tokens.grantEventEndedByYou')));
+    expect(mockListGrantReceipts).toHaveBeenCalledWith({ limit: 50, offset: 0 });
+
+    fireEvent.press(screen.getByTestId('grant-history-older'));
+    const expired = await screen.findByTestId('grant-receipt-r99');
+    expect(expired).toHaveTextContent(new RegExp(i18n.t('tokens.grantEventExpired')));
+    expect(mockListGrantReceipts).toHaveBeenCalledWith({ limit: 50, offset: 50 });
+    expect(screen.queryByTestId('grant-history-older')).toBeNull();
   });
 
   it('names the app with its host, never its opaque client id', async () => {

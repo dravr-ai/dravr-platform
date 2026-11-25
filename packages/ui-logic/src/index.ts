@@ -333,6 +333,13 @@ export {
   createStandingPoliciesHook,
   GRANT_RECEIPT_PAGE,
 } from './grantHistoryHooks';
+export {
+  type GrantReceiptOutcome,
+  alwaysAllowedClients,
+  clientNames,
+  grantReceiptClientId,
+  grantReceiptOutcome,
+} from './grantHistory';
 // Statutory access requests to a company: the letter the athlete sends and its legal deadline (carnet#1646).
 export {
   type DataAccessAction,

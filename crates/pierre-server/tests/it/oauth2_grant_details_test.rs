@@ -970,7 +970,7 @@ async fn every_refused_detail_reaches_the_client_before_sign_in() {
 
 /// The pinned catalogue's `key` in the athlete's language, its slots filled
 /// with `slots`, as the consent screen escapes it.
-fn shown(world: &World, key: &str, slots: &[&str]) -> String {
+pub(crate) fn shown(world: &World, key: &str, slots: &[&str]) -> String {
     let line = world
         .resources
         .mcp
