@@ -37,12 +37,15 @@
 //! Postgres, so one statement serves both drivers and cannot drift between
 //! them.
 
+/// The live refresh-token families the one-time grant backfill left unnamed
+pub(crate) mod grant_backfill;
 /// Every statement that starts or ends a consent grant, and its receipts
 pub(crate) mod grant_writes;
 /// The RFC 9126 pushed authorization request store
 pub(crate) mod pushed;
 mod rows;
 
+pub(crate) use grant_backfill::impl_ungranted_refresh_families;
 pub(crate) use grant_writes::impl_client_grant_writes;
 pub(crate) use pushed::impl_pushed_request_store;
 pub(crate) use rows::{
@@ -910,6 +913,13 @@ macro_rules! impl_oauth2_server_repository {
             ) -> AppResult<bool> {
                 self.consume_pushed_row(request_uri_hash, client_id, now)
                     .await
+            }
+
+            async fn refresh_families_without_grant(
+                &self,
+                now: Timestamp,
+            ) -> AppResult<Vec<$crate::repositories::UngrantedRefreshFamilies>> {
+                self.ungranted_family_rows(now).await
             }
 
             async fn client_grant_standing(

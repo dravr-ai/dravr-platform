@@ -45,6 +45,7 @@ mod oauth2_server_repository_test;
 mod platform_post_claims_test;
 mod pool_fault_test;
 mod provider_connections_repository_test;
+mod refresh_token_grant_backfill_test;
 mod repository_registry_identity_test;
 mod request_log_deletion_overlap_test;
 mod routine_runs_test;

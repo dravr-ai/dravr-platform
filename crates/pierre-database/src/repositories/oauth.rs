@@ -17,6 +17,8 @@ use pierre_core::models::{
 };
 use uuid::Uuid;
 
+use super::UngrantedRefreshFamilies;
+
 /// OAuth token storage repository (tenant-scoped, includes OAuth apps and sync tracking)
 #[async_trait]
 pub trait OAuthTokenRepository: Send + Sync {
@@ -456,6 +458,15 @@ pub trait OAuth2ServerRepository: Send + Sync {
         client_id: &str,
         now: Timestamp,
     ) -> AppResult<bool>;
+
+    /// The live refresh-token families, unexpired at `now`, that name no
+    /// grant, by tenant, client and user: what the one-time grant backfill
+    /// (migration `20261126001550`, carnet#1550) left `NULL`, read for the
+    /// boot log. Every tenant, by design; never a token or family id.
+    async fn refresh_families_without_grant(
+        &self,
+        now: Timestamp,
+    ) -> AppResult<Vec<UngrantedRefreshFamilies>>;
 
     /// Where the user's consent to `client_id` stands in `tenant_id`, across
     /// every scope set they granted it. The resource servers' question about a
