@@ -26,7 +26,7 @@ pierre-database = { version = "0.3.0", path = "../pierre-database" }
 # The OAuth2 endpoint limiter counts its windows in the server's shared cache
 pierre-cache = { version = "0.3.0", path = "../pierre-cache" }
 # Google's published signing keys (`GoogleKeySet`) for Firebase ID tokens
-dravr-tronc = { workspace = true, features = ["google-iam"] }
+dravr-tronc = { workspace = true, features = ["google-iam", "dpop"] }
 # owl's presets and tiers: an OAuth grant's `authorization_details` resolve
 # to one of barrage's frozen presets (no default features: no store)
 dravr-barrage = { workspace = true }

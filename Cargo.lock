@@ -1574,9 +1574,9 @@ dependencies = [
 
 [[package]]
 name = "dravr-tronc"
-version = "7.4.0"
+version = "7.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e0bfb3b0868a4398919c2a72116274e085fc54a1ac44f916966a5d2fcf92d989"
+checksum = "dae6ebcfda645c1b2185ecc0b41581c9fb1529bde2d18c3ab83db7eb145ba125"
 dependencies = [
  "async-trait",
  "axum",
@@ -5098,7 +5098,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.3",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -5136,7 +5136,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "tracing",
  "windows-sys 0.61.2",
 ]
