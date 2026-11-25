@@ -172,6 +172,7 @@ export {
   type PlanThreadDraft,
   type PlanDraftActionResult,
   type PlanDraftCardState,
+  type SubjectPlanRead,
   type UseAthletePlanResult,
   type UseOpenAthleteThreadResult,
   type UseOpenGroupRoomResult,
@@ -179,6 +180,21 @@ export {
   createCoachPlanHooks,
   openThreadRefusalText,
 } from './coachPlanHooks';
+// A coach's athlete workspace: the fortnight as seven dates a week, each plan change in words,
+// and the athlete's room and plan thread among what the coach holds (carnet#1816)
+export {
+  type PlanCalendarDay,
+  type PlanCalendarWeek,
+  type PlanDateTiming,
+  type PlanHistoryLine,
+  type PlanHistoryWords,
+  PLAN_WORKSPACE_KEYS,
+  athleteRoomGroup,
+  planCalendarWeeks,
+  planHistoryLine,
+  roomConversationOf,
+  usablePlanThread,
+} from './planWorkspace';
 // A coach's day editor: the day's own session by hand, or a family build with its live preview, saved into the draft (carnet#1515, #1714)
 export {
   type DayReplacement,

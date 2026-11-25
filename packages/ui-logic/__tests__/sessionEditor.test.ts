@@ -447,6 +447,7 @@ describe('createSessionEditorHooks', () => {
       live: null,
       draft: null,
       draft_state: null,
+      proposed_dates: [],
     };
     chatApi.saveSubjectDraftDay.mockResolvedValue(answered);
     const { result } = renderHook(() => hooks.useSaveDraftDay('conv-1', 'en'), { wrapper });
@@ -467,6 +468,7 @@ describe('createSessionEditorHooks', () => {
       live: null,
       draft: null,
       draft_state: null,
+      proposed_dates: [],
     };
     const restored: SubjectPlanResponse = { ...answered, today: '2026-11-22' };
     chatApi.saveSubjectDraftHandDay.mockResolvedValue(answered);
@@ -496,6 +498,7 @@ describe('createSessionEditorHooks', () => {
       live: null,
       draft: null,
       draft_state: null,
+      proposed_dates: [],
     };
     chatApi.removeSubjectDraftDay.mockResolvedValue(answered);
     chatApi.addSubjectDraftSession.mockResolvedValue({ ...answered, today: '2026-11-23' });
@@ -524,6 +527,7 @@ describe('createSessionEditorHooks', () => {
       live: null,
       draft: null,
       draft_state: null,
+      proposed_dates: [],
     };
     const older = { events: [{ kind: 'agent_draft', source: 'agent', dates: ['2026-11-26'], created_at: '2026-11-25T13:00:00Z' }] };
     const newer = {
@@ -538,8 +542,9 @@ describe('createSessionEditorHooks', () => {
     });
     expect(chatApi.getSubjectPlanHistory).not.toHaveBeenCalled();
     history.rerender({ id: 'conv-1' });
-    await waitFor(() => expect(history.result.current.data?.events).toHaveLength(1));
-    expect(chatApi.getSubjectPlanHistory).toHaveBeenCalledWith('conv-1');
+    await waitFor(() => expect(history.result.current.data?.pages.flatMap((page) => page.events)).toHaveLength(1));
+    expect(chatApi.getSubjectPlanHistory).toHaveBeenCalledWith('conv-1', { limit: 50 });
+    expect(history.result.current.hasNextPage).toBe(false);
 
     const revert = renderHook(() => hooks.useRevertDraftDate('conv-1', 'fr'), { wrapper });
     await act(async () => {
@@ -547,6 +552,42 @@ describe('createSessionEditorHooks', () => {
     });
     expect(chatApi.revertSubjectDraftDate).toHaveBeenCalledWith('conv-1', '2026-11-26', 'fr');
     expect(queryClient.getQueryData(QUERY_KEYS.chat.subjectPlan('conv-1'))).toEqual({ status: 'ok', plan: answered });
-    await waitFor(() => expect(history.result.current.data?.events.map((event) => event.kind)).toEqual(['date_revert', 'agent_draft']));
+    await waitFor(() =>
+      expect(history.result.current.data?.pages.flatMap((page) => page.events).map((event) => event.kind)).toEqual([
+        'date_revert',
+        'agent_draft',
+      ]),
+    );
+  });
+
+  it('reads the history a page at a time, each from before the oldest change held, until a page comes back short', async () => {
+    const { chatApi, wrapper, hooks } = harness();
+    // A full page of 50 changes, a minute apart from 14:59 down to 14:10, then the last three.
+    const newest = {
+      events: Array.from({ length: 50 }, (_, index) => ({
+        kind: 'day_edit',
+        source: 'coach',
+        dates: ['2026-11-26'],
+        created_at: `2026-11-25T14:${String(59 - index).padStart(2, '0')}:00Z`,
+      })),
+    };
+    const oldest = {
+      events: [3, 2, 1].map((minute) => ({ kind: 'agent_draft', source: 'agent', dates: [], created_at: `2026-11-25T09:0${minute}:00Z` })),
+    };
+    chatApi.getSubjectPlanHistory.mockResolvedValueOnce(newest).mockResolvedValueOnce(oldest);
+
+    const { result } = renderHook(() => hooks.useSubjectPlanHistory('conv-1'), { wrapper });
+    await waitFor(() => expect(result.current.data?.pages).toHaveLength(1));
+    expect(result.current.hasNextPage).toBe(true);
+
+    await act(async () => {
+      await result.current.fetchNextPage();
+    });
+    await waitFor(() => expect(result.current.data?.pages).toHaveLength(2));
+    expect(chatApi.getSubjectPlanHistory).toHaveBeenLastCalledWith('conv-1', { before: '2026-11-25T14:10:00Z', limit: 50 });
+    const events = result.current.data?.pages.flatMap((page) => page.events) ?? [];
+    expect(events).toHaveLength(53);
+    expect(events[events.length - 1]?.created_at).toBe('2026-11-25T09:01:00Z');
+    expect(result.current.hasNextPage).toBe(false);
   });
 });
