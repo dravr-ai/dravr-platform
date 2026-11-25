@@ -259,6 +259,12 @@ fn check_access(access: &DataAccessRequest) -> Result<Preset, OAuth2Error> {
         .ok_or_else(|| refused("the data-access detail must name a selection_preset"))?;
     let preset = Preset::from_name(preset)
         .ok_or_else(|| refused("selection_preset must be training_coach or sleep_coach"))?;
+    // A step-up preset (`one_off_question`, T2) is granted only as a child of
+    // a live grant after a fresh sign-in (carnet#1544 slice 4b); until that
+    // path is offered it is refused like the step-up member itself.
+    if preset.requires_step_up() {
+        return Err(refused("step-up is not offered yet"));
+    }
     match access.access_mode.as_deref() {
         None | Some("continuous") => {}
         Some("single_use") => {
@@ -533,6 +539,17 @@ mod tests {
         assert_refused(
             &json!([access(&json!({"access_mode": "forever"}))]),
             "access_mode",
+        );
+    }
+
+    /// The T2 preset barrage now names is granted only through step-up,
+    /// which is not offered yet: it must never resolve as an ordinary grant
+    /// (its own tier is T2).
+    #[test]
+    fn the_step_up_preset_is_refused_until_step_up_is_offered() {
+        assert_refused(
+            &json!([access(&json!({"selection_preset": "one_off_question"}))]),
+            "step-up is not offered yet",
         );
     }
 

@@ -149,6 +149,12 @@ pub fn resolve(
 
 /// The preset's own details for tokens bound to `source_id`: what the
 /// consent screen's picker grants for that preset.
+///
+/// A preset with no fixed window or per-day budget (`one_off_question`) has
+/// none to grant here: the parser and the picker refuse it until a step-up
+/// approval resolves its request's own window and total budget, and should
+/// one reach this anyway its missing values resolve to 0, which reads and
+/// serves nothing.
 #[must_use]
 pub fn preset_defaults(preset: Preset, source_id: &str) -> ResolvedDetails {
     let representation = if preset.raw_streams().is_empty() {
@@ -169,7 +175,7 @@ pub fn preset_defaults(preset: Preset, source_id: &str) -> ResolvedDetails {
             client_claims: None,
             retention: None,
             window: Window {
-                days: preset.window_days(),
+                days: preset.window_days().unwrap_or(0),
                 since: None,
             },
         },
@@ -182,8 +188,8 @@ pub fn preset_defaults(preset: Preset, source_id: &str) -> ResolvedDetails {
             lifetime: format_seconds(i64::from(preset.lifetime_cap_days()) * SECONDS_PER_DAY),
             budgets: Budgets {
                 requests_per_hour: preset.default_requests_per_hour(),
-                rows_per_day: preset.default_rows_per_day(),
-                raw_rows_per_day: preset.default_raw_rows_per_day(),
+                rows_per_day: preset.default_rows_per_day().unwrap_or(0),
+                raw_rows_per_day: preset.default_raw_rows_per_day().unwrap_or(0),
             },
             purpose_dpv: None,
         },
@@ -728,7 +734,10 @@ mod tests {
 
     #[test]
     fn the_picker_defaults_are_what_the_preset_alone_resolves_to() {
-        for preset in Preset::ALL {
+        for preset in Preset::ALL
+            .into_iter()
+            .filter(|preset| !preset.requires_step_up())
+        {
             let asked = resolved(&json!([access(
                 &json!({"selection_preset": preset.name()})
             )]))

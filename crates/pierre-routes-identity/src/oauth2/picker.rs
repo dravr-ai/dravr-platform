@@ -203,7 +203,7 @@ impl GrantChoice {
             details: None,
             review_digest: digest(None)?,
         }];
-        for preset in Preset::ALL {
+        for preset in ordinary_presets() {
             let details = preset_defaults(preset, source);
             choices.push(Choice {
                 value: preset.name(),
@@ -284,6 +284,15 @@ fn standing_policy_box_html(field: &str, client: &str, text: &ConsentText<'_>) -
         escape_html_attribute(field),
         text.html(PRESET_KEY_STANDING_POLICY, &[client])
     )
+}
+
+/// The presets ordinary consent offers: every one but a step-up preset
+/// (`one_off_question`), which is granted only on the step-up screen as a
+/// child of a live grant (carnet#1544 slice 4b, review R-M5).
+fn ordinary_presets() -> impl Iterator<Item = Preset> {
+    Preset::ALL
+        .into_iter()
+        .filter(|preset| !preset.requires_step_up())
 }
 
 /// A preset's name and what it reads, in `text`'s language.
@@ -653,7 +662,7 @@ mod tests {
         let checked = scope_only();
         let offered = GrantChoice::for_screen(&checked, None, &text, subject(), true).unwrap();
         let page = offered.render("<admin-box>", "Client", &text);
-        for preset in Preset::ALL {
+        for preset in ordinary_presets() {
             assert!(
                 page.contains(&format!(r#"name="standing_policy_{}""#, preset.name())),
                 "bug: no box beside {}: {page}",
@@ -664,9 +673,13 @@ mod tests {
             page.contains("Always allow Client this preset"),
             "bug: the box's line is not shown: {page}"
         );
+        assert!(
+            !page.contains("one_off_question"),
+            "bug: ordinary consent offered the step-up preset: {page}"
+        );
         assert_eq!(
             page.matches("standing-policy").count(),
-            Preset::ALL.len(),
+            ordinary_presets().count(),
             "bug: the plain choice carries a box: {page}"
         );
 

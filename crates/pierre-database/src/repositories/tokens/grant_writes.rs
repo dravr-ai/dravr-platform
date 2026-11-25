@@ -54,7 +54,8 @@ pub(crate) const STORE_CLIENT_GRANT_SQL: &str = r"
                  consent_version, consent_locale, authorization_details, expires_at,
                  standing_policy_id)
             VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, NULL, $6, $7, $8, $9, $10)
-            ON CONFLICT (user_id, tenant_id, client_id, scope) WHERE revoked_at IS NULL
+            ON CONFLICT (user_id, tenant_id, client_id, scope)
+                WHERE revoked_at IS NULL AND parent_grant_id IS NULL
             DO UPDATE SET consent_version = excluded.consent_version,
                           consent_locale = excluded.consent_locale,
                           standing_policy_id = excluded.standing_policy_id
