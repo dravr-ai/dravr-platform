@@ -10,6 +10,7 @@
 use pierre_llm::{
     ChatMessage, ChatRequest, ChatResponse, LlmCapabilities, MessageRole, StreamChunk, TokenUsage,
 };
+use pierre_test_support::numbers::mentions_number;
 
 // =============================================================================
 // LlmCapabilities Tests
@@ -337,7 +338,7 @@ fn test_token_usage_serialization() {
 
     let json = serde_json::to_string(&usage).unwrap();
     assert!(json.contains("prompt_tokens"));
-    assert!(json.contains("50"));
+    assert!(mentions_number(&json, "50"));
 
     let deserialized: TokenUsage = serde_json::from_str(&json).unwrap();
     assert_eq!(deserialized.total_tokens, 125);

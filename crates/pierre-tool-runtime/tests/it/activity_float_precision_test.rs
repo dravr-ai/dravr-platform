@@ -15,9 +15,16 @@
 
 use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
+use pierre_test_support::numbers::mentions_number;
 use pierre_tool_runtime::implementations::activity_summary::{
     detail_json, summary_json, ActivitySummary,
 };
+
+/// How an `f32` reads once widened to `f64`: the number a fixed reply must not
+/// carry. Matched as a whole number, so a clock's digits cannot stand for it.
+fn widened(value: f32) -> String {
+    f64::from(value).to_string()
+}
 
 fn ride() -> Activity {
     ActivityBuilder::new(
@@ -38,16 +45,28 @@ fn a_summary_row_reads_12_8_not_its_f64_widening() {
     let text = summary_json(&[ActivitySummary::from(&ride())])
         .unwrap()
         .to_string();
-    assert!(text.contains("12.8"), "{text}");
-    assert!(text.contains("6.3"), "{text}");
-    assert!(!text.contains("12.80000"), "summary widened an f32: {text}");
-    assert!(!text.contains("6.30000"), "summary widened an f32: {text}");
+    assert!(mentions_number(&text, "12.8"), "{text}");
+    assert!(mentions_number(&text, "6.3"), "{text}");
+    assert!(
+        !mentions_number(&text, &widened(12.8)),
+        "summary widened an f32: {text}"
+    );
+    assert!(
+        !mentions_number(&text, &widened(6.3)),
+        "summary widened an f32: {text}"
+    );
 }
 
 #[test]
 fn a_detail_row_reads_12_8_not_its_f64_widening() {
     let text = detail_json(&[ride()]).unwrap().to_string();
-    assert!(text.contains("12.8"), "{text}");
-    assert!(!text.contains("12.80000"), "detail widened an f32: {text}");
-    assert!(!text.contains("6.30000"), "detail widened an f32: {text}");
+    assert!(mentions_number(&text, "12.8"), "{text}");
+    assert!(
+        !mentions_number(&text, &widened(12.8)),
+        "detail widened an f32: {text}"
+    );
+    assert!(
+        !mentions_number(&text, &widened(6.3)),
+        "detail widened an f32: {text}"
+    );
 }

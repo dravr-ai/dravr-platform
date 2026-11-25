@@ -505,6 +505,7 @@ mod tests {
     fn a_digest_never_carries_the_identity_in_clear() {
         let digest = provider_identity_hash("12345678");
         assert_eq!(digest.len(), 64);
+        // number-substring-ok: a hash is one hex token; the identity must not sit inside it
         assert!(!digest.contains("12345678"));
         assert_eq!(digest, provider_identity_hash(" 12345678\n"));
     }

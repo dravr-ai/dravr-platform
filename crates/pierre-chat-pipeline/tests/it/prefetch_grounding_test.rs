@@ -692,8 +692,10 @@ fn a_count_only_window_is_stated_as_a_count() {
 
     assert!(note.contains("the 40 most recent activities"), "{note}");
     assert!(
-        !note.contains("2026"),
-        "no time frame was declared, so no date range may be claimed: {note}"
+        !note
+            .split(|c: char| !c.is_ascii_digit())
+            .any(|run| run.len() == 4),
+        "no time frame was declared, so no year, so no date range, may be claimed: {note}"
     );
 }
 

@@ -30,6 +30,7 @@ use dravr_tronc::dates::Timestamp;
 use pierre_core::intelligence::{
     FitnessLevel, TimeAvailability, UserFitnessProfile, UserPreferences,
 };
+use pierre_test_support::numbers::mentions_number;
 use std::collections::HashMap;
 
 // === ActivityIntelligence Tests ===
@@ -707,7 +708,7 @@ fn test_activity_insights_serialization() {
     // Test serialization
     let json = serde_json::to_string(&insights).expect("Serialization should work");
     assert!(json.contains("activity_123"));
-    assert!(json.contains("8.5"));
+    assert!(mentions_number(&json, "8.5"));
 
     // Test deserialization
     let deserialized: ActivityInsights =

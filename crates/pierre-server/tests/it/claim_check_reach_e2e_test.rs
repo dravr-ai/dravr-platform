@@ -46,6 +46,7 @@ use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, create_test_user_with_plan};
 use crate::helpers::garmin_consent::give_garmin_ai_consent;
+use pierre_test_support::numbers::mentions_number;
 
 /// A provider whose terms let its data travel over every transport.
 const OPEN: &str = "openrunner";
@@ -543,7 +544,7 @@ async fn a_result_built_on_a_nested_dispatch_still_says_the_reply_is_unchecked()
     .await;
     assert!(response.success, "{:?}", response.error);
     let result = response.result.unwrap();
-    assert!(result.to_string().contains("21.1"), "{result}");
+    assert!(mentions_number(&result.to_string(), "21.1"), "{result}");
     assert_eq!(result[NOTE]["reply_checked"], false, "{result}");
     assert_eq!(result[NOTE]["verify_with"], "verify_claim", "{result}");
 }

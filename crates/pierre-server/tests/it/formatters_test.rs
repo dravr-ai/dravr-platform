@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use pierre_formatters::{format_output, OutputFormat};
+use pierre_test_support::numbers::mentions_number;
 use serde::Serialize;
 
 #[derive(Serialize)]
@@ -48,7 +49,7 @@ fn test_format_json() {
     let output = result.unwrap();
     assert_eq!(output.format, OutputFormat::Json);
     assert!(output.data.contains("Morning Run"));
-    assert!(output.data.contains("5000"));
+    assert!(mentions_number(&output.data, "5000"));
 }
 
 #[test]
@@ -400,11 +401,11 @@ fn test_toon_format_contains_all_summary_data() {
         "TOON should contain sport type"
     );
     assert!(
-        toon_output.data.contains("15000"),
+        mentions_number(&toon_output.data, "15000"),
         "TOON should contain distance"
     );
     assert!(
-        toon_output.data.contains("5400"),
+        mentions_number(&toon_output.data, "5400"),
         "TOON should contain duration"
     );
 }

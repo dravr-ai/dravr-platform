@@ -49,6 +49,7 @@ use crate::helpers;
 
 use helpers::notify_capture::{capture_notify, only};
 use pierre_database::repositories::WellnessWriteMode;
+use pierre_test_support::numbers::mentions_number;
 
 /// An executor serving the athlete's own web app.
 async fn executor() -> Result<Arc<UniversalToolExecutor>> {
@@ -421,7 +422,7 @@ async fn one_night_and_one_morning_from_two_sources_reach_the_tools_once() -> Re
     let quality = quality.result.unwrap();
     let text = quality.to_string();
     assert!(
-        text.contains("7.2"),
+        mentions_number(&text, "7.2"),
         "duration 26 000 s ≈ 7.2 h: {quality:#}"
     );
     Ok(())

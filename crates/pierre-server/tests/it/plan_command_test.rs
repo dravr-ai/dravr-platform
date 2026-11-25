@@ -494,7 +494,7 @@ async fn bare_plan_shows_the_goal_countdown_and_two_days() -> Result<()> {
         text.to_lowercase().contains("build"),
         "current block phase missing: {text}"
     );
-    assert!(text.contains("14"), "weekly hours missing: {text}");
+    assert!(text.contains("~14h/wk"), "weekly hours missing: {text}");
     // Exactly two day lines — today and tomorrow, never the whole week.
     assert!(
         text.contains("Today") && text.contains("Tomorrow"),

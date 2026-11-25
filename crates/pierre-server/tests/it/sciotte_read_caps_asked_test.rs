@@ -39,6 +39,7 @@ use uuid::Uuid;
 use crate::common;
 use crate::helpers::garmin_consent::give_garmin_ai_consent;
 use crate::helpers::sciotte_mock::spawn_mock_session_reader_with_activity;
+use pierre_test_support::numbers::mentions_number;
 
 /// Nothing listens here: a read the cap admitted would fail to connect, so a
 /// served answer can only be the stored copy.
@@ -517,7 +518,7 @@ async fn a_professional_athlete_reads_past_the_starter_day() {
         "bug: a Professional athlete was held to the Starter day: {result}"
     );
     assert!(
-        result.to_string().contains("8000000001"),
+        mentions_number(&result.to_string(), "8000000001"),
         "the ride is read live from the service: {result}"
     );
     assert!(
@@ -641,6 +642,7 @@ mod strava_grant {
 
     use pierre_core::models::{SessionReadCaps, UserTier};
     use pierre_providers::request_budget::in_background;
+    use pierre_test_support::numbers::mentions_number;
 
     use super::{asked_reads, call_on, spend_the_asked_day_at, spend_the_day_at};
     use crate::sciotte_first_sweep_test::{athlete_with_both, world};
@@ -670,7 +672,7 @@ mod strava_grant {
             "bug: the capped session read was not asked of the athlete's Strava grant"
         );
         assert!(
-            result.to_string().contains("9002"),
+            mentions_number(&result.to_string(), "9002"),
             "the grant's ride answers: {result}"
         );
         assert_ne!(
@@ -720,7 +722,7 @@ mod strava_grant {
             "bug: the capped background session read was not asked of the Strava grant"
         );
         assert!(
-            result.to_string().contains("9002"),
+            mentions_number(&result.to_string(), "9002"),
             "bug: the grant's ride did not answer the background read: {result}"
         );
     }

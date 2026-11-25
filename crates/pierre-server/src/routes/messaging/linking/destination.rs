@@ -640,6 +640,7 @@ mod tests {
         let url = whatsapp_linking_url(CODE, &config, &graph).await.unwrap();
 
         assert_eq!(url, "https://wa.me/18195550142?text=LINK%20Code123");
+        // number-substring-ok: a phone-number id inside the URL, in any form, is the leak
         assert!(
             !url.contains("1323997520799051"),
             "never the phone-number id"

@@ -71,6 +71,7 @@ use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
 use pierre_services::oauth_redirects::oauth_failure_url;
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_services::user_removal::{remove_user, UserRemoval};
+use pierre_test_support::numbers::mentions_number;
 use pierre_tool_runtime::capture_sweep::{
     refresh_captures, RefreshOutcome, SweepBudget, SweepSelection,
 };
@@ -2407,7 +2408,11 @@ async fn a_strava_account_of_a_deleted_account_is_refused_until_cleared() {
         "{}",
         refusal.message
     );
-    assert!(!refusal.message.contains("4242"), "{}", refusal.message);
+    assert!(
+        !mentions_number(&refusal.message, "4242"),
+        "{}",
+        refusal.message
+    );
     let return_url = oauth_failure_url("https://app.example/oauth-callback", "strava", &refusal);
     assert!(
         return_url.contains(&format!(

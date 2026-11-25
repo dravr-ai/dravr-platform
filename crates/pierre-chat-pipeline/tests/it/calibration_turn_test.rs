@@ -22,6 +22,7 @@ use pierre_core::models::{
 };
 use pierre_core::transport::TransportPolicy;
 use pierre_memory::{FactKind, FactSource};
+use pierre_test_support::numbers::mentions_number;
 use std::collections::HashSet;
 
 /// Interview start stamp shared by every fixture here.
@@ -277,7 +278,7 @@ fn only_the_baseline_topic_recites_the_athletes_numbers() {
         }
         let text = directive(&calibration_turn(topic, Some(snapshot())));
         assert!(
-            !text.contains("7.5"),
+            !mentions_number(&text, "7.5"),
             "{} recites the load snapshot",
             topic.as_str()
         );

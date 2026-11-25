@@ -66,6 +66,7 @@ use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, create_test_user_with_plan};
 use crate::helpers::garmin_consent::give_garmin_ai_consent;
+use pierre_test_support::numbers::mentions_number;
 
 pub(crate) const RELAY: &str = "nolio";
 
@@ -559,7 +560,7 @@ async fn an_api_key_reads_home_without_the_relay_and_a_session_reads_all_of_it()
     let text = own_app.to_string();
     assert!(text.contains("Relay Recovery Spin"), "{text}");
     assert!(
-        text.contains("42000"),
+        mentions_number(&text, "42000"),
         "the athlete's app merges the relay's distance into the shared ride: {text}"
     );
 
@@ -571,7 +572,7 @@ async fn an_api_key_reads_home_without_the_relay_and_a_session_reads_all_of_it()
         "no relay row over an API key: {text}"
     );
     assert!(
-        !text.contains("42000"),
+        !mentions_number(&text, "42000"),
         "the relay's copy is dropped before the merge, so its distance never rides on the other copy: {text}"
     );
     assert!(text.contains("Open Long Ride"), "{text}");

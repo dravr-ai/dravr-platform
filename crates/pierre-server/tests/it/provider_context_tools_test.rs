@@ -47,6 +47,7 @@ use pierre_providers::request_budget::{
 };
 use pierre_services::effective_physiology::effective_physiology;
 use pierre_services::stored_health::Anchors;
+use pierre_test_support::numbers::mentions_number;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
@@ -817,7 +818,7 @@ async fn an_external_caller_asking_another_provider_never_receives_bests_from_st
     );
     let text = body.to_string();
     assert!(
-        !text.contains("9001"),
+        !mentions_number(&text, "9001"),
         "bug: the Strava run's id went external: {text}"
     );
 

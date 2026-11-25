@@ -104,7 +104,7 @@ mod tests {
             format!("{home:#?}"),
         ] {
             assert!(
-                !printed.contains("46.8") && !printed.contains("71.2"),
+                !printed.chars().any(|c| c.is_ascii_digit()),
                 "bug: a home declaration's Debug printed its point: {printed}"
             );
             assert!(

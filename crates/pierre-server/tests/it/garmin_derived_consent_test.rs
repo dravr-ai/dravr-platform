@@ -60,6 +60,7 @@ use pierre_services::conversation_compaction::{
     CompactionContext, CompactionOutcome, ConversationCompactor,
 };
 use pierre_services::provider_notice::{grant_consent, withdraw_consent};
+use pierre_test_support::numbers::mentions_number;
 use serde_json::{json, Value};
 use tokio::time::{sleep, Instant};
 use uuid::Uuid;
@@ -75,6 +76,30 @@ const MODEL: &str = "derived-consent-model";
 
 /// The figure the Garmin ride carries, and every reply quotes.
 const GARMIN_FIGURE: &str = "187 km";
+
+/// The id the fixture's Garmin-recorded ride is cached under.
+const GARMIN_RIDE_ID: &str = "strava-ride-1";
+
+/// Whether a tool result lists an activity the Garmin device recorded: one whose
+/// provider names Garmin, or that is the fixture's ride by id. Read from the
+/// fields, never as digits in the serialized text.
+fn carries_garmin_ride(value: &Value) -> bool {
+    match value {
+        Value::Object(fields) => {
+            let names_garmin = ["provider", "source"].iter().any(|key| {
+                fields
+                    .get(*key)
+                    .and_then(Value::as_str)
+                    .is_some_and(|name| name.eq_ignore_ascii_case(GARMIN))
+            });
+            let is_the_ride = fields.get("id").and_then(Value::as_str) == Some(GARMIN_RIDE_ID);
+            names_garmin || is_the_ride || fields.values().any(carries_garmin_ride)
+        }
+        Value::Array(items) => items.iter().any(carries_garmin_ride),
+        _ => false,
+    }
+}
+
 /// What the agent answers: it quotes the ride it read.
 const REPLY: &str = "Ta sortie de 187 km domine ta semaine ; on garde le tempo pour jeudi.";
 /// The athlete's question, which reads their week.
@@ -694,11 +719,27 @@ async fn a_group_chat_turn_reads_no_garmin_data_and_a_direct_message_does() {
         "premise: the read round was kept"
     );
     for row in &group_tool_rows {
+        // The row is the model-facing text: `[Tool Result for <tool>]: {json}`.
+        let body = row
+            .content
+            .split_once("]: ")
+            .map_or(row.content.as_str(), |(_, json)| json);
+        let result: Value = serde_json::from_str(body)
+            .unwrap_or_else(|error| panic!("a tool result is JSON ({error}): {}", row.content));
         assert!(
-            !row.content.contains("187"),
+            !carries_garmin_ride(&result),
             "bug: the Garmin ride reached a group-chat turn: {}",
             row.content
         );
+        // The ride's distance, as kilometres or metres: a number of its own,
+        // never the digits of a timestamp's fraction (carnet#1821).
+        for distance in ["187", "187000"] {
+            assert!(
+                !mentions_number(&row.content, distance),
+                "bug: the Garmin ride's distance reached a group-chat turn: {}",
+                row.content
+            );
+        }
     }
     assert!(
         group_reply.ai_consent_sources.is_empty(),

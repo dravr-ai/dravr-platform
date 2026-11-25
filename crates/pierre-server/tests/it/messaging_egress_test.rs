@@ -58,6 +58,7 @@ use pierre_mcp_server::services::messaging_ingress::surface::messaging_surface_r
 use pierre_mcp_server::services::messaging_ingress::turn_guard::{
     new_correlation_id, run_guarded, TurnOutcome,
 };
+use pierre_test_support::numbers::mentions_number;
 use tokio::sync::mpsc;
 use tokio::time::{sleep, timeout};
 use uuid::Uuid;
@@ -700,7 +701,7 @@ fn the_burst_notice_never_prints_the_over_limit_comparison() {
     for locale in LOCALES {
         let notice = quota_notice(QuotaLevel::Burst, 60, 50, locale);
         assert!(
-            !notice.contains("60"),
+            !mentions_number(&notice, "60"),
             "{locale}: the used count is what makes the sentence absurd past \
              the cap and must not appear: {notice:?}"
         );

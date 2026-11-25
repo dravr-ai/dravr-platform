@@ -625,6 +625,7 @@ async fn record_and_mark(
 #[cfg(test)]
 mod tests {
     use pierre_database::repositories::WellnessWriteMode;
+    use pierre_test_support::numbers::mentions_number;
     use std::sync::{Arc, Mutex};
 
     use async_trait::async_trait;
@@ -827,7 +828,7 @@ mod tests {
             .await;
         let (_, asked) = judge_reads(&fx, &advice_for(&fx)).await;
         assert!(
-            asked.iter().all(|m| !m.contains("42.0")),
+            asked.iter().all(|m| !mentions_number(m, "42.0")),
             "the stored rollup counted the zepp session; the judge must not read it: {asked:?}"
         );
     }
@@ -1000,7 +1001,7 @@ mod tests {
         assert!(
             asked
                 .iter()
-                .all(|m| !m.contains("91.0") && !m.contains("92.0")),
+                .all(|m| !mentions_number(m, "91.0") && !mentions_number(m, "92.0")),
             "a zepp reading never reaches the judge: {asked:?}"
         );
     }

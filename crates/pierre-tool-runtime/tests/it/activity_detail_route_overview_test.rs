@@ -9,6 +9,7 @@
 
 use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TimeSeriesData};
+use pierre_test_support::numbers::mentions_number;
 use pierre_tool_runtime::implementations::activity_summary::detail_json;
 use serde_json::Value;
 
@@ -151,7 +152,7 @@ fn detail_mode_leaves_the_raw_gps_track_out() {
         "bug: the raw track reached the model: {text}"
     );
     assert!(
-        !text.contains("38.512345"),
+        !mentions_number(&text, "38.512345"),
         "bug: a track point leaked: {text}"
     );
 

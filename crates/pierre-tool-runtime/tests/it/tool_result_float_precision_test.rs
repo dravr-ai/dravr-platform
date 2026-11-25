@@ -16,6 +16,7 @@
 #![allow(missing_docs)]
 
 use pierre_formatters::OutputFormat;
+use pierre_test_support::numbers::mentions_number;
 use pierre_tool_runtime::conversions::{apply_format, ok_typed};
 use serde::Serialize;
 
@@ -50,16 +51,19 @@ fn an_f32_reaches_the_reply_at_its_own_precision() {
     ] {
         assert!(text.contains(fragment), "expected {fragment} in {text}");
     }
-    assert!(!text.contains("12.80000"), "an f32 was widened: {text}");
+    assert!(
+        !mentions_number(&text, &f64::from(12.8_f32).to_string()),
+        "an f32 was widened: {text}"
+    );
 }
 
 #[test]
 fn the_toon_path_does_not_widen_either() {
     let formatted = apply_format(sample(), OutputFormat::Toon);
     let text = serde_json::to_string(&formatted).expect("serializes");
-    assert!(text.contains("12.8"), "{text}");
+    assert!(mentions_number(&text, "12.8"), "{text}");
     assert!(
-        !text.contains("12.80000"),
+        !mentions_number(&text, &f64::from(12.8_f32).to_string()),
         "TOON rendered a widened f32: {text}"
     );
 }

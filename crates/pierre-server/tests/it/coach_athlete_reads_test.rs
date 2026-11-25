@@ -38,6 +38,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_test_support::delegation::{add_group_member, create_coached_group, create_group_agent};
+use pierre_test_support::numbers::mentions_number;
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::protocols::{
     ProtocolError, UniversalRequest, UniversalResponse, UniversalToolExecutor,
@@ -356,8 +357,22 @@ fn ids(payload: &Value) -> Vec<String> {
     })
 }
 
+/// Whether `payload` carries `needle`. A needle that is a number is found as a
+/// number of its own, never as digits inside a timestamp's fraction or an id
+/// (carnet#1821); any other needle (a name, an id) is a plain substring.
 pub(crate) fn mentions(payload: &Value, needle: &str) -> bool {
-    payload.to_string().contains(needle)
+    let text = payload.to_string();
+    // `parse::<f64>` alone would take a name like "Nan" or "Inf" for a number.
+    let numeric = needle
+        .strip_prefix('-')
+        .unwrap_or(needle)
+        .starts_with(|c: char| c.is_ascii_digit())
+        && needle.parse::<f64>().is_ok();
+    if numeric {
+        mentions_number(&text, needle)
+    } else {
+        text.contains(needle)
+    }
 }
 
 // ── The thread's athlete, by default ─────────────────────────────────────

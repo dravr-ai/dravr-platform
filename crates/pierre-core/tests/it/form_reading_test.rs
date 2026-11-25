@@ -56,7 +56,7 @@ fn the_inline_form_names_the_band_beside_the_share_and_never_the_raw_number() {
     let text = raph().inline();
 
     assert!(
-        !text.contains("TSB") && !text.contains("-77"),
+        !text.contains("TSB") && !numbers_in(&text).contains(&"-77"),
         "the raw TSB never travels in the line a coach's model reads: an absolute \
          number is the one it compares across athletes (carnet#1387): {text}"
     );
@@ -184,7 +184,7 @@ fn the_interpretation_follows_the_configured_windows() {
         "got: {method}"
     );
     assert!(
-        !method.contains("42"),
+        !numbers_in(method).contains(&"42"),
         "a hardcoded 42 would be a second source of truth: {method}"
     );
 }
@@ -217,4 +217,14 @@ fn no_key_in_the_interpretation_frames_form_as_injury_risk() {
              in: {serialized}"
         );
     }
+}
+
+/// The numbers a sentence writes, each as the whole token it is. A plain
+/// substring search finds `42` inside a longer figure or a timestamp's digits
+/// (carnet#1821); the tokens are compared whole.
+fn numbers_in(text: &str) -> Vec<&str> {
+    text.split(|c: char| !(c.is_ascii_digit() || c == '-' || c == '.'))
+        .map(|token| token.trim_end_matches('.'))
+        .filter(|token| token.bytes().any(|b| b.is_ascii_digit()))
+        .collect()
 }

@@ -1255,6 +1255,7 @@ mod tests {
     fn pre_link_identity_is_the_hash_of_channel_and_sender() {
         let identity = pre_link_identity("whatsapp", "+15551234567");
         assert_eq!(identity, hash_id("whatsapp:+15551234567"));
+        // number-substring-ok: a hash is one hex token; the sender must not sit inside it
         assert!(!identity.contains("15551234567"));
     }
 }

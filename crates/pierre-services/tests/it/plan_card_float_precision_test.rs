@@ -13,6 +13,7 @@
 use pierre_core::models::periodization::PhaseKind;
 use pierre_memory::training_plans::{GoalRace, RacePriority};
 use pierre_services::plan_card::{PhaseCard, PlanCard};
+use pierre_test_support::numbers::mentions_number;
 
 #[test]
 fn a_phase_target_reads_8_3_hours_not_its_f64_widening() {
@@ -45,7 +46,7 @@ fn a_phase_target_reads_8_3_hours_not_its_f64_widening() {
     let text = card.as_block("create_training_plan").unwrap().to_string();
     assert!(text.contains(r#""target_hours":8.3"#), "{text}");
     assert!(
-        !text.contains("8.30000"),
+        !mentions_number(&text, &f64::from(8.3_f32).to_string()),
         "plan card widened an f32: {text}"
     );
 }

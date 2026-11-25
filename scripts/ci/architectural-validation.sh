@@ -1782,6 +1782,17 @@ else
     VALIDATION_FAILED=true
 fi
 
+# HARD FAIL: a test that asserts a number is absent by bare substring
+# (`!text.contains("187")`) matches digits inside a timestamp's fraction or an
+# id by chance and fails though the code is right (carnet#1821). Use
+# pierre_test_support::numbers::mentions_number.
+if [ -f "$SCRIPT_DIR/check-test-number-substring.sh" ]; then
+    bash "$SCRIPT_DIR/check-test-number-substring.sh" || VALIDATION_FAILED=true
+else
+    echo -e "${RED}❌ scripts/ci/check-test-number-substring.sh not found${NC}"
+    VALIDATION_FAILED=true
+fi
+
 # HARD FAIL: Cloud Run instance-based billing (cpu_idle=false) must cite an ADR.
 if [ -x "$SCRIPT_DIR/check-cpu-idle-adr.sh" ]; then
     "$SCRIPT_DIR/check-cpu-idle-adr.sh" || VALIDATION_FAILED=true

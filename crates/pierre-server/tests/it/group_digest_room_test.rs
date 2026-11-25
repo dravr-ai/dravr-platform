@@ -50,6 +50,7 @@ mod group_digest_room_tests {
     use pierre_services::notification_localizer::UserLocaleNotificationLocalizer;
     use pierre_services::notification_text::NotificationTextRenderer;
     use pierre_test_support::delegation::grant_coach_access;
+    use pierre_test_support::numbers::mentions_number;
     use pierre_tool_runtime::runtime::ToolRuntime;
     use serde_json::{Map, Value};
     use tokio_util::task::TaskTracker;
@@ -1406,8 +1407,8 @@ mod group_digest_room_tests {
             &room_digest_params(service, &group, &three, &everyone),
         );
         assert!(!text.contains("Sécret"), "{text}");
-        assert!(!text.contains("999"), "{text}");
-        assert!(!text.contains("-80"), "{text}");
+        assert!(!mentions_number(&text, "999"), "{text}");
+        assert!(!mentions_number(&text, "-80"), "{text}");
         assert!(text.contains(&french_scope(2, 3)), "{text}");
     }
 

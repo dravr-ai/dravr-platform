@@ -41,6 +41,7 @@ use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::routes::oauth_grants::OAuthGrantsRoutes;
 use pierre_providers::core::{FitnessProvider, ProviderConfig};
 use pierre_services::access_feed::own_access_feed;
+use pierre_test_support::numbers::mentions_number;
 use secrecy::ExposeSecret;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -295,7 +296,7 @@ async fn a_training_coach_grant_is_offered_and_served_its_preset_alone() {
     let served = answer.to_string();
     assert!(served.contains("recent-1"), "{answer}");
     assert!(
-        !served.contains("45.501") && !served.contains("-73.567"),
+        !mentions_number(&served, "45.501") && !mentions_number(&served, "-73.567"),
         "bug: a grant without routes read where the athlete rode: {answer}"
     );
 

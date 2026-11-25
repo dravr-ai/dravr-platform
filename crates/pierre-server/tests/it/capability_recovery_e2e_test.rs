@@ -1128,6 +1128,7 @@ mod capability_recovery {
             CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
         };
         use pierre_core::models::{ActivityBuilder, SportType};
+        use pierre_test_support::numbers::mentions_number;
         use std::sync::Mutex;
 
         /// Numeric bot id encoded in the fixture `bot_token` prefix.
@@ -1773,7 +1774,7 @@ mod capability_recovery {
                 "the repaired reply must stand on the fetched ride, got: {reply:?}"
             );
             assert!(
-                !reply.contains("999"),
+                !mentions_number(&reply, "999"),
                 "the fabricated number must not be delivered, got: {reply:?}"
             );
             assert_ne!(

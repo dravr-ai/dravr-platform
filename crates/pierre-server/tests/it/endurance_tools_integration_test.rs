@@ -57,6 +57,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::common;
+use pierre_test_support::numbers::mentions_number;
 
 // ============================================================================
 // Test setup
@@ -306,7 +307,7 @@ async fn test_export_dossier_with_seeded_physiology() -> Result<()> {
     // just verify the value made it through.
     let serialised = serde_json::to_string(&result)?;
     assert!(
-        serialised.contains("52"),
+        mentions_number(&serialised, "52"),
         "seeded vo2_max=52 must appear in dossier payload"
     );
     // LT1/LT2 threshold estimation is wired into the dossier: the seeded FTP

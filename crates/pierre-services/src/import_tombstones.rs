@@ -318,6 +318,7 @@ async fn clear(
 mod tests {
     use super::*;
     use pierre_database::repositories::subject_hash;
+    use pierre_test_support::numbers::mentions_number;
     use uuid::Uuid;
 
     fn tombstone(kind: TombstoneKind, identity_hash: String) -> ImportTombstone {
@@ -356,7 +357,11 @@ mod tests {
             "{}",
             refused.message
         );
-        assert!(!refused.message.contains("42"), "{}", refused.message);
+        assert!(
+            !mentions_number(&refused.message, "42"),
+            "{}",
+            refused.message
+        );
         assert_eq!(refused_tombstone_id(&refused), Some("t-1"));
         assert_eq!(refused_tombstone_id(&AppError::internal("other")), None);
         assert_eq!(

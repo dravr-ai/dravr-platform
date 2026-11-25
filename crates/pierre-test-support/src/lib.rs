@@ -24,6 +24,8 @@
 //! - [`log_capture`] — the one way a test installs a tracing subscriber and
 //!   reads back what the code under test logged, without losing a line to
 //!   another test's cached log-site interest.
+//! - [`numbers`] — [`numbers::mentions_number`], whether serialized text
+//!   carries a number of its own rather than digits inside a timestamp or id.
 //! - `providers` (feature `providers`) — the provider registry a test builds,
 //!   with every endpoint the server calls at the refused origin.
 //! - [`server`] — `User` fixtures in a consistent default shape.
@@ -83,6 +85,8 @@ pub mod garmin;
 pub mod group_tier;
 /// Capture one tracing target's events, to assert the lines code logs.
 pub mod log_capture;
+/// Whole-number search over serialized replies, immune to digits inside timestamps and ids.
+pub mod numbers;
 /// The provider registry a test builds, every server-called endpoint refused.
 #[cfg(feature = "providers")]
 pub mod providers;

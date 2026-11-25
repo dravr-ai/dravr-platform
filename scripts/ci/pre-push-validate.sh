@@ -964,6 +964,21 @@ if git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
     echo ""
 fi
 
+# Tier 1 runs check-test-number-substring.sh inside architectural-validation.sh;
+# an edit to the gate itself also runs its self-test, which plants negated
+# bare-number substring checks and expects each to fail (carnet#1821).
+if git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
+    | grep -qE '^scripts/ci/check-test-number-substring(\.test)?\.sh$'; then
+    echo "Tier 1o-number-substring: test number substring gate self-test"
+    echo "---------------------------------------------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-test-number-substring.test.sh"; then
+        echo ""
+        echo "FAIL: the number substring gate no longer catches what its self-test plants!"
+        exit 1
+    fi
+    echo ""
+fi
+
 # ============================================================================
 # REMOVED: Heavy compilation tiers (per-crate clippy, schema test, targeted
 # tests) now run in CI's ci-backend.yml as parallel jobs from the start of

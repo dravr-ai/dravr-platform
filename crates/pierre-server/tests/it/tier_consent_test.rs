@@ -53,6 +53,7 @@ use crate::coach_athlete_reads_test::{mentions, ok, Fixture, Person};
 use crate::coach_athlete_wellness_reads_test::{naming_mira, world};
 use crate::common;
 use crate::helpers::axum_test::AxumTestRequest;
+use pierre_test_support::numbers::mentions_number;
 
 /// The glucose filed beside a weigh-in, and on a day with nothing else.
 const WITH_WEIGHT: f64 = 93.5;
@@ -303,7 +304,7 @@ async fn the_coachs_agent_needs_wellness_the_unexpired_flag_and_the_athletes_con
     let refused = f.in_thread("get_health_snapshots", json!({})).await;
     let wire = serde_json::to_string(&refused.result).unwrap();
     assert!(
-        !wire.contains("93.5") && !wire.contains("97.5"),
+        !mentions_number(&wire, "93.5") && !mentions_number(&wire, "97.5"),
         "bug: without wellness_read the flag reads nothing: {wire}"
     );
 }
