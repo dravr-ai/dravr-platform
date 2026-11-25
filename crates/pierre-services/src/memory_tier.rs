@@ -21,6 +21,7 @@
 
 use dravr_barrage::{Stream, Tier};
 use pierre_core::models::Dossier;
+use pierre_core::transport::Transport;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::{FactKind, UserFact};
 use pierre_providers::ai_scope;
@@ -94,7 +95,7 @@ impl MemoryReach {
     pub async fn for_agent(repos: &RepositoryRegistry, tenant_id: Uuid, user_id: Uuid) -> Self {
         let withheld = provider_notice::ai_consent_withheld(repos, tenant_id, user_id).await;
         let (reach, _) = ai_scope::serve_over(
-            pierre_core::transport::Transport::PlatformJob,
+            Transport::PlatformJob,
             ai_scope::ai_read(ai_scope::with_ai_consent(withheld, async { Self::now() })),
         )
         .await;

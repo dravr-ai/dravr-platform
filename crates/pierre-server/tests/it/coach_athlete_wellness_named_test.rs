@@ -38,6 +38,7 @@ use uuid::Uuid;
 use crate::coach_athlete_reads_test::{mentions, ok, refused_reason, Fixture};
 use crate::coach_athlete_wellness_reads_test::{naming_mira, world, NIGHTS};
 use crate::helpers::garmin_consent::give_garmin_ai_consent;
+use crate::tier_consent_test::allow_memory_to_ai;
 
 /// What the coach's read says the grant covers.
 const GRANT_NAMES: &str = "Mira Subject shares their sleep, HRV, resting heart rate, weight, \
@@ -739,12 +740,7 @@ async fn a_coachs_recovery_and_sleep_reads_carry_only_what_the_consent_names() {
     f.share_wellness(true).await;
     // The daily note reaches the coach's agent only under the athlete's
     // sensitive_t3 (carnet#1544); this test is about what the grant names.
-    crate::tier_consent_test::allow_memory_to_ai(
-        f.repos(),
-        f.athlete.tenant.as_uuid(),
-        f.athlete.id,
-    )
-    .await;
+    allow_memory_to_ai(f.repos(), f.athlete.tenant.as_uuid(), f.athlete.id).await;
 
     let recovery = ok(
         f.in_thread("get_recovery_metrics", json!({})).await,
