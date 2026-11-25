@@ -8,6 +8,7 @@
 //! narrows it; [`ResolvedDetails`] is what the grant stores, the token
 //! response echoes and introspection returns.
 
+use dravr_barrage::Stream;
 use dravr_tronc::dates::{Elapsed, Timestamp, Zone};
 use pierre_core::errors::{AppError, AppResult};
 use serde::de::Error as _;
@@ -15,7 +16,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest, Sha256};
 use tracing::warn;
 
-use super::duration::{format_seconds, parse_seconds, SECONDS_PER_DAY};
+use super::duration::{format_seconds, parse_seconds};
 use super::parse::{CheckedConstraints, RequestedDetails};
 use super::{
     refused, AccessMode, Budgets, ClientClaims, Preset, Representation, Retention, Source, Tier,
@@ -56,11 +57,34 @@ impl<'de> Deserialize<'de> for PresetName {
     }
 }
 
+/// A stream, written by its name: only a picking preset's grant names any.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct StreamName(Stream);
+
+impl Serialize for StreamName {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.0.name())
+    }
+}
+
+impl<'de> Deserialize<'de> for StreamName {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let name = String::deserialize(deserializer)?;
+        Stream::from_name(&name)
+            .map(Self)
+            .ok_or_else(|| D::Error::custom(format!("unknown stream {name}")))
+    }
+}
+
 /// The data window: `days` back from approval, frozen to `since`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Window {
     days: u32,
+    /// The earliest moment the request itself asked rows from; the frozen
+    /// `since` is never before it
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    from: Option<Timestamp>,
     /// The athlete's local midnight `days` before approval, in UTC; absent
     /// until the athlete approves
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -76,6 +100,10 @@ struct ResolvedAccess {
     source: Source,
     selection_preset: PresetName,
     access_mode: AccessMode,
+    /// The streams the owner picked, for a picking preset; empty (and left
+    /// out) for every other, whose streams are its preset's
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    streams: Vec<StreamName>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     purpose_code: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -125,6 +153,8 @@ pub fn resolve(
         access,
         preset,
         constraints,
+        streams,
+        from,
     } = requested;
     let source = access
         .source
@@ -141,6 +171,8 @@ pub fn resolve(
         .clone_from(&access.purpose_description);
     details.0.client_claims.clone_from(&access.client_claims);
     details.0.retention.clone_from(&access.retention);
+    details.0.streams = streams.iter().copied().map(StreamName).collect();
+    details.0.window.from = *from;
     if let Some(constraints) = constraints {
         details.narrow(*preset, constraints);
     }
@@ -150,11 +182,11 @@ pub fn resolve(
 /// The preset's own details for tokens bound to `source_id`: what the
 /// consent screen's picker grants for that preset.
 ///
-/// A preset with no fixed window or per-day budget (`one_off_question`) has
-/// none to grant here: the parser and the picker refuse it until a step-up
-/// approval resolves its request's own window and total budget, and should
-/// one reach this anyway its missing values resolve to 0, which reads and
-/// serves nothing.
+/// A preset whose window each request states (`one_off_question`) reaches
+/// its farthest window until the request narrows it, and a budget the preset
+/// has no value for stays without a limit of its own (`None`): a one-off
+/// question is budgeted in total rows, not per day. A picking preset names no
+/// stream here; [`resolve`] adds the request's.
 #[must_use]
 pub fn preset_defaults(preset: Preset, source_id: &str) -> ResolvedDetails {
     let representation = if preset.raw_streams().is_empty() {
@@ -169,13 +201,20 @@ pub fn preset_defaults(preset: Preset, source_id: &str) -> ResolvedDetails {
                 id: source_id.to_owned(),
             },
             selection_preset: PresetName(preset),
-            access_mode: AccessMode::Continuous,
+            access_mode: match preset.access_mode() {
+                dravr_barrage::AccessMode::SingleUse => AccessMode::SingleUse,
+                _ => AccessMode::Continuous,
+            },
+            streams: Vec::new(),
             purpose_code: None,
             purpose_description: None,
             client_claims: None,
             retention: None,
             window: Window {
-                days: preset.window_days().unwrap_or(0),
+                days: preset
+                    .window_days()
+                    .unwrap_or_else(|| preset.max_window_days()),
+                from: None,
                 since: None,
             },
         },
@@ -185,11 +224,12 @@ pub fn preset_defaults(preset: Preset, source_id: &str) -> ResolvedDetails {
             critical: true,
             max_tier: preset.max_tier(),
             representation,
-            lifetime: format_seconds(i64::from(preset.lifetime_cap_days()) * SECONDS_PER_DAY),
+            lifetime: format_seconds(seconds_of(preset.lifetime_default())),
             budgets: Budgets {
                 requests_per_hour: preset.default_requests_per_hour(),
-                rows_per_day: preset.default_rows_per_day().unwrap_or(0),
-                raw_rows_per_day: preset.default_raw_rows_per_day().unwrap_or(0),
+                rows_per_day: preset.default_rows_per_day(),
+                raw_rows_per_day: preset.default_raw_rows_per_day(),
+                total_rows: preset.total_rows(),
             },
             purpose_dpv: None,
         },
@@ -207,18 +247,24 @@ impl ResolvedDetails {
         if constraints.representation == Some(Representation::Summary) {
             resolved.representation = Representation::Summary;
         }
-        let cap = i64::from(preset.lifetime_cap_days()) * SECONDS_PER_DAY;
+        let cap = seconds_of(preset.lifetime_cap());
         if let Some(seconds) = constraints.lifetime_seconds {
             resolved.lifetime = format_seconds(seconds.min(cap));
         }
         resolved.purpose_dpv.clone_from(&constraints.purpose_dpv);
         if let Some(budgets) = &constraints.budgets {
             let narrowed = |own: u32, asked: Option<u32>| asked.map_or(own, |asked| own.min(asked));
+            // A budget the preset leaves unlimited takes the client's value.
+            let limit = |own: Option<u32>, asked: Option<u32>| match (own, asked) {
+                (Some(own), Some(asked)) => Some(own.min(asked)),
+                (own, asked) => own.or(asked),
+            };
             let own = resolved.budgets;
             resolved.budgets = Budgets {
                 requests_per_hour: narrowed(own.requests_per_hour, budgets.requests_per_hour),
-                rows_per_day: narrowed(own.rows_per_day, budgets.rows_per_day),
-                raw_rows_per_day: narrowed(own.raw_rows_per_day, budgets.raw_rows_per_day),
+                rows_per_day: limit(own.rows_per_day, budgets.rows_per_day),
+                raw_rows_per_day: limit(own.raw_rows_per_day, budgets.raw_rows_per_day),
+                total_rows: limit(own.total_rows, budgets.total_rows),
             };
         }
     }
@@ -227,6 +273,20 @@ impl ResolvedDetails {
     #[must_use]
     pub const fn preset(&self) -> Preset {
         self.0.selection_preset.0
+    }
+
+    /// How long the grant may be used: a single-use grant is consumed by the
+    /// first call that reads data under it.
+    #[must_use]
+    pub const fn access_mode(&self) -> AccessMode {
+        self.0.access_mode
+    }
+
+    /// The streams the owner picked, for a picking preset; empty for every
+    /// other preset, whose streams are the preset's own.
+    #[must_use]
+    pub fn picked_streams(&self) -> Vec<Stream> {
+        self.0.streams.iter().map(|stream| stream.0).collect()
     }
 
     /// The highest tier a call under the grant may read.
@@ -294,7 +354,8 @@ impl ResolvedDetails {
             .date_at(now)
             .checked_sub_days(i64::from(self.0.window.days))
             .ok_or_else(out_of_range)?;
-        let since = zone.start_of_day(first_day).map_err(|_| out_of_range())?;
+        let midnight = zone.start_of_day(first_day).map_err(|_| out_of_range())?;
+        let since = self.0.window.from.map_or(midnight, |from| from.max(midnight));
         let expires_at = now.checked_add(self.lifetime()).ok_or_else(out_of_range)?;
         let mut frozen = self.clone();
         frozen.0.window.since = Some(since);
@@ -364,6 +425,11 @@ pub fn review_digest(text_version: &str, details: Option<&ResolvedDetails>) -> A
     Ok(format!("{:x}", digest.finalize()))
 }
 
+/// `duration` in whole seconds, saturating.
+fn seconds_of(duration: std::time::Duration) -> i64 {
+    i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
+}
+
 /// The zone an athlete's window is frozen in: their own, UTC when they set
 /// none or it does not read.
 #[must_use]
@@ -413,8 +479,9 @@ mod tests {
             details.budgets(),
             Budgets {
                 requests_per_hour: 120,
-                rows_per_day: 2_000,
-                raw_rows_per_day: 50_000,
+                rows_per_day: Some(2_000),
+                raw_rows_per_day: Some(50_000),
+                total_rows: None,
             },
             "bug: training_coach's own budgets were not kept"
         );
@@ -523,8 +590,9 @@ mod tests {
             narrowed.budgets(),
             Budgets {
                 requests_per_hour: 10,
-                rows_per_day: 100,
-                raw_rows_per_day: 1_000,
+                rows_per_day: Some(100),
+                raw_rows_per_day: Some(1_000),
+                total_rows: None,
             },
             "bug: narrower budgets were not taken"
         );
@@ -557,7 +625,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             details.budgets().rows_per_day,
-            5,
+            Some(5),
             "bug: the client's narrower row budget was not taken"
         );
         assert_eq!(
@@ -567,7 +635,7 @@ mod tests {
         );
         assert_eq!(
             details.budgets().raw_rows_per_day,
-            50_000,
+            Some(50_000),
             "bug: a budget the client left out lost the preset value"
         );
     }
@@ -729,6 +797,85 @@ mod tests {
             digest,
             review_digest("text-v1", Some(&frozen)).unwrap(),
             "bug: freezing the window changed the digest"
+        );
+    }
+
+    #[test]
+    fn a_one_off_question_resolves_to_its_picked_streams_single_use_and_total_rows() {
+        let details = resolved(&json!([
+            access(&json!({
+                "selection_preset": "one_off_question",
+                "streams": [{"name": "labs.summary"}, {"name": "health.vault.sleep.summary"}],
+                "time_range": {"since": "2025-10-02T04:00:00Z"},
+            })),
+            constraints(&json!({
+                "max_tier": "T2",
+                "step_up": {"required": true, "acr": "owner_verified"},
+                "host_profile_required": "t2",
+                "budgets": {"total_rows": 200, "requests_per_hour": 1_000},
+                "lifetime": "P7D",
+            })),
+        ]))
+        .unwrap();
+        assert_eq!(details.preset(), Preset::OneOffQuestion, "bug: preset");
+        assert_eq!(
+            details.picked_streams(),
+            [Stream::Labs, Stream::Sleep],
+            "bug: the picked streams were not kept"
+        );
+        assert_eq!(
+            details.access_mode(),
+            AccessMode::SingleUse,
+            "bug: a one-off question resolved as continuous"
+        );
+        assert_eq!(details.max_tier(), Tier::T2, "bug: T2 was not resolved");
+        assert_eq!(
+            details.budgets(),
+            Budgets {
+                requests_per_hour: 30,
+                rows_per_day: None,
+                raw_rows_per_day: None,
+                total_rows: Some(200),
+            },
+            "bug: the one-off budgets did not narrow to the client's total"
+        );
+        assert_eq!(
+            details.lifetime(),
+            Elapsed::hours(24),
+            "bug: a one-off question outlived its PT24H cap"
+        );
+        assert_eq!(details.window_days(), 730, "bug: the 2-year cap was lost");
+        let now = Timestamp::parse_from_rfc3339("2026-11-25T12:00:00Z").unwrap();
+        let (frozen, _) = details.freeze(now, &Zone::utc()).unwrap();
+        assert_eq!(
+            frozen.since(),
+            Some(Timestamp::parse_from_rfc3339("2025-10-02T04:00:00Z").unwrap()),
+            "bug: the window reached before what the request asked"
+        );
+        let read = ResolvedDetails::from_document(&frozen.to_document().unwrap()).unwrap();
+        assert_eq!(read, frozen, "bug: a one-off document did not read back");
+    }
+
+    #[test]
+    fn a_one_off_question_lives_an_hour_by_default_and_reaches_two_years_at_most() {
+        let details = resolved(&json!([access(&json!({
+            "selection_preset": "one_off_question",
+            "streams": [{"name": "labs.summary"}],
+            "time_range": {"since": "2001-01-01T00:00:00Z"},
+        }))]))
+        .unwrap();
+        assert_eq!(details.lifetime(), Elapsed::hours(1), "bug: not PT1H");
+        assert_eq!(
+            details.budgets().total_rows,
+            Some(500),
+            "bug: the 500-row total was lost"
+        );
+        let now = Timestamp::parse_from_rfc3339("2026-11-25T12:00:00Z").unwrap();
+        let (frozen, _) = details.freeze(now, &Zone::utc()).unwrap();
+        assert_eq!(
+            frozen.since(),
+            Some(Timestamp::parse_from_rfc3339("2024-11-25T00:00:00Z").unwrap()),
+            "bug: a request reached past the 2-year window"
         );
     }
 

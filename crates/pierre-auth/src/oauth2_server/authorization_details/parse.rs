@@ -7,7 +7,14 @@
 //! The request side: [`parse_authorization_details`] reads the parameter a
 //! client sends into [`RequestedDetails`], refusing whatever this server does
 //! not resolve, so [`super::resolve`] only ever narrows checked values.
+//!
+//! A step-up preset (`one_off_question`, owl §3.1) is the one detail that may
+//! name its streams, their `time_range`, `single_use`, `total_rows`,
+//! `max_tier: T2`, a step-up and a Host Profile requirement. Every other
+//! preset is refused them as before.
 
+use dravr_barrage::Stream;
+use dravr_tronc::dates::Timestamp;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -34,20 +41,15 @@ const MAX_TOKEN_CHARS: usize = 256;
 /// The longest `source.id` read: a resource URL.
 const MAX_SOURCE_CHARS: usize = 2_048;
 
+/// The prefix owl's stream names carry on the wire (`health.vault.labs.summary`);
+/// a name without it is read as barrage's own.
+const STREAM_NAME_PREFIX: &str = "health.vault.";
+
+/// The only step-up assurance a client may ask for (owl §4.2 `step_up.acr`).
+pub const OWNER_VERIFIED: &str = "owner_verified";
+
 /// Members only the authorization server sets (owl §4.2 "AS-set").
 const AS_SET_MEMBERS: [&str; 3] = ["host_profile", "standing_policy_ref", "step_up_result"];
-
-/// Members of a data-access detail this server cannot enforce yet, and why.
-const REFUSED_ACCESS_MEMBERS: [(&str, &str); 2] = [
-    (
-        "streams",
-        "explicit streams are not granted; ask for a selection_preset",
-    ),
-    (
-        "time_range",
-        "time_range is not granted; a preset's data window is set by the server",
-    ),
-];
 
 /// Members of a health-constraints detail this server cannot enforce yet,
 /// and why.
@@ -73,6 +75,24 @@ pub(super) struct DataAccessRequest {
     pub(super) purpose_description: Option<String>,
     pub(super) client_claims: Option<ClientClaims>,
     pub(super) retention: Option<Retention>,
+    streams: Option<Vec<StreamRequest>>,
+    time_range: Option<TimeRangeRequest>,
+}
+
+/// One stream a step-up preset's request names (owl §4.2 `streams[]`).
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StreamRequest {
+    name: String,
+    necessity: Option<String>,
+    time_range: Option<TimeRangeRequest>,
+}
+
+/// The data window a request asks for: from `since` on, never past now.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TimeRangeRequest {
+    since: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -95,6 +115,7 @@ pub(super) struct BudgetsRequest {
     pub(super) requests_per_hour: Option<u32>,
     pub(super) rows_per_day: Option<u32>,
     pub(super) raw_rows_per_day: Option<u32>,
+    pub(super) total_rows: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -111,6 +132,27 @@ pub struct RequestedDetails {
     pub(super) access: DataAccessRequest,
     pub(super) preset: Preset,
     pub(super) constraints: Option<CheckedConstraints>,
+    /// The streams a picking preset's request named, each among the preset's
+    /// own, in the order first named; empty for every other preset
+    pub(super) streams: Vec<Stream>,
+    /// The earliest moment the request asks rows from; `None` when it names
+    /// no `time_range`
+    pub(super) from: Option<Timestamp>,
+}
+
+impl RequestedDetails {
+    /// The preset the request names.
+    #[must_use]
+    pub const fn preset(&self) -> Preset {
+        self.preset
+    }
+
+    /// Whether granting the request needs the owner's step-up: a child grant
+    /// of a live grant, approved after a fresh sign-in (owl §6.1).
+    #[must_use]
+    pub const fn requires_step_up(&self) -> bool {
+        self.preset.requires_step_up()
+    }
 }
 
 /// A health-constraints detail whose values passed their checks.
@@ -159,12 +201,10 @@ pub fn parse_authorization_details(raw: &str) -> Result<RequestedDetails, OAuth2
         refuse_members(index, &members, &AS_SET_MEMBERS.map(|m| (m, "")), true)?;
         match kind.as_str() {
             DATA_ACCESS_TYPE => {
-                refuse_members(index, &members, &REFUSED_ACCESS_MEMBERS, false)?;
                 accesses.push((index, typed::<DataAccessRequest>(index, members)?));
             }
             HEALTH_CONSTRAINTS_TYPE => {
                 refuse_members(index, &members, &REFUSED_CONSTRAINT_MEMBERS, false)?;
-                refuse_total_rows(index, &members)?;
                 constraints.push(typed::<ConstraintsRequest>(index, members)?);
             }
             other => {
@@ -185,14 +225,17 @@ pub fn parse_authorization_details(raw: &str) -> Result<RequestedDetails, OAuth2
         ));
     }
     let preset = check_access(&access)?;
+    let (streams, from) = check_streams(&access, preset)?;
     let constraints = constraints
         .pop()
-        .map(|constraint| check_constraints(constraint, access_index))
+        .map(|constraint| check_constraints(constraint, access_index, preset))
         .transpose()?;
     Ok(RequestedDetails {
         access,
         preset,
         constraints,
+        streams,
+        from,
     })
 }
 
@@ -215,20 +258,6 @@ fn refuse_members(
                 "authorization_details[{index}].{member}: {why}"
             )));
         }
-    }
-    Ok(())
-}
-
-/// Refuse a `total_rows` budget: it belongs to single-use grants.
-fn refuse_total_rows(index: usize, members: &Map<String, Value>) -> Result<(), OAuth2Error> {
-    let total_rows = members
-        .get("budgets")
-        .and_then(Value::as_object)
-        .is_some_and(|budgets| budgets.contains_key("total_rows"));
-    if total_rows {
-        return Err(refused(&format!(
-            "authorization_details[{index}].budgets.total_rows belongs to single-use grants, which are not granted yet"
-        )));
     }
     Ok(())
 }
@@ -257,20 +286,16 @@ fn check_access(access: &DataAccessRequest) -> Result<Preset, OAuth2Error> {
         .selection_preset
         .as_deref()
         .ok_or_else(|| refused("the data-access detail must name a selection_preset"))?;
-    let preset = Preset::from_name(preset)
-        .ok_or_else(|| refused("selection_preset must be training_coach or sleep_coach"))?;
-    // A step-up preset (`one_off_question`, T2) is granted only as a child of
-    // a live grant after a fresh sign-in (carnet#1544 slice 4b); until that
-    // path is offered it is refused like the step-up member itself.
-    if preset.requires_step_up() {
-        return Err(refused("step-up is not offered yet"));
-    }
-    match access.access_mode.as_deref() {
-        None | Some("continuous") => {}
-        Some("single_use") => {
-            return Err(refused("single_use grants are not granted yet"));
+    let preset = Preset::from_name(preset).ok_or_else(|| {
+        refused("selection_preset must be training_coach, sleep_coach or one_off_question")
+    })?;
+    match (access.access_mode.as_deref(), preset.requires_step_up()) {
+        (None | Some("continuous"), false) | (None | Some("single_use"), true) => {}
+        (Some("single_use"), false) => {
+            return Err(refused("single_use is granted only to one_off_question"));
         }
-        Some(_) => return Err(refused("access_mode must be continuous")),
+        (Some(_), true) => return Err(refused("one_off_question is single_use")),
+        (Some(_), false) => return Err(refused("access_mode must be continuous")),
     }
     if access
         .purpose_code
@@ -319,11 +344,76 @@ fn check_access(access: &DataAccessRequest) -> Result<Preset, OAuth2Error> {
     Ok(preset)
 }
 
+/// Check the streams and time ranges a data-access detail names: only a
+/// picking preset names any, each among its own, and it must name one. The
+/// request's window starts at the latest `since` it names, so no stream is
+/// read from before what it asked (a window only narrows).
+fn check_streams(
+    access: &DataAccessRequest,
+    preset: Preset,
+) -> Result<(Vec<Stream>, Option<Timestamp>), OAuth2Error> {
+    if !preset.picks_streams() {
+        if access.streams.is_some() {
+            return Err(refused(
+                "explicit streams are not granted; ask for a selection_preset",
+            ));
+        }
+        if access.time_range.is_some() {
+            return Err(refused(
+                "time_range is not granted; a preset's data window is set by the server",
+            ));
+        }
+        return Ok((Vec::new(), None));
+    }
+    let requested = access.streams.as_deref().unwrap_or_default();
+    if requested.is_empty() {
+        return Err(refused(&format!(
+            "{} must name the streams it reads",
+            preset.name()
+        )));
+    }
+    let mut streams = Vec::new();
+    let mut from = access.time_range.as_ref().map(since).transpose()?;
+    for request in requested {
+        let name = request
+            .name
+            .strip_prefix(STREAM_NAME_PREFIX)
+            .unwrap_or(&request.name);
+        let stream = Stream::from_name(name)
+            .filter(|stream| preset.streams().contains(stream))
+            .ok_or_else(|| {
+                refused(&format!(
+                    "{} reads only the summary streams of tiers T0 to T2",
+                    preset.name()
+                ))
+            })?;
+        match request.necessity.as_deref() {
+            None | Some("required" | "optional") => {}
+            Some(_) => return Err(refused("necessity must be required or optional")),
+        }
+        if let Some(range) = &request.time_range {
+            let asked = since(range)?;
+            from = Some(from.map_or(asked, |from| from.max(asked)));
+        }
+        if !streams.contains(&stream) {
+            streams.push(stream);
+        }
+    }
+    Ok((streams, from))
+}
+
+/// The moment a `time_range` asks rows from.
+fn since(range: &TimeRangeRequest) -> Result<Timestamp, OAuth2Error> {
+    Timestamp::parse_from_rfc3339(&range.since)
+        .map_err(|_| refused("time_range.since must be an RFC 3339 date-time"))
+}
+
 /// Check a health-constraints detail applying to the data-access detail at
-/// `access_index`.
+/// `access_index`, which names `preset`.
 fn check_constraints(
     constraint: ConstraintsRequest,
     access_index: usize,
+    preset: Preset,
 ) -> Result<CheckedConstraints, OAuth2Error> {
     if constraint.critical != Some(true) {
         return Err(refused(
@@ -335,8 +425,20 @@ fn check_constraints(
             "applies_to must be the index of the data-access detail it narrows",
         ));
     }
-    if matches!(constraint.max_tier, Some(Tier::T2 | Tier::T3)) {
-        return Err(refused("max_tier above T1 is not granted yet"));
+    match constraint.max_tier {
+        Some(Tier::T3) => {
+            return Err(refused(
+                "max_tier T3 is never granted to an outside client",
+            ));
+        }
+        Some(tier) if tier > preset.max_tier() => {
+            return Err(refused(&format!(
+                "max_tier above {} is not granted for {}",
+                tier_name(preset.max_tier()),
+                preset.name()
+            )));
+        }
+        _ => {}
     }
     let lifetime_seconds = constraint
         .lifetime
@@ -353,10 +455,16 @@ fn check_constraints(
         }
     }
     if let Some(budgets) = &constraint.budgets {
+        if budgets.total_rows.is_some() && preset.total_rows().is_none() {
+            return Err(refused(
+                "budgets.total_rows belongs to single-use grants (one_off_question)",
+            ));
+        }
         let values = [
             budgets.requests_per_hour,
             budgets.rows_per_day,
             budgets.raw_rows_per_day,
+            budgets.total_rows,
         ];
         if values.iter().all(Option::is_none) {
             return Err(refused("budgets must name at least one budget"));
@@ -366,13 +474,24 @@ fn check_constraints(
         }
     }
     if let Some(step_up) = &constraint.step_up {
-        if step_up.required || step_up.acr.is_some() {
-            return Err(refused("step-up is not offered yet"));
+        if step_up.acr.as_deref().is_some_and(|acr| acr != OWNER_VERIFIED) {
+            return Err(refused("step_up.acr must be owner_verified"));
+        }
+        if !preset.requires_step_up() && (step_up.required || step_up.acr.is_some()) {
+            return Err(refused(
+                "step-up is granted only to one_off_question",
+            ));
         }
     }
     match constraint.host_profile_required.as_deref() {
         None | Some("none") => {}
-        Some(_) => return Err(refused("a Host Profile requirement is not offered yet")),
+        Some("t2" | "T2") if preset.requires_host_profile() => {}
+        Some("t2" | "T2") => {
+            return Err(refused(
+                "a Host Profile requirement is granted only to one_off_question",
+            ));
+        }
+        Some(_) => return Err(refused("host_profile_required must be none or t2")),
     }
     Ok(CheckedConstraints {
         max_tier: constraint.max_tier,
@@ -381,6 +500,16 @@ fn check_constraints(
         purpose_dpv: constraint.purpose_dpv,
         budgets: constraint.budgets,
     })
+}
+
+/// owl's spelling of `tier`.
+const fn tier_name(tier: Tier) -> &'static str {
+    match tier {
+        Tier::T0 => "T0",
+        Tier::T1 => "T1",
+        Tier::T2 => "T2",
+        Tier::T3 => "T3",
+    }
 }
 
 #[cfg(test)]
@@ -486,10 +615,10 @@ mod tests {
     }
 
     #[test]
-    fn only_the_two_presets_are_granted() {
+    fn only_the_three_presets_are_granted() {
         assert_refused(
             &json!([access(&json!({"selection_preset": "clinician_summary"}))]),
-            "training_coach or sleep_coach",
+            "training_coach, sleep_coach or one_off_question",
         );
         let mut none = access(&json!({}));
         if let Value::Object(members) = &mut none {
@@ -542,25 +671,148 @@ mod tests {
         );
     }
 
-    /// The T2 preset barrage now names is granted only through step-up,
-    /// which is not offered yet: it must never resolve as an ordinary grant
-    /// (its own tier is T2).
+    /// owl §4.2 example B, in barrage's stream names.
+    fn one_off(extra: &Value) -> Value {
+        let mut detail = access(&json!({
+            "selection_preset": "one_off_question",
+            "access_mode": "single_use",
+            "streams": [{"name": "health.vault.labs.summary", "necessity": "required"}],
+        }));
+        if let (Value::Object(detail), Value::Object(extra)) = (&mut detail, extra) {
+            detail.extend(extra.clone());
+        }
+        detail
+    }
+
+    fn step_up_constraints(extra: &Value) -> Value {
+        let mut detail = constraints(&json!({
+            "max_tier": "T2",
+            "representation": "summary",
+            "lifetime": "PT1H",
+            "step_up": {"required": true, "acr": "owner_verified"},
+            "budgets": {"total_rows": 200},
+            "host_profile_required": "t2",
+        }));
+        if let (Value::Object(detail), Value::Object(extra)) = (&mut detail, extra) {
+            detail.extend(extra.clone());
+        }
+        detail
+    }
+
     #[test]
-    fn the_step_up_preset_is_refused_until_step_up_is_offered() {
+    fn a_one_off_question_names_its_streams_tier_step_up_and_host_profile() {
+        let requested = parse_authorization_details(
+            &json!([one_off(&json!({})), step_up_constraints(&json!({}))]).to_string(),
+        )
+        .unwrap();
+        assert!(
+            requested.requires_step_up(),
+            "bug: a one-off question does not need step-up"
+        );
+        assert_eq!(
+            requested.streams,
+            [Stream::Labs],
+            "bug: the picked stream was not read"
+        );
+        assert_eq!(requested.from, None, "bug: a window nobody asked for");
+    }
+
+    #[test]
+    fn a_one_off_question_must_name_streams_among_its_own() {
+        let none = access(&json!({"selection_preset": "one_off_question"}));
+        assert_refused(&json!([none]), "must name the streams");
+        for name in [
+            "workout.raw",
+            "workout.route.raw",
+            "clinical.raw",
+            "restricted.notes.summary",
+            "no.such.stream",
+        ] {
+            assert_refused(
+                &json!([one_off(&json!({"streams": [{"name": name}]}))]),
+                "summary streams of tiers T0 to T2",
+            );
+        }
         assert_refused(
-            &json!([access(&json!({"selection_preset": "one_off_question"}))]),
-            "step-up is not offered yet",
+            &json!([one_off(
+                &json!({"streams": [{"name": "labs.summary", "fields": ["code"]}]})
+            )]),
+            "unknown field",
         );
     }
 
     #[test]
-    fn a_tier_above_t1_is_refused() {
+    fn a_one_off_question_reads_from_its_latest_asked_since() {
+        let requested = parse_authorization_details(
+            &json!([one_off(&json!({
+                "time_range": {"since": "2025-01-01T00:00:00Z"},
+                "streams": [
+                    {"name": "labs.summary", "time_range": {"since": "2025-10-02T04:00:00Z"}},
+                    {"name": "sleep.summary"},
+                ],
+            }))])
+            .to_string(),
+        )
+        .unwrap();
+        assert_eq!(
+            requested.from,
+            Some(Timestamp::parse_from_rfc3339("2025-10-02T04:00:00Z").unwrap()),
+            "bug: the window was not the narrowest asked"
+        );
+        assert_refused(
+            &json!([one_off(&json!({"time_range": {"since": "last year"}}))]),
+            "RFC 3339",
+        );
+    }
+
+    #[test]
+    fn a_one_off_question_is_single_use() {
+        assert_refused(
+            &json!([one_off(&json!({"access_mode": "continuous"}))]),
+            "one_off_question is single_use",
+        );
+    }
+
+    #[test]
+    fn a_step_up_needs_owner_verified_and_a_one_off_question() {
+        assert_refused(
+            &json!([
+                one_off(&json!({})),
+                step_up_constraints(&json!({"step_up": {"required": true, "acr": "password"}}))
+            ]),
+            "owner_verified",
+        );
+        assert_refused(
+            &json!([
+                access(&json!({})),
+                constraints(&json!({"step_up": {"required": true, "acr": "owner_verified"}}))
+            ]),
+            "only to one_off_question",
+        );
+        assert_refused(
+            &json!([
+                one_off(&json!({})),
+                step_up_constraints(&json!({"host_profile_required": "t3"}))
+            ]),
+            "none or t2",
+        );
+    }
+
+    #[test]
+    fn a_tier_above_the_presets_is_refused_and_t3_always() {
         for tier in ["T2", "T3"] {
             assert_refused(
                 &json!([access(&json!({})), constraints(&json!({"max_tier": tier}))]),
-                "max_tier above T1",
+                "max_tier",
             );
         }
+        assert_refused(
+            &json!([
+                one_off(&json!({})),
+                step_up_constraints(&json!({"max_tier": "T3"}))
+            ]),
+            "never granted to an outside client",
+        );
         assert_refused(
             &json!([access(&json!({})), constraints(&json!({"max_tier": "T9"}))]),
             "authorization_details[1]",
@@ -581,13 +833,20 @@ mod tests {
     }
 
     #[test]
-    fn total_rows_and_empty_or_zero_budgets_are_refused() {
+    fn total_rows_outside_a_one_off_question_and_empty_or_zero_budgets_are_refused() {
         assert_refused(
             &json!([
                 access(&json!({})),
                 constraints(&json!({"budgets": {"total_rows": 200}}))
             ]),
             "total_rows",
+        );
+        assert_refused(
+            &json!([
+                one_off(&json!({})),
+                step_up_constraints(&json!({"budgets": {"total_rows": 0}}))
+            ]),
+            "at least 1",
         );
         assert_refused(
             &json!([access(&json!({})), constraints(&json!({"budgets": {}}))]),
@@ -622,6 +881,7 @@ mod tests {
                 "step-up",
             ),
             (json!({"host_profile_required": "t2"}), "Host Profile"),
+            (json!({"host_profile_required": "t2"}), "one_off_question"),
             (json!({"egress": "typed_only"}), "egress"),
         ];
         for (extra, why) in cases {

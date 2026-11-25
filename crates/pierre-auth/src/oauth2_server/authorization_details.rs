@@ -26,10 +26,12 @@
 //! names the preset and never a stream (stream names are not published, E5).
 //!
 //! Every member the server cannot enforce yet is refused, which is what
-//! `critical: true` asks: explicit `streams`, `raw_streams`, `time_range`,
-//! `single_use`, `total_rows`, `code_filter`, `egress`, a step-up, a Host
-//! Profile, `max_tier` above T1; so are the members only the server sets and
-//! every unknown member.
+//! `critical: true` asks: `raw_streams`, `code_filter`, `egress`; so are the
+//! members only the server sets and every unknown member. A step-up preset
+//! (`one_off_question`, owl §3.1) alone admits explicit `streams` among its
+//! own, their `time_range`, `single_use`, `total_rows`, `max_tier: T2`, a
+//! step-up and a Host Profile requirement: everything else asks for them in
+//! vain, and `max_tier` above T1 is refused for it.
 
 pub use dravr_barrage::{Preset, Tier};
 use serde::{Deserialize, Serialize};
@@ -44,7 +46,7 @@ mod parse;
 /// The resolved document a grant stores
 mod resolved;
 
-pub use parse::{parse_authorization_details, RequestedDetails};
+pub use parse::{parse_authorization_details, RequestedDetails, OWNER_VERIFIED};
 pub use resolved::{athlete_zone, preset_defaults, resolve, review_digest, ResolvedDetails};
 
 /// The PDPP Core detail type a client asks for data with.
@@ -76,12 +78,14 @@ pub enum Representation {
     SummaryAndRaw,
 }
 
-/// How long a grant may be used: `continuous` alone until single-use grants.
+/// How long a grant may be used (owl §3.1 `access_mode`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AccessMode {
     /// Read repeatedly while the grant stands
     Continuous,
+    /// Consumed by the first call that reads data under it
+    SingleUse,
 }
 
 /// The resource server a detail's data is read from.
@@ -111,15 +115,25 @@ pub struct Retention {
 }
 
 /// A grant's budgets: the narrower of the preset's and the client's.
+///
+/// A budget that is `None` has no limit of its own: a one-off question is
+/// budgeted in rows over its life, not per day. The members a grant has no
+/// value for are left out of the stored document, so a document written
+/// before a member existed reads back unchanged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Budgets {
     /// Calls per hour
     pub requests_per_hour: u32,
     /// Rows served per UTC day
-    pub rows_per_day: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rows_per_day: Option<u32>,
     /// Raw time-series samples served per UTC day
-    pub raw_rows_per_day: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_rows_per_day: Option<u32>,
+    /// Rows served over the grant's whole life (owl §3.1 `total_rows`)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_rows: Option<u32>,
 }
 
 #[cfg(test)]
