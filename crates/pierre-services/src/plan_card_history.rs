@@ -11,9 +11,10 @@
 //! written. From 079ffba87 (carnet#1495, 2026-11-12) until the carnet#1552
 //! change, a day's `outside_evidence` was stored as a bool, and every client
 //! drew the warning's text from its own copy. Since carnet#1552 the card
-//! carries the warning itself, resolved by the server in the reader's
-//! language ([`DayCard::outside_evidence`](crate::plan_card::DayCard)), and
-//! the clients print what they get.
+//! carries the warning itself, worded by the server in the saving turn's
+//! language ([`DayCard::outside_evidence`](crate::plan_card::DayCard)); the
+//! clients word it in their reader's language and print that label only when
+//! they hold no words for it (carnet#1813).
 //!
 //! The snapshots of that range stay as stored, so a rollback still reads
 //! them; [`word_stored_outside_evidence`] rewrites them on the way out

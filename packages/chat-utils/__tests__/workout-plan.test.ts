@@ -1,8 +1,16 @@
-// ABOUTME: Unit tests for the workout-plan card's figures — a step's compact duration and a day's fuelling line
-// ABOUTME: Red if a 90 s interval reads "2 min", a stride "0 min", or sodium turns into a prescribed intake
+// ABOUTME: Unit tests for the workout-plan card's figures and evidence words — step durations, fuelling, the chip in the reader's language
+// ABOUTME: Red if a 90 s interval reads "2 min", sodium turns into a prescribed intake, or a chip saved in English reads English to a French reader
 
 import { describe, expect, it } from 'vitest';
-import { clockDuration, fuelParts, stepDuration } from '../src/workout-plan';
+import {
+  clockDuration,
+  countsAsLine,
+  evidenceChipDetail,
+  evidenceChipLabel,
+  fuelParts,
+  outsideEvidenceLabel,
+  stepDuration,
+} from '../src/workout-plan';
 
 /** A translator that shows which key and params it was handed. */
 const t = (key: string, params?: Record<string, string | number>) =>
@@ -58,5 +66,75 @@ describe('fuelParts', () => {
       'chat.fuelFluid({"value":750})',
       'chat.fuelSodiumLoss({"value":800})',
     ]);
+  });
+});
+
+/** A French reader's catalogue: what a card saved in English reads as for them. */
+const FRENCH: Record<string, string> = {
+  'messaging.evidence.convention': "Convention d'entraînement",
+  'messaging.evidence.no_basis_convention': 'Aucun essai ne couvre cette séance.',
+  'messaging.evidence.outside': 'Hors des données probantes',
+  'messaging.evidence.counts_as': 'Compte comme {0}',
+  'messaging.envelope.purpose.threshold': 'une séance au seuil',
+};
+const french = (key: string) => FRENCH[key] ?? key;
+
+describe('evidenceChipLabel and evidenceChipDetail', () => {
+  it('word a chip saved in another language by its kind, in the reader\'s language', () => {
+    const evidence = {
+      kind: 'convention' as const,
+      label: 'Coaching convention',
+      note: 'No trial covers this session.',
+      note_kind: 'no_basis_convention' as const,
+    };
+    expect(evidenceChipLabel(evidence, french)).toBe("Convention d'entraînement");
+    expect(evidenceChipDetail(evidence, french)).toBe('Aucun essai ne couvre cette séance.');
+  });
+
+  it('print the stored words of a card saved before the kind travelled', () => {
+    const evidence = { label: 'Coaching convention', note: 'No trial covers this session.' };
+    expect(evidenceChipLabel(evidence, french)).toBe('Coaching convention');
+    expect(evidenceChipDetail(evidence, french)).toBe('No trial covers this session.');
+  });
+
+  it('open on the cited studies before any note', () => {
+    const evidence = { kind: 'transposed' as const, label: 'Transposed', basis: 'Rønnestad 2015 [RCT]' };
+    expect(evidenceChipDetail(evidence, french)).toBe('Rønnestad 2015 [RCT]');
+  });
+
+  it('fall back to the stored label when the reader\'s catalogue lacks the kind', () => {
+    expect(evidenceChipLabel({ kind: 'acute_only', label: 'Short-term data only' }, french)).toBe(
+      'Short-term data only',
+    );
+  });
+});
+
+describe('outsideEvidenceLabel', () => {
+  it('words the warning in the reader\'s language, from the flag or from a stored label alone', () => {
+    expect(outsideEvidenceLabel({ outside: true, outside_evidence: 'Outside the evidence' }, french)).toBe(
+      'Hors des données probantes',
+    );
+    expect(outsideEvidenceLabel({ outside_evidence: 'Outside the evidence' }, french)).toBe(
+      'Hors des données probantes',
+    );
+  });
+
+  it('says nothing on a day inside the evidence', () => {
+    expect(outsideEvidenceLabel({}, french)).toBeUndefined();
+  });
+});
+
+describe('countsAsLine', () => {
+  it('words a relabel by its purpose in the reader\'s language', () => {
+    expect(
+      countsAsLine({ counts_as: 'Counts as threshold work', counts_as_purpose: 'threshold' }, french),
+    ).toBe('Compte comme une séance au seuil');
+  });
+
+  it('prints the stored line when the purpose did not travel or has no words here', () => {
+    expect(countsAsLine({ counts_as: 'Counts as threshold work' }, french)).toBe('Counts as threshold work');
+    expect(countsAsLine({ counts_as: 'Counts as hills', counts_as_purpose: 'hills' }, french)).toBe(
+      'Counts as hills',
+    );
   });
 });

@@ -148,6 +148,29 @@ describe('parseSessionPreview', () => {
     expect(parseSessionPreview({ ...preview, findings: [{ code: 'x', text: 'y', param: 3 }] })).toBeNull();
   });
 
+  it("carries the chip and its note by name, and drops a name this client holds no words for", () => {
+    const named = parseSessionPreview({
+      ...preview,
+      evidence: {
+        kind: 'convention',
+        label: 'Coaching convention',
+        note: 'No trial covers this session.',
+        note_kind: 'no_basis_convention',
+      },
+    });
+    expect(named?.evidence).toEqual({
+      kind: 'convention',
+      label: 'Coaching convention',
+      note: 'No trial covers this session.',
+      note_kind: 'no_basis_convention',
+    });
+    const unknown = parseSessionPreview({
+      ...preview,
+      evidence: { kind: 'meta_analysis', label: 'Meta-analysis', note: 'Pooled.', note_kind: 'pooled' },
+    });
+    expect(unknown?.evidence).toEqual({ label: 'Meta-analysis', note: 'Pooled.' });
+  });
+
   it('keeps a derived figure the kernel left out absent, never zero', () => {
     const parsed = parseSessionPreview({ ...preview, derived: without(preview.derived, 'ratio', 'work_pct') });
     expect(parsed?.derived).not.toHaveProperty('ratio');

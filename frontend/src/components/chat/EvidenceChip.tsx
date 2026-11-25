@@ -1,5 +1,5 @@
 // ABOUTME: A plan day's evidence chip — where the session's evidence sits — opening a sheet with the studies behind it
-// ABOUTME: The chip's words, its citation and the note in its place arrive resolved by the server; only the sheet's title is the client's
+// ABOUTME: The chip and its note travel by name and are worded in the reader's language; a card saved before that prints its stored words
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { useTranslation } from '@pierre/i18n';
 import type { PlanDayEvidence } from '@pierre/shared-types';
+import { evidenceChipDetail, evidenceChipLabel } from '@pierre/chat-utils';
 import { Sheet } from '../ui/Sheet';
 import { BADGE_TONE } from '../ui/badgeTone';
 import { useIsMobile } from '../../hooks/useBreakpoint';
@@ -15,13 +16,14 @@ import { useIsMobile } from '../../hooks/useBreakpoint';
  * The neutral chip a plan day carries when its evidence is weaker than a
  * trial in its sport (carnet#1495). It opens a sheet naming the studies the
  * evidence rests on, never the catalogue's English caveat, or, when the badge
- * cites none, the server's note saying why.
+ * cites none, the note saying why.
  */
 export function EvidenceChip({ evidence }: { evidence: PlanDayEvidence }) {
   const { t } = useTranslation();
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
-  const detail = evidence.basis ?? evidence.note;
+  const label = evidenceChipLabel(evidence, t);
+  const detail = evidenceChipDetail(evidence, t);
   return (
     <>
       <button
@@ -31,7 +33,7 @@ export function EvidenceChip({ evidence }: { evidence: PlanDayEvidence }) {
         onClick={() => setOpen(true)}
         data-testid="plan-day-evidence"
       >
-        {evidence.label}
+        {label}
       </button>
       {open && (
         <Sheet
@@ -41,7 +43,7 @@ export function EvidenceChip({ evidence }: { evidence: PlanDayEvidence }) {
           data-testid="plan-day-evidence-sheet"
         >
           <div className="space-y-2 px-4 py-4 text-sm">
-            <p className="font-medium text-on-surface">{evidence.label}</p>
+            <p className="font-medium text-on-surface">{label}</p>
             {detail && <p className="text-on-surface-variant">{detail}</p>}
           </div>
         </Sheet>

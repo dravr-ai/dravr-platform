@@ -3,7 +3,7 @@
 
 import React from 'react';
 import { Pressable, View, Text } from 'react-native';
-import { countKey, fuelParts, stepDuration } from '@pierre/chat-utils';
+import { countKey, countsAsLine, fuelParts, outsideEvidenceLabel, stepDuration } from '@pierre/chat-utils';
 import { PLAN_HARD_PER_WEEK_KEYS, PLAN_MORE_WEEKS_KEYS } from '@pierre/shared-constants';
 import {
   canAddSession,
@@ -248,6 +248,8 @@ export function DayRow({
   children?: React.ReactNode;
 }) {
   const { t, language } = useTranslation();
+  const outside = outsideEvidenceLabel(day, t);
+  const countsAs = countsAsLine(day, t);
   const steps = day.steps ?? [];
   const id = `${day.date}-${position}`;
   return (
@@ -298,13 +300,11 @@ export function DayRow({
             {t(SESSION_EDITOR_KEYS.unchecked)}
           </Text>
         ) : null}
-        {day.outside_evidence ? (
-          <Badge variant="warning" label={day.outside_evidence} className="mt-1 self-start" />
-        ) : null}
+        {outside ? <Badge variant="warning" label={outside} className="mt-1 self-start" /> : null}
         {day.evidence ? <EvidenceChip evidence={day.evidence} /> : null}
-        {day.counts_as ? (
+        {countsAs ? (
           <Text className="text-sm text-text-secondary mt-0.5" testID="plan-day-counts-as">
-            {day.counts_as}
+            {countsAs}
           </Text>
         ) : null}
         {steps.length > 0 ? (

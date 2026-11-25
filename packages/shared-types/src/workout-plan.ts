@@ -114,19 +114,26 @@ export interface PlanDay {
   family_sport?: SessionSport;
   /**
    * The warning the card marks the day with when the envelope check found the
-   * session outside its family's evidence, resolved by the server in the
-   * reader's language. The reply that saved it carried the notice saying why.
-   * Absent otherwise.
+   * session outside its family's evidence, in the saving turn's language: what
+   * a client prints when it has no words for the warning. The reply that saved
+   * it carried the notice saying why. Absent otherwise.
    */
   outside_evidence?: string;
   /**
+   * True when the envelope check found the session outside its family's
+   * evidence: the client words the warning in its reader's language, since
+   * `outside_evidence` is in the language of the turn that saved the card.
+   */
+  outside?: boolean;
+  /**
    * Where the session's evidence sits when it is weaker than a trial in this
-   * sport without a qualifier: one chip, resolved by the server in the
-   * reader's language. Absent otherwise.
+   * sport without a qualifier: one chip. Absent otherwise.
    */
   evidence?: PlanDayEvidence;
-  /** "Counts as <purpose>", resolved by the server, when an edit relabelled the session. */
+  /** "Counts as <purpose>", in the saving turn's language, when an edit relabelled the session. */
   counts_as?: string;
+  /** The purpose that edit relabelled the session to, worded by the client (`messaging.envelope.purpose.<purpose>`). */
+  counts_as_purpose?: string;
   /**
    * The session the coach's edits replaced, when the coach edited this day
    * of their draft from the plan thread (carnet#1714). Only a draft carries it.
@@ -144,14 +151,32 @@ export interface PlanDayEdit {
   rest: boolean;
 }
 
+/** The one chip a day's evidence earns, by name: a client words it as `messaging.evidence.<kind>`. */
+export const PLAN_EVIDENCE_KINDS = [
+  'convention',
+  'transposed',
+  'acute_only',
+  'uncontrolled_only',
+  'acute_uncontrolled',
+] as const;
+export type PlanEvidenceKind = (typeof PLAN_EVIDENCE_KINDS)[number];
+
+/** Why a chip cites no study, by name: a client words it as `messaging.evidence.<kind>`. */
+export const PLAN_EVIDENCE_NOTE_KINDS = ['no_basis_convention', 'no_basis_transposed'] as const;
+export type PlanEvidenceNoteKind = (typeof PLAN_EVIDENCE_NOTE_KINDS)[number];
+
 /** The evidence chip of a plan day. */
 export interface PlanDayEvidence {
-  /** The chip, in the reader's language. */
+  /** The chip by name, worded in the reader's language; absent on a card saved before it travelled. */
+  kind?: PlanEvidenceKind;
+  /** The chip in the language of the turn that saved the card: what a client prints without `kind`. */
   label: string;
   /** The studies the evidence rests on, as cited; absent when the badge cites none. */
   basis?: string;
-  /** What the chip opens on when it cites no study: why none is, resolved by the server. */
+  /** What the chip opens on when it cites no study, in the saving turn's language. */
   note?: string;
+  /** `note` by name, worded in the reader's language; absent when `note` is. */
+  note_kind?: PlanEvidenceNoteKind;
 }
 
 export interface PlanWeek {

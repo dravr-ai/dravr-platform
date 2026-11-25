@@ -193,18 +193,49 @@ describe('WorkoutPlanCard', () => {
     expect(screen.getAllByText('Outside the evidence')).toHaveLength(1);
   });
 
-  // carnet#1552: the warning comes resolved from the server, in the reader's
-  // language, and the card prints it as given.
-  it('prints the warning in the words the server resolved', () => {
+  // carnet#1813: a card is saved with the warning worded in the language of
+  // the turn that saved it; the reader reads it in their own.
+  it('words the warning in the reader\'s language, whatever language saved the card', () => {
     const marked = plan();
     marked.weeks[0].days[0] = {
       ...marked.weeks[0].days[0],
       outside_evidence: 'Hors des données probantes',
+      outside: true,
     };
     render(<WorkoutPlanCard plan={marked} />);
 
-    expect(screen.getAllByText('Hors des données probantes')).toHaveLength(1);
-    expect(screen.queryByText('Outside the evidence')).not.toBeInTheDocument();
+    expect(screen.getAllByText('Outside the evidence')).toHaveLength(1);
+    expect(screen.queryByText('Hors des données probantes')).not.toBeInTheDocument();
+  });
+
+  // carnet#1813: « Coaching convention » showed under French chrome because
+  // the chip was frozen in the saving turn's language; its kind travels now.
+  it('words the evidence chip, its note and a relabel in the reader\'s language', async () => {
+    const saved = plan();
+    saved.weeks[0].days[0] = {
+      ...saved.weeks[0].days[0],
+      evidence: {
+        kind: 'convention',
+        label: 'Coaching convention',
+        note: 'No trial covers this session; it follows common coaching practice.',
+        note_kind: 'no_basis_convention',
+      },
+      counts_as: 'Counts as threshold work',
+      counts_as_purpose: 'threshold',
+    };
+    await i18n.changeLanguage('fr');
+    try {
+      render(<WorkoutPlanCard plan={saved} />);
+      expect(screen.getByTestId('plan-day-evidence')).toHaveTextContent("Convention d'entraînement");
+      expect(screen.queryByText('Coaching convention')).not.toBeInTheDocument();
+      expect(screen.getByTestId('plan-day-counts-as')).toHaveTextContent(/^Compte comme /);
+      fireEvent.click(screen.getByTestId('plan-day-evidence'));
+      expect(
+        within(screen.getByTestId('plan-day-evidence-sheet')).getByText(/^Aucun essai ne couvre cette séance/),
+      ).toBeInTheDocument();
+    } finally {
+      await i18n.changeLanguage('en');
+    }
   });
 
   it('marks no day when the envelope check found nothing', () => {

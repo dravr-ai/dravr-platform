@@ -4,10 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use pierre_contremaitre::evidence_strings;
+use pierre_contremaitre::evidence_strings::{self, EvidenceChipKind, EvidenceNoteKind};
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::models::periodization::serde_num::whole_u32_opt;
-use pierre_core::models::periodization::{SportFamily, WorkoutStep};
+use pierre_core::models::periodization::{SportFamily, WorkoutPurpose, WorkoutStep};
 use pierre_core::models::FuelingProtocol;
 use pierre_memory::training_plans::{PlannedDay, TemplateParams, TemplateSource};
 use serde::{Deserialize, Serialize};
@@ -50,22 +50,36 @@ pub struct DayCard {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub template_source: Option<TemplateSource>,
     /// The warning the card marks a day with when the envelope check found the
-    /// session outside its family's evidence, as stored with the day, in the
-    /// reader's words (`messaging.evidence.outside`); the reply that saved it
-    /// carried the notice saying why (carnet#1495). The clients print it as
-    /// given (carnet#1552). Absent when the check found nothing, and when the
+    /// session outside its family's evidence, as stored with the day, in
+    /// `locale`'s words (`messaging.evidence.outside`); the reply that saved it
+    /// carried the notice saying why (carnet#1495). A card frozen in a reply's
+    /// blocks keeps the language of the turn that saved it, so the clients
+    /// word the warning from [`DayCard::outside`] and print this only when they
+    /// hold no words for it. Absent when the check found nothing, and when the
     /// string is missing, as for the chip.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub outside_evidence: Option<String>,
+    /// Whether the envelope check found the session outside its family's
+    /// evidence, so a client words the warning (`messaging.evidence.outside`)
+    /// in its reader's language: `outside_evidence` is worded in the language
+    /// of the turn that saved the card, frozen with it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub outside: bool,
     /// Where the day's evidence sits when it is weaker than a trial in this
     /// sport without a qualifier: one chip, the weakest evidence winning
     /// (carnet#1495). Absent otherwise, and on a day no family measured.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub evidence: Option<DayEvidence>,
-    /// "Counts as <purpose>" in the reader's words, when an edit relabelled
-    /// the session. Absent when none did.
+    /// "Counts as <purpose>" in `locale`'s words, when an edit relabelled the
+    /// session: what a client prints when it cannot word
+    /// [`DayCard::counts_as_purpose`]. Absent when none did.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub counts_as: Option<String>,
+    /// The purpose an edit relabelled the session to
+    /// (`messaging.envelope.purpose.<purpose>`), so a client words "counts
+    /// as" in its reader's language. Absent when none did.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub counts_as_purpose: Option<WorkoutPurpose>,
     /// The family preset the day instantiates, when it names one: what the
     /// coach's family editor opens on (carnet#1515).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -181,10 +195,15 @@ impl TemplateValues {
     }
 }
 
-/// The evidence chip a day carries, resolved in the reader's language.
+/// The evidence chip a day carries, by name for the client to word and in
+/// `locale`'s words for one that cannot.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DayEvidence {
-    /// The chip (`messaging.evidence.*`).
+    /// The chip by name, which a client words as `messaging.evidence.<kind>`
+    /// in its reader's language.
+    pub kind: EvidenceChipKind,
+    /// The chip (`messaging.evidence.*`), in the language of the turn that
+    /// saved the card: what a client prints when it cannot word `kind`.
     pub label: String,
     /// The studies the badge rests on, as cited ("Rønnestad 2015 [RCT]"):
     /// what the chip opens. Absent when the badge cites none.
@@ -195,6 +214,10 @@ pub struct DayEvidence {
     /// another sport). Absent when `basis` is present.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// `note` by name, which a client words as `messaging.evidence.<kind>`.
+    /// Absent when `note` is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note_kind: Option<EvidenceNoteKind>,
 }
 
 /// One stored day as the card shows it, its outside-the-evidence warning,
@@ -218,20 +241,27 @@ pub fn day_card(
     let evidence = envelope
         .and_then(|envelope| envelope.badge.as_ref())
         .and_then(|badge| {
+            let kind = evidence_strings::evidence_chip_kind(badge)?;
             evidence_strings::evidence_chip_label(registry, locale, badge).map(|label| {
+                let note = evidence_strings::evidence_note(registry, locale, badge);
                 DayEvidence {
+                    kind,
                     label,
                     basis: badge.basis.clone(),
-                    note: evidence_strings::evidence_note(registry, locale, badge),
+                    note_kind: note
+                        .as_ref()
+                        .and_then(|_| evidence_strings::evidence_note_kind(badge)),
+                    note,
                 }
             })
         });
-    let counts_as = envelope
-        .and_then(|envelope| envelope.relabelled_purpose)
-        .and_then(|purpose| evidence_strings::counts_as_line(registry, locale, purpose));
-    let outside_evidence = envelope
-        .filter(|envelope| !envelope.findings.is_empty())
-        .and_then(|_| evidence_strings::outside_evidence_label(registry, locale));
+    let relabelled = envelope.and_then(|envelope| envelope.relabelled_purpose);
+    let counts_as =
+        relabelled.and_then(|purpose| evidence_strings::counts_as_line(registry, locale, purpose));
+    let outside = envelope.is_some_and(|envelope| !envelope.findings.is_empty());
+    let outside_evidence = outside
+        .then(|| evidence_strings::outside_evidence_label(registry, locale))
+        .flatten();
     DayCard {
         date: day.date.clone(),
         sport: day.sport.clone(),
@@ -245,8 +275,10 @@ pub fn day_card(
         template_slug: day.template_slug.clone(),
         template_source: day.template_source,
         outside_evidence,
+        outside,
         evidence,
         counts_as,
+        counts_as_purpose: relabelled,
         template_preset: day.template_preset.clone(),
         template_params: day.template_params.as_ref().and_then(TemplateValues::of),
         family_sport: SportFamily::of(&plan_calendar_push::plan_sport(&day.sport)),
@@ -299,6 +331,11 @@ mod tests {
             "bug: the warning reaches the wire as the label the clients print"
         );
         assert_eq!(
+            serde_json::to_value(&outside).unwrap()["outside"],
+            true,
+            "bug: the warning also travels as a flag a client words in its own language"
+        );
+        assert_eq!(
             day_card(
                 &day(serde_json::json!({ "findings": [finding] })),
                 &fueling,
@@ -319,12 +356,14 @@ mod tests {
             &blank,
             "en",
         );
+        let unworded = serde_json::to_value(&unworded).unwrap();
         assert!(
-            serde_json::to_value(&unworded)
-                .unwrap()
-                .get("outside_evidence")
-                .is_none(),
+            unworded.get("outside_evidence").is_none(),
             "bug: a missing warning string never reaches the wire as an empty label"
+        );
+        assert_eq!(
+            unworded["outside"], true,
+            "bug: a warning the server has no words for still reaches a client that has them"
         );
 
         for clean in [
@@ -336,12 +375,10 @@ mod tests {
                 card.outside_evidence, None,
                 "bug: a day with no finding is not marked"
             );
+            let wire = serde_json::to_value(&card).unwrap();
             assert!(
-                serde_json::to_value(&card)
-                    .unwrap()
-                    .get("outside_evidence")
-                    .is_none(),
-                "bug: an unmarked day carries no key"
+                wire.get("outside_evidence").is_none() && wire.get("outside").is_none(),
+                "bug: an unmarked day carries no key: {wire}"
             );
         }
     }
@@ -376,9 +413,11 @@ mod tests {
         assert_eq!(
             transposed.evidence,
             Some(DayEvidence {
+                kind: EvidenceChipKind::Transposed,
                 label: "Transposed from another sport".to_owned(),
                 basis: Some("Rønnestad 2015 [RCT]".to_owned()),
                 note: None,
+                note_kind: None,
             }),
             "bug: a transposed preset that cites its study opens on the citation, with no note"
         );
@@ -386,6 +425,11 @@ mod tests {
             transposed.counts_as.as_deref(),
             Some("Counts as threshold work"),
             "bug: a relabelled day names what it now counts as"
+        );
+        assert_eq!(
+            serde_json::to_value(&transposed).unwrap()["counts_as_purpose"],
+            "threshold",
+            "bug: the relabel also travels as the purpose a client words in its own language"
         );
 
         let french = day_card(
@@ -411,6 +455,16 @@ mod tests {
             Some("Aucun essai ne couvre cette séance ; elle suit la pratique courante de l'entraînement."),
             "bug: it opens on why no study covers it, in the reader's language"
         );
+        assert_eq!(
+            serde_json::to_value(&chip).unwrap(),
+            serde_json::json!({
+                "kind": "convention",
+                "label": "Convention d'entraînement",
+                "note": "Aucun essai ne couvre cette séance ; elle suit la pratique courante de l'entraînement.",
+                "note_kind": "no_basis_convention",
+            }),
+            "bug: the chip and its note travel by name, so a client reads them in its own language"
+        );
 
         let uncited = day_card(
             &day(serde_json::json!({ "findings": [], "badge": { "status": "transposed" } })),
@@ -431,7 +485,9 @@ mod tests {
             let wire =
                 serde_json::to_value(day_card(&day(quiet), &fueling, &strings, "en")).unwrap();
             assert!(
-                wire.get("evidence").is_none() && wire.get("counts_as").is_none(),
+                wire.get("evidence").is_none()
+                    && wire.get("counts_as").is_none()
+                    && wire.get("counts_as_purpose").is_none(),
                 "bug: an unqualified trial or an unmeasured day carries no chip and no relabel: {wire}"
             );
         }

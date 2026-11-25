@@ -1,7 +1,7 @@
-// ABOUTME: The pure half of the workout-plan card — a step's compact duration and a day's fuelling fragments
-// ABOUTME: Both clients print the plan's figures from here, so a stride or a sodium line cannot read differently on the phone
+// ABOUTME: The pure half of the workout-plan card — a step's compact duration, a day's fuelling fragments and its evidence words
+// ABOUTME: Both clients print the plan's figures and evidence from here, so a chip or a sodium line cannot read differently on the phone
 
-import type { PlanFueling } from '@pierre/shared-types';
+import type { PlanDay, PlanDayEvidence, PlanFueling } from '@pierre/shared-types';
 
 import type { Translate } from './text';
 
@@ -41,4 +41,67 @@ export function fuelParts(fueling: PlanFueling, t: Translate): string[] {
     parts.push(t('chat.fuelSodiumLoss', { value: fueling.sodium_mg_per_h }));
   }
   return parts;
+}
+
+/**
+ * `key` in the reader's words, or `fallback` when the reader's catalogue has
+ * no text for it (a missing key comes back as itself).
+ */
+function worded(t: Translate, key: string, fallback: string): string {
+  const text = t(key);
+  return text === key ? fallback : text;
+}
+
+/**
+ * A day's evidence chip in the reader's language. The card is saved with the
+ * chip worded in the language of the turn that saved it; its kind is what
+ * reads the same whoever opens it. A card saved before the kind travelled
+ * prints its stored label.
+ */
+export function evidenceChipLabel(evidence: PlanDayEvidence, t: Translate): string {
+  return evidence.kind ? worded(t, `messaging.evidence.${evidence.kind}`, evidence.label) : evidence.label;
+}
+
+/**
+ * What a day's evidence chip opens on: the studies it rests on, else why none
+ * covers the session, in the reader's language when the note travelled by
+ * name. `undefined` when there is neither.
+ */
+export function evidenceChipDetail(evidence: PlanDayEvidence, t: Translate): string | undefined {
+  if (evidence.basis) return evidence.basis;
+  if (evidence.note_kind) {
+    return worded(t, `messaging.evidence.${evidence.note_kind}`, evidence.note ?? '') || undefined;
+  }
+  return evidence.note;
+}
+
+/**
+ * The warning on a day saved outside its family's evidence, in the reader's
+ * language; `undefined` on any other day. The warning is one sentence, so a
+ * card saved before the flag travelled, which carries only the worded label,
+ * reads in the reader's language too.
+ */
+export function outsideEvidenceLabel(
+  day: Pick<PlanDay, 'outside' | 'outside_evidence'>,
+  t: Translate,
+): string | undefined {
+  if (!day.outside && day.outside_evidence === undefined) return undefined;
+  return worded(t, 'messaging.evidence.outside', day.outside_evidence ?? '') || undefined;
+}
+
+/**
+ * "Counts as <purpose>" for a day an edit relabelled, in the reader's
+ * language when the purpose travelled; the stored line otherwise. The
+ * catalogue's line is server-rendered, its placeholder positional (`{0}`).
+ */
+export function countsAsLine(
+  day: Pick<PlanDay, 'counts_as' | 'counts_as_purpose'>,
+  t: Translate,
+): string | undefined {
+  if (!day.counts_as_purpose) return day.counts_as;
+  const purposeKey = `messaging.envelope.purpose.${day.counts_as_purpose}`;
+  const purpose = t(purposeKey);
+  const line = t('messaging.evidence.counts_as');
+  if (purpose === purposeKey || line === 'messaging.evidence.counts_as') return day.counts_as;
+  return line.split('{0}').join(purpose);
 }

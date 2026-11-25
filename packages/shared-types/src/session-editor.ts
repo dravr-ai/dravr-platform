@@ -1,6 +1,7 @@
 // ABOUTME: Wire shapes of a coach's "build from family" editor — the family catalogue, a session's live preview, and the draft-day write
 // ABOUTME: Mirrors the subject-plan family routes of carnet#1515; every number is the kernel's, so the clients render and never derive
 
+import { PLAN_EVIDENCE_KINDS, PLAN_EVIDENCE_NOTE_KINDS } from './workout-plan.js';
 import type { PlanDayEvidence, PlanStep } from './workout-plan.js';
 
 /** The sport families a family preset is written for. */
@@ -335,10 +336,15 @@ function parseEvidence(value: unknown): PlanDayEvidence | undefined | null {
   const basis = optionalString(value.basis);
   const note = optionalString(value.note);
   if (basis === null || note === null) return null;
+  // A kind this client does not know names no words it holds: the label still reads.
+  const kind = PLAN_EVIDENCE_KINDS.find((known) => known === value.kind);
+  const noteKind = PLAN_EVIDENCE_NOTE_KINDS.find((known) => known === value.note_kind);
   return {
     label: value.label,
+    ...(kind === undefined ? {} : { kind }),
     ...(basis === undefined ? {} : { basis }),
     ...(note === undefined ? {} : { note }),
+    ...(noteKind === undefined ? {} : { note_kind: noteKind }),
   };
 }
 

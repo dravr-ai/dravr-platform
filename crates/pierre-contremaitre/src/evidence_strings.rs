@@ -16,6 +16,7 @@
 //! weakest evidence winning the slot (founder decisions of 2026-11-12).
 
 use pierre_core::models::periodization::{EvidenceBadge, EvidenceStatus, WorkoutPurpose};
+use serde::Serialize;
 
 use crate::messaging_strings::{envelope_purpose_key, MessagingStringsRegistry};
 
@@ -50,22 +51,96 @@ pub const KEY_EVIDENCE_NO_BASIS_CONVENTION: &str = "messaging.evidence.no_basis_
 /// format placeholders.
 pub const KEY_EVIDENCE_NO_BASIS_TRANSPOSED: &str = "messaging.evidence.no_basis_transposed";
 
-/// The key of the one chip `badge` earns, or `None` for a session trialled in
-/// this sport without a qualifier.
+/// The one chip a badge earns, by name: what a client words as
+/// `messaging.evidence.<kind>` in its reader's language, whatever language the
+/// turn that saved the card spoke.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceChipKind {
+    /// The session follows coaching convention; no trial covers it.
+    Convention,
+    /// Its trials ran in another sport.
+    Transposed,
+    /// Every study in this sport ran a single session.
+    AcuteOnly,
+    /// Every study in this sport had no comparator.
+    UncontrolledOnly,
+    /// Its studies were both single-session and uncontrolled.
+    AcuteUncontrolled,
+}
+
+impl EvidenceChipKind {
+    /// The chip's catalogue key.
+    #[must_use]
+    const fn key(self) -> &'static str {
+        match self {
+            Self::Convention => KEY_EVIDENCE_CONVENTION,
+            Self::Transposed => KEY_EVIDENCE_TRANSPOSED,
+            Self::AcuteOnly => KEY_EVIDENCE_ACUTE_ONLY,
+            Self::UncontrolledOnly => KEY_EVIDENCE_UNCONTROLLED_ONLY,
+            Self::AcuteUncontrolled => KEY_EVIDENCE_ACUTE_UNCONTROLLED,
+        }
+    }
+}
+
+/// The one chip `badge` earns, or `None` for a session trialled in this sport
+/// without a qualifier.
 ///
 /// Weaker evidence wins the slot: convention, then a transposed trial, then
 /// the qualifiers of a trial in this sport, both together in one chip.
 #[must_use]
-fn evidence_chip_key(badge: &EvidenceBadge) -> Option<&'static str> {
+pub const fn evidence_chip_kind(badge: &EvidenceBadge) -> Option<EvidenceChipKind> {
     match badge.status {
-        EvidenceStatus::Convention => Some(KEY_EVIDENCE_CONVENTION),
-        EvidenceStatus::Transposed => Some(KEY_EVIDENCE_TRANSPOSED),
+        EvidenceStatus::Convention => Some(EvidenceChipKind::Convention),
+        EvidenceStatus::Transposed => Some(EvidenceChipKind::Transposed),
         EvidenceStatus::Trialled => match (badge.acute_only, badge.uncontrolled_only) {
-            (true, true) => Some(KEY_EVIDENCE_ACUTE_UNCONTROLLED),
-            (true, false) => Some(KEY_EVIDENCE_ACUTE_ONLY),
-            (false, true) => Some(KEY_EVIDENCE_UNCONTROLLED_ONLY),
+            (true, true) => Some(EvidenceChipKind::AcuteUncontrolled),
+            (true, false) => Some(EvidenceChipKind::AcuteOnly),
+            (false, true) => Some(EvidenceChipKind::UncontrolledOnly),
             (false, false) => None,
         },
+    }
+}
+
+/// The key of the one chip `badge` earns; see [`evidence_chip_kind`].
+fn evidence_chip_key(badge: &EvidenceBadge) -> Option<&'static str> {
+    evidence_chip_kind(badge).map(EvidenceChipKind::key)
+}
+
+/// Why a badge cites no study, by name: what a client words as
+/// `messaging.evidence.<kind>` in its reader's language.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceNoteKind {
+    /// No trial covers the session; it follows coaching convention.
+    NoBasisConvention,
+    /// Its trials ran in another sport and it arrives here by transposition.
+    NoBasisTransposed,
+}
+
+impl EvidenceNoteKind {
+    /// The note's catalogue key.
+    #[must_use]
+    const fn key(self) -> &'static str {
+        match self {
+            Self::NoBasisConvention => KEY_EVIDENCE_NO_BASIS_CONVENTION,
+            Self::NoBasisTransposed => KEY_EVIDENCE_NO_BASIS_TRANSPOSED,
+        }
+    }
+}
+
+/// Why `badge` cites no study, by its status: what its chip opens on in place
+/// of a citation. `None` when the badge cites one, and for a trialled badge,
+/// which always cites its trial.
+#[must_use]
+pub const fn evidence_note_kind(badge: &EvidenceBadge) -> Option<EvidenceNoteKind> {
+    if badge.basis.is_some() {
+        return None;
+    }
+    match badge.status {
+        EvidenceStatus::Convention => Some(EvidenceNoteKind::NoBasisConvention),
+        EvidenceStatus::Transposed => Some(EvidenceNoteKind::NoBasisTransposed),
+        EvidenceStatus::Trialled => None,
     }
 }
 
@@ -97,15 +172,7 @@ pub fn evidence_note(
     locale: &str,
     badge: &EvidenceBadge,
 ) -> Option<String> {
-    if badge.basis.is_some() {
-        return None;
-    }
-    let key = match badge.status {
-        EvidenceStatus::Convention => KEY_EVIDENCE_NO_BASIS_CONVENTION,
-        EvidenceStatus::Transposed => KEY_EVIDENCE_NO_BASIS_TRANSPOSED,
-        EvidenceStatus::Trialled => return None,
-    };
-    let note = strings.get(key, locale);
+    let note = strings.get(evidence_note_kind(badge)?.key(), locale);
     (!note.is_empty()).then_some(note)
 }
 
@@ -138,6 +205,8 @@ pub fn outside_evidence_label(strings: &MessagingStringsRegistry, locale: &str) 
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use super::*;
 
     fn badge(status: EvidenceStatus, acute_only: bool, uncontrolled_only: bool) -> EvidenceBadge {
@@ -148,6 +217,84 @@ mod tests {
             basis: None,
             caveat: None,
         }
+    }
+
+    /// The key a client builds from a kind's wire name.
+    fn client_key(kind: impl Serialize) -> String {
+        let wire = serde_json::to_value(kind).unwrap();
+        format!(
+            "messaging.evidence.{}",
+            wire.as_str().expect("a kind travels as a string")
+        )
+    }
+
+    #[test]
+    fn a_chip_and_its_note_travel_by_the_name_of_their_key() {
+        // Every badge a day can store: whatever chip or note it earns, a client
+        // words it as `messaging.evidence.<wire name>`, so that is its key.
+        let mut reached = BTreeSet::new();
+        for &status in EvidenceStatus::ALL {
+            for (acute_only, uncontrolled_only) in
+                [(false, false), (true, false), (false, true), (true, true)]
+            {
+                for basis in [None, Some("Rønnestad 2015 [RCT]".to_owned())] {
+                    let stored = EvidenceBadge {
+                        basis,
+                        ..badge(status, acute_only, uncontrolled_only)
+                    };
+                    if let Some(kind) = evidence_chip_kind(&stored) {
+                        assert_eq!(
+                            client_key(kind),
+                            kind.key(),
+                            "bug: a client cannot word the {kind:?} chip from its name"
+                        );
+                        reached.insert(kind.key());
+                    }
+                    if let Some(note) = evidence_note_kind(&stored) {
+                        assert_eq!(
+                            client_key(note),
+                            note.key(),
+                            "bug: a client cannot word the {note:?} note from its name"
+                        );
+                        reached.insert(note.key());
+                    }
+                }
+            }
+        }
+        assert_eq!(
+            reached,
+            BTreeSet::from([
+                KEY_EVIDENCE_CONVENTION,
+                KEY_EVIDENCE_TRANSPOSED,
+                KEY_EVIDENCE_ACUTE_ONLY,
+                KEY_EVIDENCE_UNCONTROLLED_ONLY,
+                KEY_EVIDENCE_ACUTE_UNCONTROLLED,
+                KEY_EVIDENCE_NO_BASIS_CONVENTION,
+                KEY_EVIDENCE_NO_BASIS_TRANSPOSED,
+            ]),
+            "bug: some chip or note no stored badge reaches by name"
+        );
+        // Wire values the clients parse (`PLAN_EVIDENCE_KINDS`,
+        // `PLAN_EVIDENCE_NOTE_KINDS` in @pierre/shared-types).
+        assert_eq!(
+            serde_json::to_value(EvidenceChipKind::AcuteUncontrolled).unwrap(),
+            "acute_uncontrolled",
+            "bug: the clients read the chip by this name"
+        );
+        assert_eq!(
+            serde_json::to_value(EvidenceNoteKind::NoBasisConvention).unwrap(),
+            "no_basis_convention",
+            "bug: the clients read the note by this name"
+        );
+        let cited = EvidenceBadge {
+            basis: Some("Rønnestad 2015 [RCT]".to_owned()),
+            ..badge(EvidenceStatus::Transposed, false, false)
+        };
+        assert_eq!(
+            evidence_note_kind(&cited),
+            None,
+            "bug: a cited badge opens on its citation"
+        );
     }
 
     #[test]

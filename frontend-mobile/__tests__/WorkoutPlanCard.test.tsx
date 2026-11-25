@@ -206,20 +206,44 @@ describe('WorkoutPlanCard', () => {
     expect(getAllByText('Outside the evidence')).toHaveLength(1);
   });
 
-  // carnet#1552: the warning comes resolved from the server, in the reader's
-  // language, and the card prints it as given.
-  it('prints the warning in the words the server resolved', () => {
+  // carnet#1813: a card is saved with the warning worded in the language of
+  // the turn that saved it; the reader reads it in their own.
+  it("words the warning in the reader's language, whatever language saved the card", () => {
     const marked = plan();
     marked.weeks[0].days[0] = {
       ...marked.weeks[0].days[0],
       outside_evidence: 'Hors des données probantes',
+      outside: true,
     };
     const { getByTestId, queryByText } = render(<WorkoutPlanCard plan={marked} />);
 
-    expect(
-      within(getByTestId('workout-plan-day-2026-09-15-0')).getByText('Hors des données probantes'),
-    ).toBeTruthy();
-    expect(queryByText('Outside the evidence')).toBeNull();
+    expect(within(getByTestId('workout-plan-day-2026-09-15-0')).getByText('Outside the evidence')).toBeTruthy();
+    expect(queryByText('Hors des données probantes')).toBeNull();
+  });
+
+  // carnet#1813: « Coaching convention » showed under French chrome because
+  // the chip was frozen in the saving turn's language; its kind travels now.
+  it("words the evidence chip and a relabel in the reader's language", async () => {
+    const saved = plan();
+    saved.weeks[0].days[0] = {
+      ...saved.weeks[0].days[0],
+      evidence: { kind: 'convention', label: 'Coaching convention' },
+      counts_as: 'Counts as threshold work',
+      counts_as_purpose: 'threshold',
+    };
+    await act(async () => {
+      await i18n.changeLanguage('fr');
+    });
+    try {
+      const { getByTestId, getByText, queryByText } = render(<WorkoutPlanCard plan={saved} />);
+      expect(within(getByTestId('plan-day-evidence')).getByText("Convention d'entraînement")).toBeTruthy();
+      expect(queryByText('Coaching convention')).toBeNull();
+      expect(getByText(/^Compte comme /)).toBeTruthy();
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage('en');
+      });
+    }
   });
 
   it('marks no day when the envelope check found nothing', () => {

@@ -7,7 +7,7 @@
 import { useId, type ReactNode } from 'react';
 import { useTranslation } from '@pierre/i18n';
 import type { TFunction } from '@pierre/i18n';
-import { fuelParts, stepDuration } from '@pierre/chat-utils';
+import { countsAsLine, fuelParts, outsideEvidenceLabel, stepDuration } from '@pierre/chat-utils';
 import { countKey, PLAN_HARD_PER_WEEK_KEYS, PLAN_MORE_WEEKS_KEYS } from '@pierre/shared-constants';
 import {
   civilDayMonth,
@@ -235,6 +235,8 @@ function DayRow({
     (part): part is string => typeof part === 'string' && part.length > 0,
   );
   const steps = day.steps ?? [];
+  const outside = outsideEvidenceLabel(day, t);
+  const countsAs = countsAsLine(day, t);
   // An added session is the coach's own from the start: "Added" says more than "Edited".
   const mark = day.added ? (
     <Badge variant="neutral" className="ml-2" data-testid="plan-day-added">
@@ -285,15 +287,15 @@ function DayRow({
               </span>
             )}
             {mark}
-            {day.outside_evidence && (
+            {outside && (
               <Badge variant="warning" className="ml-2">
-                {day.outside_evidence}
+                {outside}
               </Badge>
             )}
             {day.evidence && <EvidenceChip evidence={day.evidence} />}
-            {day.counts_as && (
+            {countsAs && (
               <div className="mt-0.5 text-xs text-on-surface-variant" data-testid="plan-day-counts-as">
-                {day.counts_as}
+                {countsAs}
               </div>
             )}
             {dayIsUncheckedEdit(day) && (
