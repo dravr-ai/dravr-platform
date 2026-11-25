@@ -31,6 +31,7 @@
 mod room_walk_e2e {
     use crate::common::create_test_server_resources_with_chat_provider;
     use crate::helpers::command_e2e::{CommandE2e, Member, RoomE2e, RouterLlm};
+    use crate::tier_consent_test::allow_memory_to_ai;
     use pierre_core::models::groups::{GroupRespondMode, GroupRole};
     use pierre_core::models::WalkAudience;
     use pierre_memory::{FactKind, FactSource};
@@ -334,6 +335,14 @@ mod room_walk_e2e {
             RoomE2e::bind_room(Arc::clone(&e2e), CHAT_FACTS, GroupRespondMode::All, &coach).await;
         room.add_member(&athlete, GroupRole::Member).await;
         assert_ne!(athlete.home_tenant, e2e.bot_tenant);
+        // The next room turn reads the North Star only under the athlete's
+        // `sensitive_t3`, given in their own workspace (carnet#1544).
+        allow_memory_to_ai(
+            &e2e.resources.common.repos,
+            athlete.home_tenant.as_uuid(),
+            athlete.user_id,
+        )
+        .await;
 
         // An ordinary room message: its fact is the athlete's, at home.
         room.send_room(&athlete, KNEE_SAID).await;
