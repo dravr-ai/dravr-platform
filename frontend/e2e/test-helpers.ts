@@ -1021,8 +1021,16 @@ export async function signInThroughHostedPage(page: Page, options: { mockHostedP
     await mockHostedSignIn(page);
   }
   await waitForLoginScreen(page);
+  // The callback is seen as the navigation commits, not at its `load`: the
+  // callback redeems its code and leaves `/auth/callback` as soon as its
+  // script runs, which can be before `load` on a slow page (the extension
+  // spec serves the app through a proxy), and a wait for `load` then never
+  // sees the callback's URL.
   await Promise.all([
-    page.waitForURL((url) => url.pathname === '/auth/callback', { timeout: APP_SHELL_TIMEOUT_MS }),
+    page.waitForURL((url) => url.pathname === '/auth/callback', {
+      timeout: APP_SHELL_TIMEOUT_MS,
+      waitUntil: 'commit',
+    }),
     page.locator(SIGN_IN_BUTTON).click(),
   ]);
   await page.waitForURL((url) => url.pathname !== '/auth/callback', { timeout: APP_SHELL_TIMEOUT_MS });
