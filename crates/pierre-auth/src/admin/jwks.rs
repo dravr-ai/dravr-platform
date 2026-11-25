@@ -46,11 +46,11 @@ use std::fmt;
 
 use dravr_tronc::date_pattern;
 use dravr_tronc::dates::{Pattern, Timestamp};
+use getrandom::SysRng;
 use jsonwebtoken::{
     decode, decode_header, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation,
 };
 use rsa::pkcs8::{DecodePrivateKey, EncodePrivateKey, EncodePublicKey, LineEnding};
-use getrandom::SysRng;
 use rsa::{PrivateKey, PublicKey};
 use serde::{Deserialize, Serialize};
 use serde_json::to_string_pretty;
