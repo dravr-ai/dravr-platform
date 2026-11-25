@@ -37,6 +37,8 @@
 //! Postgres, so one statement serves both drivers and cannot drift between
 //! them.
 
+/// The RFC 8628 device authorization statements
+mod device;
 /// The live refresh-token families the one-time grant backfill left unnamed
 pub(crate) mod grant_backfill;
 /// Every statement that starts or ends a consent grant, and its receipts
@@ -45,6 +47,12 @@ pub(crate) mod grant_writes;
 pub(crate) mod pushed;
 mod rows;
 
+pub(crate) use device::{
+    APPROVE_DEVICE_AUTHORIZATION_SQL, CREATE_DEVICE_AUTHORIZATION_SQL,
+    DELETE_DEVICE_AUTHORIZATION_SQL, DENY_DEVICE_AUTHORIZATION_SQL,
+    GET_DEVICE_AUTHORIZATION_BY_CODE_HASH_SQL, GET_DEVICE_AUTHORIZATION_BY_USER_CODE_SQL,
+    SWEEP_EXPIRED_DEVICE_AUTHORIZATIONS_SQL,
+};
 pub(crate) use grant_backfill::impl_ungranted_refresh_families;
 pub(crate) use grant_writes::impl_client_grant_writes;
 pub(crate) use pushed::impl_pushed_request_store;
@@ -306,59 +314,6 @@ pub(crate) const REVOKE_WITHDRAWN_OAUTH2_REFRESH_TOKENS_SQL: &str = r"
                     AND g.revoked_at IS NULL
               )
             ";
-
-/// Delete every device authorization past its expiry: `$1` is now, in epoch
-/// seconds. `<=` is the comparison the token endpoint and the approval read
-/// an expired row by, so what goes is exactly what neither would honour.
-///
-/// Nothing else removes a row whose device never polled again (a login
-/// started and abandoned, or one denied and never collected), so the store
-/// runs this each time it opens a new authorization: the table holds the
-/// logins still inside their window, and each abandoned row is deleted
-/// once, by the next login to start. `idx_device_authorization_expires_at`
-/// serves the range.
-pub(crate) const SWEEP_EXPIRED_DEVICE_AUTHORIZATIONS_SQL: &str =
-    "DELETE FROM device_authorization WHERE expires_at <= $1";
-
-/// Open an RFC 8628 device authorization, pending until an admin acts.
-pub(crate) const CREATE_DEVICE_AUTHORIZATION_SQL: &str = r"
-            INSERT INTO device_authorization
-                (device_code_hash, user_code, status, approved_by, created_at, expires_at)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ";
-
-/// A device authorization by the hash of its device code (the polling side).
-pub(crate) const GET_DEVICE_AUTHORIZATION_BY_CODE_HASH_SQL: &str = r"
-            SELECT device_code_hash, user_code, status, approved_by, created_at, expires_at
-            FROM device_authorization
-            WHERE device_code_hash = $1
-            ";
-
-/// A device authorization by its user code (the admin side).
-pub(crate) const GET_DEVICE_AUTHORIZATION_BY_USER_CODE_SQL: &str = r"
-            SELECT device_code_hash, user_code, status, approved_by, created_at, expires_at
-            FROM device_authorization
-            WHERE user_code = $1
-            ";
-
-/// Approve a still-pending authorization; an already-decided one matches nothing.
-pub(crate) const APPROVE_DEVICE_AUTHORIZATION_SQL: &str = r"
-            UPDATE device_authorization
-            SET status = 'approved', approved_by = $2
-            WHERE user_code = $1 AND status = 'pending'
-            ";
-
-/// Deny a still-pending authorization.
-pub(crate) const DENY_DEVICE_AUTHORIZATION_SQL: &str = r"
-            UPDATE device_authorization
-            SET status = 'denied'
-            WHERE user_code = $1 AND status = 'pending'
-            ";
-
-/// Consume a device authorization; the token endpoint mints only when a row
-/// went, so a duplicate poll can never mint twice.
-pub(crate) const DELETE_DEVICE_AUTHORIZATION_SQL: &str =
-    "DELETE FROM device_authorization WHERE device_code_hash = $1";
 
 /// Emit the whole [`OAuth2ServerRepository`](super::OAuth2ServerRepository)
 /// implementation for one backend type.
