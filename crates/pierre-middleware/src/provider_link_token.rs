@@ -175,6 +175,18 @@ pub struct MintProviderLinkTokenArgs<'a> {
     pub channel_thread: Option<&'a str>,
 }
 
+/// The HS256 signing key for a link-token, refused when the admin secret is empty
+fn encoding_key(admin_jwt_secret: &str) -> AppResult<EncodingKey> {
+    EncodingKey::from_secret(admin_jwt_secret.as_bytes())
+        .map_err(|e| AppError::internal(format!("Invalid link-token signing secret: {e}")))
+}
+
+/// The HS256 verification key for a link-token, refused when the admin secret is empty
+fn decoding_key(admin_jwt_secret: &str) -> AppResult<DecodingKey> {
+    DecodingKey::from_secret(admin_jwt_secret.as_bytes())
+        .map_err(|e| AppError::internal(format!("Invalid link-token verification secret: {e}")))
+}
+
 /// Build the scope claim string for a given provider
 #[must_use]
 pub fn provider_scope(provider: &str) -> String {
@@ -257,7 +269,7 @@ fn mint_link_token_with_ttl(
     };
 
     let header = Header::new(Algorithm::HS256);
-    let key = EncodingKey::from_secret(admin_jwt_secret.as_bytes());
+    let key = encoding_key(admin_jwt_secret)?;
     encode(&header, &claims, &key)
         .map_err(|e| AppError::internal(format!("Failed to encode provider link-token: {e}")))
 }
@@ -352,7 +364,7 @@ pub fn verify_link_token(
     admin_jwt_secret: &str,
     expected_provider: &str,
 ) -> AppResult<ProviderLinkTokenClaims> {
-    let key = DecodingKey::from_secret(admin_jwt_secret.as_bytes());
+    let key = decoding_key(admin_jwt_secret)?;
 
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_exp = true;
@@ -445,7 +457,7 @@ pub fn mint_import_link_token(
         iat: now.epoch_seconds(),
         exp: expiry,
     };
-    let key = EncodingKey::from_secret(admin_jwt_secret.as_bytes());
+    let key = encoding_key(admin_jwt_secret)?;
     encode(&Header::new(Algorithm::HS256), &claims, &key)
         .map_err(|e| AppError::internal(format!("Failed to encode import link-token: {e}")))
 }
@@ -466,7 +478,7 @@ pub fn verify_import_link_token(
     admin_jwt_secret: &str,
     source: &str,
 ) -> AppResult<ProviderLinkTokenClaims> {
-    let key = DecodingKey::from_secret(admin_jwt_secret.as_bytes());
+    let key = decoding_key(admin_jwt_secret)?;
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_exp = true;
     validation.set_issuer(&[PROVIDER_LINK_TOKEN_ISSUER]);
@@ -586,7 +598,7 @@ pub fn mint_takeover_link_token(
         iat: now.epoch_seconds(),
         exp: (now + Elapsed::minutes(TAKEOVER_LINK_TOKEN_TTL_MINUTES)).epoch_seconds(),
     };
-    let key = EncodingKey::from_secret(admin_jwt_secret.as_bytes());
+    let key = encoding_key(admin_jwt_secret)?;
     encode(&Header::new(Algorithm::HS256), &claims, &key)
         .map_err(|e| AppError::internal(format!("Failed to encode takeover link-token: {e}")))
 }
@@ -605,7 +617,7 @@ pub fn verify_takeover_link_token(
     token: &str,
     admin_jwt_secret: &str,
 ) -> AppResult<TakeoverTokenClaims> {
-    let key = DecodingKey::from_secret(admin_jwt_secret.as_bytes());
+    let key = decoding_key(admin_jwt_secret)?;
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_exp = true;
     validation.set_issuer(&[PROVIDER_LINK_TOKEN_ISSUER]);
@@ -901,7 +913,7 @@ mod tests {
         let token = encode(
             &Header::new(Algorithm::HS256),
             &claims,
-            &EncodingKey::from_secret(b"secret"),
+            &EncodingKey::from_secret(b"secret").unwrap(),
         )
         .unwrap();
         assert!(
