@@ -35,6 +35,8 @@ use crate::constants::service_names::PIERRE_MCP_SERVER;
 use crate::routes::access_feed::AccessFeedRoutes;
 #[cfg(feature = "tools-groups")]
 use crate::routes::coach_attention::CoachAttentionRoutes;
+#[cfg(feature = "client-messaging")]
+use crate::routes::coach_brief::CoachBriefRoutes;
 #[cfg(feature = "tools-groups")]
 use crate::routes::coach_roster::CoachRosterRoutes;
 use crate::routes::contremaitre_webhook::routes as contremaitre_webhook_routes;
@@ -721,6 +723,9 @@ impl ProviderToolRouter {
         // The coach's "Traité" on one of Coach Home's attention reasons.
         #[cfg(feature = "tools-groups")]
         let app = app.merge(CoachAttentionRoutes::routes(Arc::clone(resources)));
+        // The coach's morning brief: its settings, and athletes opened from it.
+        #[cfg(feature = "client-messaging")]
+        let app = app.merge(CoachBriefRoutes::routes(Arc::clone(resources)));
         let app = app.merge(VizRoutes::routes(Arc::clone(resources)));
 
         #[cfg(feature = "client-agents")]

@@ -50,5 +50,18 @@ export interface PendingComposerAction {
   display?: string;
 }
 
+/**
+ * A thread drawn beside a calendar that already shows the plan: a coach's
+ * athlete workspace (carnet#1816). There each plan card is one line saying a
+ * plan was proposed, with a way to the calendar, and the coach's open draft
+ * is not drawn at the end of the thread — the calendar beside it is that
+ * draft. Every other host leaves it out and draws the cards in full.
+ */
+export interface WorkspacePlanSurface {
+  kind: 'workspace';
+  /** "See it on the calendar": bring the workspace's calendar into view. */
+  onShowCalendar: () => void;
+}
+
 // Re-export for convenience
 export type { Conversation, Agent, Message };

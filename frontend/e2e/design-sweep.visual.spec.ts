@@ -23,6 +23,7 @@ import { mockSignedOut, mockSignupConfig, takeoverToken } from './auth-mocks';
 import { describeLayoutFailures, measurePageLayout } from './layout-gate';
 import { mockCoach } from './coach-home-mocks';
 import { PENDING_REQUEST, SEAT_CONVERSATION_ID, setupCoachSeatMocks } from './coach-seat-mocks';
+import { WORKSPACE_ATHLETE_ID, mockWorkspace, trifectaRoster } from './athlete-workspace-mocks';
 
 // A colour or primitive change touches dozens of files at once. Type-checks and
 // lint prove the classes exist; they cannot show that a status chip still reads
@@ -625,10 +626,11 @@ test.describe('design sweep — Home first arrival', () => {
   }
 });
 
-// A coach's Home (carnet#1250, #1252, #1253): À traiter with an athlete open,
-// the team table and the season, each on a roster tall enough that the list,
-// the table and the pane have to scroll inside themselves — the contract a
-// bleed surface owns — then the same three on a phone. The shared mocks model
+// A coach's Home (carnet#1250, #1252, #1253): À traiter with an athlete open
+// and its morning brief's settings (carnet#1791), the team table and the
+// season, each on a roster tall enough that the list, the table and the pane
+// have to scroll inside themselves — the contract a bleed surface owns — then
+// the same on a phone. The shared mocks model
 // an athlete, so none of this is reached by the registry walk.
 async function captureCoachPane(page: Page, theme: (typeof THEMES)[number], name: string) {
   await page.waitForTimeout(700);
@@ -645,7 +647,15 @@ async function sweepCoachHome(page: Page, theme: (typeof THEMES)[number]) {
 
   await page.getByTestId('coach-queue-row-u-lea').click();
   await expect(page.getByTestId('form-strip')).toBeVisible();
+  await expect(page.getByTestId('coach-brief')).toBeVisible();
   await captureCoachPane(page, theme, 'queue');
+
+  // The morning brief's settings (carnet#1791), from its line under the queue's title.
+  await page.getByTestId('coach-brief').click();
+  await expect(page.getByTestId('coach-brief-sheet')).toBeVisible();
+  await captureCoachPane(page, theme, 'brief-sheet');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('coach-brief-sheet')).toBeHidden();
 
   await page.getByTestId('coach-see-all').click();
   await expect(page.getByTestId('coach-roster')).toBeVisible();
@@ -666,6 +676,11 @@ async function sweepCoachHome(page: Page, theme: (typeof THEMES)[number]) {
   await page.getByTestId('coach-home-switch-athletes').click();
   await expect(page.getByTestId('coach-queue')).toBeVisible();
   await captureCoachPane(page, theme, 'queue-phone');
+  await page.getByTestId('coach-brief').click();
+  await expect(page.getByTestId('coach-brief-sheet')).toBeVisible();
+  await captureCoachPane(page, theme, 'brief-sheet-phone');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('coach-brief-sheet')).toBeHidden();
   await page.getByTestId('coach-queue-row-u-julien').click();
   await expect(page.getByTestId('coach-athlete-pane')).toBeVisible();
   await captureCoachPane(page, theme, 'athlete-phone');
@@ -683,6 +698,57 @@ test.describe('design sweep — Coach Home', () => {
   for (const theme of THEMES) {
     test(`a coach's Home renders in ${theme}`, async ({ page }) => {
       await sweepCoachHome(page, theme);
+    });
+  }
+});
+
+// A coach's athlete workspace (carnet#1816): Léa's two weeks with Dravr's swap
+// proposed, the pre-publish check and the panel's three tabs at a desktop
+// width, then at a tablet width and on a phone, where the calendar is a day
+// list and the panel a sheet. The workspace owns its scrolling — the calendar
+// and the panel scroll inside themselves — so the bleed contract holds.
+async function captureWorkspace(page: Page, theme: (typeof THEMES)[number], name: string) {
+  await page.waitForTimeout(700);
+  await setTheme(page, theme);
+  await page.screenshot({ path: `design-sweep/${theme}/athlete-workspace-${name}.png`, fullPage: true });
+  const failures = describeLayoutFailures(`athlete-workspace/${name}`, await measurePageLayout(page));
+  expect(failures, `layout contract broken:\n${failures.join('\n')}`).toEqual([]);
+}
+
+async function sweepAthleteWorkspace(page: Page, theme: (typeof THEMES)[number]) {
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await mockCoach(page, { roster: trifectaRoster, routes: (routed) => mockWorkspace(routed) });
+  page.setDefaultTimeout(5_000);
+  await page.getByTestId(`coach-queue-row-${WORKSPACE_ATHLETE_ID}`).click();
+  await page.getByTestId('coach-open-workspace').click();
+  await expect(page.getByTestId('workspace-calendar')).toBeVisible();
+  await expect(page.getByTestId('workspace-history-event').first()).toBeVisible();
+  await captureWorkspace(page, theme, 'history');
+
+  await page.locator('#athlete-workspace-tab-dravr').click();
+  await expect(page.getByTestId('plan-change-entry')).toBeVisible();
+  await captureWorkspace(page, theme, 'dravr');
+
+  await page.locator('#athlete-workspace-tab-group').click();
+  await expect(page.getByTestId('workspace-panel-group').getByTestId('embedded-chat')).toBeVisible();
+  await captureWorkspace(page, theme, 'group');
+
+  await page.setViewportSize({ width: 900, height: 900 });
+  await expect(page.getByTestId('workspace-panel-open')).toBeVisible();
+  await captureWorkspace(page, theme, 'tablet');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await captureWorkspace(page, theme, 'phone');
+  await page.getByTestId('workspace-open-history').click();
+  await expect(page.getByTestId('workspace-panel-sheet')).toBeVisible();
+  await captureWorkspace(page, theme, 'phone-sheet');
+}
+
+test.describe('design sweep — athlete workspace', () => {
+  test.describe.configure({ timeout: 180_000 });
+  for (const theme of THEMES) {
+    test(`an athlete's workspace renders in ${theme}`, async ({ page }) => {
+      await sweepAthleteWorkspace(page, theme);
     });
   }
 });

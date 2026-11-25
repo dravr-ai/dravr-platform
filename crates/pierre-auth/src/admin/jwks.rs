@@ -46,11 +46,12 @@ use std::fmt;
 
 use dravr_tronc::date_pattern;
 use dravr_tronc::dates::{Pattern, Timestamp};
+use getrandom::SysRng;
 use jsonwebtoken::{
     decode, decode_header, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation,
 };
 use rsa::pkcs8::{DecodePrivateKey, EncodePrivateKey, EncodePublicKey, LineEnding};
-use rsa::{RsaPrivateKey, RsaPublicKey};
+use rsa::{PrivateKey, PublicKey};
 use serde::{Deserialize, Serialize};
 use serde_json::to_string_pretty;
 
@@ -112,9 +113,9 @@ pub struct RsaKeyPair {
     /// Unique key identifier
     pub kid: String,
     /// Private key for signing
-    pub private_key: RsaPrivateKey,
+    pub private_key: PrivateKey,
     /// Public key for verification
-    pub public_key: RsaPublicKey,
+    pub public_key: PublicKey,
     /// Key creation timestamp
     pub created_at: Timestamp,
     /// Whether this is the currently active signing key
@@ -149,18 +150,12 @@ impl RsaKeyPair {
     /// # Errors
     /// Returns error if key generation fails
     pub fn generate_with_key_size(kid: &str, key_size_bits: usize) -> AppResult<Self> {
-        // `rsa 0.9.x` still depends on `rand_core 0.6`, so we need the
-        // `OsRng` re-exported by that exact `rand_core` — `rand::rngs::OsRng`
-        // from rand 0.9 implements the rand_core 0.9 traits which don't
-        // satisfy `CryptoRngCore` (rand_core 0.6) that `RsaPrivateKey::new`
-        // takes.
-        use rsa::rand_core::OsRng;
-
-        let mut rng = OsRng;
-        let private_key = RsaPrivateKey::new(&mut rng, key_size_bits)
+        // rsa 0.10 takes a rand_core 0.10 rng, which rand 0.9's do not
+        // implement: the operating system's, as rsa's own `Generate` uses.
+        let private_key = PrivateKey::new(&mut SysRng, key_size_bits)
             .map_err(|e| AppError::internal(format!("Failed to generate RSA private key: {e}")))?;
 
-        let public_key = RsaPublicKey::from(&private_key);
+        let public_key = private_key.to_public_key();
 
         Ok(Self {
             kid: kid.to_owned(),
@@ -183,9 +178,10 @@ impl RsaKeyPair {
         let n = self.public_key.n();
         let e = self.public_key.e();
 
-        // Convert to base64url
-        let n_bytes = n.to_bytes_be();
-        let e_bytes = e.to_bytes_be();
+        // Big-endian with no leading zero bytes, as RFC 7518 §6.3.1 asks;
+        // both are public, so a variable-time trim leaks nothing.
+        let n_bytes = n.to_be_bytes_trimmed_vartime();
+        let e_bytes = e.to_be_bytes_trimmed_vartime();
 
         let n_b64 = URL_SAFE_NO_PAD.encode(&n_bytes);
         let e_b64 = URL_SAFE_NO_PAD.encode(&e_bytes);
@@ -226,11 +222,11 @@ impl RsaKeyPair {
     /// # Errors
     /// Returns error if PEM parsing fails
     pub fn import_private_key_pem(kid: &str, pem: &str) -> AppResult<Self> {
-        let private_key = RsaPrivateKey::from_pkcs8_pem(pem).map_err(|e| {
+        let private_key = PrivateKey::from_pkcs8_pem(pem).map_err(|e| {
             AppError::invalid_input(format!("Failed to parse private key PEM: {e}"))
         })?;
 
-        let public_key = RsaPublicKey::from(&private_key);
+        let public_key = private_key.to_public_key();
 
         Ok(Self {
             kid: kid.to_owned(),

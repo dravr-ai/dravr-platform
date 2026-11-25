@@ -27,9 +27,14 @@
 //! history. A DM that writes into the personal thread (carnet#840) is one
 //! destination, not two: the post made there is the one the app shows.
 
+use std::fmt;
+
 use dravr_tronc::dates::{Elapsed, Timestamp, Zone};
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::{PostPurpose, TenantId};
+#[cfg(feature = "client-notifications")]
+use pierre_notifications::triggers as notification_triggers;
+use pierre_providers::ai_scope::Provenance;
 use pierre_services::locale::{resolve_channel_locale, resolve_user_locale};
 use pierre_services::messaging_broadcast::resolve_linked_targets;
 use pierre_services::personal_thread::{
@@ -46,7 +51,9 @@ use crate::services::commitment_reporter::{channel_allows_proactive, session_las
 use crate::services::conversation_title::fresh_title_fallback;
 use crate::services::messaging_ingress::block_render::render_reply;
 use crate::services::messaging_ingress::surface::messaging_render_profile;
-use crate::services::platform_post::{PlatformPost, PlatformPostRequest, PostAccess, PostSurface};
+use crate::services::platform_post::{
+    PlatformPost, PlatformPostRequest, PostAccess, PostFindings, PostSurface, PostedReply,
+};
 
 /// How long an unposted, unreleased once-claim is a post under way.
 ///
@@ -69,12 +76,40 @@ pub(crate) struct PostAthlete {
 }
 
 /// Why a post is made and what its turn may do.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct PostIntent {
+#[derive(Clone, Copy)]
+pub(crate) struct PostIntent<'a> {
     /// The purpose its claim and analytics report.
     pub purpose: PostPurpose,
     /// What the turn may do.
     pub access: PostAccess,
+    /// The findings the platform computed for the post (a routine's brief);
+    /// `None` for one grounded in the athlete's data.
+    pub findings: Option<IntentFindings<'a>>,
+    /// Push the recipient's phone when the reply lands in the app: nobody is
+    /// in the thread to see a post made on the platform's own clock (a
+    /// coach's morning brief). A DM needs none: the channel notifies.
+    pub push: bool,
+}
+
+/// Findings the platform computed for a post: what to append in each locale,
+/// and what they were read under.
+#[derive(Clone, Copy)]
+pub(crate) struct IntentFindings<'a> {
+    /// The text appended to the reply, in the post's locale.
+    pub appendix: &'a (dyn Fn(&str) -> String + Sync),
+    /// What the findings were read under.
+    pub provenance: &'a Provenance,
+}
+
+impl fmt::Debug for PostIntent<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PostIntent")
+            .field("purpose", &self.purpose)
+            .field("access", &self.access)
+            .field("findings", &self.findings.is_some())
+            .field("push", &self.push)
+            .finish()
+    }
 }
 
 /// The linked messaging DM a post can be written into right now.
@@ -154,12 +189,13 @@ pub(crate) async fn post_in_app(
     post: &dyn PlatformPost,
     athlete: PostAthlete,
     prompt: &(dyn Fn(&str) -> Option<String> + Sync),
-    access: PostAccess,
+    intent: PostIntent<'_>,
 ) -> Option<bool> {
     let locale = resolve_user_locale(resources.common.repos.users.as_ref(), athlete.user_id).await;
     let prompt = prompt(&locale)?;
+    let appendix = intent.findings.map(|findings| (findings.appendix)(&locale));
     let thread = personal_thread(resources, athlete).await?;
-    let posted = post
+    let reply = post
         .post(PlatformPostRequest {
             user_id: athlete.user_id,
             tenant_id: athlete.tenant_id,
@@ -167,14 +203,58 @@ pub(crate) async fn post_in_app(
             surface: PostSurface::InApp,
             locale: &locale,
             prompt: &prompt,
-            access,
+            access: intent.access,
+            findings: appendix
+                .as_deref()
+                .zip(intent.findings)
+                .map(|(appendix, findings)| PostFindings {
+                    appendix,
+                    provenance: findings.provenance,
+                }),
         })
-        .await
-        .is_some();
+        .await;
+    if let (true, Some(reply)) = (intent.push, &reply) {
+        push_landed_post(resources, athlete, &thread.id, reply);
+    }
+    let posted = reply.is_some();
     if !posted && thread.forged {
         remove_unused_forge(resources, athlete, &thread.id).await;
     }
     Some(posted)
+}
+
+/// Push the recipient that `reply` landed in their app thread `thread_id`,
+/// opening that thread: the push a live reply raises when it goes unseen.
+#[cfg(feature = "client-notifications")]
+fn push_landed_post(
+    resources: &ServerContext,
+    athlete: PostAthlete,
+    thread_id: &str,
+    reply: &PostedReply,
+) {
+    let (Some(service), Some(agent_name)) = (
+        resources.common.notification_service.as_ref(),
+        reply.answered_by.as_deref(),
+    ) else {
+        return;
+    };
+    notification_triggers::trigger_agent_message(
+        service,
+        athlete.user_id,
+        pierre_notifications::TenantId(athlete.tenant_id.as_uuid()),
+        thread_id,
+        agent_name,
+    );
+}
+
+/// Without notifications compiled in, a landed post pushes nothing.
+#[cfg(not(feature = "client-notifications"))]
+const fn push_landed_post(
+    _resources: &ServerContext,
+    _athlete: PostAthlete,
+    _thread_id: &str,
+    _reply: &PostedReply,
+) {
 }
 
 /// Remove the thread `thread_id` forged for a post that posted nothing.
@@ -217,7 +297,7 @@ pub(crate) async fn post_to_dm(
     athlete: PostAthlete,
     dm: OpenDm,
     prompt: &(dyn Fn(&str) -> Option<String> + Sync),
-    intent: PostIntent,
+    intent: PostIntent<'_>,
 ) -> Option<bool> {
     let channel_str = dm.channel_type.to_string();
     let locale = resolve_channel_locale(
@@ -230,6 +310,7 @@ pub(crate) async fn post_to_dm(
     )
     .await;
     let prompt = prompt(&locale)?;
+    let appendix = intent.findings.map(|findings| (findings.appendix)(&locale));
     let Some(reply) = post
         .post(PlatformPostRequest {
             user_id: athlete.user_id,
@@ -239,6 +320,13 @@ pub(crate) async fn post_to_dm(
             locale: &locale,
             prompt: &prompt,
             access: intent.access,
+            findings: appendix
+                .as_deref()
+                .zip(intent.findings)
+                .map(|(appendix, findings)| PostFindings {
+                    appendix,
+                    provenance: findings.provenance,
+                }),
         })
         .await
     else {
@@ -384,7 +472,7 @@ pub(crate) async fn post_to_one(
     athlete: PostAthlete,
     dms: LinkedDms,
     prompt: &(dyn Fn(&str) -> Option<String> + Sync),
-    intent: PostIntent,
+    intent: PostIntent<'_>,
 ) -> Option<(PostSurface, bool)> {
     if let Some(dm) = dms.open {
         let surface = PostSurface::Channel(dm.channel_type);
@@ -405,7 +493,7 @@ pub(crate) async fn post_to_one(
             );
         }
     }
-    post_in_app(resources, post, athlete, prompt, intent.access)
+    post_in_app(resources, post, athlete, prompt, intent)
         .await
         .map(|posted| (PostSurface::InApp, posted))
 }

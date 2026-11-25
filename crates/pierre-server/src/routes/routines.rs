@@ -120,6 +120,7 @@ const fn outcome_label(outcome: WakeOutcome) -> &'static str {
         WakeOutcome::Withheld(_) => "withheld",
         WakeOutcome::Deferred(_) => "deferred",
         WakeOutcome::Held(reason) => reason.as_str(),
+        WakeOutcome::Empty => "empty",
         WakeOutcome::Skipped => "skipped",
         WakeOutcome::Stale => "stale",
         WakeOutcome::Ran => "ran",

@@ -9,8 +9,8 @@
 //! Discard. These routes back those buttons and the card's read:
 //!
 //! - `GET …/subject-plan` — the athlete's live plan and the coach's draft over
-//!   it, each in the shape `GET /api/me/training-plan` returns, and where the
-//!   draft stands;
+//!   it, each in the shape `GET /api/me/training-plan` returns, where the
+//!   draft stands, and the dates it proposes;
 //! - `POST …/subject-plan/publish` — the draft made live, or a 409
 //!   `plan_publish_conflict` naming what it would overwrite;
 //! - `DELETE …/subject-plan/draft` — the draft thrown away;
@@ -221,8 +221,9 @@ pub(super) async fn coach_locale(
 /// What `GET …/subject-plan` answers: the thread's athlete's live plan and
 /// `coach`'s draft over it, each projected on the athlete's today in the
 /// shape `GET /api/me/training-plan` returns, in the coach's locale (or
-/// `requested`), and where the draft stands. The caller has run the gates
-/// for `access` and recorded the read.
+/// `requested`), where the draft stands, and the dates it proposes
+/// ([`proposed_dates`](pierre_services::coach_plan_draft::CoachPlanView::proposed_dates)).
+/// The caller has run the gates for `access` and recorded the read.
 ///
 /// # Errors
 ///
@@ -251,6 +252,7 @@ pub(super) async fn subject_plan_response(
         .draft
         .as_ref()
         .map(|DraftView { plan, weeks, .. }| card(plan, weeks));
+    let proposed_dates = view.proposed_dates();
     Ok(SubjectPlanResponse {
         athlete: PlanSubject {
             user_id: athlete,
@@ -260,6 +262,7 @@ pub(super) async fn subject_plan_response(
         live,
         draft,
         draft_state: view.draft.map(|draft| draft.state),
+        proposed_dates,
     })
 }
 

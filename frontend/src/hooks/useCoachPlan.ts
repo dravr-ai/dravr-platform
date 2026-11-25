@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The web client's binding of the shared plan-thread hooks — Group info's "Work on" and "View" plan actions, and the draft card
+// ABOUTME: The web client's binding of the shared plan-thread hooks — Group info's "Work on" and "View" plan actions, the draft card, the athlete workspace
 // ABOUTME: The hooks themselves live in @pierre/ui-logic, one definition for web and mobile
 
 import { createCoachPlanHooks } from '@pierre/ui-logic';
@@ -11,7 +11,15 @@ import { chatApi } from '../services/api';
  * The plan-thread hooks over the web chat API. The API is reached when a
  * hook calls it, so importing this touches no client.
  */
-export const { useOpenAthleteThread, useOpenGroupRoom, useAthletePlan, usePlanDraftCard, usePlanThreadDraft } = createCoachPlanHooks({
+export const {
+  useOpenAthleteThread,
+  useOpenGroupRoom,
+  useAthletePlan,
+  usePlanDraftCard,
+  usePlanThreadDraft,
+  useSubjectPlan,
+  useCardSubjectPlan,
+} = createCoachPlanHooks({
   chatApi: {
     openAthleteThread: (athleteUserId, groupId) => chatApi.openAthleteThread(athleteUserId, groupId),
     openGroupRoom: (groupId) => chatApi.openGroupRoom(groupId),

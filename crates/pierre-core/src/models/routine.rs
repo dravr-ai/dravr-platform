@@ -35,23 +35,34 @@ pub const NO_WAKE_BEFORE_HOUR: u32 = 5;
 /// weekly schedule across any clock change.
 const SEARCH_DAYS: i64 = 15;
 
+/// The local hour a coach's morning brief fires at until they change it.
+pub const MORNING_BRIEF_HOUR: u32 = 7;
+
+/// How long after its slot a morning brief may still go out: a brief that
+/// could not go out by mid-morning is no longer a morning brief.
+const MORNING_BRIEF_WINDOW_HOURS: u32 = 3;
+
 /// What a routine does when it fires.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RoutineKind {
     /// The coach's check-in on the cadence the athlete chose (carnet#831).
     CheckIn,
+    /// A coach's morning brief of the athletes their To handle queue holds
+    /// (carnet#1791).
+    MorningBrief,
 }
 
 impl RoutineKind {
     /// Every kind.
-    pub const ALL: [Self; 1] = [Self::CheckIn];
+    pub const ALL: [Self; 2] = [Self::CheckIn, Self::MorningBrief];
 
     /// The stored spelling. Persisted: rows carry it, so it never changes.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::CheckIn => "check_in",
+            Self::MorningBrief => "morning_brief",
         }
     }
 
@@ -67,6 +78,7 @@ impl RoutineKind {
     pub fn window(self) -> Elapsed {
         match self {
             Self::CheckIn => Elapsed::hours(i64::from(CHECK_IN_WINDOW_HOURS)),
+            Self::MorningBrief => Elapsed::hours(i64::from(MORNING_BRIEF_WINDOW_HOURS)),
         }
     }
 }
@@ -83,17 +95,20 @@ impl fmt::Display for RoutineKind {
 pub enum RoutineScope {
     /// Its owner, about themselves.
     Me,
+    /// Its owner (a coach), about every athlete they coach.
+    Roster,
 }
 
 impl RoutineScope {
     /// Every scope.
-    pub const ALL: [Self; 1] = [Self::Me];
+    pub const ALL: [Self; 2] = [Self::Me, Self::Roster];
 
     /// The stored spelling. Persisted: rows carry it, so it never changes.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Me => "me",
+            Self::Roster => "roster",
         }
     }
 
@@ -221,6 +236,19 @@ impl Schedule {
         }
     }
 
+    /// The weekdays it fires on.
+    #[must_use]
+    pub const fn days(self) -> Weekdays {
+        self.days
+    }
+
+    /// The hour it was set for, before [`Self::firing_hour`] moves an early
+    /// one: what its owner sees and edits.
+    #[must_use]
+    pub const fn hour(self) -> u32 {
+        self.hour
+    }
+
     /// The check-in's schedule for `cadence`: its days at
     /// [`CHECK_IN_HOUR`]. `None` for [`CheckInCadence::Off`].
     #[must_use]
@@ -320,6 +348,107 @@ pub struct Routine {
     pub deferrals: u32,
     /// When it last fired.
     pub last_fired_at: Option<Timestamp>,
+    /// What a morning brief leaves out; empty for every other kind.
+    pub brief: BriefSettings,
+}
+
+/// What a coach's morning brief leaves out: the attention reasons it does not
+/// check, and the athletes it does not list. Stored on the routine as JSON.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct BriefSettings {
+    /// Attention reasons (their stored spelling, `nothing_received`, ...) the
+    /// brief does not check.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reasons_off: Vec<String>,
+    /// Athletes the brief does not list.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub muted: Vec<Uuid>,
+}
+
+impl BriefSettings {
+    /// Whether the brief checks reasons of the stored spelling `reason`.
+    #[must_use]
+    pub fn checks(&self, reason: &str) -> bool {
+        !self.reasons_off.iter().any(|off| off == reason)
+    }
+
+    /// Whether the brief lists `athlete`.
+    #[must_use]
+    pub fn lists(&self, athlete: Uuid) -> bool {
+        !self.muted.contains(&athlete)
+    }
+}
+
+/// What one firing of a routine did, as its run records it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RunOutcome {
+    /// It posted, and its reply was stored.
+    Posted,
+    /// Its turn ran and its reply was withheld.
+    Withheld,
+    /// It found nothing to say and posted nothing.
+    Empty,
+    /// A gate held it: nothing was posted for the slot.
+    Held,
+    /// It had nothing to run on (no data, a closed account) and moved on.
+    Skipped,
+}
+
+impl RunOutcome {
+    /// Every outcome.
+    pub const ALL: [Self; 5] = [
+        Self::Posted,
+        Self::Withheld,
+        Self::Empty,
+        Self::Held,
+        Self::Skipped,
+    ];
+
+    /// The stored spelling. Persisted: rows carry it, so it never changes.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Posted => "posted",
+            Self::Withheld => "withheld",
+            Self::Empty => "empty",
+            Self::Held => "held",
+            Self::Skipped => "skipped",
+        }
+    }
+
+    /// Read the stored spelling back; anything else is `None`.
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|outcome| outcome.as_str() == value)
+    }
+}
+
+/// One firing of a routine, as the Routines screen reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoutineRun {
+    /// The schedule slot it fired for.
+    pub slot: Timestamp,
+    /// When it ran.
+    pub ran_at: Timestamp,
+    /// What it did.
+    pub outcome: RunOutcome,
+    /// How many items it listed (a morning brief's athletes); 0 otherwise.
+    pub items: u32,
+    /// Whom it could not judge (a morning brief's); none otherwise.
+    pub left_out: LeftOut,
+}
+
+/// The athletes a morning brief could not judge: never listed, always named
+/// as a count, so a missing signal never reads as all fine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LeftOut {
+    /// They don't share with the coach, or the coach-read gate refused them.
+    pub not_sharing: u32,
+    /// They share, and nothing of their training could be read.
+    pub unreadable: u32,
 }
 
 impl Routine {
@@ -383,10 +512,22 @@ mod tests {
                 "bug: a stored state does not read back"
             );
         }
+        for outcome in RunOutcome::ALL {
+            assert_eq!(
+                RunOutcome::parse(outcome.as_str()),
+                Some(outcome),
+                "bug: a stored run outcome does not read back"
+            );
+        }
         assert_eq!(
             RoutineKind::parse("cron"),
             None,
             "bug: an unknown kind was read as a known one"
+        );
+        assert_eq!(
+            RunOutcome::parse("deferred"),
+            None,
+            "bug: an unknown run outcome was read as a known one"
         );
     }
 

@@ -6,15 +6,18 @@
 
 use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{Routine, RoutineKind, TenantId};
+use pierre_core::models::{Routine, RoutineKind, RoutineRun, RoutineScope, Schedule, TenantId};
 use sqlx::postgres::PgRow;
 use sqlx::Row;
 use uuid::Uuid;
 
 use crate::backends::postgres::PostgresDatabase;
 use crate::repositories::routines::{
-    impl_routine_repository, NextFiring, RoutineRepository, ACTIVE_ROUTINES_SQL,
-    BUILTIN_ROUTINE_SQL, RECORD_ROUTINE_FIRED_SQL, ROUTINE_SQL, SCHEDULE_ROUTINE_SQL,
+    impl_routine_repository, NewRoutineRun, NextFiring, RoutineChange, RoutineRepository,
+    ACTIVE_ROUTINES_SQL, BUILTIN_ROUTINE_SQL, ENSURE_BUILTIN_ROUTINE_SQL,
+    INSERT_ROUTINE_RUN_ITEM_SQL, INSERT_ROUTINE_RUN_SQL, LAST_ROUTINE_RUN_SQL,
+    MARK_LISTED_ACTED_SQL, RECORD_ROUTINE_FIRED_SQL, ROUTINE_SQL, SCHEDULE_ROUTINE_SQL,
+    UPDATE_ROUTINE_SQL,
 };
 use crate::repositories::uuid_columns::NativeUuid;
 

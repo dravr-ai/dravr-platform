@@ -183,6 +183,7 @@ impl ServerBackfillNotifier {
                 prompt: &prompt,
                 // The athlete's own earlier question, answered now.
                 access: PostAccess::Owner,
+                findings: None,
             })
             .await
     }

@@ -89,10 +89,11 @@ pub(crate) enum CheckInRun {
     Unattempted,
 }
 
-/// The services a check-in posts through.
+/// The services a routine's post goes through: the check-in's and the
+/// morning brief's.
 #[derive(Clone, Copy)]
-pub(crate) struct CheckInPoster<'svc> {
-    /// Runs the check-in through the chat pipeline.
+pub(crate) struct RoutinePoster<'svc> {
+    /// Runs the post's turn through the chat pipeline.
     pub post: &'svc dyn PlatformPost,
     /// Resolves a DM's channel to its adapter and config.
     pub resolver: &'svc dyn AdapterResolver,
@@ -102,7 +103,7 @@ pub(crate) struct CheckInPoster<'svc> {
 /// post, and mark the day posted.
 pub(crate) async fn run_check_in(
     resources: &ServerContext,
-    poster: CheckInPoster<'_>,
+    poster: RoutinePoster<'_>,
     athlete: PostAthlete,
     zone: &Zone,
     now: Timestamp,
@@ -155,7 +156,7 @@ async fn chosen_cadence(
 /// when the reply was stored, release it when nothing could be attempted.
 async fn post_claimed(
     resources: &ServerContext,
-    poster: CheckInPoster<'_>,
+    poster: RoutinePoster<'_>,
     athlete: PostAthlete,
     cadence: CheckInCadence,
     lease: &str,
@@ -167,6 +168,8 @@ async fn post_claimed(
     let intent = PostIntent {
         purpose: PostPurpose::CheckIn,
         access: PostAccess::SuggestOnly,
+        findings: None,
+        push: false,
     };
     let Some((surface, stored)) = post_to_one(
         resources,

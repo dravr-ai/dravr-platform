@@ -10,6 +10,7 @@ import type { CoachRosterAthlete } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { buildQueue, describeLine, queueCount, type QueueEntry } from '@pierre/ui-logic';
 import { EmptyState, StatusDot } from '../../components/ui';
+import { CoachBriefControl } from './CoachBrief';
 import { AthleteAvatar, GroupLabel } from './parts';
 import type { Treatment } from './useTreatment';
 
@@ -90,13 +91,15 @@ export function CoachQueueView({ athletes, onOpen, onSeeAll, undo }: CoachQueueV
   return (
     <View testID="coach-queue">
       {/* The tab above already says "À traiter" with its count: no second title
-          here, only the way to the whole roster on one slim line. */}
-      <View className="flex-row justify-end px-4">
+          here, only the queue's morning brief, a note on it, and the way to
+          the whole roster, on one slim line. */}
+      <View className="flex-row items-center justify-end px-4">
+        <CoachBriefControl />
         <Pressable
           accessibilityRole="link"
           onPress={onSeeAll}
           testID="coach-see-all"
-          className="min-h-11 flex-row items-center gap-1.5 pl-3"
+          className="min-h-11 shrink-0 flex-row items-center gap-1.5 pl-3"
         >
           <Text className="text-sm font-medium text-primary">{t('coachHome.queue.seeAll')}</Text>
           <Text className="font-mono text-xs text-text-secondary">{total}</Text>

@@ -18,6 +18,13 @@
 //! [`super::check_in_preferences`]), and resets its next firing so the engine
 //! schedules it afresh.
 //!
+//! A coach's morning brief is created by the engine itself, for every coach
+//! it finds ([`RoutineRepository::ensure_builtin_routine`]), and its owner
+//! changes it from To handle ([`RoutineRepository::update_routine`]). Each
+//! firing that reached an outcome is recorded as a run, with the athletes a
+//! brief listed, so a later Handled or open can count as acted on
+//! ([`RoutineRepository::mark_listed_acted`]).
+//!
 //! Every statement is keyed by `tenant_id`.
 
 use std::fmt;
@@ -27,8 +34,8 @@ use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::check_in::CHECK_IN_HOUR;
 use pierre_core::models::{
-    CheckInCadence, Routine, RoutineKind, RoutineScope, RoutineState, RoutineTrigger, Schedule,
-    TenantId, Weekdays,
+    BriefSettings, CheckInCadence, LeftOut, Routine, RoutineKind, RoutineRun, RoutineScope,
+    RoutineState, RoutineTrigger, RunOutcome, Schedule, TenantId, Weekdays,
 };
 use uuid::Uuid;
 
@@ -72,6 +79,91 @@ pub trait RoutineRepository: Send + Sync {
         fired_at: Timestamp,
         next: NextFiring,
     ) -> AppResult<bool>;
+
+    /// Give `owner_user_id` the built-in routine of `kind` over `scope`,
+    /// active on `schedule`, unless they already have one, whatever its state.
+    /// `true` when it was created.
+    async fn ensure_builtin_routine(
+        &self,
+        tenant_id: TenantId,
+        owner_user_id: Uuid,
+        kind: RoutineKind,
+        scope: RoutineScope,
+        schedule: Schedule,
+        at: Timestamp,
+    ) -> AppResult<bool>;
+
+    /// Set the routine's state, hour and brief settings. A changed state or
+    /// hour leaves it unscheduled, so a wake queued for the old schedule finds
+    /// nothing to fire; the caller schedules it again. `true` when the row
+    /// exists.
+    async fn update_routine(
+        &self,
+        tenant_id: TenantId,
+        id: Uuid,
+        change: &RoutineChange,
+        at: Timestamp,
+    ) -> AppResult<bool>;
+
+    /// Record one firing's run, with the items it listed, in one transaction.
+    async fn record_run(&self, run: &NewRoutineRun<'_>) -> AppResult<()>;
+
+    /// The routine's latest run, if it ever reached an outcome.
+    async fn last_run(
+        &self,
+        tenant_id: TenantId,
+        routine_id: Uuid,
+    ) -> AppResult<Option<RoutineRun>>;
+
+    /// Mark acted on, by `action`, every item a run of `owner_user_id`'s
+    /// listed for `athlete_user_id` since `since` and not yet acted on. The
+    /// attention reasons of the items it marked: each is acted on once.
+    async fn mark_listed_acted(
+        &self,
+        tenant_id: TenantId,
+        owner_user_id: Uuid,
+        athlete_user_id: Uuid,
+        since: Timestamp,
+        action: &str,
+        at: Timestamp,
+    ) -> AppResult<Vec<String>>;
+}
+
+/// What its owner sets on a routine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoutineChange {
+    /// Whether it fires.
+    pub state: RoutineState,
+    /// The local hour it fires at.
+    pub hour: u32,
+    /// What a morning brief leaves out.
+    pub brief: BriefSettings,
+}
+
+/// One firing's run, as it is recorded.
+#[derive(Debug, Clone, Copy)]
+pub struct NewRoutineRun<'run> {
+    /// The routine that fired.
+    pub routine: &'run Routine,
+    /// The slot it fired for.
+    pub slot: Timestamp,
+    /// When it ran.
+    pub ran_at: Timestamp,
+    /// What it did.
+    pub outcome: RunOutcome,
+    /// The athletes it listed, with the reason it listed each for.
+    pub items: &'run [ListedItem],
+    /// The athletes it could not judge.
+    pub left_out: LeftOut,
+}
+
+/// One athlete a morning brief listed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListedItem {
+    /// The athlete.
+    pub athlete_user_id: Uuid,
+    /// The attention reason it listed them for (its stored spelling).
+    pub reason: String,
 }
 
 /// A routine's next firing.
@@ -89,7 +181,7 @@ pub struct NextFiring {
 macro_rules! routine_columns {
     () => {
         "id, tenant_id, owner_user_id, kind, scope, trigger_kind, days_mask, local_hour, state, \
-         next_slot_ms, next_fire_ms, deferrals, last_fired_at_ms"
+         next_slot_ms, next_fire_ms, deferrals, last_fired_at_ms, settings"
     };
 }
 
@@ -145,6 +237,96 @@ pub(crate) const UPSERT_CHECK_IN_ROUTINE_SQL: &str = r"
                 updated_at_ms = excluded.updated_at_ms
             ";
 
+/// Create a built-in routine unless its owner already has one of that kind:
+/// `$4` kind, `$5` scope, `$6` days mask, `$7` local hour.
+pub(crate) const ENSURE_BUILTIN_ROUTINE_SQL: &str = r"
+            INSERT INTO routines (id, tenant_id, owner_user_id, kind, scope, trigger_kind,
+                                  days_mask, local_hour, state, created_at_ms, updated_at_ms)
+            VALUES ($1, $2, $3, $4, $5, 'schedule', $6, $7, 'active', $8, $8)
+            ON CONFLICT (tenant_id, owner_user_id, kind) WHERE kind <> 'custom' DO NOTHING
+            ";
+
+/// `$3` state, `$4` local hour, `$5` settings. The SET expressions read the
+/// row as it was, so a changed state or hour unschedules it and an unchanged
+/// one keeps its pending firing.
+pub(crate) const UPDATE_ROUTINE_SQL: &str = r"
+            UPDATE routines
+            SET next_slot_ms = CASE WHEN state = $3 AND local_hour = $4 THEN next_slot_ms END,
+                next_fire_ms = CASE WHEN state = $3 AND local_hour = $4 THEN next_fire_ms END,
+                deferrals = CASE WHEN state = $3 AND local_hour = $4 THEN deferrals ELSE 0 END,
+                state = $3, local_hour = $4, settings = $5, updated_at_ms = $6
+            WHERE tenant_id = $1 AND id = $2
+            ";
+
+pub(crate) const INSERT_ROUTINE_RUN_SQL: &str = r"
+            INSERT INTO routine_runs (id, tenant_id, routine_id, owner_user_id, kind, slot_ms,
+                                      ran_at_ms, outcome, items, not_sharing, unreadable)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            ";
+
+pub(crate) const INSERT_ROUTINE_RUN_ITEM_SQL: &str = r"
+            INSERT INTO routine_run_items (run_id, tenant_id, owner_user_id, athlete_user_id,
+                                           reason, listed_at_ms)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ";
+
+pub(crate) const LAST_ROUTINE_RUN_SQL: &str = r"
+            SELECT slot_ms, ran_at_ms, outcome, items, not_sharing, unreadable FROM routine_runs
+            WHERE tenant_id = $1 AND routine_id = $2
+            ORDER BY ran_at_ms DESC LIMIT 1
+            ";
+
+/// `$4` the earliest listing that still counts, `$5` the action.
+pub(crate) const MARK_LISTED_ACTED_SQL: &str = r"
+            UPDATE routine_run_items SET acted_at_ms = $6, action = $5
+            WHERE tenant_id = $1 AND owner_user_id = $2 AND athlete_user_id = $3
+              AND listed_at_ms >= $4 AND acted_at_ms IS NULL
+            RETURNING reason
+            ";
+
+/// The stored `settings` of a routine: its brief settings as JSON, or NULL
+/// when it leaves nothing out.
+pub(crate) fn settings_column(brief: &BriefSettings) -> AppResult<Option<String>> {
+    if brief == &BriefSettings::default() {
+        return Ok(None);
+    }
+    serde_json::to_string(brief)
+        .map(Some)
+        .map_err(|e| AppError::internal(format!("routine settings do not serialise: {e}")))
+}
+
+/// A recorded run, from its columns.
+pub(crate) fn routine_run(columns: &RunColumns) -> AppResult<RoutineRun> {
+    let bad = |column: &str, value: &dyn fmt::Debug| {
+        AppError::database(format!("routine_runs.{column} {value:?} is not readable"))
+    };
+    let at = |column: &str, ms: i64| Timestamp::from_epoch_millis(ms).map_err(|_| bad(column, &ms));
+    let count = |column: &str, n: i64| u32::try_from(n).map_err(|_| bad(column, &n));
+    Ok(RoutineRun {
+        slot: at("slot_ms", columns.slot_ms)?,
+        ran_at: at("ran_at_ms", columns.ran_at_ms)?,
+        outcome: RunOutcome::parse(&columns.outcome)
+            .ok_or_else(|| bad("outcome", &columns.outcome))?,
+        items: count("items", columns.items)?,
+        left_out: LeftOut {
+            not_sharing: count("not_sharing", columns.not_sharing)?,
+            unreadable: count("unreadable", columns.unreadable)?,
+        },
+    })
+}
+
+/// One `routine_runs` row, decoded column by column by the backend that read
+/// it.
+#[derive(Debug)]
+pub(crate) struct RunColumns {
+    pub slot_ms: i64,
+    pub ran_at_ms: i64,
+    pub outcome: String,
+    pub items: i64,
+    pub not_sharing: i64,
+    pub unreadable: i64,
+}
+
 /// The check-in routine's stored days mask, local hour and state for
 /// `cadence`: its weekdays at the check-in hour, paused for `off`.
 pub(crate) fn check_in_routine_columns(cadence: CheckInCadence) -> (i64, i64, &'static str) {
@@ -176,6 +358,7 @@ pub(crate) struct RoutineColumns {
     pub next_fire_ms: Option<i64>,
     pub deferrals: i64,
     pub last_fired_at_ms: Option<i64>,
+    pub settings: Option<String>,
 }
 
 impl RoutineColumns {
@@ -221,6 +404,13 @@ impl RoutineColumns {
             deferrals: u32::try_from(self.deferrals)
                 .map_err(|_| bad("deferrals", &self.deferrals))?,
             last_fired_at: at("last_fired_at_ms", self.last_fired_at_ms)?,
+            brief: self
+                .settings
+                .as_deref()
+                .map(serde_json::from_str)
+                .transpose()
+                .map_err(|_| bad("settings", &self.settings))?
+                .unwrap_or_default(),
         })
     }
 }
@@ -250,6 +440,7 @@ macro_rules! impl_routine_repository {
                 next_fire_ms: column(row, "next_fire_ms")?,
                 deferrals: column(row, "deferrals")?,
                 last_fired_at_ms: column(row, "last_fired_at_ms")?,
+                settings: column(row, "settings")?,
             }
             .into_routine()
         }
@@ -339,6 +530,159 @@ macro_rules! impl_routine_repository {
                         AppError::database(format!("Failed to record a routine firing: {e}"))
                     })?;
                 Ok(result.rows_affected() > 0)
+            }
+
+            async fn ensure_builtin_routine(
+                &self,
+                tenant_id: TenantId,
+                owner_user_id: Uuid,
+                kind: RoutineKind,
+                scope: RoutineScope,
+                schedule: Schedule,
+                at: Timestamp,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(ENSURE_BUILTIN_ROUTINE_SQL)
+                    .bind($ids::bind(Uuid::new_v4()))
+                    .bind($ids::bind(tenant_id.as_uuid()))
+                    .bind($ids::bind(owner_user_id))
+                    .bind(kind.as_str())
+                    .bind(scope.as_str())
+                    .bind(i64::from(schedule.days().bits()))
+                    .bind(i64::from(schedule.hour()))
+                    .bind(at.epoch_millis())
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to create a built-in routine: {e}"))
+                    })?;
+                Ok(result.rows_affected() > 0)
+            }
+
+            async fn update_routine(
+                &self,
+                tenant_id: TenantId,
+                id: Uuid,
+                change: &RoutineChange,
+                at: Timestamp,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(UPDATE_ROUTINE_SQL)
+                    .bind($ids::bind(tenant_id.as_uuid()))
+                    .bind($ids::bind(id))
+                    .bind(change.state.as_str())
+                    .bind(i64::from(change.hour))
+                    .bind($crate::repositories::routines::settings_column(
+                        &change.brief,
+                    )?)
+                    .bind(at.epoch_millis())
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to update a routine: {e}")))?;
+                Ok(result.rows_affected() > 0)
+            }
+
+            async fn record_run(&self, run: &NewRoutineRun<'_>) -> AppResult<()> {
+                let failed = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to record a routine run: {e}"))
+                };
+                let routine = run.routine;
+                let run_id = Uuid::new_v4();
+                let mut tx = self.pool().begin().await.map_err(failed)?;
+                sqlx::query(INSERT_ROUTINE_RUN_SQL)
+                    .bind($ids::bind(run_id))
+                    .bind($ids::bind(routine.tenant_id.as_uuid()))
+                    .bind($ids::bind(routine.id))
+                    .bind($ids::bind(routine.owner_user_id))
+                    .bind(routine.kind.as_str())
+                    .bind(run.slot.epoch_millis())
+                    .bind(run.ran_at.epoch_millis())
+                    .bind(run.outcome.as_str())
+                    .bind(i64::try_from(run.items.len()).unwrap_or(i64::MAX))
+                    .bind(i64::from(run.left_out.not_sharing))
+                    .bind(i64::from(run.left_out.unreadable))
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(failed)?;
+                for item in run.items {
+                    sqlx::query(INSERT_ROUTINE_RUN_ITEM_SQL)
+                        .bind($ids::bind(run_id))
+                        .bind($ids::bind(routine.tenant_id.as_uuid()))
+                        .bind($ids::bind(routine.owner_user_id))
+                        .bind($ids::bind(item.athlete_user_id))
+                        .bind(item.reason.as_str())
+                        .bind(run.ran_at.epoch_millis())
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(failed)?;
+                }
+                tx.commit().await.map_err(failed)
+            }
+
+            async fn last_run(
+                &self,
+                tenant_id: TenantId,
+                routine_id: Uuid,
+            ) -> AppResult<Option<RoutineRun>> {
+                let row = sqlx::query(LAST_ROUTINE_RUN_SQL)
+                    .bind($ids::bind(tenant_id.as_uuid()))
+                    .bind($ids::bind(routine_id))
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read a routine's last run: {e}"))
+                    })?;
+                row.map(|row| {
+                    let column = |name: &str| -> AppResult<i64> {
+                        row.try_get(name).map_err(|e| {
+                            AppError::database(format!("Invalid routine_runs.{name} column: {e}"))
+                        })
+                    };
+                    let outcome: String = row.try_get("outcome").map_err(|e| {
+                        AppError::database(format!("Invalid routine_runs.outcome column: {e}"))
+                    })?;
+                    $crate::repositories::routines::routine_run(
+                        &$crate::repositories::routines::RunColumns {
+                            slot_ms: column("slot_ms")?,
+                            ran_at_ms: column("ran_at_ms")?,
+                            outcome,
+                            items: column("items")?,
+                            not_sharing: column("not_sharing")?,
+                            unreadable: column("unreadable")?,
+                        },
+                    )
+                })
+                .transpose()
+            }
+
+            async fn mark_listed_acted(
+                &self,
+                tenant_id: TenantId,
+                owner_user_id: Uuid,
+                athlete_user_id: Uuid,
+                since: Timestamp,
+                action: &str,
+                at: Timestamp,
+            ) -> AppResult<Vec<String>> {
+                let rows = sqlx::query(MARK_LISTED_ACTED_SQL)
+                    .bind($ids::bind(tenant_id.as_uuid()))
+                    .bind($ids::bind(owner_user_id))
+                    .bind($ids::bind(athlete_user_id))
+                    .bind(since.epoch_millis())
+                    .bind(action)
+                    .bind(at.epoch_millis())
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to mark a listed item acted on: {e}"))
+                    })?;
+                rows.iter()
+                    .map(|row| {
+                        row.try_get("reason").map_err(|e| {
+                            AppError::database(format!(
+                                "Invalid routine_run_items.reason column: {e}"
+                            ))
+                        })
+                    })
+                    .collect()
             }
         }
     };

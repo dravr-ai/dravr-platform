@@ -563,6 +563,7 @@ mod in_app {
                 return None;
             }
             Some(PostedReply {
+                answered_by: None,
                 assistant: AssistantTurn {
                     message: MessageRecord {
                         id: "msg-agent".to_owned(),

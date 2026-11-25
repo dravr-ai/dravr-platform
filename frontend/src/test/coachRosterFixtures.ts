@@ -6,6 +6,7 @@
 
 import type {
   CoachAttentionReason,
+  CoachBrief,
   CoachRosterAthlete,
   CoachRosterPhase,
   CoachRosterPlan,
@@ -364,5 +365,27 @@ export function buildRoster(today: string, fillers = 0): CoachRosterResponse {
     groups: [TRI, ROAD, RUN].map((g) => ({ ...g, athlete_count: count(g.id) })),
     athletes,
     next_offset: null,
+  };
+}
+
+/** `today` at `hour`:00 on this machine's clock, as an RFC 3339 instant. */
+function localHour(today: string, days: number, hour: number): string {
+  const [year, month, day] = dayOffset(today, days).split('-').map(Number);
+  return new Date(year, month - 1, day, hour, 0, 0).toISOString();
+}
+
+/**
+ * The response of `GET /api/coach/brief` (carnet#1791): active at 07:00, sent
+ * this morning with four to handle, Rosalie left out.
+ */
+export function buildBrief(today: string, over: Partial<CoachBrief> = {}): CoachBrief {
+  return {
+    state: 'active',
+    hour: 7,
+    reasons_off: [],
+    muted: ['u-rosalie'],
+    last_run: { ran_at: localHour(today, 0, 7), outcome: 'posted', items: 4, not_sharing: 0, unreadable: 0 },
+    next_run: localHour(today, 1, 7),
+    ...over,
   };
 }

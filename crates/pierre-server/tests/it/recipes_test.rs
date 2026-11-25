@@ -24,18 +24,21 @@ use uuid::Uuid;
 
 #[test]
 fn test_meal_timing_macro_distribution() {
+    let config = IntelligenceConfig::load().expect("load default intelligence config");
+    let macros = &config.nutrition.meal_timing_macros;
+
     // Pre-training should have highest carbs
-    let (p, c, f) = MealTiming::PreTraining.macro_distribution();
+    let (p, c, f) = macros.get_distribution(MealTiming::PreTraining);
     assert_eq!(c, 55);
     assert_eq!(p + c + f, 100);
 
     // Post-training should have highest protein
-    let (p, c, f) = MealTiming::PostTraining.macro_distribution();
+    let (p, c, f) = macros.get_distribution(MealTiming::PostTraining);
     assert_eq!(p, 30);
     assert_eq!(p + c + f, 100);
 
     // Rest day should have lowest carbs
-    let (p, c, f) = MealTiming::RestDay.macro_distribution();
+    let (p, c, f) = macros.get_distribution(MealTiming::RestDay);
     assert_eq!(c, 35);
     assert_eq!(p + c + f, 100);
 }

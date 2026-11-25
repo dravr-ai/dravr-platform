@@ -16,17 +16,11 @@ import {
   isSessionMoved,
   sessionExpect,
 } from '@pierre/ui-logic';
+import { COACH_CALL_KEYS, evidenceCallReason } from '@pierre/chat-utils';
 import { Button, useErrorToast } from '../ui';
 import { useRereadPlan, useSetCoachCall } from '../../hooks/useSessionEditor';
 import WorkoutPlanCard, { type PlanDayAction } from './WorkoutPlanCard';
 import type { SessionEditorOpening } from './SessionEditorSheet';
-
-/** The human coach's call on a session (carnet#1814), its words under `humanCoach`. */
-const COACH_CALL_KEYS = {
-  action: 'humanCoach.coachCall.action',
-  undo: 'humanCoach.coachCall.undo',
-  hint: 'humanCoach.coachCall.hint',
-} as const;
 
 /**
  * Whether a session is one the coach may keep as their call: it rests on
@@ -36,12 +30,7 @@ const COACH_CALL_KEYS = {
  */
 function takesCoachCall(day: PlanDay): boolean {
   if (day.rest) return false;
-  return (
-    day.coach_call === true ||
-    day.evidence?.kind === 'convention' ||
-    day.outside === true ||
-    day.outside_evidence !== undefined
-  );
+  return day.coach_call === true || evidenceCallReason(day) !== null;
 }
 
 // The editor loads when a coach first opens it, never before first paint:

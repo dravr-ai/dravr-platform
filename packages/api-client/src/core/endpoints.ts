@@ -131,6 +131,10 @@ export const ENDPOINTS = {
     ATTENTION_DISMISS: '/api/coach/attention/dismiss',
     /** Undo a dismissal */
     ATTENTION_RESTORE: '/api/coach/attention/restore',
+    /** The coach's morning brief: its settings and last run (GET), and a change to them (PUT) */
+    BRIEF: '/api/coach/brief',
+    /** The coach opened one athlete's detail */
+    BRIEF_OPENED: '/api/coach/brief/opened',
   },
 
   // ==================== COACH REPLIES ====================

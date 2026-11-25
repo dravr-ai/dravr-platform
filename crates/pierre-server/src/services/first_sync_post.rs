@@ -188,6 +188,8 @@ impl FirstSyncPoster {
                     PostIntent {
                         purpose: PostPurpose::FirstSync,
                         access: PostAccess::Owner,
+                        findings: None,
+                        push: false,
                     },
                 )
                 .await;
@@ -208,7 +210,12 @@ impl FirstSyncPoster {
                 self.post.as_ref(),
                 athlete,
                 &prompt,
-                PostAccess::Owner,
+                PostIntent {
+                    purpose: PostPurpose::FirstSync,
+                    access: PostAccess::Owner,
+                    findings: None,
+                    push: false,
+                },
             )
             .await
         };

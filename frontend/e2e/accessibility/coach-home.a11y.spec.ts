@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: WCAG 2.1 AA coverage for a coach's Home — À traiter with an athlete open, the team table, the season, and the phone's list — with colour contrast on
+// ABOUTME: WCAG 2.1 AA coverage for a coach's Home — À traiter with an athlete open, the brief's settings, the team table, the season, and the phone's list — with colour contrast on
 // ABOUTME: Each view is scanned in both themes against the mocked roster, tall enough that every row shape reaches the scan
 
 import { test, expect, type Page } from '@playwright/test';
@@ -36,6 +36,14 @@ test.describe('Coach Home accessibility', () => {
       await page.getByTestId('coach-queue-row-u-julien').click();
       await page.getByTestId('coach-treat').click();
       await expect(page.getByTestId('coach-treated-note')).toBeVisible();
+      await setTheme(page, theme);
+      expect(await scan(page)).toBe('');
+    });
+
+    test(`the morning brief's settings have no WCAG 2.1 AA violations (${theme})`, async ({ page }) => {
+      await mockCoach(page);
+      await page.getByTestId('coach-brief').click();
+      await expect(page.getByTestId('coach-brief-sheet')).toBeVisible();
       await setTheme(page, theme);
       expect(await scan(page)).toBe('');
     });

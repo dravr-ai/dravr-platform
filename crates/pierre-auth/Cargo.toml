@@ -53,14 +53,16 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-feature
 url = "2.5"
 
 # JWT
-jsonwebtoken = { version = "10.4", features = ["rust_crypto", "use_pem"], default-features = false }
+jsonwebtoken = { version = "12", features = ["rust_crypto", "use_pem"], default-features = false }
 
 # Cryptography
 ring = "0.17"
 sha2 = "0.10"
 rand = "0.9"
 aes-gcm = "0.10"
-rsa = "0.9"
+rsa = "0.10"
+# The OS rng rsa 0.10 draws its own keys from: rand_core 0.10, which rand 0.9 does not implement.
+getrandom = { version = "0.4", features = ["sys_rng"] }
 argon2 = "0.5"
 bcrypt = "0.16"
 secrecy = { workspace = true }

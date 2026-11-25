@@ -2,13 +2,14 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: A roster athlete's detail on the phone — why now with its evidence, the form strip, plan, sources, the agent's week, and the actions
-// ABOUTME: Pins "Traité" as optimistic with a rollback and an alert on refusal, its undo, and that an action without a phone destination is not offered
+// ABOUTME: Pins "Traité" as optimistic with a rollback and an alert on refusal, its undo, that an action without a phone destination is not offered, and the brief's leave-out and open ping
 
 import React from 'react';
 import { Alert } from 'react-native';
 import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { CoachRosterAthlete, CoachRosterResponse } from '@pierre/shared-types';
+import { i18n } from '@pierre/i18n';
+import type { CoachBrief, CoachBriefUpdate, CoachRosterAthlete, CoachRosterResponse } from '@pierre/shared-types';
 import { HUGO, JULIEN, LEA, MATHIEU, ROSTER, day, reason } from '../integration/app/helpers/coachRosterFixtures';
 
 const mockPush = jest.fn();
@@ -25,11 +26,17 @@ const mockDismiss = jest.fn();
 const mockRestore = jest.fn();
 const mockOpenThread = jest.fn();
 const mockOpenGroupRoom = jest.fn();
+const mockGetBrief = jest.fn<Promise<CoachBrief>, []>();
+const mockUpdateBrief = jest.fn<Promise<CoachBrief>, [CoachBriefUpdate]>();
+const mockBriefOpened = jest.fn<Promise<void>, [string]>();
 jest.mock('../src/services/api', () => ({
   coachRosterApi: {
     getRoster: (query?: unknown) => mockGetRoster(query),
     dismissAttention: (request: unknown) => mockDismiss(request),
     restoreAttention: (request: unknown) => mockRestore(request),
+    getBrief: () => mockGetBrief(),
+    updateBrief: (update: CoachBriefUpdate) => mockUpdateBrief(update),
+    markBriefOpened: (athleteId: string) => mockBriefOpened(athleteId),
   },
   chatApi: {
     openGroupRoom: (groupId: string) => mockOpenGroupRoom(groupId),
@@ -57,10 +64,23 @@ function measureLabel(block: ReturnType<typeof within>, kind: string, width: num
   });
 }
 
+/** What the mocked server holds for the brief: a read answers it, a change moves it. */
+let mockStoredBrief: CoachBrief;
+
 beforeEach(() => {
   jest.clearAllMocks();
   jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
   mockOpenGroupRoom.mockReset();
+  mockStoredBrief = { state: 'active', hour: 7, reasons_off: [], muted: ['camille'], last_run: null, next_run: null };
+  mockGetBrief.mockReset();
+  mockGetBrief.mockImplementation(async () => mockStoredBrief);
+  mockUpdateBrief.mockReset();
+  mockUpdateBrief.mockImplementation(async (update) => {
+    mockStoredBrief = { ...mockStoredBrief, muted: update.muted ?? mockStoredBrief.muted };
+    return mockStoredBrief;
+  });
+  mockBriefOpened.mockReset();
+  mockBriefOpened.mockResolvedValue(undefined);
 });
 
 describe('why now', () => {
@@ -442,5 +462,50 @@ describe('Traité and its undo', () => {
     fireEvent.press(await screen.findByTestId('coach-undo'));
     await waitFor(() => expect(Alert.alert).toHaveBeenCalledWith(expect.any(String), expect.stringMatching(/Couldn.t undo/i)));
     await screen.findByTestId('coach-treated-note');
+  });
+});
+
+describe('the morning brief', () => {
+  it('tells the server once that the coach opened this athlete', async () => {
+    const screen = renderAthlete('lea');
+    await screen.findByTestId('coach-athlete');
+    await waitFor(() => expect(mockBriefOpened).toHaveBeenCalledWith('lea'));
+    // The brief's read landing re-renders the page: that is not a second open.
+    await waitFor(() => expect(mockGetBrief).toHaveBeenCalled());
+    await screen.findByTestId('coach-brief-mute');
+    expect(mockBriefOpened).toHaveBeenCalledTimes(1);
+  });
+
+  it('never lets a failed ping touch the page', async () => {
+    mockBriefOpened.mockRejectedValue(new Error('offline'));
+    const screen = renderAthlete('lea');
+    await waitFor(() => expect(mockBriefOpened).toHaveBeenCalled());
+    expect(screen.getByTestId('coach-athlete')).toBeTruthy();
+  });
+
+  it('leaves the athlete out with the whole list, and puts them back', async () => {
+    const screen = renderAthlete('lea');
+    fireEvent.press(await screen.findByTestId('coach-brief-mute'));
+    await waitFor(() => expect(mockUpdateBrief).toHaveBeenLastCalledWith({ muted: ['camille', 'lea'] }));
+    fireEvent.press(await screen.findByTestId('coach-brief-unmute'));
+    await waitFor(() => expect(mockUpdateBrief).toHaveBeenLastCalledWith({ muted: ['camille'] }));
+    expect(await screen.findByTestId('coach-brief-mute')).toBeTruthy();
+  });
+
+  it('says so and keeps the athlete in the brief when the server refuses', async () => {
+    mockUpdateBrief.mockRejectedValue(new Error('500'));
+    const screen = renderAthlete('lea');
+    fireEvent.press(await screen.findByTestId('coach-brief-mute'));
+    await waitFor(() => expect(Alert.alert).toHaveBeenCalledWith(expect.any(String), i18n.t('coachHome.brief.save_failed')));
+    expect(await screen.findByTestId('coach-brief-mute')).toBeTruthy();
+    expect(screen.queryByTestId('coach-brief-unmute')).toBeNull();
+  });
+
+  it('offers no brief action when the server refuses the brief (403)', async () => {
+    mockGetBrief.mockRejectedValue({ response: { status: 403 } });
+    const screen = renderAthlete('lea');
+    await screen.findByTestId('coach-athlete');
+    await waitFor(() => expect(mockGetBrief).toHaveBeenCalled());
+    expect(screen.queryByTestId('coach-brief-mute')).toBeNull();
   });
 });

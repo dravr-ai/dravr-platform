@@ -38,7 +38,9 @@ import {
 } from '@pierre/ui-logic';
 import { Button, EmptyState, Row, Section, StatusDot } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
+import { useBriefOpenedPing } from '../../hooks/useCoachBrief';
 import { useCoachRoster } from '../../hooks/useCoachRoster';
+import { CoachBriefMuteAction } from './CoachBrief';
 import { AthleteAvatar, FormStrip, phaseBand } from './parts';
 import { useCoachDestinations, type CoachDestinations } from './useCoachDestinations';
 import { useTreatment } from './useTreatment';
@@ -432,6 +434,8 @@ export function CoachAthleteScreen() {
   const today = useMemo(() => localToday(), []);
 
   const athlete = roster?.athletes.find((a) => a.user_id === athleteId);
+  // Each open of the detail tells the server once, as soon as the athlete is known; it never waits.
+  useBriefOpenedPing(athlete?.user_id ?? null);
   const queue = useMemo(() => (roster === undefined ? null : buildQueue(roster.athletes)), [roster]);
   const entry = useMemo(
     () => (queue === null || athlete === undefined ? null : [...queue.today, ...queue.week].find((e) => e.athlete.user_id === athlete.user_id) ?? null),
@@ -527,6 +531,8 @@ export function CoachAthleteScreen() {
             {t('coachHome.detail.hidden')}
           </Text>
         )}
+
+        <CoachBriefMuteAction athleteId={athlete.user_id} />
       </ScrollView>
     </View>
   );

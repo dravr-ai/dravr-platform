@@ -30,7 +30,7 @@ import { ALERT_TONE } from '../ui';
 import { FoldedTurnTrail, LiveTurnIndicator, LiveTurnLine } from './TurnTrail';
 import { PrivateLaneDivider, PrivateReplyTag } from './PrivateLane';
 import type { ChatMessageAction, ClaimVerdict, MessageAudience, ReplyBlock } from '@pierre/shared-types';
-import type { Message, MessageMetadata, MessageFeedback, OAuthNotification } from './types';
+import type { Message, MessageMetadata, MessageFeedback, OAuthNotification, WorkspacePlanSurface } from './types';
 import { linkifyUrls, topicAnchorId } from './utils';
 import { MARKDOWN_COMPONENTS } from './markdownComponents';
 import { useTranslation } from '@pierre/i18n';
@@ -63,6 +63,8 @@ interface MessageListProps {
    * offer "Edit day" on each day, to the thread's owner.
    */
   editsPlanDays?: boolean;
+  /** The thread is drawn beside the athlete workspace's calendar: its plan cards are one line each. */
+  planSurface?: WorkspacePlanSurface | null;
   messages: Message[];
   messageMetadata: Map<string, MessageMetadata>;
   messageFeedback: Map<string, MessageFeedback>;
@@ -164,6 +166,7 @@ function scrollParent(node: HTMLElement | null): HTMLElement | null {
 export default function MessageList({
   conversationId = null,
   editsPlanDays = false,
+  planSurface = null,
   messages,
   messageMetadata,
   messageFeedback,
@@ -334,6 +337,7 @@ export default function MessageList({
           key={msg.id}
           conversationId={isPrivate ? (privateLane?.conversationId ?? null) : conversationId}
           editsPlanDays={editsPlanDays && !isPrivate}
+          planSurface={planSurface}
           message={msg}
           metadata={messageMetadata.get(msg.id)}
           feedback={messageFeedback.get(msg.id)}
@@ -368,6 +372,7 @@ export default function MessageList({
   }, [
     conversationId,
     editsPlanDays,
+    planSurface,
     visibleMessages,
     language,
     t,

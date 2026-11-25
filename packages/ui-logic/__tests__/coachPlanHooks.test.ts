@@ -62,6 +62,7 @@ function subjectPlan(draftState: DraftState | null): SubjectPlanResponse {
     live: null,
     draft: null,
     draft_state: draftState,
+    proposed_dates: [],
   };
 }
 

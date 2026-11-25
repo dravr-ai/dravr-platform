@@ -239,6 +239,7 @@ export { formatList } from './list-format';
 // A coach's plan thread for one athlete and the draft card in it: the
 // catalogue keys, and how a refused publish names what it collided with
 export {
+  COACH_CALL_KEYS,
   coachRoomName,
   GROUP_ROOM_KEYS,
   PLAN_DRAFT_KEYS,
@@ -249,6 +250,11 @@ export {
   planPushText,
 } from './plan-draft';
 export type { PlanConflictText, PlanDraftConflict } from './plan-draft';
+
+// A coach's athlete workspace (carnet#1816): a week by date, why a session is
+// the coach's call to make, and the sessions asked about before publish
+export { entriesByDate, evidenceCallReason, prePublishChecks } from './plan-proposals';
+export type { EvidenceCallReason, PrePublishItem } from './plan-proposals';
 
 // Whose composer it is, and when that is not yet known.
 export { coachComposerPlaceholder, composerVoicePending } from './composer-voice';

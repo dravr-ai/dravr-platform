@@ -2,12 +2,13 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Coach Home's three phone views over a mocked roster — À traiter, the two-line team list and the season countdown
-// ABOUTME: Pins the server's order in the queue, days-without-activity (never form) in the list, non-sharers as status only, and every state of the roster read
+// ABOUTME: Pins the server's order in the queue, days-without-activity (never form) in the list, non-sharers as status only, every state of the roster read, and the brief's line and sheet
 
 import React from 'react';
 import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { CoachRosterResponse } from '@pierre/shared-types';
+import type { CoachBrief, CoachBriefUpdate, CoachRosterResponse } from '@pierre/shared-types';
+import { applyBriefUpdate } from '@pierre/ui-logic';
 import {
   CAMILLE,
   FELIX,
@@ -37,6 +38,8 @@ const mockGetRoster = jest.fn<Promise<CoachRosterResponse>, [{ offset?: number; 
 const mockOpenGroupRoom = jest.fn();
 const mockListInvites = jest.fn();
 const mockSetClipboard = jest.fn();
+const mockGetBrief = jest.fn<Promise<CoachBrief>, []>();
+const mockUpdateBrief = jest.fn<Promise<CoachBrief>, [CoachBriefUpdate]>();
 jest.mock('expo-clipboard', () => ({ setStringAsync: (text: string) => mockSetClipboard(text) }));
 jest.mock('../src/services/api', () => ({
   groupsApi: { listInvites: (groupId: string) => mockListInvites(groupId) },
@@ -44,6 +47,9 @@ jest.mock('../src/services/api', () => ({
     getRoster: (query?: { offset?: number; limit?: number }) => mockGetRoster(query),
     dismissAttention: jest.fn(),
     restoreAttention: jest.fn(),
+    getBrief: () => mockGetBrief(),
+    updateBrief: (update: CoachBriefUpdate) => mockUpdateBrief(update),
+    markBriefOpened: jest.fn(),
   },
   chatApi: {
     openGroupRoom: (groupId: string) => mockOpenGroupRoom(groupId),
@@ -63,10 +69,28 @@ function renderCoachHome() {
   );
 }
 
+/** What the mocked server holds for the brief: a read answers it, a change moves it. */
+let mockStoredBrief: CoachBrief;
+
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetRoster.mockResolvedValue(ROSTER);
   mockOpenGroupRoom.mockReset();
+  mockStoredBrief = {
+    state: 'active',
+    hour: 7,
+    reasons_off: [],
+    muted: ['camille'],
+    last_run: { ran_at: `${day(0)}T11:00:00Z`, outcome: 'posted', items: 3, not_sharing: 0, unreadable: 0 },
+    next_run: null,
+  };
+  mockGetBrief.mockReset();
+  mockGetBrief.mockImplementation(async () => mockStoredBrief);
+  mockUpdateBrief.mockReset();
+  mockUpdateBrief.mockImplementation(async (update) => {
+    mockStoredBrief = applyBriefUpdate(mockStoredBrief, update);
+    return mockStoredBrief;
+  });
 });
 
 describe('the header', () => {
@@ -331,6 +355,76 @@ describe('À traiter', () => {
     await waitFor(() => expect(restore).toHaveBeenCalledWith({ athlete_user_id: 'felix', reason_id: treated.attention[0].id }));
     // Optimistic: Félix is back in the queue before any refetch.
     await screen.findByTestId('coach-queue-row-felix');
+  });
+});
+
+describe('the morning brief', () => {
+  it('says where the brief stands at the head of the queue, beside "See all"', async () => {
+    const screen = renderCoachHome();
+    const brief = await screen.findByTestId('coach-brief');
+    expect(within(brief).getByTestId('coach-brief-status').props.children).toBeTruthy();
+    expect(within(screen.getByTestId('coach-queue')).getByTestId('coach-brief')).toBe(brief);
+    expect(screen.getByTestId('coach-see-all')).toBeTruthy();
+  });
+
+  it('draws no brief, and keeps "See all", when the server refuses it (403)', async () => {
+    mockGetBrief.mockRejectedValue({ response: { status: 403 } });
+    const screen = renderCoachHome();
+    await screen.findByTestId('coach-queue');
+    await waitFor(() => expect(mockGetBrief).toHaveBeenCalled());
+    expect(screen.queryByTestId('coach-brief')).toBeNull();
+    expect(screen.getByTestId('coach-see-all')).toBeTruthy();
+  });
+
+  it('pauses, moves the hour and turns a reason off from its sheet, one change per save', async () => {
+    const screen = renderCoachHome();
+    fireEvent.press(await screen.findByTestId('coach-brief'));
+    const sheet = within(await screen.findByTestId('coach-brief-sheet'));
+
+    fireEvent.press(sheet.getByTestId('coach-brief-pause'));
+    await waitFor(() => expect(mockUpdateBrief).toHaveBeenLastCalledWith({ paused: true }));
+
+    // The nineteen hours fold behind their row until asked for.
+    expect(sheet.queryByTestId('coach-brief-hours')).toBeNull();
+    fireEvent.press(sheet.getByTestId('coach-brief-hour'));
+    fireEvent.press(await sheet.findByTestId('coach-brief-hours-6'));
+    await waitFor(() => expect(mockUpdateBrief).toHaveBeenLastCalledWith({ hour: 6 }));
+    await waitFor(() => expect(sheet.queryByTestId('coach-brief-hours')).toBeNull());
+
+    const fatigue = sheet.getByTestId('coach-brief-reason-deep_fatigue_streak');
+    expect(fatigue.props.value).toBe(true);
+    fireEvent(fatigue, 'valueChange', false);
+    await waitFor(() => expect(mockUpdateBrief).toHaveBeenLastCalledWith({ reasons_off: ['deep_fatigue_streak'] }));
+  });
+
+  it('lists who is left out by their roster name and puts them back with the whole list', async () => {
+    mockStoredBrief = { ...mockStoredBrief, muted: ['camille', 'gone', 'julien'] };
+    const screen = renderCoachHome();
+    fireEvent.press(await screen.findByTestId('coach-brief'));
+    const sheet = within(await screen.findByTestId('coach-brief-sheet'));
+    // An id the roster no longer names has no row, and still travels in the list.
+    expect(sheet.getByTestId('coach-brief-muted-camille')).toHaveTextContent(new RegExp(CAMILLE.name));
+    expect(sheet.getByTestId('coach-brief-muted-julien')).toBeTruthy();
+    expect(sheet.queryByTestId('coach-brief-muted-gone')).toBeNull();
+    fireEvent.press(sheet.getByTestId('coach-brief-unmute-camille'));
+    await waitFor(() => expect(mockUpdateBrief).toHaveBeenCalledWith({ muted: ['gone', 'julien'] }));
+  });
+
+  it('says nobody is left out when the list is empty', async () => {
+    mockStoredBrief = { ...mockStoredBrief, muted: [] };
+    const screen = renderCoachHome();
+    fireEvent.press(await screen.findByTestId('coach-brief'));
+    expect(await screen.findByTestId('coach-brief-muted-none')).toBeTruthy();
+  });
+
+  it('says a refused save failed, and shows the stored brief again', async () => {
+    mockUpdateBrief.mockRejectedValue(new Error('500'));
+    const screen = renderCoachHome();
+    fireEvent.press(await screen.findByTestId('coach-brief'));
+    const sheet = within(await screen.findByTestId('coach-brief-sheet'));
+    fireEvent(sheet.getByTestId('coach-brief-reason-plan_ended'), 'valueChange', false);
+    expect(await sheet.findByTestId('coach-brief-save-failed')).toBeTruthy();
+    await waitFor(() => expect(sheet.getByTestId('coach-brief-reason-plan_ended').props.value).toBe(true));
   });
 });
 

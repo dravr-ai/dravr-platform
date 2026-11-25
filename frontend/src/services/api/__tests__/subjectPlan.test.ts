@@ -59,6 +59,7 @@ describe('chatApi plan-thread calls', () => {
       live: null,
       draft: null,
       draft_state: DRAFT_STATE,
+      proposed_dates: ['2026-10-16'],
     };
     const get = vi.spyOn(pierreApi.axios, 'get').mockResolvedValueOnce(answer(body));
 

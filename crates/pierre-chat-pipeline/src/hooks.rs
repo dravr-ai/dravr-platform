@@ -28,6 +28,7 @@ use super::envelope::SceneImage;
 use super::turn_stop::TurnStop;
 use pierre_agui::AgUiSink;
 use pierre_core::models::TenantId;
+use pierre_providers::ai_scope::Provenance;
 pub use pierre_services::chat_stream::{
     ProgressKind, TurnEvent, TurnEventSink, TurnFailure, TurnProgress, STAGE_STATUS_FINISHED,
     STAGE_STATUS_STARTED,
@@ -136,6 +137,13 @@ pub struct PipelineHooks<'a> {
     /// question, for the surface to close a failed turn with. Absent, the
     /// turn never reads for a stop.
     pub stop: Option<Arc<TurnStop>>,
+    /// The platform put facts it computed into the prompt — a routine's
+    /// findings — read under this provenance. The turn starts from it, so
+    /// every row the turn writes is stamped with what the facts were drawn
+    /// from (carnet#769), and a reply composed from them is grounded by
+    /// construction
+    /// ([`crate::stages::platform_grounding::Grounding::findings_supplied`]).
+    pub supplied_findings: Option<Provenance>,
 }
 
 impl fmt::Debug for PipelineHooks<'_> {
@@ -158,6 +166,7 @@ impl PipelineHooks<'_> {
             stream_sink: None,
             scene_publisher: None,
             stop: None,
+            supplied_findings: None,
         }
     }
 }

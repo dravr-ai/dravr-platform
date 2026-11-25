@@ -211,8 +211,8 @@ pub use onboarding::{
 pub use pillar::Pillar;
 pub use platform_post::PostPurpose;
 pub use routine::{
-    Routine, RoutineKind, RoutineScope, RoutineState, RoutineTrigger, Schedule, Weekdays,
-    NO_WAKE_BEFORE_HOUR,
+    BriefSettings, LeftOut, Routine, RoutineKind, RoutineRun, RoutineScope, RoutineState,
+    RoutineTrigger, RunOutcome, Schedule, Weekdays, MORNING_BRIEF_HOUR, NO_WAKE_BEFORE_HOUR,
 };
 pub use season::{SeasonConditions, SeasonTopic};
 pub use sport_family::SportFamily;

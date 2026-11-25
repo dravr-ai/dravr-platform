@@ -21,6 +21,10 @@ use uuid::Uuid;
 /// What the faked post answers when it is posted.
 pub(crate) const REPLY: &str = "Your first WHOOP week: recovery held around 70%.";
 
+/// The agent the faked post answers as, as the pipeline names the agent a
+/// thread is bound to: what a push of the landed post names.
+pub(crate) const ANSWERED_BY: &str = "Coach";
+
 /// One post a caller asked for.
 #[derive(Debug, Clone)]
 pub(crate) struct Asked {
@@ -30,6 +34,8 @@ pub(crate) struct Asked {
     pub surface: PostSurface,
     pub prompt: String,
     pub access: PostAccess,
+    /// The appendix a post carried with the findings the platform supplied.
+    pub appendix: Option<String>,
 }
 
 /// A platform post that records what it was asked to post and answers as a
@@ -63,8 +69,12 @@ impl PlatformPost for RecordingPost {
             surface: request.surface,
             prompt: request.prompt.to_owned(),
             access: request.access,
+            appendix: request
+                .findings
+                .map(|findings| findings.appendix.to_owned()),
         });
         self.posts.then(|| PostedReply {
+            answered_by: Some(ANSWERED_BY.to_owned()),
             assistant: AssistantTurn {
                 message: MessageRecord {
                     id: Uuid::new_v4().to_string(),

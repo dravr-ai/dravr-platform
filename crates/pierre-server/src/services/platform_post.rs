@@ -33,13 +33,14 @@ use std::sync::{Arc, Weak};
 
 use async_trait::async_trait;
 use pierre_chat_pipeline::{
-    AssistantTurn, CommandPersistence, InputSource, PipelineHooks, ScenePublisher, ServedTurn,
-    SurfaceId, SurfaceProfile, SurfaceRequest, TurnOrigin, TurnRequest,
+    AssistantTurn, CommandPersistence, InputSource, PipelineHooks, ResponsePostProcess,
+    ScenePublisher, ServedTurn, SurfaceId, SurfaceProfile, SurfaceRequest, TurnOrigin, TurnRequest,
 };
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::{ConversationTurnId, TenantId, CHANNEL_TYPE_WEB};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
+use pierre_providers::ai_scope::Provenance;
 use pierre_providers::request_budget::in_background;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -115,6 +116,37 @@ pub struct PlatformPostRequest<'a> {
     pub prompt: &'a str,
     /// What the turn may do.
     pub access: PostAccess,
+    /// Facts the platform computed and put in the prompt, when it did: a
+    /// routine's findings. `None` for a post grounded in the athlete's data.
+    pub findings: Option<PostFindings<'a>>,
+}
+
+/// Facts the platform computed for a post: a coach's morning brief (ADR-036).
+///
+/// The prompt carries them, so the reply written from them is grounded by
+/// construction, and what must reach the reader word for word — links,
+/// athletes left out — is appended to the stored reply rather than left to
+/// the model.
+#[derive(Debug, Clone, Copy)]
+pub struct PostFindings<'a> {
+    /// Appended to the reply, after a blank line, exactly as given.
+    pub appendix: &'a str,
+    /// What the findings were read under: the turn starts from it, so the
+    /// stored reply is stamped with what they were drawn from (carnet#769).
+    pub provenance: &'a Provenance,
+}
+
+/// Appends a post's [`PostFindings::appendix`] to its reply before it is
+/// stored.
+struct AppendFindings<'a>(&'a str);
+
+impl ResponsePostProcess for AppendFindings<'_> {
+    fn transform(&self, raw: &str) -> String {
+        if self.0.is_empty() {
+            return raw.to_owned();
+        }
+        format!("{}\n\n{}", raw.trim_end(), self.0)
+    }
 }
 
 // The prompt can be the athlete's own question re-asked: only its size is printed.
@@ -128,6 +160,7 @@ impl fmt::Debug for PlatformPostRequest<'_> {
             .field("locale", &self.locale)
             .field("prompt_len", &self.prompt.len())
             .field("access", &self.access)
+            .field("findings", &self.findings.is_some())
             .finish()
     }
 }
@@ -137,6 +170,9 @@ pub struct PostedReply {
     /// The turn's blocks, as the pipeline laid them out for the post's
     /// surface, and the stored assistant record.
     pub assistant: AssistantTurn,
+    /// The agent that answered, as a push names it; `None` when the
+    /// pipeline named none.
+    pub answered_by: Option<String>,
 }
 
 // The assistant record holds the reply text: only ids and sizes are printed.
@@ -215,6 +251,9 @@ impl PlatformPost for PipelinePlatformPost {
             PostSurface::InApp => None,
         };
         let ctx = resources.chat_pipeline_context();
+        let appendix = request
+            .findings
+            .map(|findings| AppendFindings(findings.appendix));
         let turn = TurnRequest {
             // The platform composed this prompt; it is never written to the
             // athlete's transcript as though they had sent it — carnet#246.
@@ -253,6 +292,10 @@ impl PlatformPost for PipelinePlatformPost {
                 scene_publisher: scene_publisher
                     .as_ref()
                     .map(|publisher| -> &dyn ScenePublisher { publisher }),
+                response_post_process: appendix
+                    .as_ref()
+                    .map(|append| -> &dyn ResponsePostProcess { append }),
+                supplied_findings: request.findings.map(|findings| findings.provenance.clone()),
                 ..PipelineHooks::none()
             },
         };
@@ -265,6 +308,7 @@ impl PlatformPost for PipelinePlatformPost {
         match in_background(pierre_chat_pipeline::execute(&ctx, turn, &profile)).await {
             Ok(ServedTurn::Pipeline(envelope)) if envelope.posted => Some(PostedReply {
                 assistant: envelope.assistant,
+                answered_by: envelope.answered_by,
             }),
             Ok(ServedTurn::Pipeline(_)) => {
                 info!(
@@ -320,6 +364,7 @@ mod tests {
             locale: "en",
             prompt: &prompt,
             access: PostAccess::SuggestOnly,
+            findings: None,
         };
         let printed = format!("{request:?} {request:#?}");
         assert!(!printed.contains(SENTINEL), "the prompt leaked: {printed}");
@@ -330,8 +375,24 @@ mod tests {
     }
 
     #[test]
+    fn supplied_findings_are_appended_word_for_word_after_a_blank_line() {
+        let appendix = "Open in To handle:\n- [Ben](https://app.test/#home/athlete/1)";
+        assert_eq!(
+            AppendFindings(appendix).transform("Ben stopped sharing yesterday.\n\n"),
+            format!("Ben stopped sharing yesterday.\n\n{appendix}"),
+            "bug: the appendix does not follow the reply after one blank line"
+        );
+        assert_eq!(
+            AppendFindings("").transform("Nothing to add.\n"),
+            "Nothing to add.\n",
+            "bug: an empty appendix changed the reply"
+        );
+    }
+
+    #[test]
     fn a_posted_reply_prints_its_sizes_never_the_reply_text() {
         let reply = PostedReply {
+            answered_by: None,
             assistant: AssistantTurn {
                 message: MessageRecord {
                     id: "msg-asst".to_owned(),

@@ -482,6 +482,8 @@ export const QUERY_KEYS = {
     all: ['coach-roster'] as const,
     /** The coach's whole roster, every page read and merged. */
     list: () => ['coach-roster', 'list'] as const,
+    /** The coach's morning brief: its settings and its last run (carnet#1791). */
+    brief: () => ['coach-roster', 'brief'] as const,
   },
 
   // ==================== MESSAGING ====================

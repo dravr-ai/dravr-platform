@@ -266,6 +266,8 @@ account_reset_tables!(
     "user_unit_preferences",
     "user_home_preferences",
     "user_check_in_preferences",
+    "routine_run_items" where "CAST(owner_user_id AS TEXT) = $1 OR CAST(athlete_user_id AS TEXT) = $1",
+    "routine_runs" where "CAST(owner_user_id AS TEXT) = $1",
     "routines" where "CAST(owner_user_id AS TEXT) = $1",
     "calendar_preferences",
     "coach_data_reads",

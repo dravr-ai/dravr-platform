@@ -6,6 +6,7 @@
 
 import type {
   CoachAttentionAction,
+  CoachAttentionKind,
   CoachEvidenceSourceKind,
   CoachRosterPhaseKind,
   CoachSeasonState,
@@ -20,6 +21,22 @@ export const COACH_ACTION_LABEL_KEY: Record<CoachAttentionAction, string> = {
   open_plan_thread: 'coachHome.action.openPlanThread',
   review_draft: 'coachHome.action.reviewDraft',
   create_plan: 'coachHome.action.createPlan',
+};
+
+/**
+ * The short name of each attention reason the morning brief checks, as its
+ * settings list them (carnet#1791), in the order the settings draw their
+ * switches. `consent_revoked` is not one: an athlete who stopped sharing is
+ * never listed by the brief, only counted as not sharing.
+ */
+export const COACH_BRIEF_REASON_LABEL_KEY: Record<Exclude<CoachAttentionKind, 'consent_revoked'>, string> = {
+  unverified_figure: 'coachHome.brief.reason.unverifiedFigure',
+  provider_reconnect: 'coachHome.brief.reason.providerReconnect',
+  nothing_received: 'coachHome.brief.reason.nothingReceived',
+  deep_fatigue_streak: 'coachHome.brief.reason.deepFatigueStreak',
+  plan_draft_waiting: 'coachHome.brief.reason.planDraftWaiting',
+  new_member_no_plan: 'coachHome.brief.reason.newMemberNoPlan',
+  plan_ended: 'coachHome.brief.reason.planEnded',
 };
 
 /** The label of each place an evidence line comes from. */

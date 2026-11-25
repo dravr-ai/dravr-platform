@@ -428,7 +428,7 @@ pub use pushed_data::*;
 pub use recipes::*;
 pub use resumable_turns::*;
 pub use route_summaries::*;
-pub use routines::{NextFiring, RoutineRepository};
+pub use routines::{ListedItem, NewRoutineRun, NextFiring, RoutineChange, RoutineRepository};
 pub use security::*;
 pub use seeder::*;
 pub use short_links::*;

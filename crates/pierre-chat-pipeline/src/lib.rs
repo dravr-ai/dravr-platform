@@ -862,6 +862,7 @@ async fn answer_stored_turn(
             active_model: &active_model,
             provider_name: &provider_name,
             activities_prefetched,
+            findings_supplied: hooks.supplied_findings.is_some(),
             identity_leak,
             answered_by: answered_by.clone(),
         },
