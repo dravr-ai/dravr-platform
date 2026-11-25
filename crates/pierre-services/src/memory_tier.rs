@@ -1,4 +1,4 @@
-// ABOUTME: What of the athlete's memory the AI reading now may read: notes and memory under sensitive_t3, PAR-Q facts under sensitive_t2
+// ABOUTME: What of the athlete's memory the AI reading now may read: notes and memory under sensitive_t3, health facts under sensitive_t2
 // ABOUTME: One rule for every path a fact, a playbook or the dossier's buckets take into a prompt or a tool result (carnet#1544)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,8 +8,9 @@
 //!
 //! JF 2026-11-25 ("Gate on tier consent", replacing 2026-11-20's "Keep
 //! reading"): the agent's memory — its facts, its playbooks, the athlete's
-//! notes, labelled T3 — and the athlete's PAR-Q medical facts, labelled T2,
-//! reach a model only under the athlete's matching tier consent, Dravr's own
+//! notes, labelled T3 — and the athlete's health facts, labelled T2 (their
+//! PAR-Q medical facts and their injuries), reach a model only under the
+//! athlete's matching tier consent, Dravr's own
 //! agent included. Without it the agent works without that context, and is
 //! told so rather than left to guess ([`MemoryReach::framing`]).
 //!
@@ -20,7 +21,7 @@
 //! figures — reads the facts unfiltered and never asks here.
 
 use dravr_barrage::{Stream, Tier};
-use pierre_core::models::Dossier;
+use pierre_core::models::{Dossier, DossierFact};
 use pierre_core::transport::Transport;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::{FactKind, UserFact};
@@ -29,11 +30,18 @@ use uuid::Uuid;
 
 use crate::provider_notice;
 
-/// The tier of a medical fact: a PAR-Q answer, or a flag a coach tool raised.
-/// Owl files a condition as T2.
-const MEDICAL_FACT_TIER: Tier = Tier::T2;
+/// The tier of a health fact: a medical one (a PAR-Q answer, or a flag a
+/// coach tool raised) or an injury. Owl files a condition as T2, and an
+/// injury, pain or health constraint is the same kind of record (JF
+/// 2026-11-25).
+const HEALTH_FACT_TIER: Tier = Tier::T2;
 
-/// The tier of the agent's memory: every fact but a medical one, and every
+/// Whether a fact of `kind` is a health record ([`HEALTH_FACT_TIER`]).
+const fn is_health_fact(kind: FactKind) -> bool {
+    matches!(kind, FactKind::Medical | FactKind::Injury)
+}
+
+/// The tier of the agent's memory: every fact but a health one, and every
 /// playbook. It is the athlete's `RestrictedNotes` stream, as the memory and
 /// playbook tools declare it.
 #[must_use]
@@ -44,9 +52,10 @@ fn memory_tier() -> Tier {
 /// The tier of a memory fact of `kind`.
 #[must_use]
 fn fact_tier(kind: FactKind) -> Tier {
-    match kind {
-        FactKind::Medical => MEDICAL_FACT_TIER,
-        _ => memory_tier(),
+    if is_health_fact(kind) {
+        HEALTH_FACT_TIER
+    } else {
+        memory_tier()
     }
 }
 
@@ -71,7 +80,8 @@ const MEDICAL_WITHHELD: &str = "\n\n# Medical screening\n\nThis athlete keeps th
 /// Which of the athlete's memory the AI reading now may read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MemoryReach {
-    /// The PAR-Q medical facts (T2, `sensitive_t2`).
+    /// The health facts: PAR-Q medical facts and injuries (T2,
+    /// `sensitive_t2`).
     medical: bool,
     /// The agent's memory and the athlete's notes (T3, `sensitive_t3`).
     memory: bool,
@@ -83,7 +93,7 @@ impl MemoryReach {
     #[must_use]
     pub fn now() -> Self {
         Self {
-            medical: ai_scope::ai_reads_tier(MEDICAL_FACT_TIER),
+            medical: ai_scope::ai_reads_tier(HEALTH_FACT_TIER),
             memory: ai_scope::ai_reads_tier(memory_tier()),
         }
     }
@@ -105,30 +115,50 @@ impl MemoryReach {
     /// Whether a fact of `kind` may be read.
     #[must_use]
     const fn reads_kind(self, kind: FactKind) -> bool {
-        match kind {
-            FactKind::Medical => self.medical,
-            _ => self.memory,
+        if is_health_fact(kind) {
+            self.medical
+        } else {
+            self.memory
         }
     }
 
+    /// Whether the PAR-Q medical facts may be read (`sensitive_t2`): what a
+    /// surface asks before it names a medical flag to a model.
+    #[must_use]
+    pub const fn reads_medical(self) -> bool {
+        self.medical
+    }
+
     /// Leave out of `dossier` the facts the AI may not read: the medical
-    /// bucket without `sensitive_t2`, the North Star and every pillar's facts
-    /// without `sensitive_t3`. Each fact left out is tallied once
-    /// ([`ai_scope::withhold_tier`]), so a tool result carries the withheld
-    /// note. The physiology, zones, goals and nutrition it composes beside
-    /// them are training data and stay.
+    /// bucket and every injury fact without `sensitive_t2`, every other North
+    /// Star and pillar fact without `sensitive_t3`. Each fact left out is
+    /// tallied once ([`ai_scope::withhold_tier`]), so a tool result carries
+    /// the withheld note; a pillar left with no fact is dropped. The
+    /// physiology, zones, goals and nutrition it composes beside them are
+    /// training data and stay.
     pub fn withhold_from_dossier(self, dossier: &mut Dossier) {
         if !self.medical {
-            tally(MEDICAL_FACT_TIER, dossier.medical.len());
+            tally(HEALTH_FACT_TIER, dossier.medical.len());
             dossier.medical.clear();
         }
-        if !self.memory {
-            let facts =
-                dossier.north_star.len() + dossier.pillars.values().map(Vec::len).sum::<usize>();
-            tally(memory_tier(), facts);
-            dossier.north_star.clear();
-            dossier.pillars.clear();
+        self.retain_dossier_facts(&mut dossier.north_star);
+        for facts in dossier.pillars.values_mut() {
+            self.retain_dossier_facts(facts);
         }
+        dossier.pillars.retain(|_, facts| !facts.is_empty());
+    }
+
+    /// Keep only the dossier `facts` the AI may read, by each fact's kind,
+    /// tallying each one left out.
+    fn retain_dossier_facts(self, facts: &mut Vec<DossierFact>) {
+        facts.retain(|fact| {
+            let kind = FactKind::parse_lenient(&fact.kind);
+            let readable = self.reads_kind(kind);
+            if !readable {
+                tally(fact_tier(kind), 1);
+            }
+            readable
+        });
     }
 
     /// Keep only the `facts` the AI may read, tallying each one left out.
@@ -179,11 +209,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_medical_fact_is_t2_and_every_other_fact_is_the_notes_tier() {
+    fn medical_and_injury_facts_are_t2_and_every_other_fact_is_the_notes_tier() {
         assert_eq!(
             fact_tier(FactKind::Medical),
             Tier::T2,
             "bug: a PAR-Q fact is a health record (T2)"
+        );
+        assert_eq!(
+            fact_tier(FactKind::Injury),
+            Tier::T2,
+            "bug: an injury is a health record (T2)"
         );
         assert_eq!(
             memory_tier(),
@@ -194,11 +229,88 @@ mod tests {
             FactKind::Preference,
             FactKind::Goal,
             FactKind::NorthStar,
-            FactKind::Injury,
+            FactKind::Schedule,
             FactKind::Other,
         ] {
             assert_eq!(fact_tier(kind), Tier::T3, "bug: {kind:?} is memory (T3)");
         }
+    }
+
+    fn dossier_fact(kind: FactKind, object: &str) -> DossierFact {
+        DossierFact {
+            kind: kind.as_str().to_owned(),
+            predicate_code: "states".to_owned(),
+            object: object.to_owned(),
+            confidence: 1.0,
+            source: "conversation".to_owned(),
+            updated_at: dravr_tronc::dates::Timestamp::now(),
+            valid_until: None,
+            stale: false,
+        }
+    }
+
+    fn dossier_with_injury_and_goal() -> Dossier {
+        let mut dossier = Dossier::empty(Uuid::nil(), Uuid::nil());
+        dossier.medical = vec![dossier_fact(FactKind::Medical, "parq")];
+        dossier.pillars.insert(
+            pierre_core::models::Pillar::SleepAndRecovery,
+            vec![
+                dossier_fact(FactKind::Injury, "sore left achilles"),
+                dossier_fact(FactKind::Goal, "sub-3 marathon"),
+            ],
+        );
+        dossier
+    }
+
+    fn pillar_objects(dossier: &Dossier) -> Vec<String> {
+        dossier
+            .pillars
+            .values()
+            .flatten()
+            .map(|fact| fact.object.clone())
+            .collect()
+    }
+
+    // JF 2026-11-25: an injury follows the health records' consent, not the
+    // memory's, in both mixed cases.
+    #[test]
+    fn an_injury_fact_in_a_pillar_follows_sensitive_t2() {
+        let mut memory_only = dossier_with_injury_and_goal();
+        MemoryReach {
+            medical: false,
+            memory: true,
+        }
+        .withhold_from_dossier(&mut memory_only);
+        assert!(memory_only.medical.is_empty(), "bug: PAR-Q needs sensitive_t2");
+        assert_eq!(
+            pillar_objects(&memory_only),
+            vec!["sub-3 marathon".to_owned()],
+            "bug: without sensitive_t2 the injury is withheld, the goal kept"
+        );
+
+        let mut health_only = dossier_with_injury_and_goal();
+        MemoryReach {
+            medical: true,
+            memory: false,
+        }
+        .withhold_from_dossier(&mut health_only);
+        assert_eq!(health_only.medical.len(), 1, "bug: sensitive_t2 keeps PAR-Q");
+        assert_eq!(
+            pillar_objects(&health_only),
+            vec!["sore left achilles".to_owned()],
+            "bug: without sensitive_t3 the goal is withheld, the injury kept"
+        );
+
+        let mut neither = dossier_with_injury_and_goal();
+        MemoryReach {
+            medical: false,
+            memory: false,
+        }
+        .withhold_from_dossier(&mut neither);
+        assert!(
+            neither.pillars.is_empty(),
+            "bug: an emptied pillar is dropped"
+        );
     }
 
     #[test]

@@ -365,17 +365,19 @@ where
     // consent or data kept out of AI memory (carnet#1157, #1158). It reads
     // under the athlete's consents as the turn declared them; a job queued
     // without them leaves every consent-gated fact out. Nor does it read a
-    // fact the athlete's tier consent keeps from AI — the medical ones
-    // without `sensitive_t2`, the rest without `sensitive_t3` — so without
-    // it the extractor answers against no list and a restatement is written
-    // as a new fact (carnet#1544).
+    // fact the athlete's tier consent keeps from AI — the health ones
+    // without `sensitive_t2`, the rest without `sensitive_t3` (carnet#1544).
+    // The code's own same-sentence match still compares against every stored
+    // fact the consents admit, so a restatement merges though the model never
+    // saw the fact it restates; the stored facts are never sent to it.
     let candidates = ai_scope::for_model(async move {
-        let mut existing = existing;
-        ai_scope::retain_consented(&mut existing, |fact| &fact.ai_consent_sources, true);
-        MemoryReach::now().retain_facts(&mut existing);
-        existing
+        let mut stored = existing;
+        ai_scope::retain_consented(&mut stored, |fact| &fact.ai_consent_sources, true);
+        let mut shown = stored.clone();
+        MemoryReach::now().retain_facts(&mut shown);
+        (stored, shown)
     });
-    let existing = match req.consent_withheld {
+    let (stored, existing) = match req.consent_withheld {
         Some(withheld) => {
             ai_scope::with_ai_consent(withheld.iter().cloned().collect(), candidates).await
         }
@@ -393,7 +395,17 @@ where
     }
 
     let raw_count = raw.len();
-    let (persisted, lost_writes) = persist_facts(repo, req, raw, &existing, dedup).await;
+    let (persisted, lost_writes) = persist_facts(
+        repo,
+        req,
+        raw,
+        KnownFacts {
+            stored: &stored,
+            shown: &existing,
+        },
+        dedup,
+    )
+    .await;
 
     info!(
         raw = raw_count,
@@ -632,13 +644,24 @@ async fn merge_restatement<R: HarnessMemoryRepository + ?Sized>(
     }
 }
 
+/// The athlete's facts a write is decided against.
+#[derive(Clone, Copy)]
+struct KnownFacts<'a> {
+    /// Every stored fact the athlete's consents admit: what the code's
+    /// same-sentence match compares against, whether or not the model saw it.
+    stored: &'a [UserFact],
+    /// The facts the extractor was shown, numbered as it saw them, which its
+    /// `same_as` indexes.
+    shown: &'a [UserFact],
+}
+
 /// Write the facts the gate passes. Returns the rows written and how many facts
 /// could not be written, which is what tells a lost fact from a dropped one.
 async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
     repo: &R,
     req: &ExtractionRequest<'_>,
     facts: Vec<RawFact>,
-    existing: &[UserFact],
+    known: KnownFacts<'_>,
     dedup: DedupConfig,
 ) -> (Vec<UserFact>, usize) {
     let mut out = Vec::with_capacity(facts.len());
@@ -650,9 +673,11 @@ async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
         };
         let (predicate_code, object) = resolve_predicate(&fact, kind);
 
-        // The certain layer: the same sentence again, decided by comparison.
+        // The certain layer: the same sentence again, decided by comparison
+        // against every stored fact, the ones the tier consent kept from the
+        // model included (carnet#1544).
         let write = decide(
-            existing,
+            known.stored,
             &Candidate {
                 kind,
                 predicate_code,
@@ -666,7 +691,7 @@ async fn persist_facts<R: HarnessMemoryRepository + ?Sized>(
         // repeat naming the group.
         let target = match write {
             FactWrite::MergeInto(id) => Some(id),
-            FactWrite::Insert => restated_fact_id(existing, same_as, kind, &object),
+            FactWrite::Insert => restated_fact_id(known.shown, same_as, kind, &object),
         };
 
         if let Some(fact_id) = target {
