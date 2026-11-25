@@ -56,9 +56,11 @@ pub const INVALID_DPOP_PROOF: &str = "invalid_dpop_proof";
 /// The cache's provider segment for burned proof ids.
 const REPLAY_PROVIDER_KEY: &str = "dpop";
 
-/// The algorithms a proof may be signed with, for the authorization and
-/// resource server metadata and the `algs` of a `DPoP` challenge. Read from
-/// the verifier itself, so what is published is what is accepted.
+/// The algorithms a proof may be signed with.
+///
+/// For the authorization and resource server metadata and the `algs` of a
+/// `DPoP` challenge. Read from the verifier itself, so what is published is
+/// what is accepted.
 #[must_use]
 pub fn signing_algorithms() -> Vec<String> {
     DpopVerifier::new(&DEFAULT_SIGNING_ALGS).algorithm_names()
@@ -120,9 +122,11 @@ impl<'a> PresentedProofs<'a> {
     }
 }
 
-/// What a resource server request presents for the binding check: the proofs
-/// it carries, its method, and the URI the client dialed (`None` when the
-/// dialed origin is not one of this server's, which no proof can then match).
+/// What a resource server request presents for the binding check.
+///
+/// The proofs it carries, its method, and the URI the client dialed (`None`
+/// when the dialed origin is not one of this server's, which no proof can then
+/// match).
 #[derive(Debug, Clone, Copy)]
 pub struct DpopContext<'a> {
     /// The request's `DPoP` headers

@@ -253,17 +253,20 @@ pub struct Confirmation {
     pub jkt: String,
 }
 
-/// The token kinds (owl PDPP §5.1) this server mints, as the protected
-/// resource metadata lists them: `owner`, a session of Dravr's own apps, and
-/// `client`, a third party's delegated token. `agent_write` (4c) and
-/// `relay_ingest` (phase 8) join when the server can serve them.
+/// The token kinds (owl PDPP §5.1) this server mints.
+///
+/// The protected resource metadata lists them: `owner`, a session of Dravr's
+/// own apps, and `client`, a third party's delegated token. `agent_write` (4c)
+/// and `relay_ingest` (phase 8) join when the server can serve them.
 pub const PDPP_TOKEN_KINDS: [&str; 2] = ["owner", "client"];
 
 impl Claims {
-    /// The token's PDPP kind, derived and never stored: `owner` for a session
-    /// ([`Self::is_session`]), `client` for a delegated token
-    /// ([`Self::is_delegated`]); `None` for anything else (an impersonation,
-    /// a client-credentials token, a token minted before scopes).
+    /// The token's PDPP kind, derived and never stored.
+    ///
+    /// `owner` for a session ([`Self::is_session`]), `client` for a delegated
+    /// token ([`Self::is_delegated`]); `None` for anything else (an
+    /// impersonation, a client-credentials token, a token minted before
+    /// scopes).
     #[must_use]
     pub fn pdpp_token_kind(&self) -> Option<&'static str> {
         if self.is_session() {
