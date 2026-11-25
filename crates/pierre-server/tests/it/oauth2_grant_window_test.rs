@@ -518,8 +518,14 @@ async fn the_history_before_the_window_is_there_for_a_plain_grant() {
         &json!({"name": "analyze_activity", "arguments": {"activity_id": "before-9"}}),
     )
     .await;
+    // before-9 is the 120 km ride. Look for its distance where the analysis
+    // states one: a bare "120" also matches the reply's own timestamp, whose
+    // fraction of a second reads 120 now and then.
+    let served = &by_id["result"]["structuredContent"];
     assert!(
-        !by_id.to_string().contains("120"),
+        served["activity_id"] != "before-9"
+            && served["performance_metrics"]["distance_km"] != json!(120.0)
+            && !by_id.to_string().contains("120.00 km"),
         "bug: a session before the window was read by its id: {by_id}"
     );
 }
