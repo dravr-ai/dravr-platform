@@ -22,7 +22,8 @@ use crate::helpers::axum_test::AxumTestRequest;
 use crate::helpers::consent_form::{authorize_query, hidden_field};
 use crate::oauth2_grant_details_test::{
     access_detail, approve_with, authorize_query_as, challenge, code_of, constraints_detail,
-    forget_standing, fresh_state, live_grants, register, request_query, shown, world, Client, World,
+    forget_standing, fresh_state, live_grants, register, request_query, shown, world, Client,
+    World,
 };
 
 use std::sync::Arc;
@@ -650,7 +651,12 @@ async fn the_box_ticked_beside_a_preset_stores_the_policy_that_renews_it() {
     assert_eq!(approved.status(), 303, "{}", approved.body_text());
     let grant = live_grant(&world, &client).await.expect("the preset grant");
     let stored = policies(&world).await;
-    assert_eq!(stored.len(), 1, "bug: {} policies from one box", stored.len());
+    assert_eq!(
+        stored.len(),
+        1,
+        "bug: {} policies from one box",
+        stored.len()
+    );
     let policy = &stored[0];
     assert_eq!(
         (
@@ -691,7 +697,10 @@ async fn a_box_on_the_plain_choice_or_from_an_admin_creates_no_policy() {
     let plain = approve_with(
         &world,
         &client,
-        &[("standing_policy_everything", "on"), ("standing_policy_training_coach", "on")],
+        &[
+            ("standing_policy_everything", "on"),
+            ("standing_policy_training_coach", "on"),
+        ],
         Some("everything"),
     )
     .await;
@@ -710,9 +719,12 @@ async fn a_box_on_the_plain_choice_or_from_an_admin_creates_no_policy() {
         .set_admin_status(world.user.id, true)
         .await
         .unwrap();
-    let screen =
-        authorize_query_as(&world, &request_query(&admin_client, &fresh_state(), &[]), true)
-            .await;
+    let screen = authorize_query_as(
+        &world,
+        &request_query(&admin_client, &fresh_state(), &[]),
+        true,
+    )
+    .await;
     assert_eq!(screen.status(), 200, "{}", screen.body_text());
     assert!(
         !screen.body_text().contains("standing_policy"),
