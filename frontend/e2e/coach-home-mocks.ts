@@ -34,10 +34,19 @@ export interface Posted {
   restore: unknown[];
 }
 
-/** Mocks the coach's roster, "Traité" and its undo, the replies, and the one group room. */
+/**
+ * Mocks the coach's roster, "Traité" and its undo, the replies, and the one
+ * group room. `routes` adds a spec's own routes before sign-in, after these,
+ * so they answer first and the dashboard's first reads already see them.
+ */
 export async function mockCoach(
   page: Page,
-  options: { fillers?: number; language?: string; roster?: (roster: CoachRosterResponse) => CoachRosterResponse } = {},
+  options: {
+    fillers?: number;
+    language?: string;
+    roster?: (roster: CoachRosterResponse) => CoachRosterResponse;
+    routes?: (page: Page) => Promise<void>;
+  } = {},
 ): Promise<Posted> {
   const posted: Posted = { dismiss: [], restore: [] };
   await setupDashboardMocks(page, { role: 'user', displayName: 'Phil', managesRoster: true, language: options.language });
@@ -80,6 +89,7 @@ export async function mockCoach(
       body: JSON.stringify({ conversations: [GROUP_ROOM], total: 1, limit: 50, offset: 0 }),
     });
   });
+  if (options.routes) await options.routes(page);
   await loginToDashboard(page);
   return posted;
 }
