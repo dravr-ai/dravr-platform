@@ -747,6 +747,26 @@ export interface AiConsentStateResponse {
   ai_consent: boolean | null;
 }
 
+/**
+ * `GET` and `POST /api/consents/agent-prompt`: the one-time question asking
+ * the athlete to let Dravr's own agent read its memory and their notes
+ * (`sensitive_t3`, `memory`) and their health records (`sensitive_t2`,
+ * `medical`). `due` while not yet answered and one of them is not given
+ * (carnet#1544).
+ */
+export interface AgentConsentPromptState {
+  due: boolean;
+  memory: boolean;
+  medical: boolean;
+}
+
+/**
+ * The athlete's answer: give each ticked consent (one left unticked is not
+ * withdrawn), or dismiss, which gives neither. Either way it is not asked
+ * again.
+ */
+export type AgentConsentPromptAnswer = { memory: boolean; medical: boolean } | { dismissed: true };
+
 /** OAuth app credentials (user-provided) */
 export interface OAuthApp {
   provider: string;

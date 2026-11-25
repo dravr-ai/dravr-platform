@@ -330,6 +330,8 @@ export {
   createAiConsentStateHook,
   createTransferConsentHook,
 } from './aiConsentHook';
+// The one-time question letting the athlete's agent read its memory and their health records (carnet#1544).
+export { createAgentConsentPromptHooks } from './agentConsentPromptHook';
 // The provider cards on the one provider-status key: every screen that connects or disconnects reads them here.
 export { type ProviderCards, type ProviderCardsOptions, createProviderCardsHook } from './providerCardsHook';
 // The "Who read your data" feed, and the one Connected-apps key and revoke it shares with both Connected-apps screens (carnet#1543).

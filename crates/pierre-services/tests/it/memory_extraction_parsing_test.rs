@@ -912,10 +912,6 @@ async fn existing_facts_handed(consent_withheld: Option<&[String]>) -> String {
         .await
         .unwrap();
     let handed = extractor.user_payload.lock().unwrap().clone();
-    assert!(
-        handed.contains("FTP of 250 W"),
-        "premise: a fact naming no consent is always a candidate: {handed}"
-    );
     handed
 }
 
@@ -926,6 +922,10 @@ async fn existing_facts_handed(consent_withheld: Option<&[String]>) -> String {
 async fn the_extractor_reads_its_candidates_under_the_turns_consents() {
     let consenting = existing_facts_handed(Some(&[])).await;
     assert!(
+        consenting.contains("FTP of 250 W"),
+        "premise: a fact naming no provider consent is a candidate: {consenting}"
+    );
+    assert!(
         consenting.contains("resting heart rate 48"),
         "a consented WHOOP fact is a candidate: {consenting}"
     );
@@ -935,6 +935,7 @@ async fn the_extractor_reads_its_candidates_under_the_turns_consents() {
     );
 
     let withheld = existing_facts_handed(Some(&["whoop".to_owned()])).await;
+    assert!(withheld.contains("FTP of 250 W"), "{withheld}");
     assert!(
         !withheld.contains("resting heart rate 48"),
         "a withheld WHOOP fact is not a candidate: {withheld}"
@@ -943,7 +944,8 @@ async fn the_extractor_reads_its_candidates_under_the_turns_consents() {
 }
 
 // A job queued before the turn's consents were carried leaves every
-// consent-gated fact out, as an undeclared model read withholds them all.
+// consent-gated fact out, as an undeclared model read withholds them all —
+// the tier classes too, so no fact at all is handed (carnet#1544).
 #[tokio::test]
 async fn a_job_without_the_turns_consents_hands_no_consent_gated_fact() {
     let undeclared = existing_facts_handed(None).await;
@@ -952,4 +954,19 @@ async fn a_job_without_the_turns_consents_hands_no_consent_gated_fact() {
         "an undeclared read withholds WHOOP: {undeclared}"
     );
     assert!(!undeclared.contains("187 km"), "{undeclared}");
+    assert!(
+        !undeclared.contains("FTP of 250 W"),
+        "bug: an undeclared read withholds the agent's memory (sensitive_t3): {undeclared}"
+    );
+}
+
+// JF 2026-11-25 ("Gate on tier consent"): the extractor reads the athlete's
+// memory only under their sensitive_t3, whatever their provider consents.
+#[tokio::test]
+async fn the_extractor_reads_no_memory_without_sensitive_t3() {
+    let withheld = existing_facts_handed(Some(&["sensitive_t3".to_owned()])).await;
+    assert!(
+        !withheld.contains("FTP of 250 W") && !withheld.contains("resting heart rate 48"),
+        "bug: no stored fact reaches the extractor without sensitive_t3: {withheld}"
+    );
 }

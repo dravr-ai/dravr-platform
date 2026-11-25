@@ -19,6 +19,7 @@ use crate::annotations::{annotations, Effect, Reach};
 use crate::tool_data::ToolData;
 use dravr_barrage::Stream;
 use pierre_providers::ai_scope;
+use pierre_services::memory_tier::MemoryReach;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -179,6 +180,9 @@ impl McpTool<dyn ToolRuntime> for ListCoachingPlaybooksTool {
                 |playbook| &playbook.ai_consent_sources,
                 true,
             );
+            // Nor any, for an AI, without the athlete's `sensitive_t3`: a
+            // playbook is the agent's memory (carnet#1544).
+            MemoryReach::now().retain_memory(&mut playbooks);
             // A playbook is what the agent learned and wrote down, and the
             // result's trust label says so.
             if !playbooks.is_empty() {

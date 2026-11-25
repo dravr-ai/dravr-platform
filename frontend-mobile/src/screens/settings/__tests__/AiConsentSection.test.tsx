@@ -140,8 +140,12 @@ describe('AiConsentSection', () => {
     renderSection();
     await waitFor(() => expect(screen.getByTestId('ai-consent-switch-sensitive_t3').props.disabled).toBe(false));
     expect(getAiConsent).toHaveBeenCalledWith('sensitive_t3');
-    expect(screen.getByText('Let AI read my intimate health records (cycle tracking, mental and reproductive health)')).toBeTruthy();
+    expect(
+      screen.getByText("Let AI read my notes, my agent's memory and my intimate health records (cycle tracking, mental and reproductive health)"),
+    ).toBeTruthy();
     expect(screen.getByTestId('ai-consent-hint-sensitive_t3').props.children).toContain('Claude or ChatGPT');
+    // carnet#1544: the switch now governs Dravr's own agent too.
+    expect(screen.getByTestId('ai-consent-hint-sensitive_t3').props.children).toContain('Covers your Dravr agent');
 
     fireEvent(screen.getByTestId('ai-consent-switch-sensitive_t3'), 'valueChange', true);
     await waitFor(() => expect(grantAiConsent).toHaveBeenCalledWith('sensitive_t3'));

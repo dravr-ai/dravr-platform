@@ -16,12 +16,15 @@ use dravr_tronc::dates::Timestamp;
 use pierre_commands::calibration::CalibrateHandler;
 use pierre_commands::season::SeasonHandler;
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
+use pierre_core::constants::oauth::providers::{sensitive_display_name, SENSITIVE_T3};
+use pierre_core::constants::oauth_providers::NoticeKind;
 use pierre_core::models::{GuidedFlow, GuidedWindow, OnboardingState, Pillar, TenantId};
 use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 use pierre_runtime_context::AgentsCtx;
+use pierre_services::provider_notice::grant_consent;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -210,9 +213,62 @@ async fn the_walk_opens_on_the_conversation_and_records_its_window() -> Result<(
     Ok(())
 }
 
+/// The athlete lets AI read their notes and their agent's memory
+/// (`sensitive_t3`), which the availability quote is (carnet#1544).
+async fn allow_memory(resources: &ServerContext, tenant: TenantId, user_id: Uuid) -> Result<()> {
+    grant_consent(
+        &resources.common.repos,
+        tenant.as_uuid(),
+        user_id,
+        SENSITIVE_T3,
+        NoticeKind::AiConsent,
+        sensitive_display_name(SENSITIVE_T3).expect("a consent class"),
+    )
+    .await?;
+    Ok(())
+}
+
+/// The availability `/calibrate` recorded.
+const AVAILABILITY: &str = "Tuesdays and Thursdays before work, long ride Sunday";
+
+// carnet#1544: the quote lands in the thread history later turns send to the
+// model, so without `sensitive_t3` the opener asks cold.
+#[tokio::test]
+async fn without_sensitive_t3_the_opener_quotes_no_availability() -> Result<()> {
+    let (resources, user_id, tenant, conversation_id) = setup().await?;
+    let user = user_id.to_string();
+    land(
+        &resources,
+        tenant,
+        &user,
+        FactKind::Schedule,
+        PredicateCode::CanTrainOn,
+        AVAILABILITY,
+    )
+    .await?;
+
+    let response = SeasonHandler
+        .execute(&ctx(
+            &resources,
+            user_id,
+            tenant,
+            &conversation_id,
+            "/season",
+        ))
+        .await?;
+    assert!(
+        !response.text.contains(AVAILABILITY)
+            && !response.text.contains("Say so if that has changed"),
+        "bug: the agent's memory was quoted into the thread without sensitive_t3: {}",
+        response.text
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn the_opener_quotes_calibrations_availability_back_for_correction() -> Result<()> {
     let (resources, user_id, tenant, conversation_id) = setup().await?;
+    allow_memory(&resources, tenant, user_id).await?;
     let user = user_id.to_string();
     land(
         &resources,

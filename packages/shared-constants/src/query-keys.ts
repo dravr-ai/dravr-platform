@@ -128,6 +128,8 @@ export const QUERY_KEYS = {
     status: () => ['providers-status'] as const,
     /** The account's answer to one consent to AI use (`GET …/ai-consent`). */
     aiConsent: (provider: string) => ['providers-ai-consent', provider] as const,
+    /** The one-time question about the agent's tier consents (`GET /api/consents/agent-prompt`). */
+    agentConsentPrompt: () => ['agent-consent-prompt'] as const,
   },
 
   // ==================== HOME ====================

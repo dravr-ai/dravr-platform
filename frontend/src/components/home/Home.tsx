@@ -21,6 +21,7 @@ import { RecentActivities } from './RecentActivities';
 import { GettingStarted } from './GettingStarted';
 import { YourTeam } from './YourTeam';
 import { HeldInviteStrip } from './HeldInviteStrip';
+import { AgentConsentPrompt } from './AgentConsentPrompt';
 import type { TodayActions } from './personalToday';
 import type { FirstStepRequest } from './FirstStepSheet';
 
@@ -174,6 +175,7 @@ export function HomeBriefing({
   return (
     <div data-testid="home-briefing" className={clsx('space-y-8 px-4', compact ? 'py-2' : 'py-4')}>
       <HeldInviteStrip actions={actions} onNavigate={onNavigate} />
+      <AgentConsentPrompt />
       <GettingStarted
         actions={actions}
         onNavigate={onNavigate}

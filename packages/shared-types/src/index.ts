@@ -65,6 +65,8 @@ export type {
   SciotteTarget,
   ProvidersStatusResponse,
   AiConsentStateResponse,
+  AgentConsentPromptAnswer,
+  AgentConsentPromptState,
   OAuthApp,
   OAuthAppCredentials,
   OAuthProvider,

@@ -15,6 +15,7 @@ use pierre_core::models::{Dossier, GuidedFlow, Pillar};
 use pierre_memory::{FactKind, FactSource, PredicateCode};
 use pierre_providers::ai_scope;
 use pierre_services::memory_facts::SentenceRenderer;
+use pierre_services::memory_tier::MemoryReach;
 use tracing::warn;
 
 use crate::guided_walk::{read_profile, start_walk, WalkSpec};
@@ -75,6 +76,11 @@ impl CommandHandler for SeasonHandler {
         // composed costs the quote, not the walk: the opener asks cold, and
         // the miss is logged so it is not mistaken for an athlete who never
         // calibrated.
+        //
+        // The quote is the agent's memory (T3): it lands in the thread
+        // history later turns send to the model, so it is quoted only under
+        // the athlete's `sensitive_t3`, as Dravr's agent would read it
+        // (carnet#1544). Without it the opener asks cold.
         let reg = ctx.ctx.messaging_strings_registry();
         let quoted = match ctx
             .ctx
@@ -88,7 +94,12 @@ impl CommandHandler for SeasonHandler {
             )
             .await
         {
-            Ok(dossier) => availability_on_file(&dossier, SentenceRenderer::new(reg, &ctx.locale)),
+            Ok(mut dossier) => {
+                MemoryReach::for_agent(ctx.ctx.repos(), ctx.tenant_id.as_uuid(), ctx.user_id)
+                    .await
+                    .withhold_from_dossier(&mut dossier);
+                availability_on_file(&dossier, SentenceRenderer::new(reg, &ctx.locale))
+            }
             Err(e) => {
                 warn!(error = %e, user_id = %ctx.user_id, "/season could not read the dossier; opening without the availability quote");
                 Vec::new()

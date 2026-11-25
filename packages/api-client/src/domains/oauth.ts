@@ -7,6 +7,8 @@
 import type { AxiosInstance, AxiosResponse, AxiosRequestConfig } from 'axios';
 import type {
   AiConsentStateResponse,
+  AgentConsentPromptAnswer,
+  AgentConsentPromptState,
   ExtendedProviderStatus,
   ProvidersStatusResponse,
   ApiMetadata,
@@ -242,6 +244,25 @@ export function createOAuthApi(axios: AxiosInstance) {
     async getAiConsent(provider: string): Promise<boolean | null> {
       const response = await axios.get<AiConsentStateResponse>(ENDPOINTS.PROVIDERS.AI_CONSENT(provider));
       return response.data.ai_consent;
+    },
+
+    /**
+     * The one-time question asking the athlete to let their agent read its
+     * memory and their health records: whether it is due, and the standing
+     * answers (carnet#1544).
+     */
+    async getAgentConsentPrompt(): Promise<AgentConsentPromptState> {
+      const response = await axios.get<AgentConsentPromptState>(ENDPOINTS.PROVIDERS.AGENT_CONSENT_PROMPT);
+      return response.data;
+    },
+
+    /**
+     * Answer the one-time question: give the ticked consents, or dismiss it.
+     * It is not asked again either way.
+     */
+    async answerAgentConsentPrompt(answer: AgentConsentPromptAnswer): Promise<AgentConsentPromptState> {
+      const response = await axios.post<AgentConsentPromptState>(ENDPOINTS.PROVIDERS.AGENT_CONSENT_PROMPT, answer);
+      return response.data;
     },
 
     /**

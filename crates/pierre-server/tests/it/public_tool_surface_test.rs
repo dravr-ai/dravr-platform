@@ -16,7 +16,7 @@
 //! without the change it pins.
 
 use crate::common;
-use crate::tier_consent_test::allow_outside_memory;
+use crate::tier_consent_test::allow_memory_to_ai;
 use pierre_core::constants::oauth_providers::NoticeKind;
 
 use std::collections::BTreeSet;
@@ -193,6 +193,21 @@ async fn seed_parq(res: &ServerContext, who: &Athlete) {
     assert_eq!(raised, 2);
 }
 
+/// The athlete gives their health records' AI use (`sensitive_t2`): Dravr's
+/// own agent then reads their PAR-Q facts (JF 2026-11-25, carnet#1544).
+async fn allow_health_records(res: &ServerContext, who: &Athlete) {
+    grant_consent(
+        &res.common.repos,
+        who.tenant.as_uuid(),
+        who.id,
+        SENSITIVE_T2,
+        NoticeKind::AiConsent,
+        "Health records",
+    )
+    .await
+    .unwrap();
+}
+
 fn assert_no_medical_fact(answer: &Value) {
     let text = answer.to_string();
     for leak in ["heart_condition", "medication", "parq_yes"] {
@@ -204,7 +219,7 @@ fn assert_no_medical_fact(answer: &Value) {
 async fn recall_over_mcp_never_returns_a_medical_fact() {
     let res = common::create_test_server_resources().await.unwrap();
     let who = athlete(&res).await;
-    allow_outside_memory(&res.common.repos, who.tenant.as_uuid(), who.id).await;
+    allow_memory_to_ai(&res.common.repos, who.tenant.as_uuid(), who.id).await;
     seed_parq(&res, &who).await;
     let app = ProviderToolRouter::build_http_app(&res);
     let authorization = grant(&res, &who);
@@ -216,7 +231,12 @@ async fn recall_over_mcp_never_returns_a_medical_fact() {
         assert_no_medical_fact(&answer);
     }
 
-    // The first-party path still reads them, or this would pass on an empty row.
+    // Dravr's own agent reads them only under sensitive_t2 (JF 2026-11-25).
+    let withheld = in_app(&res, &who, "recall_user_memory", json!({})).await;
+    assert_no_medical_fact(withheld.result.as_ref().unwrap());
+
+    // With it the first-party path reads them, or this would pass on an empty row.
+    allow_health_records(&res, &who).await;
     let own = in_app(&res, &who, "recall_user_memory", json!({})).await;
     assert!(own.success, "{own:?}");
     let body = own.result.unwrap().to_string();
@@ -228,7 +248,7 @@ async fn recall_over_mcp_never_returns_a_medical_fact() {
 async fn export_dossier_over_mcp_has_no_medical_bucket() {
     let res = common::create_test_server_resources().await.unwrap();
     let who = athlete(&res).await;
-    allow_outside_memory(&res.common.repos, who.tenant.as_uuid(), who.id).await;
+    allow_memory_to_ai(&res.common.repos, who.tenant.as_uuid(), who.id).await;
     seed_parq(&res, &who).await;
     let app = ProviderToolRouter::build_http_app(&res);
 
@@ -240,6 +260,10 @@ async fn export_dossier_over_mcp_has_no_medical_bucket() {
     );
     assert_no_medical_fact(&answer);
 
+    let withheld = in_app(&res, &who, "export_dossier", json!({})).await;
+    assert_no_medical_fact(withheld.result.as_ref().unwrap());
+
+    allow_health_records(&res, &who).await;
     let own = in_app(&res, &who, "export_dossier", json!({})).await;
     assert!(own.success, "{own:?}");
     let body = own.result.unwrap();
@@ -691,7 +715,7 @@ async fn a_deep_upload_history_reads_its_rows_over_mcp() {
 async fn an_mcp_client_is_refused_every_kind_of_health_record() {
     let res = common::create_test_server_resources().await.unwrap();
     let who = athlete(&res).await;
-    allow_outside_memory(&res.common.repos, who.tenant.as_uuid(), who.id).await;
+    allow_memory_to_ai(&res.common.repos, who.tenant.as_uuid(), who.id).await;
     grant_consent(
         &res.common.repos,
         who.tenant.as_uuid(),

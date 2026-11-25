@@ -73,6 +73,7 @@ use pierre_services::originals_bundle::OriginalsBundleService;
 use pierre_services::sync_failure_notice::SyncFailureNotices;
 
 mod account_deletion;
+mod agent_consent_prompt;
 #[cfg(feature = "provider-sciotte")]
 mod browser_signin;
 mod card_backend;
@@ -518,6 +519,13 @@ impl AuthRoutes {
                 get(provider_ai_consent::handle_get_ai_consent)
                     .put(provider_ai_consent::handle_grant_ai_consent)
                     .delete(provider_ai_consent::handle_withdraw_ai_consent),
+            )
+            // The one-time question letting Dravr's own agent read its
+            // memory and the health records (requires auth; carnet#1544)
+            .route(
+                "/api/consents/agent-prompt",
+                get(agent_consent_prompt::handle_get_agent_prompt)
+                    .post(agent_consent_prompt::handle_answer_agent_prompt),
             )
             // Give or withdraw the consent to Dravr sending a provider the
             // athlete's data: Garmin's workout transfer (carnet#1390). The

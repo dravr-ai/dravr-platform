@@ -71,6 +71,7 @@ use crate::common::{
 };
 use crate::helpers::axum_test::AxumTestRequest;
 use crate::helpers::garmin_consent::give_garmin_ai_consent;
+use crate::tier_consent_test::allow_memory_to_ai;
 
 const MODEL: &str = "derived-consent-model";
 
@@ -822,6 +823,8 @@ async fn after_withdrawal_no_garmin_figure_from_history_or_memory_reaches_the_mo
 #[tokio::test]
 async fn withdrawing_whoop_keeps_whoop_derived_history_and_memory_from_the_model() {
     let fx = Fixture::new("derived-consent-whoop@test.com", false).await;
+    // The memory note reaches the model only under sensitive_t3 (carnet#1544).
+    allow_memory_to_ai(&fx.resources.common.repos, fx.tenant.as_uuid(), fx.user_id).await;
     grant_consent(
         &fx.resources.common.repos,
         fx.tenant.as_uuid(),

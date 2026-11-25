@@ -18,7 +18,9 @@ use dravr_cageux::recipes::{
 
 use crate::context::ToolExecutionContext;
 use crate::conversions::{apply_format, ok_typed};
-use crate::implementations::nutrition_gate::{FiguresWithheld, NutritionAnswer, WithheldFigures};
+use crate::implementations::nutrition_gate::{
+    FiguresWithheld, NutritionAnswer, WithheldFigures, WithheldReason,
+};
 use crate::implementations::usda_shared::{check_ingredient_count, shared_usda_client};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_formatters::OutputFormat;
@@ -541,10 +543,13 @@ pub(super) fn withheld_recipe_constraints(
         guidance.push(format!("Keep cooking within {mins} minutes."));
     }
     guidance.push(
-        if withheld.names_clinician() {
-            "Leave portion sizes, energy and macronutrient amounts to the athlete's clinician."
-        } else {
-            "Leave out portion sizes, energy and macronutrient amounts."
+        match withheld.reason {
+            WithheldReason::MedicalFlag => {
+                "Leave portion sizes, energy and macronutrient amounts to the athlete's clinician."
+            }
+            WithheldReason::ExternalTransport | WithheldReason::HealthRecordsWithheld => {
+                "Leave out portion sizes, energy and macronutrient amounts."
+            }
         }
         .to_owned(),
     );

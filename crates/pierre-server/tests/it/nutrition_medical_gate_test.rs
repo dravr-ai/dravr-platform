@@ -28,6 +28,8 @@ use dravr_cageux::nutrition_calculator::{
 use dravr_cageux::training_load::FormBand;
 use dravr_cageux::zones::HrZones;
 use dravr_tronc::dates::{Elapsed, Timestamp};
+use pierre_core::constants::oauth::providers::{sensitive_display_name, SENSITIVE_T2};
+use pierre_core::constants::oauth_providers::NoticeKind;
 use pierre_core::models::{
     Activity, ActivityBuilder, PhysiologicalSex, SportType, TenantId, UserPhysiologicalProfile,
 };
@@ -36,6 +38,7 @@ use pierre_database::repositories::UpsertUserFactParams;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 use pierre_services::parq;
+use pierre_services::provider_notice::grant_consent;
 use pierre_tool_runtime::implementations::analytics::{
     generate_nutrition_recommendations, load_nutrition_athlete, recovery_actions_for,
     NutritionAthlete,
@@ -81,6 +84,21 @@ async fn raise_parq_flag(resources: &ServerContext, athlete: &Athlete) -> Result
     )
     .await?;
     assert_eq!(raised, 1);
+    Ok(())
+}
+
+/// The athlete lets AI read their health records (`sensitive_t2`): the
+/// model then reads their flag, and the clinician is named (carnet#1544).
+async fn allow_health_records(resources: &ServerContext, athlete: &Athlete) -> Result<()> {
+    grant_consent(
+        &resources.common.repos,
+        athlete.tenant.as_uuid(),
+        athlete.user_id,
+        SENSITIVE_T2,
+        NoticeKind::AiConsent,
+        sensitive_display_name(SENSITIVE_T2).expect("a consent class"),
+    )
+    .await?;
     Ok(())
 }
 
@@ -339,6 +357,7 @@ async fn calculate_daily_nutrition_withholds_figures_for_a_flagged_athlete() -> 
     let resources = resources().await?;
     let flagged = athlete(&resources, "daily-flagged@example.com").await?;
     raise_parq_flag(&resources, &flagged).await?;
+    allow_health_records(&resources, &flagged).await?;
     let executor = executor(resources);
 
     let with_tenant = call(
@@ -439,6 +458,7 @@ async fn get_nutrient_timing_withholds_figures_for_a_flagged_athlete() -> Result
     let resources = resources().await?;
     let flagged = athlete(&resources, "timing-flagged@example.com").await?;
     raise_parq_flag(&resources, &flagged).await?;
+    allow_health_records(&resources, &flagged).await?;
     let executor = executor(resources);
 
     let result = call(
@@ -456,6 +476,63 @@ async fn get_nutrient_timing_withholds_figures_for_a_flagged_athlete() -> Result
         &["pre_workout", "post_workout", "daily_protein_distribution"],
         "get_nutrient_timing",
     );
+    Ok(())
+}
+
+// carnet#1544: without `sensitive_t2` the model may not read the flag. A
+// flagged athlete's amounts stay withheld, and nothing the model reads names
+// the flag or a clinician of theirs.
+#[tokio::test]
+async fn without_sensitive_t2_a_flagged_athletes_amounts_are_withheld_naming_no_flag() -> Result<()>
+{
+    let resources = resources().await?;
+    let flagged = athlete(&resources, "unnamed-flagged@example.com").await?;
+    raise_parq_flag(&resources, &flagged).await?;
+    let executor = executor(resources);
+
+    for (tool, params, figures) in [
+        ("calculate_daily_nutrition", daily_params(), DAILY_FIGURES),
+        (
+            "get_nutrient_timing",
+            timing_params(),
+            &["pre_workout", "post_workout", "daily_protein_distribution"][..],
+        ),
+        (
+            "get_recipe_constraints",
+            recipe_params(),
+            &["calories", "protein_g", "carbs_g", "fat_g", "tdee"][..],
+        ),
+    ] {
+        let result = call(
+            &executor,
+            request(tool, &flagged, Some(flagged.tenant), params),
+        )
+        .await;
+        let withheld = &result["figures_withheld"];
+        assert_eq!(
+            withheld["reason"], "health_records_withheld",
+            "{tool}: {result:#}"
+        );
+        assert_eq!(withheld["set_by"], "not_stated", "{tool}: {result:#}");
+        for key in figures {
+            assert!(
+                result.get(*key).is_none(),
+                "bug: {tool}'s `{key}` reached a flagged athlete's model: {result:#}"
+            );
+        }
+        let said = format!("{} {}", withheld["note"], result["guidance"]);
+        assert!(
+            !names_a_flag(&said),
+            "bug: {tool} tells the model a flag is on file without sensitive_t2: {said}"
+        );
+        for line in result["guidance"].as_array().expect("guidance") {
+            let line = line.as_str().expect("guidance lines are text");
+            assert!(
+                !states_an_amount(line),
+                "{tool}: guidance states an amount: {line}"
+            );
+        }
+    }
     Ok(())
 }
 
@@ -506,6 +583,7 @@ async fn get_recipe_constraints_withholds_targets_for_a_flagged_athlete() -> Res
     let resources = resources().await?;
     let flagged = athlete(&resources, "recipe-flagged@example.com").await?;
     raise_parq_flag(&resources, &flagged).await?;
+    allow_health_records(&resources, &flagged).await?;
     let executor = executor(resources);
 
     let result = call(

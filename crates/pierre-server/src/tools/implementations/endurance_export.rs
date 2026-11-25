@@ -30,6 +30,7 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::models::Dossier;
 use pierre_fitness_compute::latest_snapshot::LatestSnapshot;
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
+use pierre_services::memory_tier::MemoryReach;
 use pierre_services::training_history_read::user_timezone;
 use pierre_tool_runtime::activity_query::{
     visit_stored_workouts, Athlete, CivilWindow, KeySet, ReadGate,
@@ -253,7 +254,7 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
             let user_id = context.user_id;
             // Facts and a profile derived from first-party-only data are left
             // out for an external caller (carnet#769).
-            let dossier = context
+            let mut dossier = context
                 .resources
                 .repos()
                 .dossier
@@ -264,6 +265,10 @@ impl McpTool<dyn ToolRuntime> for ExportDossierTool {
                     &ai_scope::admit_memory,
                 )
                 .await?;
+            // Its facts reach the agent only under the athlete's tier
+            // consent: the medical ones under `sensitive_t2`, the rest under
+            // `sensitive_t3`; the training and physiology stay (carnet#1544).
+            MemoryReach::now().withhold_from_dossier(&mut dossier);
             // The durable facts are what the agent remembered, as
             // `recall_user_memory` serves them, and the result's trust label
             // says so.

@@ -15,9 +15,13 @@
 //! refused here before its body reads or writes anything, by the one tier rule
 //! ([`ai_scope::tier_readable`]): a T3 tool under the athlete's
 //! `sensitive_t3`, a T2 tool never, until grants carry details. A write tool
-//! declaring the stream is held to it alike. Dravr's own agent and the human
-//! coach are not gated here: on Dravr's own surfaces the agent keeps its
-//! memory (E3, directive 2).
+//! declaring the stream is held to it alike. Dravr's own agent is not gated
+//! here but in the tools' bodies, by the same rule
+//! ([`ai_scope::ai_reads_tier`], JF 2026-11-25, "Gate on tier consent"): it
+//! still calls a memory tool without the consent, and the result holds what
+//! the athlete lets it read with the withheld note for the rest, so a tool
+//! reading training beside memory (`export_dossier`) keeps the training, and
+//! the memory writes stay open.
 //!
 //! It runs inside the scopes the body runs in, so it reads the consents the
 //! body would have read under — the athlete's own on a read of a coached

@@ -48,7 +48,9 @@ use pierre_memory::training_plans::{PlanWeek, PlannedDay};
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::medical_flag::{medical_flag_on_file, nutrition_figures_gate, FiguresWithheld};
+use crate::medical_flag::{
+    medical_flag_on_file, nutrition_figures_gate, FiguresWithheld, WithheldReason,
+};
 
 /// What a plan surface prints where a withheld protocol's rates would be:
 /// the prompt block's `fuel:` clause and the calendar note's fuelling line.
@@ -59,6 +61,11 @@ pub const FUELING_WITHHELD_CLAUSE: &str = "fuelling amounts withheld — a medic
 /// every athlete.
 const EXTERNAL_FUELING_WITHHELD_CLAUSE: &str =
     "fuelling amounts withheld — not given outside Dravr's own apps and channels";
+
+/// [`FUELING_WITHHELD_CLAUSE`] for a model the athlete keeps their health
+/// records from: it names no flag and no clinician (carnet#1544).
+const HEALTH_RECORDS_FUELING_WITHHELD_CLAUSE: &str =
+    "fuelling amounts withheld — this athlete keeps their health records from AI";
 
 /// Whether this athlete's stored fuelling rates may be shown.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,16 +148,19 @@ impl FuelingDisclosure {
     }
 
     /// The one-line fuelling clause for a stored protocol: its rates,
-    /// [`FUELING_WITHHELD_CLAUSE`], or outside Dravr's own surfaces
-    /// `EXTERNAL_FUELING_WITHHELD_CLAUSE`.
+    /// [`FUELING_WITHHELD_CLAUSE`], outside Dravr's own surfaces
+    /// `EXTERNAL_FUELING_WITHHELD_CLAUSE`, or for a model the athlete keeps
+    /// their health records from `HEALTH_RECORDS_FUELING_WITHHELD_CLAUSE`.
     #[must_use]
     pub fn clause(&self, protocol: &FuelingProtocol) -> String {
         match self {
             Self::Shown => protocol.summary(),
-            Self::Withheld(statement) if statement.names_clinician() => {
-                FUELING_WITHHELD_CLAUSE.to_owned()
+            Self::Withheld(statement) => match statement.reason {
+                WithheldReason::MedicalFlag => FUELING_WITHHELD_CLAUSE,
+                WithheldReason::ExternalTransport => EXTERNAL_FUELING_WITHHELD_CLAUSE,
+                WithheldReason::HealthRecordsWithheld => HEALTH_RECORDS_FUELING_WITHHELD_CLAUSE,
             }
-            Self::Withheld(_) => EXTERNAL_FUELING_WITHHELD_CLAUSE.to_owned(),
+            .to_owned(),
         }
     }
 
@@ -214,12 +224,19 @@ impl FuelingDisclosure {
         if dates.is_empty() {
             return Ok(());
         }
-        let why = if statement.names_clinician() {
-            "a medical/PAR-Q flag is on file for this athlete, so their clinician sets \
-             carbohydrate, fluid and sodium amounts and no plan day may carry them"
-        } else {
-            "carbohydrate, fluid and sodium amounts are not set outside Dravr's own apps and \
-             channels, for any athlete"
+        let why = match statement.reason {
+            WithheldReason::MedicalFlag => {
+                "a medical/PAR-Q flag is on file for this athlete, so their clinician sets \
+                 carbohydrate, fluid and sodium amounts and no plan day may carry them"
+            }
+            WithheldReason::ExternalTransport => {
+                "carbohydrate, fluid and sodium amounts are not set outside Dravr's own apps and \
+                 channels, for any athlete"
+            }
+            WithheldReason::HealthRecordsWithheld => {
+                "this athlete keeps their health records from AI, so no plan day may carry \
+                 carbohydrate, fluid and sodium amounts"
+            }
         };
         Err(AppError::invalid_input(format!(
             "fueling on {} refused: {why}. Remove `fueling` from those days and describe \
@@ -263,6 +280,43 @@ mod tests {
                 "{word} would only be true of a flagged athlete: {refusal}"
             );
         }
+        assert!(refusal.contains("2026-07-14"), "{refusal}");
+    }
+
+    // carnet#1544: a model the athlete keeps their health records from
+    // reads the rates withheld, and no word naming a flag or a clinician.
+    #[test]
+    fn without_sensitive_t2_the_clause_and_the_refusal_name_no_flag() {
+        let day = fuelled_day();
+        let protocol = day.fueling.clone().expect("the day stores a protocol");
+        let withheld =
+            FuelingDisclosure::from_gate(Some(FiguresWithheld::health_records_withheld()));
+
+        let clause = withheld.clause(&protocol);
+        let refusal = withheld
+            .refuse_figures([&day])
+            .expect_err("a save carrying rates is still refused")
+            .message;
+        let statement = FiguresWithheld::health_records_withheld();
+        for word in ["clinician", "medical", "PAR-Q", "flag"] {
+            for text in [&clause, &refusal] {
+                assert!(
+                    !text.contains(word),
+                    "bug: {word} tells the model a flag is on file: {text}"
+                );
+            }
+        }
+        for word in ["medical", "PAR-Q", "flag"] {
+            assert!(
+                !statement.note.contains(word),
+                "bug: {word} tells the model a flag is on file: {}",
+                statement.note
+            );
+        }
+        assert!(
+            !statement.names_clinician(),
+            "bug: no clinician of theirs is named"
+        );
         assert!(refusal.contains("2026-07-14"), "{refusal}");
     }
 

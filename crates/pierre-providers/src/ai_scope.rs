@@ -94,8 +94,8 @@ mod source_classes;
 mod stored_health;
 
 pub use consent::{
-    ai_consent_withheld, consented_read, subject_consents, tier_readable, with_ai_consent,
-    with_subject_consent, withheld_providers, withhold_tier,
+    ai_consent_withheld, ai_reads_tier, consented_read, subject_consents, tier_readable,
+    with_ai_consent, with_subject_consent, withheld_providers, withhold_tier,
 };
 pub use derived_consent::{
     admit_consent_sources, admit_memory, derived_consent_sources, retain_consented,
@@ -419,6 +419,15 @@ pub fn policies_apply() -> bool {
 #[must_use]
 pub fn serving_external() -> bool {
     exposure().is_some_and(|gate| gate.external)
+}
+
+/// Whether a read made now feeds an AI: a model's read (Dravr's own agent,
+/// or a model call the platform makes for the athlete), or one served to an
+/// outside client. A person's own read is none: the athlete's screens, a
+/// chart drawn for them ([`for_display`]), and a human coach's own screen.
+#[must_use]
+pub(crate) fn read_by_ai() -> bool {
+    exposure().is_some_and(|gate| gate.external || (flag(&FOR_MODEL) && !flag(&DISPLAY)))
 }
 
 /// Whether a read made now must withhold what only the athlete may read (the

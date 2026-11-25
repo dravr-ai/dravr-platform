@@ -27,6 +27,7 @@ use pierre_chat_pipeline::{
     ChatPipelineContext, CommandPersistence, InputSource, PipelineHooks, SurfaceId, SurfaceProfile,
     SurfaceRequest, TurnOrigin, TurnRequest,
 };
+use pierre_core::constants::oauth::providers::{sensitive_display_name, SENSITIVE_T3};
 use pierre_core::constants::oauth_providers::{NoticeKind, GARMIN, WHOOP};
 use pierre_core::errors::AppError;
 use pierre_core::models::{ConversationTurnId, TenantId};
@@ -261,6 +262,18 @@ impl Fixture {
             WHOOP,
             NoticeKind::AiConsent,
             "WHOOP",
+        )
+        .await
+        .unwrap();
+        // A playbook is the agent's memory (T3): the model reads it only
+        // under the athlete's sensitive_t3 (carnet#1544).
+        grant_consent(
+            repos,
+            tenant.as_uuid(),
+            user_id,
+            SENSITIVE_T3,
+            NoticeKind::AiConsent,
+            sensitive_display_name(SENSITIVE_T3).unwrap(),
         )
         .await
         .unwrap();
@@ -506,6 +519,48 @@ async fn withdrawing_whoop_keeps_its_playbook_out_of_the_tool_answer() {
     assert!(
         !withdrawn.contains("hrv_drop"),
         "no WHOOP playbook reaches the model after withdrawal: {withdrawn}"
+    );
+}
+
+/// JF 2026-11-25 ("Gate on tier consent", carnet#1544): a playbook is the
+/// agent's memory, labelled T3. Once the athlete withholds `sensitive_t3`, no
+/// playbook reaches the prompt or the tool answer, WHOOP consent or not; the
+/// commitment, which is not memory, still does.
+#[tokio::test]
+async fn withholding_sensitive_t3_keeps_every_playbook_from_the_model() {
+    let fx = Fixture::new("derived-consent-playbook-t3@test.com").await;
+    withdraw_consent(
+        &fx.resources.common.repos,
+        fx.user_id,
+        SENSITIVE_T3,
+        NoticeKind::AiConsent,
+        sensitive_display_name(SENSITIVE_T3).unwrap(),
+    )
+    .await
+    .unwrap();
+
+    let prompt = fx.turn(PLAIN_ASK).await;
+    for call in &prompt {
+        assert!(
+            !call.system.contains(PLAYBOOK_BLOCK),
+            "bug: a playbook reached the prompt without sensitive_t3"
+        );
+    }
+    assert!(
+        prompt
+            .iter()
+            .all(|call| call.system.contains(COMMITMENT_STATEMENT)),
+        "the commitment is no memory and still reaches the prompt"
+    );
+
+    let listed = listed_playbooks(&fx.turn(PLAYBOOKS_ASK).await);
+    assert!(
+        !listed.contains("hrv_drop"),
+        "bug: list_coaching_playbooks handed a playbook without sensitive_t3: {listed}"
+    );
+    assert!(
+        listed.contains("sensitive_tier"),
+        "the answer says why it holds none: {listed}"
     );
 }
 

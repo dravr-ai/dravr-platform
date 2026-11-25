@@ -21,7 +21,7 @@ use crate::implementations::analytics::recommendations_output::{
     ActivitySummary, MacronutrientTargets, MealSuggestion, RecommendationsResult,
 };
 use crate::implementations::nutrition_gate::{
-    athlete_tenants, nutrition_figures_gate_over, FiguresWithheld,
+    athlete_tenants, nutrition_figures_gate_over, FiguresWithheld, WithheldReason,
 };
 
 use super::recommendations::base_recommendations;
@@ -355,6 +355,16 @@ const EXTERNAL_RECOVERY_GUIDANCE: &[&str] = &[
     "Protein, carbohydrate and fluid amounts are not given over this connection",
 ];
 
+/// What a model the athlete keeps their health records from is told instead:
+/// the same foods and timing, and no word naming a flag or their clinician
+/// (carnet#1544).
+const HEALTH_RECORDS_RECOVERY_GUIDANCE: &[&str] = &[
+    RECOVERY_MEAL_TIMING,
+    REFUEL_TIMING,
+    "Rehydrate by drinking to thirst",
+    "Protein, carbohydrate and fluid amounts are withheld here; ask what you have been advised",
+];
+
 /// Build meal suggestions based on workout intensity. Every option sits in
 /// the same window: protein from immediately to 2 h after the session
 /// stimulates muscle protein synthesis robustly (Kerksick et al. 2017), and
@@ -438,10 +448,10 @@ pub fn generate_nutrition_recommendations(
                 (recommendations, build_meal_suggestions(intensity), targets)
             },
             |withheld| {
-                let guidance = if withheld.names_clinician() {
-                    WITHHELD_RECOVERY_GUIDANCE
-                } else {
-                    EXTERNAL_RECOVERY_GUIDANCE
+                let guidance = match withheld.reason {
+                    WithheldReason::MedicalFlag => WITHHELD_RECOVERY_GUIDANCE,
+                    WithheldReason::ExternalTransport => EXTERNAL_RECOVERY_GUIDANCE,
+                    WithheldReason::HealthRecordsWithheld => HEALTH_RECORDS_RECOVERY_GUIDANCE,
                 };
                 (
                     guidance.iter().map(|line| (*line).to_owned()).collect(),

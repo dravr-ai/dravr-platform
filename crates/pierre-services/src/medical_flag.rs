@@ -22,6 +22,12 @@
 //! that names no flag. Answering per athlete would let an outside caller read
 //! whether a flag is on file from the answer alone, and the flag is health
 //! information the athlete gave Dravr, not that caller (carnet#1565).
+//!
+//! On Dravr's own surfaces a model reads the flag only under the athlete's
+//! `sensitive_t2` (carnet#1544): without it a flagged athlete's amounts are
+//! still withheld, but the statement names no flag and no clinician
+//! ([`FiguresWithheld::health_records_withheld`]). The athlete's own screens
+//! read no AI and keep naming their clinician.
 
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
@@ -32,6 +38,8 @@ use pierre_providers::ai_scope;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::memory_tier::MemoryReach;
+
 /// Why an answer came back without its nutrition figures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -41,6 +49,9 @@ pub enum WithheldReason {
     /// Served outside Dravr's own apps and channels, where amounts are
     /// withheld for every athlete.
     ExternalTransport,
+    /// Read by a model the athlete keeps their health records from
+    /// (`sensitive_t2` not given): the reason is not shown.
+    HealthRecordsWithheld,
 }
 
 /// Who sets the withheld figures instead of the platform.
@@ -64,8 +75,11 @@ pub enum FigureAuthority {
 pub struct FiguresWithheld {
     /// `medical_flag`: a medical / PAR-Q flag is on file.
     /// `external_transport`: withheld for every athlete outside Dravr's apps.
+    /// `health_records_withheld`: the athlete keeps their health records from
+    /// AI, so the reason is not shown.
     pub reason: WithheldReason,
-    /// `clinician`: who sets these amounts; `not_stated` outside Dravr's apps.
+    /// `clinician`: who sets these amounts; `not_stated` outside Dravr's apps
+    /// or while the athlete keeps their health records from AI.
     pub set_by: FigureAuthority,
     /// What to tell the athlete, in plain words.
     pub note: String,
@@ -82,6 +96,14 @@ const MEDICAL_FLAG_NOTE: &str = "A medical/PAR-Q flag is on file for this athlet
 const EXTERNAL_TRANSPORT_NOTE: &str = "Energy, protein, carbohydrate, fat, fluid, sodium and \
      caffeine amounts are not given outside Dravr's own apps and channels, for any athlete, so \
      they were withheld here.";
+
+/// The note a model reads while the athlete keeps their health records from
+/// AI. It names no flag and no clinician of theirs, so it tells nothing of
+/// what is on file.
+const HEALTH_RECORDS_WITHHELD_NOTE: &str = "Energy, protein, carbohydrate, fat, fluid, sodium and \
+     caffeine amounts were withheld here. This athlete keeps their health records from AI, so \
+     the reason is not shown: ask what they have been advised about their intake and work \
+     inside it.";
 
 impl FiguresWithheld {
     /// The statement for an athlete with a medical flag on file.
@@ -105,9 +127,35 @@ impl FiguresWithheld {
         }
     }
 
+    /// The statement a model reads for an athlete with a medical flag on
+    /// file while they keep their health records from AI: amounts withheld,
+    /// no flag and no clinician named.
+    #[must_use]
+    pub fn health_records_withheld() -> Self {
+        Self {
+            reason: WithheldReason::HealthRecordsWithheld,
+            set_by: FigureAuthority::NotStated,
+            note: HEALTH_RECORDS_WITHHELD_NOTE.to_owned(),
+        }
+    }
+
+    /// The statement for an athlete with a medical flag on file, as the read
+    /// made now may hear it: [`Self::medical_flag`], or for a model the
+    /// athlete keeps their health records from,
+    /// [`Self::health_records_withheld`] (carnet#1544).
+    #[must_use]
+    pub fn for_flag() -> Self {
+        if MemoryReach::now().reads_medical() {
+            Self::medical_flag()
+        } else {
+            Self::health_records_withheld()
+        }
+    }
+
     /// Whether the amounts were withheld for this athlete's medical flag, so
     /// the surrounding words may name their clinician. `false` outside
-    /// Dravr's own surfaces, where the words must not differ by athlete.
+    /// Dravr's own surfaces, where the words must not differ by athlete, and
+    /// for a model the athlete keeps their health records from.
     #[must_use]
     pub const fn names_clinician(&self) -> bool {
         matches!(self.reason, WithheldReason::MedicalFlag)
@@ -223,5 +271,5 @@ pub async fn nutrition_figures_gate_over(
     }
     Ok(medical_flag_on_file(repos, tenants, user_id)
         .await?
-        .then(FiguresWithheld::medical_flag))
+        .then(FiguresWithheld::for_flag))
 }
