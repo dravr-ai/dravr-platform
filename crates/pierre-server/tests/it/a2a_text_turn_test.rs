@@ -18,6 +18,7 @@
 #![allow(missing_docs)]
 
 use crate::common::offline_provider_registry;
+use crate::tier_consent_test::allow_memory_to_ai;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -335,6 +336,14 @@ async fn seed_withheld(fx: &Fixture, rider: &Rider) {
         rider,
         OPEN_FACT,
         TransportPolicy::AnyTransport,
+    )
+    .await;
+    // An outside client's turn reads the agent's memory only under the
+    // athlete's `sensitive_t3` (carnet#1544); given here, so the facts run.
+    allow_memory_to_ai(
+        &fx.resources.common.repos,
+        rider.tenant.as_uuid(),
+        rider.user_id,
     )
     .await;
 }
