@@ -1,5 +1,5 @@
-// ABOUTME: GET families, POST session-preview and each session's draft/days/{date}/{n} writes under /api/chat/conversations/{id}/subject-plan
-// ABOUTME: Pins the catalogue's ranges, a warn-only preview, the writes, add, remove, restore, the coach's call, and every refusal by its reason
+// ABOUTME: GET families, POST session-preview, each session's draft/days/{date}/{n} writes, a date's revert and the history under …/subject-plan
+// ABOUTME: Pins the catalogue's ranges, a warn-only preview, the writes, add, remove, restore, the coach's call, revert, history, and every refusal
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -23,6 +23,11 @@
 //! choix »: the card says `coach_call`, never `edited`, the thread's agent
 //! reads it, an agent's save keeps it only on a session it writes unchanged,
 //! and publishing takes it live.
+//!
+//! carnet#1815. The coach puts the live plan's entries back on a date of the
+//! draft, whole (« Refuser »), and every change the coach or the thread's
+//! agent makes lands in the plan's history, newest first, the coach's own
+//! only.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -41,11 +46,14 @@ use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::TenantId;
+use pierre_database::backends::factory::DatabaseBackend;
+use pierre_database::repositories::{NewPlanChangeEvent, PlanChangeKind, PlanChangeSource};
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::ChatRoutes;
 use pierre_test_support::delegation::{create_group_agent, grant_coach_access};
 use pierre_tool_runtime::context::CONVERSATION_ID;
+use pierre_tool_runtime::implementations::training_plan_drafts::PublishTrainingPlanTool;
 use pierre_tool_runtime::implementations::training_plans::{
     GetTrainingPlanTool, SaveTrainingPlanTool,
 };
@@ -420,6 +428,50 @@ impl Fixture {
         .await
     }
 
+    /// `POST …/draft/dates/{date}/revert` on `conversation` as `auth`: the
+    /// live plan's entries put back on the date.
+    async fn revert_as(&self, conversation: &str, date: &str, auth: &str) -> (StatusCode, Value) {
+        self.request(
+            AxumTestRequest::post(&format!(
+                "{}/draft/dates/{date}/revert?locale=en",
+                Self::base(conversation)
+            )),
+            auth,
+        )
+        .await
+    }
+
+    /// The coach's own revert of `date` in their thread.
+    async fn revert(&self, date: &str) -> (StatusCode, Value) {
+        self.revert_as(&self.thread, date, &self.coach.auth).await
+    }
+
+    /// `GET …/subject-plan/history{query}` on `conversation` as `auth`.
+    async fn history_as(&self, conversation: &str, query: &str, auth: &str) -> (StatusCode, Value) {
+        self.request(
+            AxumTestRequest::get(&format!("{}/history{query}", Self::base(conversation))),
+            auth,
+        )
+        .await
+    }
+
+    /// The coach's history of their thread's athlete's plan, newest first,
+    /// read with `query`.
+    async fn history_page(&self, query: &str) -> Value {
+        let (status, body) = self.history_as(&self.thread, query, &self.coach.auth).await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "bug: the coach reads the history of their own thread's plan: {body}"
+        );
+        body
+    }
+
+    /// The coach's whole history, each change as `(kind, source, dates)`.
+    async fn history(&self) -> Vec<(String, String, Vec<String>)> {
+        changes(&self.history_page("?limit=100").await)
+    }
+
     async fn get_plan(&self) -> Value {
         let (status, body) = self
             .request(
@@ -439,6 +491,34 @@ impl Fixture {
     async fn has_draft(&self) -> bool {
         self.get_plan().await["draft_state"].is_object()
     }
+}
+
+/// Each change of a history page as `(kind, source, dates)`, newest first.
+fn changes(page: &Value) -> Vec<(String, String, Vec<String>)> {
+    page["events"]
+        .as_array()
+        .unwrap_or_else(|| panic!("a history page carries its events: {page}"))
+        .iter()
+        .map(|event| {
+            let text = |key: &str| event[key].as_str().unwrap_or_default().to_owned();
+            let dates = event["dates"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|date| date.as_str().unwrap_or_default().to_owned())
+                .collect();
+            (text("kind"), text("source"), dates)
+        })
+        .collect()
+}
+
+/// One change as [`changes`] lists it.
+fn change(kind: &str, source: &str, dates: &[&str]) -> (String, String, Vec<String>) {
+    (
+        kind.to_owned(),
+        source.to_owned(),
+        dates.iter().map(|date| (*date).to_owned()).collect(),
+    )
 }
 
 /// The `details.reason` of a refused route call.
@@ -526,6 +606,8 @@ async fn only_the_coachs_own_thread_about_an_athlete_opens_the_editor() {
         fx.add_session(&fx.thread, &date, added.clone(), owner)
             .await,
         fx.coach_call_as(&fx.thread, at, true, &expect, owner).await,
+        fx.revert_as(&fx.thread, &date, owner).await,
+        fx.history_as(&fx.thread, "", owner).await,
     ] {
         assert_eq!(
             status,
@@ -561,6 +643,8 @@ async fn only_the_coachs_own_thread_about_an_athlete_opens_the_editor() {
         fx.remove(&plain, at, &expect, coach).await,
         fx.add_session(&plain, &date, added.clone(), coach).await,
         fx.coach_call_as(&plain, at, true, &expect, coach).await,
+        fx.revert_as(&plain, &date, coach).await,
+        fx.history_as(&plain, "", coach).await,
     ] {
         assert_eq!(
             status,
@@ -596,6 +680,7 @@ async fn only_the_coachs_own_thread_about_an_athlete_opens_the_editor() {
             "coach's call",
             fx.coach_call_as(&fx.thread, at, true, &expect, &key).await,
         ),
+        ("revert", fx.revert_as(&fx.thread, &date, &key).await),
     ] {
         assert_eq!(
             status,
@@ -2046,5 +2131,427 @@ async fn a_coachs_call_marks_its_session_reaches_the_agent_and_goes_live() {
     assert!(
         !called_on(&off["draft"]) && called_on(&off["live"]),
         "bug: taking the call off opens a draft without it and leaves the live plan: {off}"
+    );
+}
+
+#[tokio::test]
+async fn a_date_reverts_to_the_live_plan_whole_and_nothing_is_written_when_nothing_differs() {
+    let fx = Fixture::new(true).await;
+    let date = ymd(monday(1) + Elapsed::days(2));
+
+    // With no draft there is nothing to put back, and no draft is opened.
+    let (status, untouched) = fx.revert(&date).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "bug: a revert with no draft answers the plan as it stands: {untouched}"
+    );
+    assert!(
+        untouched["draft"].is_null() && !fx.has_draft().await,
+        "bug: a revert with nothing to put back opened a draft: {untouched}"
+    );
+
+    // The agent proposes its own week; the coach adds a session beside
+    // Dravr's on the date and makes their call on it.
+    let saved = call(
+        &fx.res,
+        &fx.coach,
+        &SaveTrainingPlanTool,
+        Some(&fx.thread),
+        json!({ "weeks": [week(monday(1), COACH_WORKOUT)] }),
+    )
+    .await;
+    assert_eq!(
+        saved["draft"], true,
+        "fixture: the agent saves its week into the coach's draft: {saved}"
+    );
+    let coach = fx.coach.auth.as_str();
+    let (status, added) = fx
+        .add_session(&fx.thread, &date, json!({ "day": core_twenty() }), coach)
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "fixture: the coach adds a session: {added}"
+    );
+    let coached = json!({ "sport": "run", "workout": COACH_WORKOUT });
+    let (status, called) = fx.coach_call((&date, 0), true, &coached).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "fixture: the coach makes their call on Dravr's session: {called}"
+    );
+    assert_eq!(
+        placed_on(&called["draft"], &date),
+        [
+            (COACH_WORKOUT.to_owned(), 0, false),
+            ("Core 20 min".to_owned(), 1, true)
+        ],
+        "fixture: the date holds Dravr's session and the coach's"
+    );
+
+    // Refused: every entry on the date is the live plan's again, whole.
+    let (status, reverted) = fx.revert(&date).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "bug: the coach puts the live plan back on the date: {reverted}"
+    );
+    assert_eq!(
+        entries_of(&reverted["draft"], &date),
+        entries_of(&reverted["live"], &date),
+        "bug: the date of the draft reads exactly as the live plan's, marks and call gone: {reverted}"
+    );
+    assert_eq!(
+        placed_on(&reverted["draft"], &date),
+        [(ATHLETE_WORKOUT.to_owned(), 0, false)],
+        "bug: the coach's added session went with the date's entries: {reverted}"
+    );
+    for offset in [0, 1, 3, 4, 5, 6] {
+        let other = day_of(&reverted["draft"], &ymd(monday(1) + Elapsed::days(offset)));
+        assert_eq!(
+            other["workout"], COACH_WORKOUT,
+            "bug: the revert touched another date of the week: {other}"
+        );
+    }
+    assert_eq!(
+        reverted["draft_state"]["draft_id"], added["draft_state"]["draft_id"],
+        "bug: the revert wrote into another draft: {reverted}"
+    );
+    assert_eq!(
+        fx.get_plan().await,
+        reverted,
+        "bug: the write's answer is not the subject plan as the read gives it"
+    );
+
+    // Nothing differs any more: nothing is written, and the plan answered is
+    // the same, its draft's stamp included. A date of a week the draft never
+    // wrote shows the live plan through: nothing to put back there either.
+    let (status, again) = fx.revert(&date).await;
+    assert_eq!(
+        (status, &again),
+        (StatusCode::OK, &reverted),
+        "bug: a date already holding the live entries was written again"
+    );
+    let (status, through) = fx.revert(&ymd(monday(0) + Elapsed::days(2))).await;
+    assert_eq!(
+        (status, &through),
+        (StatusCode::OK, &reverted),
+        "bug: a date the draft never wrote was written"
+    );
+
+    // A date the live plan holds nothing on is left empty in the draft: here
+    // the athlete has no plan, and the agent lays one in the coach's draft.
+    let bare = Fixture::new(false).await;
+    let laid = call(
+        &bare.res,
+        &bare.coach,
+        &SaveTrainingPlanTool,
+        Some(&bare.thread),
+        json!({
+            "outline": {
+                "goal_race": { "name": "Coach Race", "date": "2027-05-16", "discipline": "trail", "priority": "A" },
+                "strategy": "the coach's season",
+            },
+            "weeks": [week(monday(1), COACH_WORKOUT)],
+        }),
+    )
+    .await;
+    assert_eq!(
+        laid["draft"], true,
+        "fixture: the agent lays a plan in the coach's draft: {laid}"
+    );
+    let (status, emptied) = bare.revert(&date).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "bug: the coach refuses a date the live plan holds nothing on: {emptied}"
+    );
+    assert!(
+        emptied["live"].is_null() && entries_of(&emptied["draft"], &date).is_empty(),
+        "bug: a date the live plan holds nothing on is left empty in the draft: {emptied}"
+    );
+    assert_eq!(
+        day_of(&emptied["draft"], &ymd(monday(1) + Elapsed::days(3)))["workout"],
+        COACH_WORKOUT,
+        "bug: emptying one date touched the next: {emptied}"
+    );
+
+    let (status, body) = fx.revert("2026-13-01").await;
+    assert_eq!(
+        (status, reason(&body)),
+        (StatusCode::BAD_REQUEST, "invalid_date"),
+        "bug: a revert of no date is refused by its reason: {body}"
+    );
+}
+
+#[tokio::test]
+async fn every_change_lands_in_the_history_newest_first_and_only_the_coachs_own() {
+    let fx = Fixture::new(true).await;
+    let date = ymd(monday(1) + Elapsed::days(2));
+    let week_dates: Vec<String> = (0..7)
+        .map(|offset| ymd(monday(1) + Elapsed::days(offset)))
+        .collect();
+    let others: Vec<&str> = week_dates
+        .iter()
+        .map(String::as_str)
+        .filter(|day| *day != date)
+        .collect();
+    let coach = fx.coach.auth.as_str();
+    assert!(
+        fx.history().await.is_empty(),
+        "bug: a plan nobody changed has a history"
+    );
+
+    // The agent's save names the dates it changed; the same save again
+    // changes none and records nothing.
+    for _ in 0..2 {
+        let saved = call(
+            &fx.res,
+            &fx.coach,
+            &SaveTrainingPlanTool,
+            Some(&fx.thread),
+            json!({ "weeks": [week(monday(1), COACH_WORKOUT)] }),
+        )
+        .await;
+        assert_eq!(
+            saved["draft"], true,
+            "fixture: the agent saves into the coach's draft: {saved}"
+        );
+    }
+
+    // The coach's own day writes, each naming its date. A call already made
+    // writes nothing and records nothing.
+    let coached = json!({ "sport": "run", "workout": COACH_WORKOUT });
+    let (status, body) = fx
+        .put_hand_session(&fx.thread, (&date, 0), easy_fifty(), &coached, coach)
+        .await;
+    assert_eq!(status, StatusCode::OK, "fixture: a hand edit: {body}");
+    let easy = json!({ "sport": "run", "workout": "Easy 50 min" });
+    for _ in 0..2 {
+        let (status, body) = fx.coach_call((&date, 0), true, &easy).await;
+        assert_eq!(status, StatusCode::OK, "fixture: the coach's call: {body}");
+    }
+    let (status, body) = fx
+        .add_session(&fx.thread, &date, json!({ "day": core_twenty() }), coach)
+        .await;
+    assert_eq!(status, StatusCode::OK, "fixture: an added session: {body}");
+    let core = json!({ "sport": "strength", "workout": "Core 20 min" });
+    let (status, body) = fx.remove(&fx.thread, (&date, 1), &core, coach).await;
+    assert_eq!(status, StatusCode::OK, "fixture: a removed session: {body}");
+    let (status, body) = fx.restore(&fx.thread, (&date, 0), &easy, coach).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "fixture: a restored session: {body}"
+    );
+    let (status, body) = fx.revert(&date).await;
+    assert_eq!(status, StatusCode::OK, "fixture: a reverted date: {body}");
+
+    // The publish names the dates it changed over the live plan: the week's
+    // others, the reverted date being the athlete's own again.
+    let (status, body) = fx
+        .request(
+            AxumTestRequest::post(&format!("{}/publish", Fixture::base(&fx.thread)))
+                .json(&json!({ "overwrite_athlete_changes": false })),
+            coach,
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "fixture: the coach publishes: {body}"
+    );
+
+    // A new draft, thrown away by the thread's agent on the coach's word.
+    let (status, body) = fx
+        .put_hand_session(
+            &fx.thread,
+            (&date, 0),
+            easy_fifty(),
+            &athletes_session(),
+            coach,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "fixture: a new draft: {body}");
+    let discarded = call(
+        &fx.res,
+        &fx.coach,
+        &PublishTrainingPlanTool,
+        Some(&fx.thread),
+        json!({ "action": "discard" }),
+    )
+    .await;
+    assert_eq!(
+        discarded["status"], "discarded",
+        "fixture: the agent discards the coach's draft: {discarded}"
+    );
+
+    let day = [date.as_str()];
+    let expected = vec![
+        change("discard", "agent", &[]),
+        change("day_edit", "coach", &day),
+        change("publish", "coach", &others),
+        change("date_revert", "coach", &day),
+        change("day_restore", "coach", &day),
+        change("day_remove", "coach", &day),
+        change("day_add", "coach", &day),
+        change("coach_call", "coach", &day),
+        change("day_edit", "coach", &day),
+        change(
+            "agent_draft",
+            "agent",
+            &week_dates.iter().map(String::as_str).collect::<Vec<_>>(),
+        ),
+    ];
+    assert_eq!(
+        fx.history().await,
+        expected,
+        "bug: every change that landed is in the history, newest first, and none that wrote nothing"
+    );
+
+    // Each change reads as kind, source, dates and when it landed — and
+    // nothing of the plan's content.
+    let newest = fx.history_page("").await;
+    let first = &newest["events"][0];
+    let mut keys: Vec<&str> = first
+        .as_object()
+        .unwrap_or_else(|| panic!("a change is an object: {first}"))
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        ["created_at", "dates", "kind", "source"],
+        "bug: a change carries exactly its kind, source, dates and stamp: {first}"
+    );
+    assert_eq!(
+        newest["events"].as_array().map(Vec::len),
+        Some(expected.len()),
+        "bug: the default page holds every change of a short history: {newest}"
+    );
+
+    // Paged: the newest three, then the three before the oldest of those.
+    let page = fx.history_page("?limit=3").await;
+    assert_eq!(
+        changes(&page),
+        expected[..3],
+        "bug: a limited page holds the newest changes: {page}"
+    );
+    let oldest = page["events"][2]["created_at"].as_str().unwrap().to_owned();
+    let next = fx
+        .history_page(&format!("?limit=3&before={}", urlencoding::encode(&oldest)))
+        .await;
+    assert_eq!(
+        changes(&next),
+        expected[3..6],
+        "bug: the page before a change holds the three older ones: {next}"
+    );
+    assert_eq!(
+        changes(&fx.history_page("?limit=0").await),
+        expected[..1],
+        "bug: a limit under one reads one change"
+    );
+    assert_eq!(
+        changes(&fx.history_page("?limit=1000").await),
+        expected,
+        "bug: a limit past the cap reads at most the cap"
+    );
+    let (status, body) = fx.history_as(&fx.thread, "?before=yesterday", coach).await;
+    assert_eq!(
+        (status, reason(&body)),
+        (StatusCode::BAD_REQUEST, "invalid_before"),
+        "bug: a before that is no instant is refused by its reason: {body}"
+    );
+
+    // Another coach's change on the same athlete, and this coach's under
+    // another tenant, are never this coach's history.
+    let recorded = |tenant: TenantId, coach: Uuid| NewPlanChangeEvent {
+        tenant,
+        athlete: fx.subject.id,
+        coach,
+        source: PlanChangeSource::Coach,
+        kind: PlanChangeKind::DayEdit,
+        dates: &[],
+        created_at: Timestamp::now(),
+    };
+    for event in [
+        recorded(fx.subject.tenant, fx.owner.id),
+        recorded(fx.owner.tenant, fx.coach.id),
+    ] {
+        fx.repos()
+            .plan_change_events
+            .record_plan_change(&event)
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        fx.history().await,
+        expected,
+        "bug: another coach's change, or another tenant's, reached this coach's history"
+    );
+}
+
+#[tokio::test]
+async fn a_history_write_that_fails_never_fails_the_change_it_records() {
+    let fx = Fixture::new(true).await;
+    let date = ymd(monday(1) + Elapsed::days(2));
+    let coach = fx.coach.auth.as_str();
+
+    // The history table going away is the failure: every record from here
+    // on is refused by the database, after the change it records landed.
+    match fx.res.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
+            sqlx::query("DROP TABLE plan_change_events")
+                .execute(sqlite.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(postgres) => {
+            sqlx::query("DROP TABLE plan_change_events")
+                .execute(postgres.pool())
+                .await
+                .unwrap();
+        }
+    }
+
+    let (status, edited) = fx
+        .put_hand_session(
+            &fx.thread,
+            (&date, 0),
+            easy_fifty(),
+            &athletes_session(),
+            coach,
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "bug: a coach's day write failed on its history record: {edited}"
+    );
+    assert_eq!(
+        day_of(&edited["draft"], &date)["workout"],
+        "Easy 50 min",
+        "bug: the day write is answered as it landed: {edited}"
+    );
+
+    let (status, published) = fx
+        .request(
+            AxumTestRequest::post(&format!("{}/publish", Fixture::base(&fx.thread)))
+                .json(&json!({ "overwrite_athlete_changes": false })),
+            coach,
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "bug: a publish failed on its history record: {published}"
+    );
+    let after = fx.get_plan().await;
+    assert!(
+        after["draft"].is_null() && day_of(&after["live"], &date)["workout"] == "Easy 50 min",
+        "bug: the publish landed whole though its history record failed: {after}"
     );
 }

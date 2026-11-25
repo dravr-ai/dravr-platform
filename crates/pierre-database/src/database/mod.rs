@@ -131,6 +131,8 @@ pub mod peer_data_reads;
 pub mod persona_digest_returns;
 /// Personal bests at the standard running distances and the runs scanned for them (`SQLite`)
 pub mod personal_bests;
+/// The history of changes to an athlete's plan in a coach's workspace (`SQLite`)
+pub mod plan_change_events;
 /// The once-claims on the coach's own posts to an athlete (`SQLite`)
 pub mod platform_post_claims;
 /// `SQLite` `PlaybookRepository` impl — procedural coaching memory.

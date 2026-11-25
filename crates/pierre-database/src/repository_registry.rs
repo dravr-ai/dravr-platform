@@ -31,12 +31,13 @@ use crate::repositories::{
     MessagingRepository, MobilityRepository, NotificationRepository, OAuth2ServerRepository,
     OAuthClientStateRepository, OAuthGrantEventRepository, OAuthStandingPolicyRepository,
     OAuthTokenRepository, PasswordResetRepository, PeerDataReadRepository,
-    PersonaDigestReturnRepository, PersonalBestRepository, PlatformPostClaimRepository,
-    PlaybookRepository, PreApprovedEmailRepository, PrescribedWorkoutRepository, ProfileRepository,
-    ProviderConnectionRepository, ProviderDataRepository, PushedDataRepository, RecipeRepository,
-    RecoveryRepository, ResumableTurnRepository, RouteSummaryRepository, RoutineRepository,
-    SecurityRepository, SeederRepository, SessionRefreshTokenRepository, ShortLinkRepository,
-    SignupCodeRepository, SignupCohortRepository, SleepRepository, StoreListingsRepository,
+    PersonaDigestReturnRepository, PersonalBestRepository, PlanChangeEventRepository,
+    PlatformPostClaimRepository, PlaybookRepository, PreApprovedEmailRepository,
+    PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository,
+    ProviderDataRepository, PushedDataRepository, RecipeRepository, RecoveryRepository,
+    ResumableTurnRepository, RouteSummaryRepository, RoutineRepository, SecurityRepository,
+    SeederRepository, SessionRefreshTokenRepository, ShortLinkRepository, SignupCodeRepository,
+    SignupCohortRepository, SleepRepository, StoreListingsRepository,
     StravaSeatReclaimWarningRepository, SubscriptionsRepository, SyncCursorRepository,
     SystemSettingsRepository, TenantRepository, ToolSelectionRepository, TrainingHistoryRepository,
     TrainingPlanRepository, UnitPreferencesRepository, UploadedActivityFileRepository,
@@ -117,6 +118,9 @@ pub struct RepositoryRegistry {
     /// A member's record of fellow group members reading their data under
     /// their peer consent, purged with the coach reads (carnet#1543)
     pub peer_data_reads: Arc<dyn PeerDataReadRepository>,
+    /// The history of changes a coach and the thread's agent made to an
+    /// athlete's plan in the coach's workspace (carnet#1815)
+    pub plan_change_events: Arc<dyn PlanChangeEventRepository>,
     /// Recipe CRUD with nutrition
     pub recipes: Arc<dyn RecipeRepository>,
     /// RSA keypairs, key rotation, audit events
@@ -369,6 +373,7 @@ impl RepositoryRegistry {
             calendar_preferences: db.clone(),
             coach_data_reads: db.clone(),
             peer_data_reads: db.clone(),
+            plan_change_events: db.clone(),
             recipes: db.clone(),
             security: db.clone(),
             session_refresh_tokens: db.clone(),
@@ -492,6 +497,7 @@ impl RepositoryRegistry {
             calendar_preferences: db.clone(),
             coach_data_reads: db.clone(),
             peer_data_reads: db.clone(),
+            plan_change_events: db.clone(),
             recipes: db.clone(),
             security: db.clone(),
             session_refresh_tokens: db.clone(),

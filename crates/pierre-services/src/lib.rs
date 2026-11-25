@@ -95,6 +95,8 @@ pub mod coach_plan_room_post;
 /// The seam through which a group's own bound chat is posted into; implemented in `pierre-server` over the messaging adapters.
 pub mod group_chat_poster;
 
+/// The history of changes a coach and the thread's agent make to an athlete's plan (carnet#1815).
+pub mod plan_change_history;
 /// The goal-race fact a live plan converges on, and the superseded ones it retires.
 pub mod plan_goal_fact;
 

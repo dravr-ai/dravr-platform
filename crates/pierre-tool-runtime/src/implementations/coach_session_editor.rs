@@ -46,6 +46,13 @@
 //! of the session: nothing is snapshotted, and the mark goes live with the
 //! draft.
 //!
+//! The coach refuses what the draft proposes on a date by putting the live
+//! plan's entries back on it ([`revert_draft_date`], carnet#1815).
+//!
+//! Every write that lands is recorded in the plan's change history as the
+//! coach's, naming the date it wrote ([`record_plan_change`]); a write that
+//! writes nothing records nothing.
+//!
 //! No number is derived here: the kernel builds the steps, measures them and
 //! derives the values; this module chooses which kernel call and words them.
 //! A value outside the preset's range is built and measured, never refused
@@ -71,7 +78,9 @@ use pierre_core::models::periodization::{
 };
 use pierre_core::models::{HeldAnchors, UnitSystem, WorkoutStep};
 use pierre_database::repositories::training_plans::PlanAuthor;
-use pierre_database::repositories::{PlanWeekInput, SaveDraftParams, SavedDraftBundle};
+use pierre_database::repositories::{
+    PlanChangeKind, PlanChangeSource, PlanWeekInput, SaveDraftParams, SavedDraftBundle,
+};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek, PlannedDay};
 use pierre_providers::ai_scope;
@@ -80,6 +89,7 @@ use pierre_services::athlete_anchors::stored_athlete_anchors;
 use pierre_services::coach_plan_draft::{coach_plan_view, CoachDraftTarget};
 use pierre_services::plan_calendar_push::plan_sport;
 use pierre_services::plan_card::{self, DayEvidence, TemplateValues};
+use pierre_services::plan_change_history::{record_plan_change, PlanChange};
 use pierre_services::plan_fueling::FuelingDisclosure;
 use pierre_services::provider_notice;
 use pierre_services::units::resolve_user_units;
@@ -92,9 +102,11 @@ use super::training_plan_vision::{check_template_params, instantiate_template_da
 use crate::envelope_words::{anchor_sentence, finding_sentence, stated_param};
 use crate::runtime::ToolRuntime;
 
+mod date_revert;
 mod day_edits;
 mod sessions;
 
+pub use date_revert::revert_draft_date;
 pub use day_edits::{
     add_draft_session, remove_draft_day, restore_draft_day, save_draft_coach_call,
     save_draft_hand_day, AddedSession, HandDay,
@@ -326,8 +338,10 @@ pub struct SessionFinding {
 pub enum DraftDayOutcome {
     /// The day is in the coach's draft.
     Saved,
-    /// The session already stood as the write asked (carnet#1814): nothing
-    /// was written, and no draft was opened for it.
+    /// What the write asked for already stood — a session already carrying
+    /// the call asked (carnet#1814), a date already holding the live plan's
+    /// entries or no draft to put them back into (carnet#1815): nothing was
+    /// written, and no draft was opened for it.
     Unchanged,
     /// The athlete has no live plan and the coach no draft: there is no week
     /// to write the day into. Nothing was written.
@@ -727,7 +741,11 @@ pub async fn save_draft_day(
         let mut made = build_day(&catalogue, build, date, position, label, anchors.as_ref())?;
         stamp_edit(&mut made.day, replaced);
         let days = placed(&week.days, Some(index), made.day)?;
-        let saved = save_days_into_week(repos, thread, &week, &days).await?;
+        let change = DayChange {
+            kind: PlanChangeKind::DayEdit,
+            date,
+        };
+        let saved = save_days_into_week(repos, thread, &week, &days, change).await?;
         info!(
             athlete_user_id = %target.athlete(),
             coach_user_id = %target.coach(),
@@ -790,10 +808,23 @@ async fn week_holding(
         .ok_or(DraftDayOutcome::NoPlanWeek))
 }
 
+/// Which of the coach's day writes saved a week, and the date it wrote: what
+/// the plan's change history records of it (carnet#1815).
+#[derive(Debug, Clone, Copy)]
+struct DayChange {
+    /// What kind of change the write made.
+    kind: PlanChangeKind,
+    /// The date it wrote.
+    date: CivilDate,
+}
+
 /// Save `days` as `week` of the coach's draft, and only that week, its
 /// other fields as they stand. The draft opens from the live plan when the
 /// coach holds none ([`SaveDraftParams`] with no outline), authored by the
 /// thread's agent and stamped from what the write read.
+///
+/// The saved write is recorded in the plan's change history as the coach's
+/// `change` ([`record_plan_change`]), which never fails the save.
 ///
 /// # Errors
 ///
@@ -803,8 +834,9 @@ async fn save_days_into_week(
     thread: &EditorThread,
     week: &PlanWeek,
     days: &[PlannedDay],
+    change: DayChange,
 ) -> AppResult<SavedDraftBundle> {
-    repos
+    let saved = repos
         .training_plans
         .save_draft_bundle(&SaveDraftParams {
             owner: thread.target.owner(),
@@ -820,7 +852,14 @@ async fn save_days_into_week(
             }],
             transport_policy: ai_scope::derived_policy(),
         })
-        .await
+        .await?;
+    let recorded = PlanChange {
+        source: PlanChangeSource::Coach,
+        kind: change.kind,
+        dates: &[change.date],
+    };
+    record_plan_change(repos, &thread.target, recorded).await;
+    Ok(saved)
 }
 
 /// Whether `week` holds `date`: its first day or one of the six after it.

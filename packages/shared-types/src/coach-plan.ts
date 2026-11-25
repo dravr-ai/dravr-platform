@@ -1,5 +1,5 @@
-// ABOUTME: Wire shapes of a coach's plan draft for one athlete — the draft state, the subject plan read, publish and its conflict
-// ABOUTME: Mirrors the subject-plan routes of carnet#1069/#1070; each parser rejects a body of any other shape instead of rendering half of it
+// ABOUTME: Wire shapes of a coach's plan draft for one athlete — the draft state, the subject plan read, publish, its conflict, the change history
+// ABOUTME: Mirrors the subject-plan routes of carnet#1069/#1070/#1815; each parser rejects a body of any other shape instead of rendering half of it
 
 import { instantMs } from './instant.js';
 import { isWorkoutPlan, type WorkoutPlan } from './workout-plan.js';
@@ -139,7 +139,69 @@ export type PublishSubjectPlanResult =
   | { status: 'published'; published: PublishedSubjectPlan }
   | { status: 'conflict'; conflict: PlanPublishConflict };
 
+/**
+ * What kind of change was made to an athlete's plan in the coach's
+ * workspace (carnet#1815): a session of the draft rewritten (`day_edit`),
+ * added, removed or put back as it stood (`day_restore`); a date put back to
+ * the live plan (`date_revert`); the coach's call made or taken off; weeks
+ * or an outline the agent saved into the draft (`agent_draft`); the draft
+ * published or discarded.
+ */
+export type PlanChangeKind =
+  | 'day_edit'
+  | 'day_add'
+  | 'day_remove'
+  | 'day_restore'
+  | 'date_revert'
+  | 'coach_call'
+  | 'agent_draft'
+  | 'publish'
+  | 'discard';
+
+/** Who made a change: the coach, or the thread's agent on the coach's word. */
+export type PlanChangeSource = 'coach' | 'agent';
+
+/** One change to the athlete's plan, as the coach's thread lists it. */
+export interface PlanChangeEvent {
+  kind: PlanChangeKind;
+  source: PlanChangeSource;
+  /** The dates it touched, `YYYY-MM-DD`, ascending; empty for a discard or an outline re-laid alone. */
+  dates: string[];
+  /** When it landed (RFC 3339): the `before` of the next, older page. */
+  created_at: string;
+}
+
+/**
+ * `GET /api/chat/conversations/{id}/subject-plan/history`: the changes the
+ * coach and the thread's agent made to the athlete's plan, newest first.
+ */
+export interface SubjectPlanHistory {
+  events: PlanChangeEvent[];
+}
+
+/** Which page of the history to read: before the oldest change the client holds, and how many. */
+export interface SubjectPlanHistoryQuery {
+  /** The `created_at` of the oldest change the client holds; absent for the newest. */
+  before?: string;
+  /** How many, `1..100`; the server answers 50 when absent. */
+  limit?: number;
+}
+
 const CIVIL_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+const PLAN_CHANGE_KINDS: readonly PlanChangeKind[] = [
+  'day_edit',
+  'day_add',
+  'day_remove',
+  'day_restore',
+  'date_revert',
+  'coach_call',
+  'agent_draft',
+  'publish',
+  'discard',
+];
+
+const PLAN_CHANGE_SOURCES: readonly PlanChangeSource[] = ['coach', 'agent'];
 
 const CONFLICT_REASONS: readonly DraftConflictReason[] = ['athlete_changed_week'];
 
@@ -322,4 +384,35 @@ export function parsePlanPublishConflict(body: unknown): PlanPublishConflict | n
   const conflicts = parseConflicts(body.conflicts);
   if (conflicts === null) return null;
   return { error_code: PLAN_PUBLISH_CONFLICT, conflicts, season_relaid: body.season_relaid };
+}
+
+/** One change of the history, or `null` when it breaks its contract. */
+function parsePlanChangeEvent(value: unknown): PlanChangeEvent | null {
+  if (!isRecord(value) || typeof value.created_at !== 'string' || Number.isNaN(instantMs(value.created_at))) {
+    return null;
+  }
+  const kind = PLAN_CHANGE_KINDS.find((known) => known === value.kind);
+  const source = PLAN_CHANGE_SOURCES.find((known) => known === value.source);
+  const { dates } = value;
+  if (
+    kind === undefined ||
+    source === undefined ||
+    !Array.isArray(dates) ||
+    !dates.every((date): date is string => typeof date === 'string' && CIVIL_DATE.test(date))
+  ) {
+    return null;
+  }
+  return { kind, source, dates: [...dates], created_at: value.created_at };
+}
+
+/** The subject plan's change history, or `null` when the body breaks its contract. */
+export function parseSubjectPlanHistory(body: unknown): SubjectPlanHistory | null {
+  if (!isRecord(body) || !Array.isArray(body.events)) return null;
+  const events: PlanChangeEvent[] = [];
+  for (const entry of body.events) {
+    const event = parsePlanChangeEvent(entry);
+    if (event === null) return null;
+    events.push(event);
+  }
+  return { events };
 }

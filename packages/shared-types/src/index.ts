@@ -197,7 +197,7 @@ export { parseWorkoutPlan } from './workout-plan.js';
 // An RFC 3339 instant as epoch milliseconds, read the same in the browser and on Hermes
 export { instantMs } from './instant.js';
 
-// A coach's plan draft for one athlete: its state, the subject-plan read, publish and its conflict
+// A coach's plan draft for one athlete: its state, the subject-plan read, publish, its conflict, the change history
 export type {
   DraftConflictReason,
   DraftConflict,
@@ -212,6 +212,11 @@ export type {
   PublishedSubjectPlan,
   PlanPublishConflict,
   PublishSubjectPlanResult,
+  PlanChangeKind,
+  PlanChangeSource,
+  PlanChangeEvent,
+  SubjectPlanHistory,
+  SubjectPlanHistoryQuery,
 } from './coach-plan.js';
 export {
   cardShowsOpenDraft,
@@ -221,6 +226,7 @@ export {
   parseAthletePlanResponse,
   parsePublishedSubjectPlan,
   parsePlanPublishConflict,
+  parseSubjectPlanHistory,
 } from './coach-plan.js';
 
 // A coach's "build from family" editor: the family catalogue, a session's preview, the draft-day write (carnet#1515)

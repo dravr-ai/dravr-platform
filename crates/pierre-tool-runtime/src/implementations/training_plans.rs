@@ -869,6 +869,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                         goal_fact_id: goal_fact_id.as_deref(),
                         outline: outline_input,
                         weeks: &week_inputs,
+                        written_over: &written_over,
                         ignored_arguments,
                     },
                 ));

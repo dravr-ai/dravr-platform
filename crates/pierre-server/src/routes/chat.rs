@@ -12,8 +12,8 @@
 //! - [`chat::participants`] — who is in a conversation: list / add / remove
 //! - [`chat::personal`] — the caller's personal thread and the topics "+" opens in it
 //! - [`chat::subject_thread`] — a group's coach's thread about one athlete, opened or reopened
-//! - [`chat::subject_plan`] — in that thread, the coach's draft of the athlete's plan: read, publish, discard
-//! - [`chat::subject_session`] — in that thread, a session of the draft: built from a workout family (families, preview, save), written by hand, put back, removed or added
+//! - [`chat::subject_plan`] — in that thread, the coach's draft of the athlete's plan: read, publish, discard, and the history of its changes
+//! - [`chat::subject_session`] — in that thread, a session of the draft: built from a workout family (families, preview, save), written by hand, put back, removed or added; a date put back to the live plan
 //! - [`chat::athlete_physiology`] — the same coach reads and sets the athlete's thresholds from Group info
 //! - [`chat::read_marker`] — the caller's read marker: mark read / mark unread
 //! - [`chat::starters`] — the use-case starters an empty thread offers
@@ -194,6 +194,18 @@ impl ChatRoutes {
             .route(
                 "/api/chat/conversations/{conversation_id}/subject-plan/draft/days/{date}/{position}/coach-call",
                 put(subject_session::put_subject_draft_coach_call),
+            )
+            // A date of the draft put back to the live plan, whole: the
+            // workspace's « Refuser » on a date the agent proposed; and the
+            // changes the coach and the thread's agent made to the plan,
+            // newest first (carnet#1815)
+            .route(
+                "/api/chat/conversations/{conversation_id}/subject-plan/draft/dates/{date}/revert",
+                post(subject_session::revert_subject_draft_date),
+            )
+            .route(
+                "/api/chat/conversations/{conversation_id}/subject-plan/history",
+                get(subject_plan::get_subject_plan_history),
             )
             // The use-case starters an empty thread offers, ranked from the
             // athlete's state (carnet#829)

@@ -35,7 +35,9 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::training_plans::PlanAuthor;
-use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SaveDraftParams};
+use pierre_database::repositories::{
+    PlanChangeKind, PlanChangeSource, PlanOutlineInput, PlanWeekInput, SaveDraftParams,
+};
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_schema::PropertySchema;
 use pierre_memory::training_plans::PlanWeek;
@@ -47,6 +49,7 @@ use pierre_services::coach_plan_draft::{
 use pierre_services::coach_plan_room_post::{
     plan_change, post_plan_published, PlanRoomPost, RoomPostOutcome,
 };
+use pierre_services::plan_change_history::{self, record_plan_change, PlanChange};
 use pierre_services::plan_fueling::FuelingDisclosure;
 use pierre_tools_core::ToolResult;
 use serde_json::{json, Value};
@@ -88,6 +91,10 @@ pub(super) struct DraftSave<'a> {
     pub(super) outline: Option<PlanOutlineInput<'a>>,
     /// The weeks.
     pub(super) weeks: &'a [PlanWeekInput<'a>],
+    /// The weeks the save writes over: the coach's draft over the live plan,
+    /// else the live weeks the draft opens from. What the plan's change
+    /// history compares the saved weeks with (carnet#1815).
+    pub(super) written_over: &'a [PlanWeek],
     /// Argument keys the tool does not declare, reported back.
     pub(super) ignored_arguments: Vec<String>,
 }
@@ -100,6 +107,11 @@ pub(super) struct DraftSave<'a> {
 /// the two safety-shaped findings on the draft view ([`draft_plan_safety`]),
 /// so the coach learns of a ramp spike or crowded hard days while the draft
 /// is still theirs to change.
+///
+/// A save that changed a date or laid an outline is recorded in the plan's
+/// change history as the agent's, naming the dates whose sessions it changed
+/// over the weeks it wrote over (carnet#1815); a save that changed neither
+/// records nothing.
 ///
 /// # Errors
 ///
@@ -139,6 +151,15 @@ pub(super) async fn save_into_draft(
         weeks_saved = saved.weeks.len(),
         "coach saved into their draft of a coached athlete's plan"
     );
+    let dates = plan_change_history::dates_changed(save.written_over, &saved.weeks);
+    if laid_outline || !dates.is_empty() {
+        let change = PlanChange {
+            source: PlanChangeSource::Agent,
+            kind: PlanChangeKind::AgentDraft,
+            dates: &dates,
+        };
+        record_plan_change(repos, target, change).await;
+    }
     let safety = draft_plan_safety(state, repos, target, &saved, laid_outline).await;
     let athlete = save.athlete;
     let weeks = saved_weeks(&saved.weeks);
@@ -234,6 +255,10 @@ pub struct DraftPublish<'req> {
     pub athlete: Option<&'req str>,
     /// What published, as the calendar push's notify events name it.
     pub trigger: &'static str,
+    /// Who published, as the plan's change history records it (carnet#1815).
+    ///
+    /// The coach's own button, or the thread's agent on the coach's word.
+    pub source: PlanChangeSource,
 }
 
 /// What [`publish_draft_live`] came to.
@@ -280,14 +305,21 @@ pub async fn publish_draft_live(
     let notifications = state.notification_service();
     #[cfg(not(feature = "client-notifications"))]
     let notifications = None;
-    let published =
-        match publish_coach_draft(repos, notifications, target, publish.overwrite).await? {
-            CoachDraftPublish::Published(published) => *published,
-            CoachDraftPublish::Conflict(standing) => {
-                return Ok(DraftPublishOutcome::Conflict(standing))
-            }
-            CoachDraftPublish::NoDraft => return Ok(DraftPublishOutcome::NoDraft),
-        };
+    let published = match publish_coach_draft(
+        repos,
+        notifications,
+        target,
+        publish.overwrite,
+        publish.source,
+    )
+    .await?
+    {
+        CoachDraftPublish::Published(published) => *published,
+        CoachDraftPublish::Conflict(standing) => {
+            return Ok(DraftPublishOutcome::Conflict(standing))
+        }
+        CoachDraftPublish::NoDraft => return Ok(DraftPublishOutcome::NoDraft),
+    };
     let room_post = say_in_room(state, target, publish.group_id, &published).await;
     let rails = run_live_plan_rails(
         state,
@@ -527,6 +559,7 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
                         overwrite,
                         athlete,
                         trigger: PUBLISH_TOOL,
+                        source: PlanChangeSource::Agent,
                     };
                     let publishing = Box::pin(publish(
                         &context,
@@ -559,7 +592,7 @@ async fn discard(
     target: &CoachDraftTarget,
     name: String,
 ) -> AppResult<ToolResult> {
-    let Some(draft_id) = discard_coach_draft(repos, target).await? else {
+    let Some(draft_id) = discard_coach_draft(repos, target, PlanChangeSource::Agent).await? else {
         return Ok(no_draft(&name));
     };
     let message = format!(

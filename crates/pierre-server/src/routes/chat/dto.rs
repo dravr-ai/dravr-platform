@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use dravr_tronc::dates::CivilDate;
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use photograveur::{resolve_all, Locale};
 use pierre_chat_pipeline::stages::viz_blocks::strip_markers;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
@@ -14,6 +14,7 @@ use pierre_core::models::{
     ParticipantRole, PersistedReplyBlock, RoomQuote, ACTIONS_BLOCK_TYPE,
     ENVELOPE_NOTICE_BLOCK_TYPE, ROOM_QUOTE_BLOCK_TYPE,
 };
+use pierre_database::repositories::PlanChangeEvent;
 use pierre_services::coach_plan_draft::DraftState;
 use pierre_services::plan_card::{PlanCard, PlanSubject};
 use pierre_services::plan_card_history::word_stored_outside_evidence;
@@ -415,6 +416,57 @@ pub(super) struct PublishedSubjectPlanResponse {
     /// The published plan put on the athlete's chosen calendar, or why it
     /// was not (carnet#1492).
     pub calendar_push: CalendarPushOutcome,
+}
+
+/// Query of `GET /api/chat/conversations/{id}/subject-plan/history`
+/// (carnet#1815).
+#[derive(Debug, Deserialize)]
+pub(super) struct SubjectPlanHistoryQuery {
+    /// Only the changes that landed strictly before this instant, RFC 3339:
+    /// the `created_at` of the oldest change the client already holds.
+    /// Absent for the newest.
+    #[serde(default)]
+    pub before: Option<String>,
+    /// Changes to return, clamped to `1..=100`; 50 when absent.
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+/// `GET …/subject-plan/history`: the changes the coach and the thread's
+/// agent made to the athlete's plan in the coach's workspace, newest first
+/// (carnet#1815).
+#[derive(Debug, Serialize)]
+pub(super) struct SubjectPlanHistoryResponse {
+    /// The changes, newest first.
+    pub events: Vec<PlanChangeEventResponse>,
+}
+
+/// One change to the athlete's plan, as the coach's thread lists it.
+#[derive(Debug, Serialize)]
+pub(super) struct PlanChangeEventResponse {
+    /// What kind of change: `day_edit`, `day_add`, `day_remove`,
+    /// `day_restore`, `date_revert`, `coach_call`, `agent_draft`, `publish`
+    /// or `discard`.
+    pub kind: &'static str,
+    /// Who made it: `coach` or `agent`.
+    pub source: &'static str,
+    /// The dates it touched, `YYYY-MM-DD`, ascending; empty for a change
+    /// that names none (a discard, an outline re-laid alone).
+    pub dates: Vec<CivilDate>,
+    /// When it landed, RFC 3339.
+    pub created_at: Timestamp,
+}
+
+impl PlanChangeEventResponse {
+    /// The recorded change, as the wire carries it.
+    pub(super) fn of(event: PlanChangeEvent) -> Self {
+        Self {
+            kind: event.kind.as_str(),
+            source: event.source.as_str(),
+            dates: event.dates,
+            created_at: event.created_at,
+        }
+    }
 }
 
 /// `POST …/subject-plan/publish` answered 409: the athlete's plan moved

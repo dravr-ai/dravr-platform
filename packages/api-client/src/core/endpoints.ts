@@ -103,6 +103,12 @@ export const ENDPOINTS = {
     /** Add (POST) a session at the end of a date's entries in the coach's draft (carnet#1716) */
     SUBJECT_DRAFT_SESSIONS: (conversationId: string, date: string) =>
       `/api/chat/conversations/${conversationId}/subject-plan/draft/days/${date}/sessions`,
+    /** Put (POST) the live plan's entries back on a date of the coach's draft, whole: « Refuser » (carnet#1815) */
+    SUBJECT_DRAFT_DATE_REVERT: (conversationId: string, date: string) =>
+      `/api/chat/conversations/${conversationId}/subject-plan/draft/dates/${date}/revert`,
+    /** The changes the coach and the thread's agent made to the athlete's plan, newest first (carnet#1815) */
+    SUBJECT_PLAN_HISTORY: (conversationId: string) =>
+      `/api/chat/conversations/${conversationId}/subject-plan/history`,
   },
 
   // ==================== SLASH COMMANDS ====================

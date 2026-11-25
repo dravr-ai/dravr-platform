@@ -42,6 +42,18 @@
 //! call goes live with the draft. A session that already stands as asked is
 //! answered as it is, and no draft is opened for it.
 //!
+//! carnet#1815. `POST …/draft/dates/{date}/revert` puts the live plan's
+//! entries back on a date of the draft, whole, in place of every entry the
+//! draft holds there: the workspace's « Refuser » on a date the agent
+//! proposed. It names no session and carries no body — it writes no session
+//! over another, and lands the date on what the athlete already has, so a
+//! draft that moved since the client read it comes to the same state. A date
+//! with nothing to put back is answered as it stands, and no draft is opened
+//! for it.
+//!
+//! Every write that lands is recorded in the plan's change history as the
+//! coach's, naming its date (`GET …/subject-plan/history`).
+//!
 //! Every request runs the subject-plan gates again ([`coached_thread`]). The
 //! preview and the write read the athlete's anchors, so each goes on the
 //! athlete's record as a `coach_thread` read before anything of theirs is
@@ -74,9 +86,9 @@ use pierre_memory::training_plans::{parse_plan_date, MAX_SESSIONS_PER_DATE};
 use pierre_middleware::AuthenticatedUser;
 use pierre_services::coach_plan_draft::CoachDraftTarget;
 use pierre_tool_runtime::implementations::coach_session_editor::{
-    add_draft_session, preview_session, remove_draft_day, restore_draft_day, save_draft_coach_call,
-    save_draft_day, save_draft_hand_day, thread_families, DraftDayOutcome, EditorThread,
-    EditorWords, SessionAt,
+    add_draft_session, preview_session, remove_draft_day, restore_draft_day, revert_draft_date,
+    save_draft_coach_call, save_draft_day, save_draft_hand_day, thread_families, DraftDayOutcome,
+    EditorThread, EditorWords, SessionAt,
 };
 use pierre_tool_runtime::implementations::plan_scope::PlanWriter;
 use uuid::Uuid;
@@ -466,6 +478,34 @@ pub(super) async fn put_subject_draft_coach_call(
     let runtime = into_runtime(&resources);
     let outcome =
         save_draft_coach_call(&runtime, &write.editor, write.date, &at, request.on).await?;
+    day_write_answer(
+        &resources,
+        auth.user_id,
+        write,
+        outcome,
+        query.locale.as_deref(),
+    )
+    .await
+}
+
+/// `POST /api/chat/conversations/{id}/subject-plan/draft/dates/{date}/revert`:
+/// every entry on the date in the coach's draft replaced by the athlete's
+/// live plan's entries on it, whole (carnet#1815); a date the live plan holds
+/// nothing on is left empty. No body. Answered with the subject plan as `GET
+/// …/subject-plan` reads it after the write, or as it stands when there was
+/// nothing to put back: no draft, a week the draft never wrote, or a date
+/// already holding the live entries — none of which opens a draft.
+///
+/// 400 `invalid_date`; 403 `external_transport`. Nothing is written on
+/// either.
+pub(super) async fn revert_subject_draft_date(
+    State(resources): State<Arc<ServerContext>>,
+    auth: AuthenticatedUser,
+    Path((conversation_id, raw_date)): Path<(String, String)>,
+    Query(query): Query<TrainingPlanQuery>,
+) -> Result<Response, AppError> {
+    let write = day_write(&resources, &auth, &conversation_id, &raw_date).await?;
+    let outcome = revert_draft_date(&into_runtime(&resources), &write.editor, write.date).await?;
     day_write_answer(
         &resources,
         auth.user_id,

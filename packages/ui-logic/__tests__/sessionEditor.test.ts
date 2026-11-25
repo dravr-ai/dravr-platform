@@ -386,6 +386,8 @@ describe('createSessionEditorHooks', () => {
       restoreSubjectDraftDay: vi.fn(),
       removeSubjectDraftDay: vi.fn(),
       addSubjectDraftSession: vi.fn(),
+      revertSubjectDraftDate: vi.fn(),
+      getSubjectPlanHistory: vi.fn(),
     };
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
     const wrapper = ({ children }: { children: ReactNode }) =>
@@ -512,5 +514,39 @@ describe('createSessionEditorHooks', () => {
     });
     expect(chatApi.addSubjectDraftSession).toHaveBeenCalledWith('conv-1', '2026-11-24', session, 'en');
     expect(queryClient.getQueryData(QUERY_KEYS.chat.subjectPlan('conv-1'))).toMatchObject({ plan: { today: '2026-11-23' } });
+  });
+
+  it('reverts a date to the live plan into the card’s cache, and the history is read again with the plan (carnet#1815)', async () => {
+    const { chatApi, queryClient, wrapper, hooks } = harness();
+    const answered: SubjectPlanResponse = {
+      athlete: { user_id: 'user-alice', display_name: 'Alice Runner' },
+      today: '2026-11-25',
+      live: null,
+      draft: null,
+      draft_state: null,
+    };
+    const older = { events: [{ kind: 'agent_draft', source: 'agent', dates: ['2026-11-26'], created_at: '2026-11-25T13:00:00Z' }] };
+    const newer = {
+      events: [{ kind: 'date_revert', source: 'coach', dates: ['2026-11-26'], created_at: '2026-11-25T14:00:00Z' }, ...older.events],
+    };
+    chatApi.getSubjectPlanHistory.mockResolvedValueOnce(older).mockResolvedValueOnce(newer);
+    chatApi.revertSubjectDraftDate.mockResolvedValue(answered);
+
+    const history = renderHook(({ id }) => hooks.useSubjectPlanHistory(id), {
+      wrapper,
+      initialProps: { id: null as string | null },
+    });
+    expect(chatApi.getSubjectPlanHistory).not.toHaveBeenCalled();
+    history.rerender({ id: 'conv-1' });
+    await waitFor(() => expect(history.result.current.data?.events).toHaveLength(1));
+    expect(chatApi.getSubjectPlanHistory).toHaveBeenCalledWith('conv-1');
+
+    const revert = renderHook(() => hooks.useRevertDraftDate('conv-1', 'fr'), { wrapper });
+    await act(async () => {
+      await revert.result.current.mutateAsync({ date: '2026-11-26' });
+    });
+    expect(chatApi.revertSubjectDraftDate).toHaveBeenCalledWith('conv-1', '2026-11-26', 'fr');
+    expect(queryClient.getQueryData(QUERY_KEYS.chat.subjectPlan('conv-1'))).toEqual({ status: 'ok', plan: answered });
+    await waitFor(() => expect(history.result.current.data?.events.map((event) => event.kind)).toEqual(['date_revert', 'agent_draft']));
   });
 });

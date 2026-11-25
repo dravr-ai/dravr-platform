@@ -183,7 +183,10 @@ macro_rules! account_reset_tables {
         ///   account or its clients, its sessions, then the clients.
         /// - Plans: by the athlete's `user_id` only, never by
         ///   `drafted_by_user_id` — a coach's drafts of another athlete's plan
-        ///   are that athlete's season.
+        ///   are that athlete's season. The plan's change history
+        ///   (`plan_change_events`) goes the same way, by `athlete_user_id`
+        ///   only: a coach's changes to another athlete's plan are that
+        ///   athlete's record.
         /// - `memory_extraction_jobs` names its user only inside the JSON
         ///   payload a turn queued (`ExtractionJobPayload`, serialized compact,
         ///   so `"user_id":"<id>"` is exact). A job a turn still running queues
@@ -273,6 +276,7 @@ account_reset_tables!(
     "agents",
     "fitness_configurations",
     "goals",
+    "plan_change_events" where "CAST(athlete_user_id AS TEXT) = $1",
     "training_plan_weeks" where "CAST(user_id AS TEXT) = $1 OR plan_id IN (SELECT p.id FROM training_plans p WHERE CAST(p.user_id AS TEXT) = $1)",
     "training_plans",
     "training_history",

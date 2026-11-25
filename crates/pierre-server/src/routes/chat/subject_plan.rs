@@ -13,7 +13,10 @@
 //!   draft stands;
 //! - `POST …/subject-plan/publish` — the draft made live, or a 409
 //!   `plan_publish_conflict` naming what it would overwrite;
-//! - `DELETE …/subject-plan/draft` — the draft thrown away.
+//! - `DELETE …/subject-plan/draft` — the draft thrown away;
+//! - `GET …/subject-plan/history` — the changes the coach and the thread's
+//!   agent made to the athlete's plan in the coach's workspace, newest first
+//!   (carnet#1815).
 //!
 //! The conversation must be the caller's own thread about an athlete, and the
 //! coaching gates ([`coached_athlete_access`]) run again on every request, so
@@ -24,7 +27,9 @@
 //! The read and the publish read the athlete's plan (the publish also their
 //! load, for its rails), so each goes on the athlete's own record as a
 //! `coach_thread` read before anything of theirs is read (carnet#1445). The
-//! discard reads nothing of theirs: the draft is the coach's.
+//! discard reads nothing of theirs: the draft is the coach's. Neither does
+//! the history: it lists the changes the coach and the thread's agent made,
+//! the caller's own, and only theirs.
 
 use std::sync::Arc;
 
@@ -34,10 +39,13 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
+use dravr_tronc::dates::Timestamp;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::ConversationRecord;
-use pierre_database::repositories::{CoachReadClass, CoachReadSurface};
+use pierre_database::repositories::{
+    CoachReadClass, CoachReadSurface, PlanChangeQuery, PlanChangeSource,
+};
 use pierre_middleware::AuthenticatedUser;
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::coach_plan_draft::{
@@ -66,8 +74,9 @@ use super::common::{
     refuse_unshared_subject,
 };
 use super::dto::{
-    PlanPublishConflictResponse, PublishConflictDetails, PublishSubjectPlanRequest,
-    PublishedSubjectPlanResponse, SubjectPlanResponse,
+    PlanChangeEventResponse, PlanPublishConflictResponse, PublishConflictDetails,
+    PublishSubjectPlanRequest, PublishedSubjectPlanResponse, SubjectPlanHistoryQuery,
+    SubjectPlanHistoryResponse, SubjectPlanResponse,
 };
 
 /// The code of a publish refused because the athlete's plan moved under the
@@ -77,6 +86,12 @@ const PLAN_PUBLISH_CONFLICT: &str = "plan_publish_conflict";
 /// What the calendar push's notify events name as its trigger when the
 /// coach's Publish button published.
 const PUBLISH_TRIGGER: &str = "subject_plan_publish";
+
+/// Changes one history read returns when the client names no limit.
+const DEFAULT_HISTORY_LIMIT: u32 = 50;
+
+/// Most changes one history read returns.
+const MAX_HISTORY_LIMIT: u32 = 100;
 
 /// The 404 for a coach who holds no draft of the athlete's plan.
 fn no_draft() -> AppError {
@@ -294,6 +309,7 @@ pub(super) async fn publish_subject_plan(
             overwrite: request.overwrite_athlete_changes,
             athlete: None,
             trigger: PUBLISH_TRIGGER,
+            source: PlanChangeSource::Coach,
         },
     )
     .await?;
@@ -344,8 +360,63 @@ pub(super) async fn discard_subject_plan_draft(
     refuse_external_coach_write(&auth, "plan")?;
     let access = coached_subject(&resources, &auth, &conversation_id).await?;
     let target = CoachDraftTarget::new(access.tenant, access.athlete_user_id, auth.user_id);
-    match discard_coach_draft(&resources.common.repos, &target).await? {
+    match discard_coach_draft(&resources.common.repos, &target, PlanChangeSource::Coach).await? {
         Some(_) => Ok(StatusCode::NO_CONTENT.into_response()),
         None => Err(no_draft()),
     }
+}
+
+/// `GET /api/chat/conversations/{id}/subject-plan/history`: the changes the
+/// coach and the thread's agent made to the thread's athlete's plan in the
+/// coach's workspace, newest first (carnet#1815): each day write, each save
+/// the agent made into the draft, each publish and discard, with the dates
+/// it touched.
+///
+/// `?before=` (RFC 3339) reads the changes that landed strictly before it —
+/// the `created_at` of the oldest change the client holds — and `?limit=`
+/// how many, clamped to `1..=100` (50 when absent). Only the caller's own
+/// changes on the athlete's plan, under the athlete's tenant: never another
+/// coach's. The gates are the subject-plan read's ([`coached_thread`]).
+///
+/// 400 `invalid_before` for a `before` that is no RFC 3339 instant.
+pub(super) async fn get_subject_plan_history(
+    State(resources): State<Arc<ServerContext>>,
+    auth: AuthenticatedUser,
+    Path(conversation_id): Path<String>,
+    Query(query): Query<SubjectPlanHistoryQuery>,
+) -> Result<Response, AppError> {
+    let access = coached_subject(&resources, &auth, &conversation_id).await?;
+    let before = match query.before.as_deref().filter(|raw| !raw.is_empty()) {
+        Some(raw) => Some(raw.parse::<Timestamp>().map_err(|_| {
+            refusal(
+                ErrorCode::InvalidInput,
+                "invalid_before",
+                &format!("'{raw}' is not an RFC 3339 instant"),
+            )
+        })?),
+        None => None,
+    };
+    let limit = query
+        .limit
+        .unwrap_or(DEFAULT_HISTORY_LIMIT)
+        .clamp(1, MAX_HISTORY_LIMIT);
+    let events = resources
+        .common
+        .repos
+        .plan_change_events
+        .list_plan_changes(&PlanChangeQuery {
+            tenant: access.tenant,
+            athlete: access.athlete_user_id,
+            coach: auth.user_id,
+            before,
+            limit,
+        })
+        .await?;
+    let response = SubjectPlanHistoryResponse {
+        events: events
+            .into_iter()
+            .map(PlanChangeEventResponse::of)
+            .collect(),
+    };
+    Ok((StatusCode::OK, Json(response)).into_response())
 }

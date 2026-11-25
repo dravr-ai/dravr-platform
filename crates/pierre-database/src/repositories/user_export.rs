@@ -441,6 +441,7 @@ user_export_tables_sql!(
     "training_history" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 200, key: [uuid "tenant_id", uuid "user_id", date "date"] },
     "training_plans" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 10, key: [text "id"] },
     "training_plan_weeks" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 25, key: [text "id"] },
+    "plan_change_events" { rows: [uuid "athlete_user_id"], tenant: "tenant_id", except: ["coach_user_id"], page: 200, key: [uuid "id"] },
     "prescribed_workouts" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 50, key: [uuid "id"] },
     "workout_templates" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 25, key: [uuid "id"] },
     "recipes" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },

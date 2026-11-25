@@ -33,6 +33,8 @@ import type {
   SportAnchorName,
   SportFamily,
   StartersResponse,
+  SubjectPlanHistory,
+  SubjectPlanHistoryQuery,
   SubjectPlanResponse,
   TurnEnvelope,
   UseCaseStarter,
@@ -44,6 +46,7 @@ import {
   parsePlanPublishConflict,
   parsePublishedSubjectPlan,
   parseSessionPreview,
+  parseSubjectPlanHistory,
   parseSubjectPlanResponse,
 } from '@pierre/shared-types';
 import type { PlatformAdapter } from '../types/platform';
@@ -72,6 +75,8 @@ export type {
   MessageFeedbackEntry,
   PublishSubjectPlanRequest,
   PublishSubjectPlanResult,
+  SubjectPlanHistory,
+  SubjectPlanHistoryQuery,
   SubjectPlanResponse,
   TurnEnvelope,
   UseCaseStarter,
@@ -659,6 +664,44 @@ export function createChatApi(axios: AxiosInstance, adapter: PlatformAdapter) {
         params: locale ? { locale } : undefined,
       });
       return requireShape(parseSubjectPlanResponse(response.data), endpoint);
+    },
+
+    /**
+     * Put the live plan's entries back on a date of the coach's draft, whole,
+     * in place of every entry the draft holds there — the workspace's
+     * « Refuser » on a date the agent proposed (carnet#1815). Names no
+     * session: a date already holding the live entries, or a coach with no
+     * draft, is answered as it stands and opens no draft. Answers the subject
+     * plan as `getSubjectPlan` reads it after the write.
+     */
+    async revertSubjectDraftDate(conversationId: string, date: string, locale?: string): Promise<SubjectPlanResponse> {
+      const endpoint = ENDPOINTS.CHAT.SUBJECT_DRAFT_DATE_REVERT(conversationId, date);
+      const response = await axios.post<unknown>(endpoint, undefined, {
+        params: locale ? { locale } : undefined,
+      });
+      return requireShape(parseSubjectPlanResponse(response.data), endpoint);
+    },
+
+    /**
+     * The changes the coach and the thread's agent made to the athlete's plan
+     * in the coach's workspace, newest first (carnet#1815): each day write,
+     * each save the agent made into the draft, each publish and discard, with
+     * the dates it touched. `before` (the oldest `created_at` held) reads the
+     * page after; `limit` is clamped to 1..100 by the server.
+     */
+    async getSubjectPlanHistory(
+      conversationId: string,
+      query: SubjectPlanHistoryQuery = {},
+    ): Promise<SubjectPlanHistory> {
+      const endpoint = ENDPOINTS.CHAT.SUBJECT_PLAN_HISTORY(conversationId);
+      const params = {
+        ...(query.before === undefined ? {} : { before: query.before }),
+        ...(query.limit === undefined ? {} : { limit: query.limit }),
+      };
+      const response = await axios.get<unknown>(endpoint, {
+        params: Object.keys(params).length > 0 ? params : undefined,
+      });
+      return requireShape(parseSubjectPlanHistory(response.data), endpoint);
     },
 
     /**

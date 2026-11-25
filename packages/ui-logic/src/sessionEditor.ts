@@ -44,6 +44,7 @@ import {
   type SessionExpect,
   type SessionPreview,
   type SessionSport,
+  type SubjectPlanHistory,
   type SubjectPlanResponse,
   type WorkoutFamily,
 } from '@pierre/shared-types';
@@ -789,6 +790,8 @@ export interface SessionEditorApis {
     | 'setSubjectDraftDayCoachCall'
     | 'removeSubjectDraftDay'
     | 'addSubjectDraftSession'
+    | 'revertSubjectDraftDate'
+    | 'getSubjectPlanHistory'
   >;
 }
 
@@ -824,6 +827,12 @@ function useSettled<T>(value: T, delayMs: number): T {
  *   and `useAddDraftSession` take a session off a date or add one to it. Each
  *   answers the subject plan into the same cache. Every write but the add
  *   names its session by position and as the card showed it (carnet#1716).
+ * - `useRevertDraftDate` puts the live plan's entries back on a date of the
+ *   draft, whole — « Refuser » on a date the agent proposed (carnet#1815) —
+ *   and answers the subject plan into the same cache.
+ * - `useSubjectPlanHistory` reads the newest changes the coach and the
+ *   thread's agent made to the plan (carnet#1815); every write above reads it
+ *   again, its key living under the plan's.
  * - `useRereadPlan` reads the card's plan again after a write found its
  *   session moved.
  */
@@ -911,6 +920,22 @@ export function createSessionEditorHooks({ chatApi }: SessionEditorApis) {
     });
   }
 
+  function useRevertDraftDate(conversationId: string | null, locale: string) {
+    const onSuccess = useAnsweredPlan(conversationId);
+    return useMutation<SubjectPlanResponse, unknown, { date: string }>({
+      mutationFn: ({ date }) => chatApi.revertSubjectDraftDate(conversationId as string, date, locale),
+      onSuccess,
+    });
+  }
+
+  function useSubjectPlanHistory(conversationId: string | null) {
+    return useQuery<SubjectPlanHistory>({
+      queryKey: QUERY_KEYS.chat.subjectPlanHistory(conversationId),
+      queryFn: () => chatApi.getSubjectPlanHistory(conversationId as string),
+      enabled: conversationId !== null,
+    });
+  }
+
   /**
    * After a refused write found its session moved, the card's plan is read
    * again so the coach edits what is there now.
@@ -929,6 +954,8 @@ export function createSessionEditorHooks({ chatApi }: SessionEditorApis) {
     useSetCoachCall,
     useRemoveDraftSession,
     useAddDraftSession,
+    useRevertDraftDate,
+    useSubjectPlanHistory,
     useRereadPlan,
   };
 }

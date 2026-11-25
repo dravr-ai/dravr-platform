@@ -39,6 +39,7 @@ use pierre_contremaitre::messaging_strings::KEY_PLAN_REST;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::periodization::serde_num::whole_u32_opt;
 use pierre_core::models::{RelativeIntensity, WorkoutStep};
+use pierre_database::repositories::PlanChangeKind;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{CoachCall, PlanWeek, PlannedDay, MAX_SESSIONS_PER_DATE};
 use pierre_providers::ai_scope;
@@ -54,8 +55,8 @@ use super::sessions::{
     entries_on, expected_index, placed, stamp_edit, without, SessionAt, INVALID_SESSION,
 };
 use super::{
-    build_day, refused, save_days_into_week, week_holding, writer_catalogue, DraftDayOutcome,
-    EditorThread, EditorWords, SessionBuild, WeekFrom,
+    build_day, refused, save_days_into_week, week_holding, writer_catalogue, DayChange,
+    DraftDayOutcome, EditorThread, EditorWords, SessionBuild, WeekFrom,
 };
 use crate::implementations::training_plans::validate_day;
 use crate::runtime::ToolRuntime;
@@ -329,7 +330,7 @@ fn called(
 
 /// Run `write` on the athlete's record: tracked so the draft is stamped from
 /// what it read (carnet#769), under the athlete's AI consents (carnet#1419).
-async fn as_athletes_write(
+pub(super) async fn as_athletes_write(
     repos: &RepositoryRegistry,
     target: &CoachDraftTarget,
     write: impl Future<Output = AppResult<DraftDayOutcome>> + Send,
@@ -344,12 +345,14 @@ async fn as_athletes_write(
     .await
 }
 
-/// What a saved edit logs beside the athlete, the coach and the draft: never
-/// a session's content.
+/// What a saved edit logs beside the athlete, the coach and the draft — never
+/// a session's content — and records in the plan's change history.
 struct EditLog {
     /// Which edit: `hand`, `restore`, `remove`, `add`, or the coach's call
     /// made (`call`) or taken off (`uncall`).
     edit: &'static str,
+    /// The kind of change the plan's change history records it as.
+    kind: PlanChangeKind,
     /// The date edited.
     date: CivilDate,
     /// The session's position on it.
@@ -373,7 +376,11 @@ async fn save_edit(
         Ok(days) => days,
         Err(outcome) => return Ok(outcome),
     };
-    let saved = save_days_into_week(repos, thread, week, &days).await?;
+    let change = DayChange {
+        kind: log.kind,
+        date: log.date,
+    };
+    let saved = save_days_into_week(repos, thread, week, &days, change).await?;
     info!(
         athlete_user_id = %thread.target.athlete(),
         coach_user_id = %thread.target.coach(),
@@ -423,6 +430,7 @@ pub async fn save_draft_hand_day(
         let edited = hand_edited(&week.days, date, at, request, &rest_label)?;
         let log = EditLog {
             edit: "hand",
+            kind: PlanChangeKind::DayEdit,
             date,
             position: at.position,
         };
@@ -459,6 +467,7 @@ pub async fn restore_draft_day(
         let edited = restored(&week.days, &date.to_string(), at)?;
         let log = EditLog {
             edit: "restore",
+            kind: PlanChangeKind::DayRestore,
             date,
             position: at.position,
         };
@@ -492,6 +501,7 @@ pub async fn remove_draft_day(
         let edited = removed(&week.days, &date.to_string(), at);
         let log = EditLog {
             edit: "remove",
+            kind: PlanChangeKind::DayRemove,
             date,
             position: at.position,
         };
@@ -547,6 +557,7 @@ pub async fn add_draft_session(
         let edited = added(&week.days, day)?;
         let log = EditLog {
             edit: "add",
+            kind: PlanChangeKind::DayAdd,
             date,
             position,
         };
@@ -587,6 +598,7 @@ pub async fn save_draft_coach_call(
         let edited = called(&week.days, &date.to_string(), at, on, target.coach(), now);
         let log = EditLog {
             edit: if on { "call" } else { "uncall" },
+            kind: PlanChangeKind::CoachCall,
             date,
             position: at.position,
         };

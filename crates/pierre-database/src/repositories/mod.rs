@@ -191,6 +191,8 @@ pub mod peer_data_reads;
 pub mod persona_digest_returns;
 /// Repository trait for an athlete's personal bests at the standard running distances.
 pub mod personal_bests;
+/// The history of changes to an athlete's plan in a coach's workspace (carnet#1815).
+pub mod plan_change_events;
 /// Repository trait for the once-claim on a post the coach makes on its own initiative.
 pub mod platform_post_claims;
 /// Repository trait for procedural coaching memory (playbooks + pending advice).
@@ -413,6 +415,10 @@ pub use peer_data_reads::{NewPeerDataRead, PeerDataRead, PeerDataReadRepository}
 pub use persona_digest_returns::PersonaDigestReturnRepository;
 pub use personal_bests::{PersonalBest, PersonalBestRepository};
 pub use personal_bests::{PersonalBestSeed, PersonalBestSeedCandidate};
+pub use plan_change_events::{
+    NewPlanChangeEvent, PlanChangeEvent, PlanChangeEventRepository, PlanChangeKind,
+    PlanChangeQuery, PlanChangeSource,
+};
 pub use platform_post_claims::PlatformPostClaimRepository;
 pub use playbooks::*;
 pub use prescribed_workouts::*;

@@ -1,4 +1,4 @@
-// ABOUTME: Unit tests for the coach plan-draft wire parsers — the draft state, the subject-plan read, publish and its conflict
+// ABOUTME: Unit tests for the coach plan-draft wire parsers — the draft state, the subject-plan read, publish, its conflict, the change history
 // ABOUTME: Feeds each parser the bodies the contract fixes, then the malformed ones it must refuse rather than half-render
 
 import { describe, it, expect } from 'vitest';
@@ -9,6 +9,7 @@ import {
   parsePlanPublishConflict,
   parsePlanSubject,
   parsePublishedSubjectPlan,
+  parseSubjectPlanHistory,
   parseSubjectPlanResponse,
 } from '../src/coach-plan';
 
@@ -236,5 +237,42 @@ describe('parsePlanPublishConflict', () => {
   it('is null for a 409 body that is not the publish conflict', () => {
     expect(parsePlanPublishConflict({ error_code: 'several_tenants', conflicts: [], season_relaid: false })).toBeNull();
     expect(parsePlanPublishConflict({ code: 'Conflict', message: 'no' })).toBeNull();
+  });
+});
+
+describe('parseSubjectPlanHistory', () => {
+  const revert = {
+    kind: 'date_revert',
+    source: 'coach',
+    dates: ['2026-11-26'],
+    created_at: '2026-11-25T14:05:00.482913Z',
+  };
+  const discard = { kind: 'discard', source: 'coach', dates: [], created_at: '2026-11-25T14:00:00Z' };
+  const agentDraft = {
+    kind: 'agent_draft',
+    source: 'agent',
+    dates: ['2026-11-24', '2026-11-26'],
+    created_at: '2026-11-25T13:00:00Z',
+  };
+
+  it('reads every change newest first, as the server listed them', () => {
+    expect(parseSubjectPlanHistory({ events: [revert, discard, agentDraft] })).toEqual({
+      events: [revert, discard, agentDraft],
+    });
+    expect(parseSubjectPlanHistory({ events: [] })).toEqual({ events: [] });
+  });
+
+  it('refuses a kind or a source the contract does not name', () => {
+    expect(parseSubjectPlanHistory({ events: [{ ...revert, kind: 'day_moved' }] })).toBeNull();
+    expect(parseSubjectPlanHistory({ events: [{ ...revert, source: 'athlete' }] })).toBeNull();
+  });
+
+  it('refuses a date that is not a civil date, a bad stamp, or a body with no events', () => {
+    expect(parseSubjectPlanHistory({ events: [{ ...revert, dates: ['26/11/2026'] }] })).toBeNull();
+    expect(parseSubjectPlanHistory({ events: [{ ...revert, dates: '2026-11-26' }] })).toBeNull();
+    expect(parseSubjectPlanHistory({ events: [{ ...revert, created_at: 'yesterday' }] })).toBeNull();
+    expect(parseSubjectPlanHistory({ events: [revert, { ...discard, created_at: undefined }] })).toBeNull();
+    expect(parseSubjectPlanHistory({})).toBeNull();
+    expect(parseSubjectPlanHistory(null)).toBeNull();
   });
 });

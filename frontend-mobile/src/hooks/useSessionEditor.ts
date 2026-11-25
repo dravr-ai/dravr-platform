@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The mobile client's binding of the shared day-editor hooks — the families, the live preview, the saves, the restore, the remove and the add
+// ABOUTME: The mobile client's binding of the shared day-editor hooks — the families, the live preview, the saves, the restore, the remove, the add, a date's revert, the history
 // ABOUTME: The hooks themselves live in @pierre/ui-logic, one definition for web and mobile (carnet#1515, #1714, #1716)
 
 import { createSessionEditorHooks } from '@pierre/ui-logic';
@@ -20,6 +20,8 @@ export const {
   useSetCoachCall,
   useRemoveDraftSession,
   useAddDraftSession,
+  useRevertDraftDate,
+  useSubjectPlanHistory,
   useRereadPlan,
 } = createSessionEditorHooks({
   chatApi: {
@@ -38,5 +40,8 @@ export const {
       chatApi.removeSubjectDraftDay(conversationId, date, position, expect, locale),
     addSubjectDraftSession: (conversationId, date, session, locale) =>
       chatApi.addSubjectDraftSession(conversationId, date, session, locale),
+    revertSubjectDraftDate: (conversationId, date, locale) =>
+      chatApi.revertSubjectDraftDate(conversationId, date, locale),
+    getSubjectPlanHistory: (conversationId, query) => chatApi.getSubjectPlanHistory(conversationId, query),
   },
 });

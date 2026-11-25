@@ -231,6 +231,13 @@ export const QUERY_KEYS = {
     starters: () => ['chat', 'starters'] as const,
     /** A coach's plan thread: its athlete's live plan and the coach's draft over it. */
     subjectPlan: (conversationId: string | null) => ['chat', 'subject-plan', conversationId] as const,
+    /**
+     * The changes the coach and the thread's agent made to a plan thread's
+     * athlete's plan (carnet#1815). Under `subjectPlan`'s key, so every write
+     * that invalidates the plan reads the history again too.
+     */
+    subjectPlanHistory: (conversationId: string | null) =>
+      ['chat', 'subject-plan', conversationId, 'history'] as const,
     /** The workout families a coach's plan thread offers its editor, in the coach's language (carnet#1515). */
     subjectFamilies: (conversationId: string | null, locale: string) =>
       ['chat', 'subject-families', conversationId, locale] as const,

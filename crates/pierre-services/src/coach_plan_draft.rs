@@ -41,7 +41,8 @@ use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{
-    DraftConflicts, DraftOwner, DraftPreview, DraftPublish, PublishDraftParams,
+    DraftConflicts, DraftOwner, DraftPreview, DraftPublish, PlanChangeKind, PlanChangeSource,
+    PublishDraftParams,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{PlanWeek, TrainingPlan};
@@ -52,6 +53,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use crate::coach_plan_notice::tell_plan_published;
+use crate::plan_change_history::{self, record_plan_change, PlanChange};
 use crate::plan_goal_fact::{converge_goal_fact, retire_superseded_goal_facts};
 
 /// Why publishing a drafted week would overwrite the athlete's own work.
@@ -366,6 +368,10 @@ pub enum CoachDraftPublish {
 /// re-laid outline converged, which the athlete's next live outline write
 /// reuses or retires.
 ///
+/// A publish that landed is recorded in the plan's change history as made by
+/// `source`, naming the dates it changed over the athlete's live plan
+/// (carnet#1815).
+///
 /// # Errors
 ///
 /// Returns the repository error from the goal-fact or plan writes, and
@@ -376,6 +382,7 @@ pub async fn publish_coach_draft(
     notifications: Option<&Arc<NotificationService>>,
     target: &CoachDraftTarget,
     overwrite: bool,
+    source: PlanChangeSource,
 ) -> AppResult<CoachDraftPublish> {
     let Some(preview) = repos
         .training_plans
@@ -456,6 +463,16 @@ pub async fn publish_coach_draft(
         "a human coach published a coached athlete's plan draft"
     );
     let athlete_notified = tell_plan_published(repos, notifications, target, &published.plan).await;
+    let previous_weeks = previous
+        .as_ref()
+        .map_or(&[][..], |season| season.weeks.as_slice());
+    let dates = plan_change_history::dates_changed(previous_weeks, &published.weeks);
+    let change = PlanChange {
+        source,
+        kind: PlanChangeKind::Publish,
+        dates: &dates,
+    };
+    record_plan_change(repos, target, change).await;
 
     Ok(CoachDraftPublish::Published(Box::new(
         PublishedCoachDraft {
@@ -473,12 +490,16 @@ pub async fn publish_coach_draft(
 /// Throw the coach's draft away, returning its id, or `None` when the coach
 /// holds none. The athlete's plan is untouched and nothing reaches them.
 ///
+/// A discard that threw a draft away is recorded in the plan's change history
+/// as made by `source`, naming no date: the whole draft goes (carnet#1815).
+///
 /// # Errors
 ///
 /// Returns the repository error from the write.
 pub async fn discard_coach_draft(
     repos: &RepositoryRegistry,
     target: &CoachDraftTarget,
+    source: PlanChangeSource,
 ) -> AppResult<Option<String>> {
     let discarded = repos.training_plans.discard_draft(target.owner()).await?;
     if let Some(draft_id) = discarded.as_deref() {
@@ -488,6 +509,12 @@ pub async fn discard_coach_draft(
             draft_id = %draft_id,
             "a human coach discarded their draft of a coached athlete's plan"
         );
+        let change = PlanChange {
+            source,
+            kind: PlanChangeKind::Discard,
+            dates: &[],
+        };
+        record_plan_change(repos, target, change).await;
     }
     Ok(discarded)
 }

@@ -34,8 +34,6 @@
 //! says: it is held to one bounded line, and the room's copy escapes it as
 //! Markdown, so a name shaped like a link is drawn as the text it is.
 
-use std::collections::BTreeSet;
-
 use dravr_tronc::dates::CivilDate;
 use photograveur::Locale;
 use pierre_contremaitre::messaging_strings::{
@@ -47,7 +45,7 @@ use pierre_core::models::groups::{CoachingGroup, NewGroupTranscriptEntry, Transc
 use pierre_core::transport::TransportPolicy;
 use pierre_core::untrusted::{self, ROSTER_NAME_MAX_CHARS};
 use pierre_database::RepositoryRegistry;
-use pierre_memory::training_plans::{parse_plan_date, PlanWeek, PlannedDay};
+use pierre_memory::training_plans::PlanWeek;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -55,6 +53,7 @@ use crate::athlete_display_name::fetch_user_display_name;
 use crate::coached_athlete;
 use crate::group_chat_poster::{proactive_chat, GroupChatPoster};
 use crate::locale::resolve_user_locale;
+use crate::plan_change_history;
 
 /// How many changed days a post names before it counts the rest.
 const LISTED_DAYS: usize = 4;
@@ -76,8 +75,9 @@ pub enum PlanChange {
 /// they had no live season. Only the weeks the publish wrote are compared,
 /// each with the live week of the same `week_start`: weeks the coach did not
 /// draft keep the athlete's version, so nothing changed there. A date counts
-/// as changed when its entries differ, compared in order and in every field:
-/// a session rewritten, added, taken away — one of two on the date included
+/// as changed when its entries differ
+/// ([`plan_change_history::dates_changed`]): a session
+/// rewritten, added, taken away — one of two on the date included
 /// (carnet#1716) — or moved within the date. The coach's call on a session
 /// (carnet#1814) is not compared: marking a day the coach's choice changes
 /// nothing the athlete does, so it is no plan change to announce. A date
@@ -87,53 +87,8 @@ pub fn plan_change(previous: Option<&[PlanWeek]>, published: &[PlanWeek]) -> Opt
     let Some(previous) = previous else {
         return Some(PlanChange::New);
     };
-    let mut changed: BTreeSet<&str> = BTreeSet::new();
-    for week in published {
-        let before = previous
-            .iter()
-            .find(|live| live.week_start == week.week_start)
-            .map_or(&[][..], |live| live.days.as_slice());
-        let dates: BTreeSet<&str> = before
-            .iter()
-            .chain(&week.days)
-            .map(|day| day.date.as_str())
-            .collect();
-        for date in dates {
-            let was = before
-                .iter()
-                .filter(|day| day.date == date)
-                .map(without_call);
-            let is = week
-                .days
-                .iter()
-                .filter(|day| day.date == date)
-                .map(without_call);
-            if !was.eq(is) {
-                changed.insert(date);
-            }
-        }
-    }
-    let days: Vec<CivilDate> = changed
-        .into_iter()
-        .filter_map(|date| {
-            parse_plan_date(date).or_else(|| {
-                warn!(
-                    date,
-                    "plan room post: a changed day's date does not parse; not named"
-                );
-                None
-            })
-        })
-        .collect();
+    let days = plan_change_history::dates_changed(previous, published);
     (!days.is_empty()).then_some(PlanChange::Days(days))
-}
-
-/// `day` as the room post compares it: without the coach's call.
-fn without_call(day: &PlannedDay) -> PlannedDay {
-    PlannedDay {
-        coach_call: None,
-        ..day.clone()
-    }
 }
 
 /// One day as the room post names it: the weekday, then the short date —
@@ -400,7 +355,7 @@ async fn post_in_chat(poster: &dyn GroupChatPoster, group: &CoachingGroup, text:
 #[cfg(test)]
 mod tests {
     use dravr_tronc::dates::Timestamp;
-    use pierre_memory::training_plans::{CoachCall, WeekStatus};
+    use pierre_memory::training_plans::{parse_plan_date, CoachCall, PlannedDay, WeekStatus};
 
     use super::*;
 
