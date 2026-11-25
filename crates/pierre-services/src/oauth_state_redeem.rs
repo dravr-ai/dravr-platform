@@ -57,6 +57,18 @@ impl ParsedOAuthState {
     pub fn mobile_redirect_url(&self) -> Option<&str> {
         self.mobile_redirect_url.as_deref()
     }
+
+    /// The user the flow was started for.
+    #[must_use]
+    pub const fn user_id(&self) -> uuid::Uuid {
+        self.user_id
+    }
+
+    /// The tenant the flow was started in, when the state named one.
+    #[must_use]
+    pub const fn tenant_id(&self) -> Option<uuid::Uuid> {
+        self.tenant_id
+    }
 }
 
 impl OAuthService {

@@ -505,6 +505,7 @@ pub mod backoff;
 /// Agent version diff computation
 pub mod recipes;
 
+pub mod connect_stall_sweeper;
 /// Short-link table hygiene: periodic sweep of expired reconnect/connect links
 pub mod mcp_task_sweeper;
 pub mod oauth2_client_sweeper;

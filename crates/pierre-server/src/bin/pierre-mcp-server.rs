@@ -745,6 +745,19 @@ fn spawn_background_workers(
         );
     }
 
+    // Start the connect-stall sweep. An athlete who answered the first
+    // onboarding step and never got a provider connected reported nothing:
+    // on 2026-11-24 three athletes in six days were stuck at connect and none
+    // of it reached anyone. Each is now reported once, 30 minutes on.
+    {
+        use pierre_mcp_server::start_connect_stall_sweeper;
+        start_connect_stall_sweeper(
+            Arc::clone(&resources.common.repos.user_onboarding),
+            Arc::clone(&resources.common.repos.users),
+            Arc::clone(&resources.common.repos.worker_runs),
+        );
+    }
+
     // Start the one retention sweep (carnet#1482, D8): an hourly pass that
     // expires provider activities in the activity store and provider wellness
     // in the platform's tables, under the policy `pierre-cli config set

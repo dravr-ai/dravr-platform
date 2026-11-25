@@ -43,6 +43,7 @@ use serde::Deserialize;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::connect_failure::{report_connect_failed, SignInFailure, SignInPath};
 use crate::sciotte::store_sciotte_session;
 use crate::sciotte_caller;
 use crate::sciotte_terms::require_provider_terms;
@@ -132,9 +133,22 @@ pub(crate) async fn handle_browser_signin(
     )
     .await?;
 
-    let entry = catalog_entry(&resources, target).await?;
-    let session = session_of(&request.cookies, &entry.cookie_domain)?;
-    verify_session(&resources, &session, target).await?;
+    let report = |failure| {
+        report_connect_failed(
+            user_id,
+            Some(tenant_id),
+            target.provider_name(),
+            SignInPath::Browser,
+            failure,
+        );
+    };
+    let session = match handed_over_session(&resources, target, &request.cookies).await {
+        Ok(session) => session,
+        Err((failure, error)) => {
+            report(failure);
+            return Err(error);
+        }
+    };
 
     info!(
         user_id = %user_id,
@@ -142,14 +156,34 @@ pub(crate) async fn handle_browser_signin(
         cookies = session.cookies.len(),
         "Browser sign-in handed over a session; storing it"
     );
-    store_sciotte_session(
+    let stored = store_sciotte_session(
         &resources,
         user_id,
         tenant_id,
         &session,
         target.provider_name(),
     )
-    .await
+    .await;
+    if stored.is_err() {
+        report(SignInFailure::System);
+    }
+    stored
+}
+
+/// The session the athlete's browser handed over, once the provider accepted
+/// a read through it, or why it was not kept: [`SignInFailure::TurnedDown`]
+/// when the provider refused the session, [`SignInFailure::System`] for a
+/// hand-over the platform could not take or a service that failed.
+async fn handed_over_session(
+    resources: &AuthRoutesContext,
+    target: SciotteTarget,
+    cookies: &[BrowserCookie],
+) -> Result<AuthSession, (SignInFailure, AppError)> {
+    let system = |error| (SignInFailure::System, error);
+    let entry = catalog_entry(resources, target).await.map_err(system)?;
+    let session = session_of(cookies, &entry.cookie_domain).map_err(system)?;
+    verify_session(resources, &session, target).await?;
+    Ok(session)
 }
 
 /// The athlete's own session, never a channel's link-token; refused to an
@@ -258,21 +292,25 @@ fn session_of(cookies: &[BrowserCookie], cookie_domain: &str) -> Result<AuthSess
 ///
 /// The refusal is a `400`, never a `401`: a `401` tells the app the athlete's
 /// own Dravr session failed, and the client re-authenticates or signs them
-/// out. A fault of the read service keeps its own code.
+/// out. A fault of the read service keeps its own code. The error comes with
+/// its [`SignInFailure`] class: turned down when the provider refused the
+/// session, system otherwise.
 async fn verify_session(
     resources: &AuthRoutesContext,
     session: &AuthSession,
     target: SciotteTarget,
-) -> Result<(), AppError> {
+) -> Result<(), (SignInFailure, AppError)> {
+    let system = |error| (SignInFailure::System, error);
     let client = resources
         .provider_registry
-        .require_sciotte_reads()?
+        .require_sciotte_reads()
+        .map_err(system)?
         .for_session(&session.session_id);
     let provider = target.service_provider_name();
     let session_id = client
         .import_session(session, provider)
         .await
-        .map_err(sciotte_error::to_app_error)?;
+        .map_err(|e| system(sciotte_error::to_app_error(e)))?;
     let Err(error) = client.get_athlete(&session_id).await else {
         return Ok(());
     };
@@ -286,11 +324,12 @@ async fn verify_session(
     match error {
         ClientError::SessionExpired { .. } | ClientError::SessionNotFound { .. } => {
             warn!(provider, error = %error, "Browser sign-in handed over a session the provider did not accept");
-            Err(AppError::invalid_input(
-                "The provider did not accept this sign-in; sign in again",
+            Err((
+                SignInFailure::TurnedDown,
+                AppError::invalid_input("The provider did not accept this sign-in; sign in again"),
             ))
         }
-        other => Err(sciotte_error::to_app_error(other)),
+        other => Err(system(sciotte_error::to_app_error(other))),
     }
 }
 

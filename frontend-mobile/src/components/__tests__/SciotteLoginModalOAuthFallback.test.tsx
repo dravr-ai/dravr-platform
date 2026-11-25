@@ -82,6 +82,26 @@ describe('SciotteLoginModal (mobile) — the OAuth a failed sign-in falls back t
     expect(onFallBackToOAuth).toHaveBeenCalledTimes(1);
   });
 
+  // As on web, the OAuth leads the failed window and the retry sits under it,
+  // still taking the athlete back to the sign-in form.
+  it('leads a failed sign-in with the OAuth and keeps the retry under it', async () => {
+    sciotteLogin.mockResolvedValue({ status: 'failed', error: "Couldn't find this account" });
+    const onFallBackToOAuth = jest.fn();
+
+    signIn(onFallBackToOAuth);
+
+    expect(await screen.findByText(i18n.t('app.connectionFailed'))).toBeTruthy();
+    const rendered = JSON.stringify(screen.toJSON());
+    const oauthAt = rendered.indexOf('"sciotte-oauth-fallback"');
+    const retryAt = rendered.indexOf(JSON.stringify(i18n.t('app.tryAgain')));
+    expect(oauthAt).toBeGreaterThan(-1);
+    expect(retryAt).toBeGreaterThan(oauthAt);
+
+    fireEvent.press(screen.getByText(i18n.t('app.tryAgain')));
+    expect(screen.getByTestId('sciotte-login-submit')).toBeTruthy();
+    expect(onFallBackToOAuth).not.toHaveBeenCalled();
+  });
+
   it('keeps a turned-down sign-in to a retry when its card has no OAuth', async () => {
     sciotteLogin.mockResolvedValue({ status: 'failed', error: 'Invalid email or password' });
 

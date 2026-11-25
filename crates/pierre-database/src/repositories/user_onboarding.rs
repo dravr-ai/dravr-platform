@@ -31,6 +31,22 @@ pub struct OnboardingStepRecord {
     pub updated_at: Option<Timestamp>,
 }
 
+/// An athlete stuck at connect, read by the connect-stall sweep.
+///
+/// They answered the onboarding `profile_type` step and went no further: no
+/// `connect_provider` step (connected, skipped or not applicable) and no real
+/// provider connection in the tenant the answer was recorded in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StalledAtConnect {
+    /// The athlete.
+    pub user_id: String,
+    /// The tenant the `profile_type` answer was recorded in.
+    pub tenant_id: String,
+    /// When the `profile_type` answer was last written; `None` when the
+    /// stored value does not read as an instant.
+    pub profile_type_at: Option<Timestamp>,
+}
+
 /// Read a step's `updated_at` as the engines render it as text: `SQLite`
 /// stores `YYYY-MM-DD HH:MM:SS` in UTC, Postgres renders `TIMESTAMPTZ` as
 /// `YYYY-MM-DD HH:MM:SS[.ffffff]±HH[:MM]`. Anything else reads as `None`
@@ -70,6 +86,16 @@ pub trait UserOnboardingRepository: Send + Sync {
 
     /// Every recorded step state for a user (rows exist only for reached steps).
     async fn get_onboarding_steps(&self, user_id: &str) -> AppResult<Vec<OnboardingStepRecord>>;
+
+    /// The athletes stalled at connect, most recent `profile_type` answer
+    /// first, at most `limit` of them (see [`StalledAtConnect`]).
+    ///
+    /// The connect-stall sweep's cross-tenant scan: each row is checked
+    /// against the provider connections of its own tenant, and a row with no
+    /// tenant (an account that belongs to none, so could hold no connection)
+    /// is left out. The order is the engine's own, so the caller picks the
+    /// time window from `profile_type_at`.
+    async fn list_stalled_at_connect(&self, limit: i64) -> AppResult<Vec<StalledAtConnect>>;
 
     /// Return a user to the state onboarding starts from, in one transaction.
     ///
@@ -220,6 +246,31 @@ pub(crate) const SELECT_ONBOARDING_STEPS_SQL: &str = r"
             WHERE user_id = $1
             ";
 
+/// The connect-stall scan behind
+/// [`UserOnboardingRepository::list_stalled_at_connect`]. Every column it
+/// compares is `TEXT` on both engines, and `updated_at` orders correctly on
+/// both (`TIMESTAMPTZ`, and `SQLite`'s fixed-width UTC text), so one
+/// statement serves both.
+pub(crate) const SELECT_STALLED_AT_CONNECT_SQL: &str = r"
+            SELECT p.user_id, p.tenant_id, CAST(p.updated_at AS TEXT) AS updated_at
+            FROM user_onboarding p
+            WHERE p.step_id = 'profile_type'
+              AND p.status = 'complete'
+              AND p.tenant_id IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM user_onboarding c
+                  WHERE c.user_id = p.user_id AND c.step_id = 'connect_provider'
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM provider_connections pc
+                  WHERE pc.user_id = p.user_id
+                    AND pc.tenant_id = p.tenant_id
+                    AND pc.connection_type <> 'synthetic'
+              )
+            ORDER BY p.updated_at DESC
+            LIMIT $1
+            ";
+
 /// Decode a row via `try_get` (never `Row::get`, which is `try_get().unwrap()`
 /// and panics on a type/NULL surprise) so a corrupt row is a recoverable error.
 ///
@@ -247,6 +298,32 @@ where
             .try_get::<Option<String>, _>("chosen_channel")
             .map_err(|e| AppError::database(format!("user_onboarding chosen_channel: {e}")))?,
         updated_at: row
+            .try_get::<Option<String>, _>("updated_at")
+            .map_err(|e| AppError::database(format!("user_onboarding updated_at: {e}")))?
+            .as_deref()
+            .and_then(parse_step_time),
+    })
+}
+
+/// Decode one [`SELECT_STALLED_AT_CONNECT_SQL`] row; every column is `TEXT`.
+///
+/// # Errors
+/// Returns a database error when a column cannot be decoded.
+pub(crate) fn stalled_from_row<R>(row: &R) -> AppResult<StalledAtConnect>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    Ok(StalledAtConnect {
+        user_id: row
+            .try_get::<String, _>("user_id")
+            .map_err(|e| AppError::database(format!("user_onboarding user_id: {e}")))?,
+        tenant_id: row
+            .try_get::<String, _>("tenant_id")
+            .map_err(|e| AppError::database(format!("user_onboarding tenant_id: {e}")))?,
+        profile_type_at: row
             .try_get::<Option<String>, _>("updated_at")
             .map_err(|e| AppError::database(format!("user_onboarding updated_at: {e}")))?
             .as_deref()
@@ -297,6 +374,21 @@ macro_rules! impl_user_onboarding_repository {
                     })?;
 
                 rows.iter().map(step_record_from_row).collect()
+            }
+
+            async fn list_stalled_at_connect(
+                &self,
+                limit: i64,
+            ) -> AppResult<Vec<StalledAtConnect>> {
+                let rows = sqlx::query(SELECT_STALLED_AT_CONNECT_SQL)
+                    .bind(limit)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to scan stalled connects: {e}"))
+                    })?;
+
+                rows.iter().map(stalled_from_row).collect()
             }
 
             async fn reset_onboarding(

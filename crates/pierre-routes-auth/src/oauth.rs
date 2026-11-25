@@ -5,7 +5,6 @@
 // Copyright (c) 2026 dravr.ai
 
 use std::collections::{HashMap, HashSet};
-use std::fmt::Display;
 
 use axum::{
     extract::{Path, Query, State},
@@ -19,6 +18,7 @@ use tracing::{error, field, field::Empty, info, warn, Span};
 use crate::card_backend;
 use crate::card_history::card_history;
 use crate::card_seats::{require_garmin_seat, CardSeats};
+use crate::connect_failure::{report_connect_failed, SignInFailure, SignInPath};
 use crate::dead_grant::dead_grant_sign_in_url;
 use crate::oauth_connect::spawn_connect_follow_ups;
 use crate::AuthRoutesContext;
@@ -32,7 +32,9 @@ use pierre_runtime_context::require_tenant_in;
 use pierre_runtime_context::{resolve_tenant_in, TenantMode};
 use pierre_services::coach_platform::coach_platforms;
 use pierre_services::delegated_connections::{member_delegation, MemberDelegation};
-use pierre_services::oauth_flow::{get_user_for_oauth, AuthUrlOptions, OAuthService};
+use pierre_services::oauth_flow::{
+    get_user_for_oauth, AuthUrlOptions, OAuthService, ParsedOAuthState,
+};
 use pierre_services::oauth_redirects;
 use pierre_services::provider_history;
 use pierre_services::provider_notice::{asks_for_notice, consent_state};
@@ -103,6 +105,9 @@ pub(crate) async fn handle_oauth_callback(
         let error_msg = params.get("error").map_or("cancelled", String::as_str);
         let state = params.get("state").map_or("", String::as_str);
         let redeemed = oauth_routes.redeem_state(state, &provider).await.ok();
+        if let Some(parsed) = redeemed.as_ref() {
+            report_provider_refusal(parsed, &provider, error_msg);
+        }
         let mobile_url = redeemed
             .as_ref()
             .and_then(|parsed| parsed.mobile_redirect_url());
@@ -147,6 +152,7 @@ pub(crate) async fn handle_oauth_callback(
         }
     };
     let verified_mobile_url = parsed_state.mobile_redirect_url().map(str::to_owned);
+    let (state_user, state_tenant) = (parsed_state.user_id(), parsed_state.tenant_id());
 
     match oauth_routes
         .complete_callback(code, &provider, parsed_state)
@@ -195,14 +201,54 @@ pub(crate) async fn handle_oauth_callback(
 
             Ok((StatusCode::OK, [(header::CONTENT_TYPE, "text/html")], html).into_response())
         }
-        Err(e) => Ok(callback_failure_response(
-            frontend_url.as_deref(),
-            &provider,
-            &e,
-            verified_mobile_url.as_deref(),
-            &failure_text,
-        )),
+        Err(e) => {
+            // A code the provider refused, or an exchange that failed: the
+            // athlete is still at connect either way.
+            let failure = if e.is_server_fault() {
+                SignInFailure::System
+            } else {
+                SignInFailure::TurnedDown
+            };
+            report_connect_failed(
+                state_user,
+                state_tenant,
+                &provider,
+                SignInPath::OAuth,
+                failure,
+            );
+            Ok(callback_failure_response(
+                frontend_url.as_deref(),
+                &provider,
+                &e,
+                verified_mobile_url.as_deref(),
+                &failure_text,
+            ))
+        }
     }
+}
+
+/// Report a callback the provider sent back with an `error` instead of a
+/// code, for a state this server issued: a launch nobody else could have
+/// started.
+///
+/// `access_denied` (and no error at all) is the athlete closing or declining
+/// the consent screen, which is a cancel, not a failure, and reports
+/// nothing. RFC 6749 §4.1.2.1's `temporarily_unavailable` and `server_error`
+/// are the provider being down; any other code is the provider refusing the
+/// request.
+fn report_provider_refusal(parsed: &ParsedOAuthState, provider: &str, error: &str) {
+    let failure = match error {
+        "access_denied" | "cancelled" => return,
+        "temporarily_unavailable" | "server_error" => SignInFailure::Unavailable,
+        _ => SignInFailure::TurnedDown,
+    };
+    report_connect_failed(
+        parsed.user_id(),
+        parsed.tenant_id(),
+        provider,
+        SignInPath::OAuth,
+        failure,
+    );
 }
 
 /// The error a failed OAuth authorization-URL request surfaces as, logged at
@@ -210,10 +256,24 @@ pub(crate) async fn handle_oauth_callback(
 ///
 /// `{provider}` is the caller's path segment: one that does not exist or has
 /// no OAuth is refused and passes through as the refusal it is. Anything else
-/// is the server failing to build the URL, and pages.
-fn oauth_url_failure(error: AppError, provider: &str, user_id: impl Display) -> AppError {
+/// is the server failing to build the URL, and pages: the athlete cannot
+/// reach the provider's consent screen, so it reports `provider.connect_failed`
+/// too.
+fn oauth_url_failure(
+    error: AppError,
+    provider: &str,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> AppError {
     if error.is_server_fault() {
         error!("Failed to generate OAuth URL for {provider} user {user_id}: {error}");
+        report_connect_failed(
+            user_id,
+            Some(tenant_id.as_uuid()),
+            provider,
+            SignInPath::OAuth,
+            SignInFailure::System,
+        );
         AppError::internal(format!(
             "Failed to generate OAuth URL for {provider}: {error}"
         ))
@@ -856,7 +916,7 @@ pub(crate) async fn handle_mobile_oauth_init(
             },
         )
         .await
-        .map_err(|e| oauth_url_failure(e, &provider, user_id))?;
+        .map_err(|e| oauth_url_failure(e, &provider, user_id, tenant_id))?;
 
     info!(
         "Generated mobile OAuth URL for {} user {} (state issued){}",
@@ -992,7 +1052,7 @@ pub(crate) async fn handle_oauth_authorize_redirect(
     let authorization = oauth_service
         .get_auth_url(user_id, tenant_id, &provider, AuthUrlOptions::default())
         .await
-        .map_err(|e| oauth_url_failure(e, &provider, user_id))?;
+        .map_err(|e| oauth_url_failure(e, &provider, user_id, tenant_id))?;
 
     info!(
         provider = %provider,

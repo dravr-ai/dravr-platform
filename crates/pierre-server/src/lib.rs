@@ -131,6 +131,7 @@ pub use crate::services::settings_poll::{
     settings_poll_interval, start_settings_poll, SettingsPollTargets,
 };
 pub use crate::services::upload_streams_backfill::start_upload_streams_backfill;
+pub use pierre_services::connect_stall_sweeper::start_connect_stall_sweeper;
 pub use pierre_services::firebase_identity_outbox::start_firebase_identity_sweeper;
 pub use pierre_services::mcp_task_sweeper::start_mcp_task_sweeper;
 #[cfg(feature = "client-messaging")]

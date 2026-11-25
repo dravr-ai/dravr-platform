@@ -8,11 +8,13 @@ use pierre_core::errors::{AppError, AppResult};
 
 use crate::backends::postgres::PostgresDatabase;
 use crate::repositories::user_onboarding::{
-    impl_user_onboarding_repository, step_record_from_row, MEMORY_RESET_STATEMENTS,
-    ONBOARDING_RESET_STATEMENTS, SELECT_ONBOARDING_STEPS_SQL, UPSERT_ONBOARDING_STEP_SQL,
+    impl_user_onboarding_repository, stalled_from_row, step_record_from_row,
+    MEMORY_RESET_STATEMENTS, ONBOARDING_RESET_STATEMENTS, SELECT_ONBOARDING_STEPS_SQL,
+    SELECT_STALLED_AT_CONNECT_SQL, UPSERT_ONBOARDING_STEP_SQL,
 };
 use crate::repositories::{
-    OnboardingReset, OnboardingResetScope, OnboardingStepRecord, UserOnboardingRepository,
+    OnboardingReset, OnboardingResetScope, OnboardingStepRecord, StalledAtConnect,
+    UserOnboardingRepository,
 };
 
 impl_user_onboarding_repository!(PostgresDatabase);

@@ -285,6 +285,7 @@ mod connect_hosted_intervals_icu_test;
 mod connect_hosted_locale_test;
 mod connect_hosted_routes_test;
 mod connect_order_test;
+mod connect_stall_sweeper_test;
 mod console_user_management_test;
 mod content_blocks_roundtrip_test;
 mod contremaitre_test;

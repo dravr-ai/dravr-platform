@@ -1065,9 +1065,13 @@ export function SciotteLoginModal({
           </View>
           <Text className="text-base font-medium text-text-primary mb-1">{t('app.connectionFailed')}</Text>
           <Text className="text-sm text-error text-center mb-5 px-4">{error}</Text>
+          {/* A sign-in window never dead-ends (carnet#1477): the card's OAuth, where it has one,
+              is the main way on, opened by the athlete's tap, with the retry under it, as on
+              web; without one, the retry is the main way on. */}
           <TouchableOpacity
-            onPress={() => setPhase('credentials')}
+            onPress={onFallBackToOAuth ?? (() => setPhase('credentials'))}
             activeOpacity={0.8}
+            testID={onFallBackToOAuth ? 'sciotte-oauth-fallback' : undefined}
           >
             <LinearGradient
               colors={brandColor.gradient}
@@ -1075,22 +1079,18 @@ export function SciotteLoginModal({
               end={{ x: 1, y: 0 }}
               style={{ borderRadius: 12, paddingHorizontal: 32, paddingVertical: 12 }}
             >
-              <Text className="text-base font-semibold" style={{ color: PLATE_INK }}>{t('app.tryAgain')}</Text>
+              <Text className="text-base font-semibold" style={{ color: PLATE_INK }}>
+                {onFallBackToOAuth ? t('app.continueWithProvider', { provider: platformName }) : t('app.tryAgain')}
+              </Text>
             </LinearGradient>
           </TouchableOpacity>
-          {/* A sign-in window never dead-ends (carnet#1477): whatever
-              failed, the card's OAuth, where it has one, sits beside the
-              retry, opened by the athlete's tap. */}
           {onFallBackToOAuth && (
             <TouchableOpacity
-              onPress={onFallBackToOAuth}
+              onPress={() => setPhase('credentials')}
               activeOpacity={0.8}
               className="mt-3 rounded-xl border border-border bg-background-secondary px-8 py-3 items-center"
-              testID="sciotte-oauth-fallback"
             >
-              <Text className="text-base text-text-primary font-semibold">
-                {t('app.continueWithProvider', { provider: platformName })}
-              </Text>
+              <Text className="text-base text-text-primary font-semibold">{t('app.tryAgain')}</Text>
             </TouchableOpacity>
           )}
         </View>

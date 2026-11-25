@@ -226,3 +226,48 @@ async fn a_login_answer_with_no_status_alerts_with_its_marker_and_not_its_body()
         );
     }
 }
+
+/// The `reason_class` of every `provider.connect_failed` event captured.
+fn connect_failed_classes(events: &CapturedLog) -> Vec<String> {
+    events
+        .events()
+        .iter()
+        .filter(|e| e.field("event") == Some("provider.connect_failed"))
+        .map(|e| e.field("reason_class").unwrap_or_default().to_owned())
+        .collect()
+}
+
+/// A shed and a system failure each still report the athlete's failed
+/// connect, once, classed by why it ended (2026-11-24 post-mortem).
+#[tokio::test]
+async fn a_shed_and_a_system_failure_each_report_one_failed_connect() {
+    let (events, guard) = log_capture::capture_events();
+    login_failure_response(
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        "sciotte",
+        "credential_login",
+        &login_shed(30),
+    )
+    .expect("a shed is answered");
+    assert_eq!(
+        connect_failed_classes(&events),
+        ["unavailable"],
+        "bug: a shed must report one failed connect classed unavailable"
+    );
+
+    login_failure_response(
+        Uuid::new_v4(),
+        Uuid::new_v4(),
+        "sciotte_garmin",
+        "otp",
+        &AppError::internal("browser error: Failed to launch browser"),
+    )
+    .expect_err("a real fault is a system failure");
+    drop(guard);
+    assert_eq!(
+        connect_failed_classes(&events),
+        ["unavailable", "system"],
+        "bug: a system failure must report one failed connect classed system"
+    );
+}

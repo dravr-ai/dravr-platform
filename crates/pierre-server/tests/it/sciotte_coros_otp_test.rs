@@ -468,3 +468,55 @@ async fn a_new_login_supersedes_the_parked_flow_and_a_refused_password_holds_non
     let got = codes_for(&flow_id);
     assert!(got.is_empty(), "expected empty, got {got:?}");
 }
+
+/// A password the provider turns down reports `provider.connect_failed`, once,
+/// as a credential sign-in turned down, and names neither the account typed
+/// nor the provider's words (2026-11-24 post-mortem).
+#[tokio::test]
+async fn a_refused_password_reports_the_failed_connect_without_the_account() {
+    let athlete = Athlete::new().await;
+    let (events, guard) = helpers::notify_capture::capture_notify();
+    let (status, failed) = athlete.login(WRONG_PASSWORD_EMAIL).await;
+    let reported = helpers::notify_capture::named(&events, "provider.connect_failed");
+    drop(guard);
+
+    assert_eq!(status, 200, "{failed}");
+    assert_eq!(failed["status"], "failed", "{failed}");
+    assert_eq!(
+        reported.len(),
+        1,
+        "bug: a turned-down sign-in must report exactly one failed connect"
+    );
+    let event = &reported[0];
+    assert_eq!(
+        event.field("path"),
+        "credential",
+        "bug: a password sign-in reported another path"
+    );
+    assert_eq!(
+        event.field("reason_class"),
+        "turned_down",
+        "bug: a refused password reported another reason class"
+    );
+    assert_eq!(
+        event.field("provider"),
+        SCIOTTE_COROS,
+        "bug: the event names another provider"
+    );
+    assert_eq!(
+        event.field("user_id"),
+        athlete.user_id.to_string(),
+        "bug: the event names another athlete"
+    );
+    assert_eq!(
+        event.field("tenant_id"),
+        athlete.tenant_id.to_string(),
+        "bug: the event names another tenant"
+    );
+    for value in event.fields.values() {
+        assert!(
+            !value.contains("wrong-password") && !value.contains("Incorrect account"),
+            "bug: the event carries the account or the provider's text: {value}"
+        );
+    }
+}

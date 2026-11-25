@@ -32,6 +32,7 @@ use pierre_providers::sciotte_error::{
     is_login_cancelled, is_login_challenge, is_login_flow_lost, shed_retry_after_secs, to_app_error,
 };
 
+use crate::connect_failure::{report_credential_failed, SignInFailure};
 #[cfg(feature = "health-sync")]
 use crate::first_sync::spawn_connection_report;
 #[cfg(feature = "health-sync")]
@@ -292,6 +293,7 @@ async fn continuation_failure(
 ) -> Result<Response, AppError> {
     if is_login_flow_lost(error) {
         forget_remote_flow(&resources.cache, tenant_id, user_id).await;
+        report_credential_failed(user_id, tenant_id, provider, SignInFailure::Unavailable);
         return Err(login_flow_expired());
     }
     match login_failure_response(user_id, tenant_id, provider, step, error) {
@@ -593,7 +595,18 @@ pub(crate) async fn remote_login_to_response(
                 user_id,
                 tenant_id,
             };
-            store_signed_in(signed_in, remote, resources, link_context).await
+            let stored = store_signed_in(signed_in, remote, resources, link_context).await;
+            // Signed in at the provider, then not kept: the athlete is still
+            // at connect.
+            if stored.is_err() {
+                report_credential_failed(
+                    user_id,
+                    tenant_id,
+                    step.provider(),
+                    SignInFailure::System,
+                );
+            }
+            stored
         }
         LoginOutcome::OtpRequired {
             flow_id, rejected, ..
@@ -629,6 +642,7 @@ pub(crate) async fn remote_login_to_response(
         LoginOutcome::Failed { reason } => {
             forget_remote_flow(&resources.cache, tenant_id, user_id).await;
             log_sign_in_rejected(step, user_id, &reason);
+            report_credential_failed(user_id, tenant_id, provider, SignInFailure::TurnedDown);
             Ok(Json(serde_json::json!({"status": "failed", "error": reason})).into_response())
         }
         LoginOutcome::TakeoverRequired { flow_id, .. } => {
@@ -637,6 +651,7 @@ pub(crate) async fn remote_login_to_response(
         // A login step this platform does not know: nothing of it is kept.
         _ => {
             forget_remote_flow(&resources.cache, tenant_id, user_id).await;
+            report_credential_failed(user_id, tenant_id, provider, SignInFailure::System);
             Err(AppError::internal("unsupported sciotte login step"))
         }
     }
@@ -726,7 +741,8 @@ async fn drop_signed_in_copy(remote: &SciotteClient, session_id: &str, user_id: 
 ///   reason names the last page reached (sciotte v0.7.12); `redact_url`
 ///   scrubs any embedded `user:pass@` credentials before it leaves the
 ///   process. The catalogued `sync.failed` notify event is still emitted so
-///   the `PostHog` analytics signal is preserved.
+///   the `PostHog` analytics signal is preserved, and `provider.connect_failed`
+///   classes it `system` beside every other sign-in failure.
 /// * **The end user** — gets a friendly, generic message carrying no browser
 ///   stderr, internal paths, or stack detail. `InvalidInput` exposes the
 ///   message verbatim (see `AppError::sanitized_message`), so the friendly
@@ -756,6 +772,7 @@ pub fn report_login_system_failure<E: Display>(
         reason = %reason,
         "sciotte login failed"
     );
+    report_credential_failed(user_id, tenant_id, provider, SignInFailure::System);
     let mut refusal = AppError::invalid_input(friendly_login_failure_message(provider));
     refusal.details = Some(Box::new(
         serde_json::json!({ "reason": SIGN_IN_UNAVAILABLE_REASON }),
@@ -834,6 +851,11 @@ fn login_challenge_refusal(provider: &str) -> AppError {
 ///
 /// Everything else still alerts.
 ///
+/// A challenge and a shed each report `provider.connect_failed` (classed
+/// `challenge` and `unavailable`) and a cancel reports nothing: the notify
+/// routing collapses one athlete's retries, so a busy service costs one ping
+/// per athlete rather than one per request.
+///
 /// # Errors
 ///
 /// Returns the cancel refusal for a cancelled step, the challenge refusal for
@@ -861,6 +883,7 @@ pub fn login_failure_response(
             "Sciotte login stopped at a provider challenge — the athlete's to retry, not a \
              system failure"
         );
+        report_credential_failed(user_id, tenant_id, provider, SignInFailure::Challenge);
         return Err(login_challenge_refusal(provider));
     }
     let Some(retry_after_secs) = shed_retry_after_secs(error) else {
@@ -875,6 +898,7 @@ pub fn login_failure_response(
         retry_after_secs,
         "Sciotte login shed by service backpressure — retryable, not a system failure"
     );
+    report_credential_failed(user_id, tenant_id, provider, SignInFailure::Unavailable);
     Ok(shed_response(provider, retry_after_secs))
 }
 

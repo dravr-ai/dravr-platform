@@ -79,6 +79,8 @@ mod card_backend;
 /// Where a provider card's history stands.
 mod card_history;
 mod card_seats;
+/// The `provider.connect_failed` event every sign-in path reports through.
+mod connect_failure;
 #[cfg(feature = "provider-sciotte")]
 mod connect_hosted;
 #[cfg(feature = "provider-sciotte")]
@@ -136,6 +138,7 @@ mod sciotte_session_reuse;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_takeover;
 /// The notice precondition a provider sign-in passes
+#[cfg(feature = "provider-sciotte")]
 mod sciotte_terms;
 mod short_link;
 #[cfg(feature = "provider-sciotte")]
