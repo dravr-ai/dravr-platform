@@ -17,6 +17,7 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::fmt;
+use std::future::{ready, Future};
 
 use axum::extract::{FromRequestParts, OriginalUri};
 use axum::http::request::Parts;
@@ -108,17 +109,20 @@ impl PresentedCall {
 impl<S: Send + Sync> FromRequestParts<S> for PresentedCall {
     type Rejection = Infallible;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
         // The path the client dialed, before any nesting stripped a prefix.
         let path = parts
             .extensions
             .get::<OriginalUri>()
             .map_or_else(|| parts.uri.path().to_owned(), |uri| uri.path().to_owned());
-        Ok(Self::from_http(
+        ready(Ok(Self::from_http(
             &parts.headers,
             parts.method.as_str(),
             &path,
-        ))
+        )))
     }
 }
 

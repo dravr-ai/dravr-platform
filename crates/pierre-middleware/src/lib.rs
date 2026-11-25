@@ -23,7 +23,7 @@ pub mod auth;
 pub mod cors;
 /// CSRF validation middleware
 pub mod csrf;
-/// How a protocol request presented its credential, and its DPoP context (RFC 9449)
+/// How a protocol request presented its credential, and its `DPoP` context (RFC 9449)
 pub mod dpop_request;
 /// Axum extractors for common authentication patterns
 pub mod extractors;

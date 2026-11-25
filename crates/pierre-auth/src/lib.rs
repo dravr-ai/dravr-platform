@@ -37,7 +37,7 @@ pub mod client_address;
 /// Data Transfer Objects (request/response shapes) for auth HTTP endpoints
 pub mod dto;
 
-/// DPoP (RFC 9449): proof verification, replay burn and the token binding rules
+/// `DPoP` (RFC 9449): proof verification, replay burn and the token binding rules
 pub mod dpop;
 
 /// Firebase Authentication ID-token validation (social login providers via Firebase)
