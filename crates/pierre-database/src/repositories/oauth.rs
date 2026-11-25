@@ -344,8 +344,9 @@ pub trait OAuth2ServerRepository: Send + Sync {
     ///
     /// Every other live grant the user gave the client in the tenant, whatever
     /// its scope, is revoked in the same transaction, as
-    /// [`revoke_client_grant`](Self::revoke_client_grant) revokes one: an
-    /// approval leaves the client one live grant.
+    /// [`revoke_client_grant`](Self::revoke_client_grant) revokes one, but
+    /// the client's standing policies stay: an approval leaves the client one
+    /// live grant.
     ///
     /// Returns the id of the row that holds the grant: `grant.id` for a new
     /// one, the existing row's on a re-consent. That id is what the codes it
@@ -367,7 +368,9 @@ pub trait OAuth2ServerRepository: Send + Sync {
     /// `grant` is inserted. A grant's details never change under it, so a
     /// re-consent to other details, or onto an expired row, is a new grant.
     /// The client's other live grants are revoked with it, as
-    /// [`store_client_grant`](Self::store_client_grant) revokes them.
+    /// [`store_client_grant`](Self::store_client_grant) revokes them. The
+    /// client's standing policies stay: a policy's renewal replaces through
+    /// here.
     /// Returns the id of the grant stored, `grant.id`. Each grant ended gets
     /// its ending receipt, by `approval.actor`, and the new one its `issue`.
     async fn replace_client_grant(

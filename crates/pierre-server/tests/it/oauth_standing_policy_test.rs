@@ -177,6 +177,16 @@ async fn a_policy_renews_its_expired_preset_grant_as_the_as_and_the_renewal_skip
         .await
         .expect("bug: no renewed grant");
     assert_ne!(grant.id, expired, "bug: the expired row was not replaced");
+    // Replacing the expired grant is not a revoke: the policy stands.
+    assert_eq!(
+        policies(&world)
+            .await
+            .iter()
+            .map(|live| live.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![policy.id.as_str()],
+        "bug: the renewal ended the policy that renewed it"
+    );
     assert_eq!(
         (
             grant.consent_version.as_deref(),

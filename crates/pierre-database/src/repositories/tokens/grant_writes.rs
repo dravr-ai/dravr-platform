@@ -28,7 +28,9 @@
 //! end a grant the same way: the row is revoked, and with it the client's
 //! refresh tokens and unredeemed codes for the user in the tenant, and the
 //! support sessions bound to those families (carnet#1511). The body is written
-//! once here, in the caller's transaction, so the two cannot drift.
+//! once here, in the caller's transaction, so the two cannot drift. Only a
+//! revoke also ends the athlete's standing policies for the client: a
+//! replace is a re-consent or a policy's own renewal, and keeps them.
 //!
 //! An approval leaves the client one live grant: storing or replacing a grant
 //! revokes, in its own transaction, every other live grant of the same user,
