@@ -1011,14 +1011,14 @@ async fn test_suggest_yoga_sequence_focus_area_keeps_to_the_area() -> Result<()>
     assert_eq!(
         field_values(&unfocused, "sequence", "english_name"),
         [
-            "Butterfly Pose",
-            "Seated Forward Fold",
             "Downward Facing Dog",
             "Triangle Pose",
+            "Butterfly Pose",
+            "Seated Forward Fold",
             "Reclined Pigeon",
             "Supine Spinal Twist"
         ],
-        "without a focus every post-cardio pose, by category then name"
+        "without a focus every post-cardio pose, from standing to lying face-up"
     );
 
     let hips = call_ok(
@@ -1030,8 +1030,8 @@ async fn test_suggest_yoga_sequence_focus_area_keeps_to_the_area() -> Result<()>
     assert_eq!(
         field_values(&hips, "sequence", "english_name"),
         [
-            "Butterfly Pose",
             "Triangle Pose",
+            "Butterfly Pose",
             "Reclined Pigeon",
             "Supine Spinal Twist"
         ],
@@ -1056,11 +1056,76 @@ async fn test_suggest_yoga_sequence_focus_area_keeps_to_the_area() -> Result<()>
     assert_eq!(
         field_values(&back, "sequence", "english_name"),
         [
+            "Downward Facing Dog",
             "Butterfly Pose",
             "Seated Forward Fold",
-            "Downward Facing Dog",
             "Supine Spinal Twist"
         ]
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_suggest_yoga_sequence_ends_lying_down_on_corpse_pose() -> Result<()> {
+    let executor = create_seeded_executor().await?;
+
+    let evening = call_ok(
+        &executor,
+        "suggest_yoga_sequence",
+        json!({ "purpose": "evening", "duration_minutes": 15 }),
+    )
+    .await;
+    assert_eq!(
+        field_values(&evening, "sequence", "english_name"),
+        [
+            "Butterfly Pose",
+            "Seated Forward Fold",
+            "Legs Up The Wall",
+            "Reclined Pigeon",
+            "Happy Baby",
+            "Supine Spinal Twist",
+            "Corpse Pose"
+        ],
+        "seated, then the inversion, then supine: active before relaxation, Corpse Pose last"
+    );
+    assert_eq!(
+        evening["total_duration_seconds"], 900,
+        "the seven evening holds fill the 15 minutes exactly, Corpse Pose's 300 s included"
+    );
+
+    let short_evening = call_ok(
+        &executor,
+        "suggest_yoga_sequence",
+        json!({ "purpose": "evening", "duration_minutes": 10 }),
+    )
+    .await;
+    assert_eq!(
+        field_values(&short_evening, "sequence", "english_name"),
+        ["Butterfly Pose", "Seated Forward Fold", "Corpse Pose"],
+        "a short session keeps Corpse Pose's 300 s back and fills what is left in order, \
+         stopping at Legs Up The Wall's 300 s"
+    );
+    assert_eq!(
+        short_evening["total_duration_seconds"], 420,
+        "two 60 s holds and Corpse Pose's 300 s"
+    );
+
+    let stress_relief = call_ok(
+        &executor,
+        "suggest_yoga_sequence",
+        json!({ "purpose": "stress_relief", "duration_minutes": 15 }),
+    )
+    .await;
+    assert_eq!(
+        field_values(&stress_relief, "sequence", "english_name"),
+        ["Child's Pose", "Corpse Pose"],
+        "Child's Pose kneels and folds forward, so it is seated and comes before lying down"
+    );
+    assert_eq!(
+        field_values(&stress_relief, "sequence", "category"),
+        ["seated", "supine"],
+        "Child's Pose is seeded as seated, Corpse Pose as supine"
     );
 
     Ok(())

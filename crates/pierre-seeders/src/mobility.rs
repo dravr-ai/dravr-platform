@@ -642,7 +642,7 @@ const YOGA_POSES: &[YogaPoseData] = &[
         sanskrit_name: Some("Balasana"),
         description: "A restful pose that gently stretches the back and promotes relaxation.",
         benefits: &["Releases back tension", "Calms the mind", "Gentle hip stretch", "Promotes rest"],
-        category: "supine",
+        category: "seated",
         difficulty: "beginner",
         pose_type: "relaxation",
         primary_muscles: &["lower_back", "hips"],

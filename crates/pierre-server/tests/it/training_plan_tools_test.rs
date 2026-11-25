@@ -364,17 +364,54 @@ async fn a_fuelling_rate_past_absorption_is_rejected() -> Result<()> {
     assert_no_plan(&executor, user_id, &tenant_id).await
 }
 
-/// Sodium is a loss estimate rather than a target, and is bounded all the same:
-/// an implausible estimate produces an implausible plan.
+/// Fluid and sodium have no save-time ceiling (carnet#1801): a heavy sweater's
+/// measured loss and a hot race's fluid plan save and read back as written.
 #[tokio::test]
-async fn an_implausible_sodium_loss_is_rejected() -> Result<()> {
+async fn fluid_and_sodium_have_no_save_time_ceiling() -> Result<()> {
+    let executor = create_executor().await?;
+    let (user_id, tenant_id) = create_test_user(&executor).await?;
+    let mut payload = plan_with_a_structured_day();
+    payload["weeks"][0]["days"][3]["fueling"] = json!({
+        "carbs_g_per_h": 90.0,
+        "fluid_ml_per_h": 2000.0,
+        "sodium_mg_per_h": 9000.0
+    });
+
+    let save = executor
+        .execute_tool(make_request(
+            "save_training_plan",
+            payload,
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    assert!(save.success, "the rates must save: {:?}", save.error);
+
+    let get = executor
+        .execute_tool(make_request(
+            "get_training_plan",
+            json!({"agent_id": "endurance-coach", "all_weeks": true}),
+            user_id,
+            Some(&tenant_id),
+        ))
+        .await?;
+    let fetched = get.result.expect("get result");
+    let fueling = &fetched["weeks"][0]["days"][3]["fueling"];
+    assert_eq!(fueling["fluid_ml_per_h"], 2000.0, "{fetched}");
+    assert_eq!(fueling["sodium_mg_per_h"], 9000.0, "{fetched}");
+    Ok(())
+}
+
+/// A rate per hour cannot be negative, ceiling or not.
+#[tokio::test]
+async fn a_negative_sodium_loss_is_rejected() -> Result<()> {
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
     let mut payload = plan_with_a_structured_day();
     payload["weeks"][0]["days"][3]["fueling"] = json!({
         "carbs_g_per_h": 90.0,
         "fluid_ml_per_h": 700.0,
-        "sodium_mg_per_h": 9000.0
+        "sodium_mg_per_h": -100.0
     });
 
     let message = outcome_text(
@@ -383,8 +420,8 @@ async fn an_implausible_sodium_loss_is_rejected() -> Result<()> {
     )
     .await;
     assert!(
-        message.contains("fueling.sodium_mg_per_h 9000 is outside 0..=2000"),
-        "the rejection names the field and its ceiling: {message}"
+        message.contains("fueling.sodium_mg_per_h -100 is not a rate of 0 or more"),
+        "the rejection names the field: {message}"
     );
     assert_no_plan(&executor, user_id, &tenant_id).await
 }

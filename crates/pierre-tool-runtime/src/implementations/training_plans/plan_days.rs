@@ -16,12 +16,10 @@ use crate::implementations::calendar::{
 };
 use crate::implementations::training_plan_vision::validate_day_template;
 
-/// Fuelling ceilings. Nothing bounded what a plan could store, so a rate no
-/// gut can absorb reached the athlete's calendar unchallenged; these are the
-/// bound the save enforces.
+/// The carbohydrate ceiling a save enforces, so a rate no gut can absorb never
+/// reaches the athlete's calendar. Fluid and sodium have no save-time ceiling
+/// (carnet#1801).
 const MAX_CARBS_G_PER_H: f32 = 150.0;
-const MAX_FLUID_ML_PER_H: f32 = 1_500.0;
-const MAX_SODIUM_MG_PER_H: f32 = 2_000.0;
 
 /// Validate one week payload (dates, day dates inside the week, the entries
 /// each date holds, each day's bounds through [`validate_day`]), and put its
@@ -123,24 +121,24 @@ pub(crate) fn validate_day(day: &mut PlannedDay, position: u32) -> AppResult<()>
         }
     }
     if let Some(fuel) = day.fueling.as_ref() {
-        // Rates are per hour and cannot be negative, and each ceiling is
-        // the schema's own. Sodium is checked like the rest even though it
-        // is a loss estimate rather than a target — an implausible estimate
-        // produces an implausible plan just as surely.
-        for (field, value, max) in [
-            ("carbs_g_per_h", fuel.carbs_g_per_h, MAX_CARBS_G_PER_H),
-            ("fluid_ml_per_h", fuel.fluid_ml_per_h, MAX_FLUID_ML_PER_H),
-        ] {
-            if !value.is_finite() || !(0.0..=max).contains(&value) {
-                return Err(AppError::invalid_input(format!(
-                    "{session} fueling.{field} {value} is outside 0..={max}"
-                )));
-            }
+        // Rates are per hour and cannot be negative. Only carbohydrate has a
+        // ceiling: Phil decided on 2026-11-24 (carnet#1801) that fluid and
+        // sodium have none at save time. Sodium is a sweat-loss estimate the
+        // 2026-08-30 race-fuelling decision leaves unbounded, and the
+        // race-fuelling eval judges fluid against its own 4 L/h.
+        let carbs = fuel.carbs_g_per_h;
+        if !carbs.is_finite() || !(0.0..=MAX_CARBS_G_PER_H).contains(&carbs) {
+            return Err(AppError::invalid_input(format!(
+                "{session} fueling.carbs_g_per_h {carbs} is outside 0..={MAX_CARBS_G_PER_H}"
+            )));
         }
-        if let Some(sodium) = fuel.sodium_mg_per_h {
-            if !sodium.is_finite() || !(0.0..=MAX_SODIUM_MG_PER_H).contains(&sodium) {
+        for (field, value) in [
+            ("fluid_ml_per_h", Some(fuel.fluid_ml_per_h)),
+            ("sodium_mg_per_h", fuel.sodium_mg_per_h),
+        ] {
+            if let Some(rate) = value.filter(|rate| !rate.is_finite() || *rate < 0.0) {
                 return Err(AppError::invalid_input(format!(
-                    "{session} fueling.sodium_mg_per_h {sodium} is outside 0..={MAX_SODIUM_MG_PER_H}"
+                    "{session} fueling.{field} {rate} is not a rate of 0 or more"
                 )));
             }
         }
@@ -356,5 +354,54 @@ mod tests {
             "day 2026-11-24 session 1",
             "bug: a session is named 1-based"
         );
+    }
+
+    #[test]
+    fn fluid_and_sodium_have_no_ceiling_but_must_be_finite_and_not_negative() {
+        let fuelled = |fluid: f32, sodium: Option<f32>| {
+            let mut week = payload(&json!([{
+                "date": "2026-11-24", "sport": "ride", "workout": "Long ride", "intensity": "Z2",
+                "fueling": { "carbs_g_per_h": 90.0, "fluid_ml_per_h": 500.0 }
+            }]));
+            let fuel = week.days[0]
+                .fueling
+                .as_mut()
+                .expect("fixture: the day carries fuelling");
+            fuel.fluid_ml_per_h = fluid;
+            fuel.sodium_mg_per_h = sodium;
+            validate_week(&mut week)
+        };
+        assert!(
+            fuelled(4_000.0, Some(9_000.0)).is_ok(),
+            "bug: fluid and sodium have no save-time ceiling (carnet#1801)"
+        );
+        for (fluid, sodium, expected) in [
+            (
+                f32::INFINITY,
+                None,
+                "day 2026-11-24 session 1 fueling.fluid_ml_per_h inf is not a rate of 0 or more",
+            ),
+            (
+                f32::NAN,
+                None,
+                "day 2026-11-24 session 1 fueling.fluid_ml_per_h NaN is not a rate of 0 or more",
+            ),
+            (
+                -1.0,
+                None,
+                "day 2026-11-24 session 1 fueling.fluid_ml_per_h -1 is not a rate of 0 or more",
+            ),
+            (
+                500.0,
+                Some(f32::INFINITY),
+                "day 2026-11-24 session 1 fueling.sodium_mg_per_h inf is not a rate of 0 or more",
+            ),
+        ] {
+            assert_eq!(
+                message(fuelled(fluid, sodium)),
+                expected,
+                "bug: a fluid or sodium rate that is not a finite number of 0 or more is refused"
+            );
+        }
     }
 }

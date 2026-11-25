@@ -110,8 +110,14 @@ pub(crate) use stretches_for_activity_sql;
 pub(crate) const GET_YOGA_POSE_SQL: &str =
     concat!("SELECT ", yoga_columns!(), " FROM yoga_poses WHERE id = $1");
 
-/// Yoga poses recommended for one recovery context; `$1` is the JSON-array
-/// element pattern from [`json_array_pattern`].
+/// Yoga poses recommended for one recovery context, in the order a sequence
+/// runs them; `$1` is the JSON-array element pattern from
+/// [`json_array_pattern`].
+///
+/// A sequence moves from upright to lying face-up: standing, balance, seated,
+/// twist, prone, inversion, then supine. Within one position the active poses
+/// come before the relaxation ones and short holds before long ones, so the
+/// final relaxation (Corpse Pose, the longest supine hold) closes it.
 macro_rules! poses_for_recovery_sql {
     ($like:literal) => {
         concat!(
@@ -119,7 +125,12 @@ macro_rules! poses_for_recovery_sql {
             yoga_columns!(),
             " FROM yoga_poses WHERE recommended_for_recovery ",
             $like,
-            " $1 ORDER BY category, english_name ASC LIMIT $2"
+            " $1 ORDER BY CASE category",
+            " WHEN 'standing' THEN 1 WHEN 'balance' THEN 2 WHEN 'seated' THEN 3",
+            " WHEN 'twist' THEN 4 WHEN 'prone' THEN 5 WHEN 'inversion' THEN 6",
+            " WHEN 'supine' THEN 7 ELSE 8 END,",
+            " CASE pose_type WHEN 'relaxation' THEN 1 ELSE 0 END,",
+            " hold_duration_seconds, english_name ASC LIMIT $2"
         )
     };
 }

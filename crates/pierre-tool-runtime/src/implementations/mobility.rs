@@ -1089,16 +1089,11 @@ impl McpTool<dyn ToolRuntime> for SuggestYogaSequenceTool {
                 })
                 .collect();
 
-            let target_seconds = duration_minutes * 60;
-            let mut sequence: Vec<SequencePose> = Vec::new();
-            let mut total_seconds: u32 = 0;
-
-            for pose in &poses {
-                if total_seconds + pose.hold_duration_seconds > target_seconds {
-                    break;
-                }
-                sequence.push(SequencePose {
-                    order: sequence.len() + 1,
+            let sequence: Vec<SequencePose> = fill_sequence(&poses, duration_minutes * 60)
+                .into_iter()
+                .enumerate()
+                .map(|(i, pose)| SequencePose {
+                    order: i + 1,
                     id: pose.id.clone(),
                     english_name: pose.english_name.clone(),
                     sanskrit_name: pose.sanskrit_name.clone(),
@@ -1108,9 +1103,9 @@ impl McpTool<dyn ToolRuntime> for SuggestYogaSequenceTool {
                     breath_guidance: pose.breath_guidance.clone(),
                     primary_muscles: pose.primary_muscles.clone(),
                     instructions: pose.instructions.clone(),
-                });
-                total_seconds += pose.hold_duration_seconds;
-            }
+                })
+                .collect();
+            let total_seconds: u32 = sequence.iter().map(|p| p.hold_duration_seconds).sum();
 
             let focus_clause = focus_area.map_or_else(String::new, |area| {
                 format!(", focused on the {}", area.trim().replace('_', " "))
@@ -1137,6 +1132,28 @@ impl McpTool<dyn ToolRuntime> for SuggestYogaSequenceTool {
         .await;
         tool_result_to_response(result)
     }
+}
+
+/// The poses a sequence of `target_seconds` holds, in order: a closing relaxation
+/// pose (the last, when it is one) that fits has its hold kept back, so a short
+/// session still ends on it, and the poses before it fill what is left in order.
+fn fill_sequence(poses: &[YogaPose], target_seconds: u32) -> Vec<&YogaPose> {
+    let closing = poses.split_last().filter(|(last, _)| {
+        matches!(last.pose_type, YogaPoseType::Relaxation)
+            && last.hold_duration_seconds <= target_seconds
+    });
+    let (body, closing) = closing.map_or((poses, None), |(last, rest)| (rest, Some(last)));
+    let mut left = target_seconds - closing.map_or(0, |pose| pose.hold_duration_seconds);
+    let mut sequence = Vec::new();
+    for pose in body {
+        if pose.hold_duration_seconds > left {
+            break;
+        }
+        left -= pose.hold_duration_seconds;
+        sequence.push(pose);
+    }
+    sequence.extend(closing);
+    sequence
 }
 
 // ============================================================================
