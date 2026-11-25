@@ -14,8 +14,8 @@
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::{CoachingGroup, GroupDigestMode, GroupRespondMode};
 use pierre_database::RepositoryRegistry;
-use pierre_services::athlete_display_name::fetch_user_display_name;
 use pierre_services::coached_athlete;
+use pierre_services::coached_athlete::SoloAthleteResponse;
 use pierre_services::group_staff::resolve_group_staff;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -67,16 +67,6 @@ pub struct GroupResponse {
     pub solo_athlete: Option<SoloAthleteResponse>,
 }
 
-/// The one athlete of a one-coach, one-athlete room.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SoloAthleteResponse {
-    /// The athlete's user ID
-    pub user_id: String,
-    /// The athlete's roster name: their display name, else the local part of
-    /// their email
-    pub display_name: String,
-}
-
 impl GroupResponse {
     /// `group` as `reader`, who reads `locale`, reads it, its agent and coach
     /// named — and, for its human coach, its one athlete when it has one.
@@ -92,7 +82,7 @@ impl GroupResponse {
         locale: &str,
     ) -> AppResult<Self> {
         let staff = resolve_group_staff(repos, &group, locale).await?;
-        let solo_athlete = solo_athlete(repos, &group, reader).await?;
+        let solo_athlete = coached_athlete::named_solo_athlete(repos, &group, reader).await?;
         Ok(Self {
             id: group.id.to_string(),
             tenant_id: group.tenant_id,
@@ -114,28 +104,4 @@ impl GroupResponse {
             solo_athlete,
         })
     }
-}
-
-/// The room's one athlete
-/// ([`solo_athlete`](pierre_services::coached_athlete::solo_athlete)), named
-/// when `reader` is `group`'s human coach.
-///
-/// The athlete's consent is not asked here: the coach's thread about them
-/// runs the gates on every turn, and this only says the room is shaped for
-/// one.
-async fn solo_athlete(
-    repos: &RepositoryRegistry,
-    group: &CoachingGroup,
-    reader: Uuid,
-) -> AppResult<Option<SoloAthleteResponse>> {
-    if group.coach_user_id != Some(reader) {
-        return Ok(None);
-    }
-    let Some(athlete) = coached_athlete::solo_athlete(repos, group).await? else {
-        return Ok(None);
-    };
-    Ok(Some(SoloAthleteResponse {
-        user_id: athlete.to_string(),
-        display_name: fetch_user_display_name(repos, athlete).await,
-    }))
 }

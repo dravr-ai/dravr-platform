@@ -16,6 +16,7 @@ use pierre_core::models::{
 };
 use pierre_database::repositories::PlanChangeEvent;
 use pierre_services::coach_plan_draft::DraftState;
+use pierre_services::coached_athlete::SoloAthleteResponse;
 use pierre_services::plan_card::{PlanCard, PlanSubject};
 use pierre_services::plan_card_history::word_stored_outside_evidence;
 use pierre_tool_runtime::implementations::coach_session_editor::{
@@ -654,6 +655,12 @@ pub struct ConversationSummaryResponse {
     /// The athlete's roster name.
     #[serde(default)]
     pub subject_display_name: Option<String>,
+    /// For the group's human coach, the one athlete of the room this row is,
+    /// or of the group this plan thread is bound through when the thread is
+    /// about them (carnet#1817): the athlete whose workspace the row opens.
+    /// Absent for every other row and reader.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub solo_athlete: Option<SoloAthleteResponse>,
     /// The newest `user`/`assistant` row, shaped for the row preview; absent
     /// for an empty conversation.
     #[serde(default, skip_serializing_if = "Option::is_none")]

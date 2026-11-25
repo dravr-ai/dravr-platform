@@ -81,7 +81,7 @@ export interface CoachingGroup {
 /**
  * The one athlete of a one-coach, one-athlete room.
  *
- * Mirrors `SoloAthleteResponse` in `pierre-routes-groups/src/group_response.rs`.
+ * Mirrors `SoloAthleteResponse` in `pierre-services/src/coached_athlete.rs`.
  */
 export interface SoloAthlete {
   user_id: string;

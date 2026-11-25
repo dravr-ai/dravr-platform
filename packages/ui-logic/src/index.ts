@@ -195,6 +195,8 @@ export {
   roomConversationOf,
   usablePlanThread,
 } from './planWorkspace';
+// A coach's Groups list with one row per trifecta athlete, opening their workspace (carnet#1817)
+export { type AthleteWorkspaceFold, type GroupsListRow, foldAthleteRows } from './athleteRows';
 // A coach's day editor: the day's own session by hand, or a family build with its live preview, saved into the draft (carnet#1515, #1714)
 export {
   type DayReplacement,
