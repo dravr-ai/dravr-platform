@@ -281,7 +281,10 @@ mod tests {
             memory: true,
         }
         .withhold_from_dossier(&mut memory_only);
-        assert!(memory_only.medical.is_empty(), "bug: PAR-Q needs sensitive_t2");
+        assert!(
+            memory_only.medical.is_empty(),
+            "bug: PAR-Q needs sensitive_t2"
+        );
         assert_eq!(
             pillar_objects(&memory_only),
             vec!["sub-3 marathon".to_owned()],
@@ -294,7 +297,11 @@ mod tests {
             memory: false,
         }
         .withhold_from_dossier(&mut health_only);
-        assert_eq!(health_only.medical.len(), 1, "bug: sensitive_t2 keeps PAR-Q");
+        assert_eq!(
+            health_only.medical.len(),
+            1,
+            "bug: sensitive_t2 keeps PAR-Q"
+        );
         assert_eq!(
             pillar_objects(&health_only),
             vec!["sore left achilles".to_owned()],

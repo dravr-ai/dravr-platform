@@ -257,7 +257,8 @@ async fn without_sensitive_t3_the_opener_quotes_no_availability() -> Result<()> 
         ))
         .await?;
     assert!(
-        !response.text.contains(AVAILABILITY) && !response.text.contains("Say so if that has changed"),
+        !response.text.contains(AVAILABILITY)
+            && !response.text.contains("Say so if that has changed"),
         "bug: the agent's memory was quoted into the thread without sensitive_t3: {}",
         response.text
     );

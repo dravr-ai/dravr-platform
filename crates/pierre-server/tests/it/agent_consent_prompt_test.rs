@@ -132,8 +132,16 @@ async fn an_answer_gives_the_ticked_consents_and_the_question_is_not_asked_again
         json!({"due": false, "memory": true, "medical": false}),
         "bug: the answer's state is not what it gave"
     );
-    assert_eq!(a.given(SENSITIVE_T3).await, Some(true), "the answer is the consent itself");
-    assert_eq!(a.given(SENSITIVE_T2).await, Some(false), "bug: an unticked class was given");
+    assert_eq!(
+        a.given(SENSITIVE_T3).await,
+        Some(true),
+        "the answer is the consent itself"
+    );
+    assert_eq!(
+        a.given(SENSITIVE_T2).await,
+        Some(false),
+        "bug: an unticked class was given"
+    );
     assert_eq!(
         a.read().await["due"],
         false,
@@ -149,7 +157,11 @@ async fn a_dismissal_gives_nothing_withdraws_nothing_and_is_never_asked_again() 
 
     let (status, body) = a.answer(&json!({"dismissed": true})).await;
     assert_eq!(status, 200, "{body}");
-    assert_eq!(a.given(SENSITIVE_T3).await, Some(false), "dismissed: withheld");
+    assert_eq!(
+        a.given(SENSITIVE_T3).await,
+        Some(false),
+        "dismissed: withheld"
+    );
     assert_eq!(
         a.given(SENSITIVE_T2).await,
         Some(true),
@@ -199,7 +211,10 @@ async fn a_dismissal_carrying_a_consent_is_refused_and_records_nothing() {
 async fn a_support_session_cannot_answer_for_the_athlete() {
     let a = athlete("prompt-support").await;
     let support = impersonation_of(&a.resources, &a.session).await;
-    for body in [json!({"memory": true, "medical": true}), json!({"dismissed": true})] {
+    for body in [
+        json!({"memory": true, "medical": true}),
+        json!({"dismissed": true}),
+    ] {
         let response = AxumTestRequest::post(PATH)
             .header("authorization", &support)
             .json(&body)

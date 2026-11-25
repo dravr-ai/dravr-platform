@@ -28,6 +28,8 @@ use dravr_cageux::nutrition_calculator::{
 use dravr_cageux::training_load::FormBand;
 use dravr_cageux::zones::HrZones;
 use dravr_tronc::dates::{Elapsed, Timestamp};
+use pierre_core::constants::oauth::providers::{sensitive_display_name, SENSITIVE_T2};
+use pierre_core::constants::oauth_providers::NoticeKind;
 use pierre_core::models::{
     Activity, ActivityBuilder, PhysiologicalSex, SportType, TenantId, UserPhysiologicalProfile,
 };
@@ -35,8 +37,6 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
-use pierre_core::constants::oauth::providers::{sensitive_display_name, SENSITIVE_T2};
-use pierre_core::constants::oauth_providers::NoticeKind;
 use pierre_services::parq;
 use pierre_services::provider_notice::grant_consent;
 use pierre_tool_runtime::implementations::analytics::{
@@ -527,7 +527,10 @@ async fn without_sensitive_t2_a_flagged_athletes_amounts_are_withheld_naming_no_
         );
         for line in result["guidance"].as_array().expect("guidance") {
             let line = line.as_str().expect("guidance lines are text");
-            assert!(!states_an_amount(line), "{tool}: guidance states an amount: {line}");
+            assert!(
+                !states_an_amount(line),
+                "{tool}: guidance states an amount: {line}"
+            );
         }
     }
     Ok(())

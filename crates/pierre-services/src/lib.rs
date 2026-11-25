@@ -273,6 +273,8 @@ pub mod memory_extraction;
 /// Re-running the extractions an instance died owing, from the job ledger
 pub mod memory_extraction_resume;
 
+/// The one-time in-app question asking the athlete to allow the agent's tier consents
+pub mod agent_consent_prompt;
 /// User-facing memory fact service — list and forget what the agent remembers
 /// Deciding whether an extracted fact is new or a restatement of an existing one.
 pub mod memory_dedup;
@@ -281,8 +283,6 @@ pub mod memory_dedup_backfill;
 pub mod memory_facts;
 /// The tier consent on the agent's memory: notes and memory under `sensitive_t3`, health facts under `sensitive_t2`
 pub mod memory_tier;
-/// The one-time in-app question asking the athlete to allow the agent's tier consents
-pub mod agent_consent_prompt;
 /// Re-cutting a tenant's stored zone copies with cageux's one zone model.
 pub mod zone_backfill;
 
