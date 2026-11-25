@@ -7,7 +7,14 @@
 import { useId, type ReactNode } from 'react';
 import { useTranslation } from '@pierre/i18n';
 import type { TFunction } from '@pierre/i18n';
-import { countsAsLine, fuelParts, outsideEvidenceLabel, stepDuration } from '@pierre/chat-utils';
+import {
+  COACH_CALL_KEYS,
+  countsAsLine,
+  entriesByDate,
+  fuelParts,
+  outsideEvidenceLabel,
+  stepDuration,
+} from '@pierre/chat-utils';
 import { countKey, PLAN_HARD_PER_WEEK_KEYS, PLAN_MORE_WEEKS_KEYS } from '@pierre/shared-constants';
 import {
   civilDayMonth,
@@ -173,20 +180,6 @@ function Season({ plan }: { plan: WorkoutPlan }) {
 }
 
 /**
- * A week's entries by date, in the order the dates come, each date's entries
- * in the order they are done: a date may hold several (carnet#1716).
- */
-function entriesByDate(days: readonly PlanDay[]): PlanDay[][] {
-  const byDate = new Map<string, PlanDay[]>();
-  for (const day of days) {
-    const entries = byDate.get(day.date);
-    if (entries) entries.push(day);
-    else byDate.set(day.date, [day]);
-  }
-  return [...byDate.values()];
-}
-
-/**
  * One date of the fortnight: a row per entry, in order, the date's cell on
  * its first row spanning the others. A row's keys and test ids carry its
  * place among the date's entries, which is its position (carnet#1716).
@@ -295,7 +288,7 @@ function DayRow({
             {day.evidence && <EvidenceChip evidence={day.evidence} />}
             {day.coach_call && (
               <Badge variant="neutral" className="ml-2" data-testid="plan-day-coach-call">
-                {t('humanCoach.coachCall.badge')}
+                {t(COACH_CALL_KEYS.badge)}
               </Badge>
             )}
             {countsAs && (

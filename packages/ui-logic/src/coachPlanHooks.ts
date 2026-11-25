@@ -359,9 +359,11 @@ export function createCoachPlanHooks({ chatApi }: CoachPlanApis) {
   }
 
   /**
-   * The plan thread's athlete as the coach reads them. An athlete who
-   * stopped sharing reads as `consentRevoked`; any other refusal fails the
-   * read as usual.
+   * The plan thread's athlete as the coach reads them — the live plan, the
+   * draft over it and where the draft stands: what a draft card judges
+   * against, and what the athlete workspace draws (carnet#1816). An athlete
+   * who stopped sharing reads as `consentRevoked`; any other refusal fails
+   * the read as usual.
    */
   function useSubjectPlan(conversationId: string | null, enabled: boolean) {
     const query = useQuery({
@@ -377,7 +379,13 @@ export function createCoachPlanHooks({ chatApi }: CoachPlanApis) {
       enabled: enabled && conversationId !== null,
       staleTime: SUBJECT_PLAN_STALE_MS,
     });
-    return { read: query.data, dataUpdatedAt: query.dataUpdatedAt, refetch: query.refetch };
+    return {
+      read: query.data,
+      dataUpdatedAt: query.dataUpdatedAt,
+      refetch: query.refetch,
+      isLoading: query.isLoading,
+      isError: query.isError,
+    };
   }
 
   /**
@@ -405,6 +413,32 @@ export function createCoachPlanHooks({ chatApi }: CoachPlanApis) {
   }
 
   /**
+   * The subject-plan read a plan card's draft is judged against, read again
+   * once when the card's draft is newer than it: the card a turn just added
+   * is not judged against the read the previous card made, and the athlete
+   * workspace's calendar, which draws that read, shows the draft the turn
+   * saved (carnet#1816).
+   */
+  function useCardSubjectPlan(conversationId: string | null, cardDraft: DraftState | null, enabled: boolean) {
+    const subjectPlan = useSubjectPlan(conversationId, enabled);
+    const { read, dataUpdatedAt, refetch } = subjectPlan;
+
+    // One re-read per draft version, so a clock that runs ahead of this one
+    // cannot turn the comparison into a loop.
+    const askedFor = useRef<string | null>(null);
+    const cardVersion = cardDraft ? `${cardDraft.draft_id}@${cardDraft.updated_at}` : null;
+    useEffect(() => {
+      if (cardDraft === null || cardVersion === null || read === undefined || askedFor.current === cardVersion) return;
+      if (instantMs(cardDraft.updated_at) > dataUpdatedAt) {
+        askedFor.current = cardVersion;
+        void refetch();
+      }
+    }, [cardDraft, cardVersion, read, dataUpdatedAt, refetch]);
+
+    return subjectPlan;
+  }
+
+  /**
    * Everything a plan card needs for the draft its block shows: the state its
    * controls are in, and Publish and Discard.
    *
@@ -422,20 +456,8 @@ export function createCoachPlanHooks({ chatApi }: CoachPlanApis) {
     const queryClient = useQueryClient();
     const showsDraft = cardDraft !== null && conversationId !== null;
     const ownsThread = useOwnsConversation(showsDraft ? conversationId : null, viewerId);
-    const { read, dataUpdatedAt, refetch } = useSubjectPlan(conversationId, showsDraft && ownsThread === true);
+    const { read } = useCardSubjectPlan(conversationId, cardDraft, showsDraft && ownsThread === true);
     const [outcome, setOutcome] = useState<PlanDraftOutcome>({ kind: 'none' });
-
-    // One re-read per draft version, so a clock that runs ahead of this one
-    // cannot turn the comparison into a loop.
-    const askedFor = useRef<string | null>(null);
-    const cardVersion = cardDraft ? `${cardDraft.draft_id}@${cardDraft.updated_at}` : null;
-    useEffect(() => {
-      if (cardDraft === null || cardVersion === null || read === undefined || askedFor.current === cardVersion) return;
-      if (instantMs(cardDraft.updated_at) > dataUpdatedAt) {
-        askedFor.current = cardVersion;
-        void refetch();
-      }
-    }, [cardDraft, cardVersion, read, dataUpdatedAt, refetch]);
 
     const settle = useCallback(async () => {
       if (conversationId === null) return;
@@ -537,5 +559,13 @@ export function createCoachPlanHooks({ chatApi }: CoachPlanApis) {
     };
   }
 
-  return { useOpenAthleteThread, useOpenGroupRoom, useAthletePlan, usePlanDraftCard, usePlanThreadDraft };
+  return {
+    useOpenAthleteThread,
+    useOpenGroupRoom,
+    useAthletePlan,
+    usePlanDraftCard,
+    usePlanThreadDraft,
+    useSubjectPlan,
+    useCardSubjectPlan,
+  };
 }

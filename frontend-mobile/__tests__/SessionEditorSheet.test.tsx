@@ -255,6 +255,7 @@ const SAVED: SubjectPlanResponse = {
   live: null,
   draft: null,
   draft_state: null,
+  proposed_dates: [],
 } as unknown as SubjectPlanResponse;
 
 function newClient(): QueryClient {

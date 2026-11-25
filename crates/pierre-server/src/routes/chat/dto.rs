@@ -387,6 +387,11 @@ pub(super) struct SubjectPlanResponse {
     pub draft: Option<PlanCard>,
     /// Where the draft stands; `null` with no draft.
     pub draft_state: Option<DraftState>,
+    /// The dates whose sessions the draft changes over the live plan,
+    /// `YYYY-MM-DD`, sorted: the dates the coach's workspace marks proposed
+    /// and a publish announces in the room (carnet#1816). Empty with no
+    /// draft.
+    pub proposed_dates: Vec<CivilDate>,
 }
 
 /// `POST /api/chat/conversations/{id}/subject-plan/publish` body.

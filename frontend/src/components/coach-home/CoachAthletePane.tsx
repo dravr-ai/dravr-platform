@@ -38,6 +38,7 @@ import {
   describeSource,
   endedPlan,
   formatSyncTime,
+  PLAN_WORKSPACE_KEYS,
   sourceChipWords,
   sourceChips,
   trainingCut,
@@ -334,6 +335,10 @@ export function CoachAthletePane({ athlete, entry, treatedReason, today, destina
   // takes no second click, so a coach never opens two rooms.
   const roomBusy = destinations.pendingRoomAthleteId === athlete.user_id;
   const primaryOpensRoom = primaryAction !== null && destinations.primaryIsGroupRoom(primaryAction);
+  // The athlete's plan is worked through a group's coaching link, and not at
+  // all once they stopped sharing with the coach.
+  const opensWorkspace = athlete.groups.length > 0 && athlete.status !== 'no_coach_consent';
+  const hasPrimary = reason !== null && primaryAction !== null;
 
   return (
     <div className="mx-auto flex max-w-[760px] flex-col gap-8" data-testid="coach-athlete-pane">
@@ -353,6 +358,18 @@ export function CoachAthletePane({ athlete, entry, treatedReason, today, destina
               onClick={() => destinations.perform(primaryAction, athlete, reason)}
             >
               {primaryOpensRoom && roomBusy ? t('coachHome.action.openingGroup') : t(COACH_ACTION_LABEL_KEY[primaryAction])}
+            </Button>
+          )}
+          {opensWorkspace && (
+            // The pane's one filled button is the reason's action; with no
+            // reason to act on, the plan is the thing to open.
+            <Button
+              size="sm"
+              variant={hasPrimary ? 'secondary' : 'primary'}
+              data-testid="coach-open-workspace"
+              onClick={() => destinations.openWorkspace(athlete)}
+            >
+              {t(PLAN_WORKSPACE_KEYS.open)}
             </Button>
           )}
           {showGroupAction && (

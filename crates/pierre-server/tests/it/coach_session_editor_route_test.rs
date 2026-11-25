@@ -936,6 +936,11 @@ async fn saving_a_day_opens_a_draft_with_it_generated_and_leaves_the_live_plan()
         saved["draft_state"].is_object(),
         "bug: the save opens a draft from the live plan: {saved}"
     );
+    assert_eq!(
+        saved["proposed_dates"],
+        json!([date]),
+        "bug: the draft proposes the one date the coach changed, and no other: {saved}"
+    );
     let day = day_of(&saved["draft"], &date);
     assert_eq!(
         day["template_slug"], FAMILY,
@@ -1996,6 +2001,11 @@ async fn a_coachs_call_marks_its_session_reaches_the_agent_and_goes_live() {
         called_on(&saved["draft"]),
         "bug: the card marks the called day: {day}"
     );
+    assert_eq!(
+        saved["proposed_dates"],
+        json!([]),
+        "bug: a call changes no session, so the draft proposes no date: {saved}"
+    );
     assert!(
         day.get("edited").is_none() && day["workout"] == ATHLETE_WORKOUT,
         "bug: a call is no edit of the session: {day}"
@@ -2150,6 +2160,11 @@ async fn a_date_reverts_to_the_live_plan_whole_and_nothing_is_written_when_nothi
         untouched["draft"].is_null() && !fx.has_draft().await,
         "bug: a revert with nothing to put back opened a draft: {untouched}"
     );
+    assert_eq!(
+        untouched["proposed_dates"],
+        json!([]),
+        "bug: with no draft open, no date is proposed: {untouched}"
+    );
 
     // The agent proposes its own week; the coach adds a session beside
     // Dravr's on the date and makes their call on it.
@@ -2189,6 +2204,17 @@ async fn a_date_reverts_to_the_live_plan_whole_and_nothing_is_written_when_nothi
         ],
         "fixture: the date holds Dravr's session and the coach's"
     );
+    let dates_of_week = |skipped: Option<i64>| -> Vec<String> {
+        (0..7)
+            .filter(|offset| Some(*offset) != skipped)
+            .map(|offset| ymd(monday(1) + Elapsed::days(offset)))
+            .collect()
+    };
+    assert_eq!(
+        called["proposed_dates"],
+        json!(dates_of_week(None)),
+        "bug: every date of the agent's week is proposed, the coach's own included: {called}"
+    );
 
     // Refused: every entry on the date is the live plan's again, whole.
     let (status, reverted) = fx.revert(&date).await;
@@ -2217,6 +2243,11 @@ async fn a_date_reverts_to_the_live_plan_whole_and_nothing_is_written_when_nothi
     assert_eq!(
         reverted["draft_state"]["draft_id"], added["draft_state"]["draft_id"],
         "bug: the revert wrote into another draft: {reverted}"
+    );
+    assert_eq!(
+        reverted["proposed_dates"],
+        json!(dates_of_week(Some(2))),
+        "bug: a refused date is proposed no more, and the week's others still are: {reverted}"
     );
     assert_eq!(
         fx.get_plan().await,
@@ -2270,6 +2301,11 @@ async fn a_date_reverts_to_the_live_plan_whole_and_nothing_is_written_when_nothi
     assert!(
         emptied["live"].is_null() && entries_of(&emptied["draft"], &date).is_empty(),
         "bug: a date the live plan holds nothing on is left empty in the draft: {emptied}"
+    );
+    assert_eq!(
+        emptied["proposed_dates"],
+        json!(dates_of_week(Some(2))),
+        "bug: over no live plan, every date the draft holds is proposed, and an emptied one is not: {emptied}"
     );
     assert_eq!(
         day_of(&emptied["draft"], &ymd(monday(1) + Elapsed::days(3)))["workout"],

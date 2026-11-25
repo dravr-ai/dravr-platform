@@ -45,6 +45,9 @@ jest.mock('@pierre/chat-utils', () => ({
   joinMessageWindows: jest.requireActual('@pierre/chat-utils').joinMessageWindows,
   hasEarlierMessages: jest.requireActual('@pierre/chat-utils').hasEarlierMessages,
   prependWindow: jest.requireActual('@pierre/chat-utils').prependWindow,
+  // Read when @pierre/ui-logic loads: its plan-history labels name the
+  // coach's-call badge by this table.
+  COACH_CALL_KEYS: jest.requireActual('@pierre/chat-utils').COACH_CALL_KEYS,
 }));
 
 import { useMessages } from '../src/screens/chat/useMessages';

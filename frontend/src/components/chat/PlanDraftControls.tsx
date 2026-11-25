@@ -1,15 +1,21 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: A coach's draft on a plan card — the badge, Publish and Discard, a refused publish's conflict and Publish anyway
+// ABOUTME: A coach's draft on a plan card or in the athlete workspace's header — the badge, Publish and Discard, a refused publish's conflict and Publish anyway
 // ABOUTME: Shown to the thread's owner alone; which state it is in comes from the shared hook, so the phone shows the same
 
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Check } from 'lucide-react';
+import { clsx } from 'clsx';
 import type { DraftState, PlanSubject } from '@pierre/shared-types';
 import { PLAN_DRAFT_KEYS, planConflictText, planPushComplete, planPushText } from '@pierre/chat-utils';
-import { API_ERROR_KEYS, describeApiError, type PlanDraftActionResult } from '@pierre/ui-logic';
+import {
+  API_ERROR_KEYS,
+  describeApiError,
+  type PlanDraftActionResult,
+  type UsePlanDraftCardResult,
+} from '@pierre/ui-logic';
 import { useTranslation } from '@pierre/i18n';
 import { useAuth } from '../../hooks/useAuth';
 import { usePlanDraftCard } from '../../hooks/useCoachPlan';
@@ -26,24 +32,47 @@ interface PlanDraftControlsProps {
   draft: DraftState;
 }
 
+interface PlanDraftActionsProps {
+  /** The coach's plan thread the draft belongs to. */
+  conversationId: string;
+  /** The athlete the draft is for. */
+  subject: PlanSubject;
+  /** The draft's state, Publish and Discard, from `usePlanDraftCard`. */
+  card: UsePlanDraftCardResult;
+  /**
+   * `card`: a plan card's footer, under a hairline, with the badge saying the
+   * athlete cannot see the draft yet. `bar`: the athlete workspace's header,
+   * where the calendar beside it says what is a draft, so there is no badge
+   * and every line lines up at the end of the row.
+   */
+  layout?: 'card' | 'bar';
+  /** The publish button's words in place of "Publish to <name>": the workspace names how many dates change. */
+  publishLabel?: string;
+  /** Whether Publish may be pressed; false when the draft changes nothing the header can name. Publish anyway always may. */
+  canPublish?: boolean;
+}
+
 /**
- * The footer of a plan card that shows the coach's draft: a badge saying
- * the athlete cannot see it yet, Discard, and Publish to the athlete. A
- * publish the athlete's own changes refused shows what collided, and Publish
- * anyway; a landed one says the athlete was told, and whether the plan
- * reached their calendar. Nothing at all for anyone but the thread's owner,
- * or on a card whose draft has since moved on.
+ * A coach's draft controls as they are drawn, from the state the shared hook
+ * decides: a badge saying the athlete cannot see the draft yet, Discard, and
+ * Publish to the athlete. A publish the athlete's own changes refused shows
+ * what collided, and Publish anyway; a landed one says the athlete was told,
+ * and whether the plan reached their calendar. Nothing at all for anyone but
+ * the thread's owner, or for a draft that has since moved on.
  */
-export default function PlanDraftControls({ conversationId, subject, draft }: PlanDraftControlsProps) {
+export function PlanDraftActions({
+  conversationId,
+  subject,
+  card,
+  layout = 'card',
+  publishLabel,
+  canPublish = true,
+}: PlanDraftActionsProps) {
   const { t, language } = useTranslation();
-  const { user } = useAuth();
   const showError = useErrorToast();
-  const { state, publish, discard, isPublishing, isDiscarding } = usePlanDraftCard(
-    conversationId,
-    user?.id ?? null,
-    draft,
-  );
+  const { state, publish, discard, isPublishing, isDiscarding } = card;
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const bar = layout === 'bar';
 
   // A publish posts the changed days in the room the plan was drafted from
   // (carnet#1249): that room is read again, so a coach drafting inside it
@@ -60,6 +89,7 @@ export default function PlanDraftControls({ conversationId, subject, draft }: Pl
 
   const name = subject.display_name.trim() || t('app.unknownMember');
   const busy = isPublishing || isDiscarding;
+  const frame = bar ? 'flex max-w-md flex-col items-end gap-2 text-right' : 'border-t ghost-border-faint px-3 py-2.5';
 
   /** Say a refusal the card cannot state itself. */
   const report = (result: PlanDraftActionResult) => {
@@ -71,7 +101,7 @@ export default function PlanDraftControls({ conversationId, subject, draft }: Pl
   if (state.kind === 'published') {
     const push = state.calendarPush;
     return (
-      <div className="space-y-1 border-t ghost-border-faint px-3 py-2.5" data-testid="plan-draft-controls">
+      <div className={clsx(frame, !bar && 'space-y-1')} data-testid="plan-draft-controls">
         <p
           role="status"
           className="flex items-center gap-1.5 text-sm text-on-success-container"
@@ -94,10 +124,10 @@ export default function PlanDraftControls({ conversationId, subject, draft }: Pl
 
   if (state.kind === 'consentRevoked') {
     return (
-      <div className="border-t ghost-border-faint px-3 py-2.5" data-testid="plan-draft-controls">
+      <div className={frame} data-testid="plan-draft-controls">
         <p
           role="alert"
-          className={`${ALERT_TONE.error.tone} rounded-lg px-3 py-2 text-sm`}
+          className={`${ALERT_TONE.error.tone} rounded-lg px-3 py-2 text-left text-sm`}
           data-testid="plan-draft-consent-revoked"
         >
           {t(PLAN_DRAFT_KEYS.consentRevoked, { name })}
@@ -109,15 +139,17 @@ export default function PlanDraftControls({ conversationId, subject, draft }: Pl
   const conflict = state.kind === 'conflict' ? planConflictText(state.conflict, name, language, t) : null;
 
   return (
-    <div className="space-y-2.5 border-t ghost-border-faint px-3 py-2.5" data-testid="plan-draft-controls">
-      <Badge variant="warning" data-testid="plan-draft-badge">
-        {t(PLAN_DRAFT_KEYS.badge, { name })}
-      </Badge>
+    <div className={clsx(frame, !bar && 'space-y-2.5')} data-testid="plan-draft-controls">
+      {!bar && (
+        <Badge variant="warning" data-testid="plan-draft-badge">
+          {t(PLAN_DRAFT_KEYS.badge, { name })}
+        </Badge>
+      )}
 
       {conflict && (
         <div
           role="alert"
-          className={`${ALERT_TONE.warning.tone} space-y-1 rounded-lg px-3 py-2`}
+          className={`${ALERT_TONE.warning.tone} space-y-1 rounded-lg px-3 py-2 text-left`}
           data-testid="plan-draft-conflict"
         >
           <p className="text-sm font-semibold">{conflict.title}</p>
@@ -143,11 +175,11 @@ export default function PlanDraftControls({ conversationId, subject, draft }: Pl
           variant="primary"
           size="sm"
           loading={isPublishing}
-          disabled={busy}
+          disabled={busy || (conflict === null && !canPublish)}
           onClick={() => void publish(conflict !== null).then(report)}
           data-testid={conflict ? 'plan-draft-overwrite' : 'plan-draft-publish'}
         >
-          {conflict ? t(PLAN_DRAFT_KEYS.overwrite) : t(PLAN_DRAFT_KEYS.publish, { name })}
+          {conflict ? t(PLAN_DRAFT_KEYS.overwrite) : (publishLabel ?? t(PLAN_DRAFT_KEYS.publish, { name }))}
         </Button>
       </div>
 
@@ -168,4 +200,14 @@ export default function PlanDraftControls({ conversationId, subject, draft }: Pl
       />
     </div>
   );
+}
+
+/**
+ * The footer of a plan card that shows the coach's draft: its state from the
+ * shared hook, drawn by {@link PlanDraftActions}.
+ */
+export default function PlanDraftControls({ conversationId, subject, draft }: PlanDraftControlsProps) {
+  const { user } = useAuth();
+  const card = usePlanDraftCard(conversationId, user?.id ?? null, draft);
+  return <PlanDraftActions conversationId={conversationId} subject={subject} card={card} />;
 }

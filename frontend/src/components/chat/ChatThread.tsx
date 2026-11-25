@@ -24,6 +24,7 @@ import VerdictDrawer, { type VerdictSource } from './VerdictDrawer';
 import PlanThreadOpenDraft from './PlanThreadOpenDraft';
 import { usePlanThreadDraft } from '../../hooks/useCoachPlan';
 import type { ChatThreadState } from './useChatThread';
+import type { WorkspacePlanSurface } from './types';
 
 export interface ChatThreadProps {
   /** The thread's state, owned by the host so its own chrome reads and drives the same thread. */
@@ -53,6 +54,12 @@ export interface ChatThreadProps {
   focusComposerOnOpen: boolean;
   /** Every scroll of the transcript, for a host that follows the athlete's reading. */
   onTranscriptScroll?: (event: UIEvent<HTMLDivElement>) => void;
+  /**
+   * The thread is drawn beside the athlete workspace's calendar: plan cards
+   * are one line each and the open draft is not drawn at its end, since the
+   * calendar is that draft. Absent everywhere else.
+   */
+  planSurface?: WorkspacePlanSurface | null;
 }
 
 /**
@@ -82,6 +89,7 @@ export default function ChatThread({
   followOnOpen,
   focusComposerOnOpen,
   onTranscriptScroll,
+  planSurface = null,
 }: ChatThreadProps) {
   const { t } = useTranslation();
   const showSuccessToast = useSuccessToast();
@@ -233,8 +241,9 @@ export default function ChatThread({
     [openDraftState, threadMessages, messageBlocks],
   );
   const openDraft = draftCarried ? null : planDraft.open;
+  // Beside the workspace's calendar the draft is the calendar itself.
   const draftCard =
-    openDraft !== null && thread.conversationId !== null ? (
+    planSurface === null && openDraft !== null && thread.conversationId !== null ? (
       <PlanThreadOpenDraft conversationId={thread.conversationId} open={openDraft} />
     ) : null;
 
@@ -298,6 +307,7 @@ export default function ChatThread({
           <MessageList
             conversationId={thread.conversationId}
             editsPlanDays={planSubjectName !== null && (planDraft.open !== null || planDraft.noDraft)}
+            planSurface={planSurface}
             messages={threadMessages}
             messageMetadata={thread.messageMetadata}
             messageFeedback={thread.messageFeedback}
