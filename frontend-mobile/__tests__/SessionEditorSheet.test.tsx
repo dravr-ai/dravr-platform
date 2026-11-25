@@ -9,6 +9,7 @@ import { AccessibilityInfo, Alert, Modal } from 'react-native';
 import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider, defaultScheduler, notifyManager } from '@tanstack/react-query';
 import Toast from 'react-native-toast-message';
+import { i18n } from '@pierre/i18n';
 import type {
   FamilyCatalogueResponse,
   PlanDay,
@@ -1575,6 +1576,20 @@ describe('"Edit day" on the plan card', () => {
     expect(screen.queryByTestId('workout-plan-day-edited-2026-11-27-0')).toBeNull();
     expect(screen.queryByTestId('workout-plan-day-unchecked-2026-11-27-0')).toBeNull();
     expect(screen.queryByTestId('workout-plan-day-edited-2026-11-25-0')).toBeNull();
+  });
+
+  // carnet#1814: a day the coach kept as their call says so for every reader,
+  // the athlete's card included; a day they did not call carries no mark.
+  it("marks a day the coach called as the coach's call, and no other", () => {
+    const called: WorkoutPlan = {
+      ...PLAN,
+      weeks: [{ ...PLAN.weeks[0], days: [REST_DAY, { ...AGENT_DAY, coach_call: true }] }],
+    };
+    render(<WorkoutPlanCard plan={called} />);
+
+    const row = within(screen.getByTestId('workout-plan-day-2026-11-26-0'));
+    expect(row.getByTestId('plan-day-coach-call')).toHaveTextContent(i18n.t('humanCoach.coachCall.badge'));
+    expect(screen.getAllByTestId('plan-day-coach-call')).toHaveLength(1);
   });
 
   it('reaches the card a transcript row draws, through the list', () => {

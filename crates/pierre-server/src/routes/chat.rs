@@ -189,6 +189,12 @@ impl ChatRoutes {
                 "/api/chat/conversations/{conversation_id}/subject-plan/draft/days/{date}/{position}/remove",
                 post(subject_session::remove_subject_draft_session),
             )
+            // The coach's call on one session, « C'est mon choix », made or
+            // taken off; no edit of the session (carnet#1814)
+            .route(
+                "/api/chat/conversations/{conversation_id}/subject-plan/draft/days/{date}/{position}/coach-call",
+                put(subject_session::put_subject_draft_coach_call),
+            )
             // The use-case starters an empty thread offers, ranked from the
             // athlete's state (carnet#829)
             .route("/api/chat/starters", get(starters::list_starters))

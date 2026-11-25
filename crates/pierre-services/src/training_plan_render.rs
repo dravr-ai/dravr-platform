@@ -264,7 +264,9 @@ pub fn render_training_plan_block(
          It records what was PRESCRIBED, never what was done. A day marked \
          `[elapsed]` is a past prescription whose completion is unknown: read the \
          athlete's activities before saying whether that session happened, and \
-         never report a prescribed session as completed.\n\n",
+         never report a prescribed session as completed. A day marked \
+         `[coach's call]` is a session the athlete's coach chose to keep as \
+         their own call: describe it as the coach's call, never argue it.\n\n",
     );
     if let Some(withheld) = fueling.withheld() {
         // Outside Dravr's own surfaces the words name no flag: they read the
@@ -422,10 +424,17 @@ pub fn render_training_plan_block(
             } else {
                 ""
             };
+            // The coach kept this session knowing where its evidence stands
+            // (carnet#1814): the agent describes that choice, never argues it.
+            let call = if day.coach_call.is_some() {
+                "[coach's call] "
+            } else {
+                ""
+            };
             if day.is_rest() {
                 let _ = writeln!(
                     out,
-                    "- {}: {elapsed}rest — {}",
+                    "- {}: {elapsed}{call}rest — {}",
                     day.date,
                     sanitize_prompt_field(&day.workout, MAX_FIELD_LEN)
                 );
@@ -454,7 +463,7 @@ pub fn render_training_plan_block(
                 });
                 let _ = writeln!(
                     out,
-                    "- {}: {elapsed}{}{duration}{intensity} — {}{structure}{fuel}",
+                    "- {}: {elapsed}{call}{}{duration}{intensity} — {}{structure}{fuel}",
                     day.date,
                     sanitize_prompt_field(&day.sport, MAX_FIELD_LEN),
                     sanitize_prompt_field(&day.workout, MAX_FIELD_LEN),

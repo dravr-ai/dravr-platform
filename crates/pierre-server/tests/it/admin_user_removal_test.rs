@@ -1411,6 +1411,7 @@ async fn delete_of_a_coach_clears_their_plan_drafts_and_keeps_the_athletes_seaso
         envelope: None,
         coach_original: None,
         coach_added: false,
+        coach_call: None,
     }];
     let week = |focus: &'static str| PlanWeekInput {
         week_start: "2026-11-02",

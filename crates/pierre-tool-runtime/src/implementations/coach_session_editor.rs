@@ -41,6 +41,11 @@
 //! names it as the client last saw it ([`SessionAt`]): a write whose session
 //! moved writes nothing.
 //!
+//! The coach also marks a session as their call (carnet#1814), « C'est mon
+//! choix », or takes the mark off ([`save_draft_coach_call`]). It is no edit
+//! of the session: nothing is snapshotted, and the mark goes live with the
+//! draft.
+//!
 //! No number is derived here: the kernel builds the steps, measures them and
 //! derives the values; this module chooses which kernel call and words them.
 //! A value outside the preset's range is built and measured, never refused
@@ -91,8 +96,8 @@ mod day_edits;
 mod sessions;
 
 pub use day_edits::{
-    add_draft_session, remove_draft_day, restore_draft_day, save_draft_hand_day, AddedSession,
-    HandDay,
+    add_draft_session, remove_draft_day, restore_draft_day, save_draft_coach_call,
+    save_draft_hand_day, AddedSession, HandDay,
 };
 use sessions::{expected_index, placed, stamp_edit};
 pub use sessions::{SessionAt, SessionExpect};
@@ -321,6 +326,9 @@ pub struct SessionFinding {
 pub enum DraftDayOutcome {
     /// The day is in the coach's draft.
     Saved,
+    /// The session already stood as the write asked (carnet#1814): nothing
+    /// was written, and no draft was opened for it.
+    Unchanged,
     /// The athlete has no live plan and the coach no draft: there is no week
     /// to write the day into. Nothing was written.
     NoPlan,
@@ -536,6 +544,7 @@ fn build_day(
         envelope: None,
         coach_original: None,
         coach_added: false,
+        coach_call: None,
     };
     let Some(instance) = instantiate_template_day(catalogue, &mut day, position, anchors)? else {
         let why = day.envelope.and_then(|envelope| envelope.not_generated);

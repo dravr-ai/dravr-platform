@@ -184,6 +184,7 @@ async fn season(
         envelope: None,
         coach_original: None,
         coach_added: false,
+        coach_call: None,
     }];
     let week_start = week_start.to_string();
     let (tenant, user) = (tenant.to_string(), user_id.to_string());

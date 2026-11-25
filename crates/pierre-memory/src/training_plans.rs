@@ -46,6 +46,7 @@ use pierre_core::models::periodization::{
 };
 use pierre_core::models::{FuelingProtocol, TargetAnchor, WorkoutStep};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 /// Lifecycle of a [`TrainingPlan`] outline.
 ///
@@ -543,6 +544,29 @@ pub struct PlannedDay {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(skip)]
     pub coach_added: bool,
+    /// The coach's call on this session (carnet#1814), « C'est mon choix »:
+    /// the coach saw where its evidence stands — a convention, or outside its
+    /// family's evidence — and keeps the session as their choice. Set or
+    /// cleared by the coach's own day write only, never taken from an agent
+    /// payload.
+    ///
+    /// Unlike the editor marks it describes the day itself, so publishing
+    /// keeps it and the agent reads it. A changed session drops it: an
+    /// agent's save keeps it only on a session it saves unchanged
+    /// ([`carry_coach_calls`]), and the coach's own edit of the session
+    /// writes it without one, so the pre-publish check asks again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
+    pub coach_call: Option<CoachCall>,
+}
+
+/// Who made the coach's call on a plan day, and when (carnet#1814).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CoachCall {
+    /// The coach who made the call.
+    pub by: Uuid,
+    /// When they made it.
+    pub at: Timestamp,
 }
 
 /// The authorship tier a day's template was found in at save time.
@@ -580,6 +604,28 @@ impl PlannedDay {
     #[must_use]
     pub fn is_rest(&self) -> bool {
         self.sport.eq_ignore_ascii_case("rest")
+    }
+
+    /// Whether `other` prescribes the same session as this day: the same
+    /// sport, name, length, intensity and steps, from the same template and
+    /// preset with the same values. The date is not compared: the caller
+    /// pairs the two days by date and position.
+    ///
+    /// What a save stamps on a day (its template's tier, its envelope), its
+    /// fuelling — which an agent may never have been shown, so it may not
+    /// write it back — and the coach's marks are not the session. Generated
+    /// steps are compared like written ones: a family day whose steps came
+    /// out otherwise on the athlete's current anchors is a changed session.
+    #[must_use]
+    pub(crate) fn is_same_session(&self, other: &Self) -> bool {
+        self.sport == other.sport
+            && self.workout == other.workout
+            && self.duration_min == other.duration_min
+            && self.intensity == other.intensity
+            && self.steps == other.steps
+            && self.template_slug == other.template_slug
+            && self.template_preset == other.template_preset
+            && self.template_params == other.template_params
     }
 }
 
@@ -691,7 +737,8 @@ pub struct PlanWeek {
 impl PlanWeek {
     /// Drop the coach's editor marks from every day — the pre-edit snapshot
     /// (carnet#1714) and the added-session flag (carnet#1716): a week that
-    /// goes live, or that an agent reads, carries neither.
+    /// goes live, or that an agent reads, carries neither. The coach's call
+    /// on a day (carnet#1814) is no editor mark and stays.
     pub fn drop_coach_marks(&mut self) {
         for day in &mut self.days {
             day.coach_original = None;
@@ -718,6 +765,33 @@ pub fn session_positions<'a>(days: impl IntoIterator<Item = &'a PlannedDay>) -> 
             position
         })
         .collect()
+}
+
+/// Carry the coach's calls in `prior` onto the unchanged sessions of `days`.
+///
+/// A call moves to the entry of `days` at the same date and position when it
+/// is still the same session: the same sport, name, length, intensity and
+/// steps, from the same template and preset with the same values. Every other
+/// entry of `days` is left with no call, whatever it carried (carnet#1814).
+///
+/// `prior` is the week a save writes `days` over. A session saved unchanged
+/// keeps the coach's call; a changed, moved or new one has none, so the
+/// coach's pre-publish check asks about it again.
+pub fn carry_coach_calls(days: &mut [PlannedDay], prior: &[PlannedDay]) {
+    let called: BTreeMap<(&str, u32), &PlannedDay> = prior
+        .iter()
+        .zip(session_positions(prior))
+        .filter(|(day, _)| day.coach_call.is_some())
+        .map(|(day, position)| ((day.date.as_str(), position), day))
+        .collect();
+    let positions = session_positions(&*days);
+    for (day, position) in days.iter_mut().zip(positions) {
+        let carried = called
+            .get(&(day.date.as_str(), position))
+            .filter(|before| before.is_same_session(day))
+            .and_then(|before| before.coach_call);
+        day.coach_call = carried;
+    }
 }
 
 /// Parse a civil plan date, accepting only canonical zero-padded
@@ -831,6 +905,169 @@ mod tests {
         assert!(
             session_positions(&[]).is_empty(),
             "bug: no entries, no positions"
+        );
+    }
+
+    fn call(by: u128) -> CoachCall {
+        CoachCall {
+            by: Uuid::from_u128(by),
+            at: Timestamp::now(),
+        }
+    }
+
+    fn session(date: &str, workout: &str) -> PlannedDay {
+        serde_json::from_value(serde_json::json!({
+            "date": date, "sport": "ride", "workout": workout, "duration_min": 61,
+            "intensity": "100-110% MAP", "template_slug": "vo2max_short",
+            "template_preset": "30_15", "template_params": { "sets": 3 },
+            "steps": [{ "label": "Work", "duration_seconds": 30, "target_zone": "Z5", "repeat": 13 }]
+        }))
+        .unwrap()
+    }
+
+    fn called(date: &str, workout: &str, by: u128) -> PlannedDay {
+        PlannedDay {
+            coach_call: Some(call(by)),
+            ..session(date, workout)
+        }
+    }
+
+    #[test]
+    fn a_coachs_call_is_stored_with_its_day_and_kept_by_a_week_that_goes_live() {
+        let day = called("2026-11-18", "VO2max — 30/15", 7);
+        let stored = serde_json::to_value(&day).unwrap();
+        assert_eq!(
+            stored["coach_call"]["by"],
+            Uuid::from_u128(7).to_string(),
+            "bug: the day's JSON column keeps who made the call: {stored}"
+        );
+        assert_eq!(
+            serde_json::from_value::<PlannedDay>(stored).unwrap(),
+            day,
+            "bug: a called day reads back as written"
+        );
+        assert!(
+            serde_json::to_value(session("2026-11-18", "VO2max — 30/15"))
+                .unwrap()
+                .get("coach_call")
+                .is_none(),
+            "bug: a day with no call writes no key"
+        );
+
+        let mut week = PlanWeek {
+            id: "week".to_owned(),
+            tenant_id: "tenant".to_owned(),
+            user_id: "user".to_owned(),
+            plan_id: "draft".to_owned(),
+            week_start: "2026-11-16".to_owned(),
+            focus: String::new(),
+            phase_index: None,
+            days: vec![PlannedDay {
+                coach_added: true,
+                ..day.clone()
+            }],
+            status: WeekStatus::Active,
+            supersedes_id: None,
+            adjustment_reason: String::new(),
+            author_agent_id: None,
+            created_at: Timestamp::now(),
+            updated_at: Timestamp::now(),
+        };
+        week.drop_coach_marks();
+        assert_eq!(
+            week.days[0].coach_call, day.coach_call,
+            "bug: a week that goes live dropped the coach's call on its day"
+        );
+        assert!(
+            !week.days[0].coach_added,
+            "bug: the editor marks are still dropped beside the call"
+        );
+    }
+
+    #[test]
+    fn a_session_is_the_same_whatever_its_save_stamped_fuelling_or_marks() {
+        let day = session("2026-11-18", "VO2max — 30/15");
+        let restamped: PlannedDay = serde_json::from_value(serde_json::json!({
+            "date": "2026-11-25", "sport": "ride", "workout": "VO2max — 30/15",
+            "duration_min": 61, "intensity": "100-110% MAP", "template_slug": "vo2max_short",
+            "template_preset": "30_15", "template_params": { "sets": 3 },
+            "template_source": "catalogue", "envelope": { "generated": true },
+            "fueling": { "carbs_g_per_h": 60.0, "fluid_ml_per_h": 500.0 },
+            "steps": [{ "label": "Work", "duration_seconds": 30, "target_zone": "Z5", "repeat": 13 }],
+            "coach_added": true
+        }))
+        .unwrap();
+        assert!(
+            day.is_same_session(&restamped),
+            "bug: the date, the save's stamps, the fuelling and the marks are not the session"
+        );
+
+        let edits: [fn(&mut PlannedDay); 8] = [
+            |d| d.sport = "gravel".to_owned(),
+            |d| d.workout = "VO2max — 40/20".to_owned(),
+            |d| d.duration_min = Some(62),
+            |d| d.intensity = "Z5".to_owned(),
+            |d| d.steps[0].repeat = 12,
+            |d| d.template_slug = Some("vo2max_long".to_owned()),
+            |d| d.template_preset = Some("40_20".to_owned()),
+            |d| d.template_params = None,
+        ];
+        for (at, edit) in edits.iter().enumerate() {
+            let mut changed = day.clone();
+            edit(&mut changed);
+            assert!(
+                !day.is_same_session(&changed),
+                "bug: change {at} of the session's own fields leaves it the same session"
+            );
+        }
+    }
+
+    #[test]
+    fn an_agents_save_keeps_a_coachs_call_only_on_a_session_it_saves_unchanged() {
+        let prior = vec![
+            called("2026-11-17", "Tuesday intervals", 1),
+            called("2026-11-18", "Morning ride", 2),
+            called("2026-11-18", "Evening ride", 3),
+            session("2026-11-19", "Thursday ride"),
+            called("2026-11-20", "Friday ride", 4),
+        ];
+        let mut saved = vec![
+            // Unchanged, but the payload forged another coach's call.
+            called("2026-11-17", "Tuesday intervals", 99),
+            // The morning ride is rewritten; the evening ride moves to
+            // position 0 of its date, unchanged.
+            session("2026-11-18", "Evening ride"),
+            // Thursday never had a call, and the payload cannot give it one.
+            called("2026-11-19", "Thursday ride", 99),
+            // Friday's session comes back with one rep fewer.
+            {
+                let mut fewer = session("2026-11-20", "Friday ride");
+                fewer.steps[0].repeat = 12;
+                fewer
+            },
+        ];
+        carry_coach_calls(&mut saved, &prior);
+        let calls: Vec<Option<Uuid>> = saved
+            .iter()
+            .map(|day| day.coach_call.map(|call| call.by))
+            .collect();
+        assert_eq!(
+            calls,
+            [Some(Uuid::from_u128(1)), None, None, None],
+            "bug: only the session saved unchanged at its date and position keeps the coach's call, \
+             and never the payload's own: {saved:?}"
+        );
+        assert_eq!(
+            saved[0].coach_call.map(|call| call.at),
+            prior[0].coach_call.map(|call| call.at),
+            "bug: the call carried is the prior one, when it was made included"
+        );
+
+        let mut over_nothing = vec![called("2026-11-17", "Tuesday intervals", 99)];
+        carry_coach_calls(&mut over_nothing, &[]);
+        assert!(
+            over_nothing[0].coach_call.is_none(),
+            "bug: a week saved over no prior week carries no call"
         );
     }
 }

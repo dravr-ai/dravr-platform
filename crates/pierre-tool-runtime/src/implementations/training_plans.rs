@@ -53,6 +53,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use tracing::warn;
 
+mod coach_calls;
 mod plan_dates;
 mod plan_days;
 pub(super) use plan_dates::plan_date;
@@ -805,6 +806,17 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             let envelope = PlanEnvelopeReport::from_days(weeks.iter().flat_map(|w| &w.days));
             let fueling = FuelingDisclosure::for_athlete(repos, tenant, scope.user_id).await?;
             fueling.refuse_figures(weeks.iter().flat_map(|week| &week.days))?;
+            // A coach's call on a day survives the save only on a session it
+            // writes unchanged, over the week it replaces (carnet#1814). Boxed,
+            // like the draft save and the calendar push below, to keep this
+            // future small.
+            let written_over = Box::pin(coach_calls::weeks_written_over(
+                repos,
+                active.as_ref(),
+                draft_target.as_ref(),
+            ))
+            .await?;
+            coach_calls::carry_onto_weeks(&mut weeks, &written_over);
 
             // Don't trust an LLM-supplied goal_fact_id that isn't a real fact of
             // this athlete — drop it and let the outline path mint/reuse one.

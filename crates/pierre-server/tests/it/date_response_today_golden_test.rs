@@ -161,6 +161,7 @@ fn planned(date: String) -> PlannedDay {
         envelope: None,
         coach_original: None,
         coach_added: false,
+        coach_call: None,
     }
 }
 

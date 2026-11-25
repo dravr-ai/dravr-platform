@@ -141,6 +141,13 @@ export interface PlanDay {
   edited?: PlanDayEdit;
   /** True when the coach added this session to the date in their draft (carnet#1716). */
   added?: boolean;
+  /**
+   * True when the coach marked this session as their call, « C'est mon
+   * choix » (carnet#1814): they saw where its evidence stands and keep it.
+   * Unlike `edited` and `added` it is the day's own, so a live plan's day
+   * carries it too. Absent otherwise.
+   */
+  coach_call?: boolean;
 }
 
 /** The session a coach's edits replaced on a day of their draft. */

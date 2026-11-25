@@ -101,6 +101,7 @@ fn week_days(monday: &str) -> Vec<PlannedDay> {
             envelope: None,
             coach_original: None,
             coach_added: false,
+            coach_call: None,
         },
         PlannedDay {
             date: "2026-07-14".to_owned(),
@@ -117,6 +118,7 @@ fn week_days(monday: &str) -> Vec<PlannedDay> {
             envelope: None,
             coach_original: None,
             coach_added: false,
+            coach_call: None,
         },
         PlannedDay {
             date: "2026-07-15".to_owned(),
@@ -133,6 +135,7 @@ fn week_days(monday: &str) -> Vec<PlannedDay> {
             envelope: None,
             coach_original: None,
             coach_added: false,
+            coach_call: None,
         },
     ]
 }
@@ -1506,6 +1509,7 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
             envelope: None,
             coach_original: None,
             coach_added: false,
+            coach_call: None,
         },
         PlannedDay {
             date: "2026-08-26".to_owned(),
@@ -1522,6 +1526,7 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
             envelope: None,
             coach_original: None,
             coach_added: false,
+            coach_call: None,
         },
         PlannedDay {
             date: "2026-08-29".to_owned(),
@@ -1538,6 +1543,7 @@ async fn two_consecutive_outline_resaves_strand_no_week() -> Result<()> {
             envelope: None,
             coach_original: None,
             coach_added: false,
+            coach_call: None,
         },
     ];
     let race_b = GoalRace {

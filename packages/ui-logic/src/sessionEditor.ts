@@ -786,6 +786,7 @@ export interface SessionEditorApis {
     | 'saveSubjectDraftDay'
     | 'saveSubjectDraftHandDay'
     | 'restoreSubjectDraftDay'
+    | 'setSubjectDraftDayCoachCall'
     | 'removeSubjectDraftDay'
     | 'addSubjectDraftSession'
   >;
@@ -817,7 +818,9 @@ function useSettled<T>(value: T, delayMs: number): T {
  *   the answered subject plan straight into the card's cache.
  * - `useSaveDraftHandDay` writes the session as the coach wrote it by hand, or a
  *   rest day; `useRestoreDraftDay` puts a session back as it stood before the
- *   coach's first edit, or removes one the coach added; `useRemoveDraftSession`
+ *   coach's first edit, or removes one the coach added; `useSetCoachCall`
+ *   marks a session « C'est mon choix », or takes the mark off, without
+ *   editing it (carnet#1814); `useRemoveDraftSession`
  *   and `useAddDraftSession` take a session off a date or add one to it. Each
  *   answers the subject plan into the same cache. Every write but the add
  *   names its session by position and as the card showed it (carnet#1716).
@@ -882,6 +885,15 @@ export function createSessionEditorHooks({ chatApi }: SessionEditorApis) {
     });
   }
 
+  function useSetCoachCall(conversationId: string | null, locale: string) {
+    const onSuccess = useAnsweredPlan(conversationId);
+    return useMutation<SubjectPlanResponse, unknown, SessionAt & { on: boolean }>({
+      mutationFn: ({ date, position, expect, on }) =>
+        chatApi.setSubjectDraftDayCoachCall(conversationId as string, date, position, on, expect, locale),
+      onSuccess,
+    });
+  }
+
   function useRemoveDraftSession(conversationId: string | null, locale: string) {
     const onSuccess = useAnsweredPlan(conversationId);
     return useMutation<SubjectPlanResponse, unknown, SessionAt>({
@@ -914,6 +926,7 @@ export function createSessionEditorHooks({ chatApi }: SessionEditorApis) {
     useSaveDraftDay,
     useSaveDraftHandDay,
     useRestoreDraftDay,
+    useSetCoachCall,
     useRemoveDraftSession,
     useAddDraftSession,
     useRereadPlan,

@@ -26,8 +26,10 @@ fn catalogue() -> PackagedCatalogue<'static> {
 use dravr_tronc::dates::Timestamp;
 use pierre_core::models::periodization::PhaseKind;
 use pierre_memory::training_plans::{
-    GoalRace, PlanPhase, PlanStatus, PlanWeek, PlannedDay, RacePriority, TrainingPlan, WeekStatus,
+    CoachCall, GoalRace, PlanPhase, PlanStatus, PlanWeek, PlannedDay, RacePriority, TrainingPlan,
+    WeekStatus,
 };
+use uuid::Uuid;
 
 fn plan() -> TrainingPlan {
     TrainingPlan {
@@ -113,6 +115,7 @@ fn week(start: &str, focus: &str) -> PlanWeek {
                 envelope: None,
                 coach_original: None,
                 coach_added: false,
+                coach_call: None,
             },
             PlannedDay {
                 date: start.to_owned(), // same-day is fine for render tests
@@ -129,6 +132,7 @@ fn week(start: &str, focus: &str) -> PlanWeek {
                 envelope: None,
                 coach_original: None,
                 coach_added: false,
+                coach_call: None,
             },
         ],
         status: WeekStatus::Active,
@@ -401,6 +405,7 @@ fn an_elapsed_day_is_marked_and_a_future_day_is_not() {
             envelope: None,
             coach_original: None,
             coach_added: false,
+            coach_call: None,
         },
         PlannedDay {
             date: "2026-08-28".to_owned(),
@@ -417,6 +422,7 @@ fn an_elapsed_day_is_marked_and_a_future_day_is_not() {
             envelope: None,
             coach_original: None,
             coach_added: false,
+            coach_call: None,
         },
     ];
 
@@ -449,6 +455,52 @@ fn an_elapsed_day_is_marked_and_a_future_day_is_not() {
         !out.contains("[done]"),
         "\"done\" is a claim about the athlete, not the calendar - an elapsed \
          block window says nothing about whether it was trained"
+    );
+}
+
+/// carnet#1814. A day the coach marked as their own call is marked so on its
+/// line, after any `[elapsed]`, and the block tells the agent to describe the
+/// call rather than argue it. A day the coach did not call is unmarked.
+#[test]
+fn a_day_the_coach_called_is_marked_and_the_block_says_how_to_read_it() {
+    let mut current = week("2026-08-24", "build");
+    let call = Some(CoachCall {
+        by: Uuid::from_u128(7),
+        at: Timestamp::now(),
+    });
+    for day in &mut current.days {
+        day.coach_call = call;
+    }
+    current.days[1].date = "2026-08-27".to_owned();
+    let mut uncalled = current.days[1].clone();
+    uncalled.date = "2026-08-28".to_owned();
+    uncalled.coach_call = None;
+    current.days.push(uncalled);
+
+    let out = render_training_plan_block(
+        &plan(),
+        &[current],
+        d("2026-08-26"),
+        &catalogue(),
+        &FuelingDisclosure::Shown,
+    )
+    .unwrap_or_default();
+
+    assert!(
+        out.contains("- 2026-08-24: [elapsed] [coach's call] rest — off"),
+        "bug: a called rest day is marked after its elapsed marker:\n{out}"
+    );
+    assert!(
+        out.contains("- 2026-08-27: [coach's call] gravel 60min"),
+        "bug: a called session still ahead is marked:\n{out}"
+    );
+    assert!(
+        out.contains("- 2026-08-28: gravel 60min"),
+        "bug: a session the coach did not call is unmarked:\n{out}"
+    );
+    assert!(
+        out.contains("describe it as the coach's call, never argue it"),
+        "bug: the block tells the agent how to read the marker:\n{out}"
     );
 }
 

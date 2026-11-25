@@ -195,6 +195,7 @@ fn week_days(start: CivilDate) -> Vec<PlannedDay> {
                 envelope: None,
                 coach_original: None,
                 coach_added: false,
+                coach_call: None,
             }
         })
         .collect()

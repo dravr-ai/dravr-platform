@@ -293,6 +293,11 @@ function DayRow({
               </Badge>
             )}
             {day.evidence && <EvidenceChip evidence={day.evidence} />}
+            {day.coach_call && (
+              <Badge variant="neutral" className="ml-2" data-testid="plan-day-coach-call">
+                {t('humanCoach.coachCall.badge')}
+              </Badge>
+            )}
             {countsAs && (
               <div className="mt-0.5 text-xs text-on-surface-variant" data-testid="plan-day-counts-as">
                 {countsAs}

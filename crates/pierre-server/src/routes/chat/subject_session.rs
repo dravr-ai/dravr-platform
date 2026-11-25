@@ -1,4 +1,4 @@
-// ABOUTME: Handlers for a coach's day editor in their thread about one athlete — the families, a session's preview, each session's writes
+// ABOUTME: Handlers for a coach's day editor in their thread about one athlete — the families, a session's preview, each session's writes and call
 // ABOUTME: Each request re-runs the subject-plan gates; the catalogue, the preview and the writes are pierre-tool-runtime's coach_session_editor calls
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -36,6 +36,12 @@
 //! - `POST …/draft/days/{date}/sessions` — a session added after the date's
 //!   entries, from a family build or written by hand; 422 `date_full` at five.
 //!
+//! carnet#1814. `PUT …/draft/days/{date}/{n}/coach-call` makes the coach's
+//! call on session n, « C'est mon choix », or takes it off. It is no edit of
+//! the session: the card marks the day `coach_call`, never `edited`, and the
+//! call goes live with the draft. A session that already stands as asked is
+//! answered as it is, and no draft is opened for it.
+//!
 //! Every request runs the subject-plan gates again ([`coached_thread`]). The
 //! preview and the write read the athlete's anchors, so each goes on the
 //! athlete's record as a `coach_thread` read before anything of theirs is
@@ -68,8 +74,9 @@ use pierre_memory::training_plans::{parse_plan_date, MAX_SESSIONS_PER_DATE};
 use pierre_middleware::AuthenticatedUser;
 use pierre_services::coach_plan_draft::CoachDraftTarget;
 use pierre_tool_runtime::implementations::coach_session_editor::{
-    add_draft_session, preview_session, remove_draft_day, restore_draft_day, save_draft_day,
-    save_draft_hand_day, thread_families, DraftDayOutcome, EditorThread, EditorWords, SessionAt,
+    add_draft_session, preview_session, remove_draft_day, restore_draft_day, save_draft_coach_call,
+    save_draft_day, save_draft_hand_day, thread_families, DraftDayOutcome, EditorThread,
+    EditorWords, SessionAt,
 };
 use pierre_tool_runtime::implementations::plan_scope::PlanWriter;
 use uuid::Uuid;
@@ -80,8 +87,8 @@ use crate::tools::runtime_adapter::into_runtime;
 
 use super::common::{get_tenant_id, refusal, refuse_external_coach_write};
 use super::dto::{
-    AddSessionRequest, DraftSessionRequest, FamilyCatalogueResponse, HandSessionRequest,
-    SessionExpectRequest, SessionPreviewRequest,
+    AddSessionRequest, CoachCallRequest, DraftSessionRequest, FamilyCatalogueResponse,
+    HandSessionRequest, SessionExpectRequest, SessionPreviewRequest,
 };
 use super::subject_plan::{
     coach_locale, coached_thread, record_thread_read, subject_plan_response, CoachedThread,
@@ -233,7 +240,7 @@ async fn day_write_answer(
     let DayWrite { thread, date, .. } = write;
     let athlete = &thread.access.display_name;
     match outcome {
-        DraftDayOutcome::Saved => {}
+        DraftDayOutcome::Saved | DraftDayOutcome::Unchanged => {}
         DraftDayOutcome::NoPlan => {
             return Err(refusal(
                 ErrorCode::ResourceNotFound,
@@ -425,6 +432,40 @@ pub(super) async fn remove_subject_draft_session(
     };
     let outcome =
         remove_draft_day(&into_runtime(&resources), &write.editor, write.date, &at).await?;
+    day_write_answer(
+        &resources,
+        auth.user_id,
+        write,
+        outcome,
+        query.locale.as_deref(),
+    )
+    .await
+}
+
+/// `PUT /api/chat/conversations/{id}/subject-plan/draft/days/{date}/{n}/coach-call`:
+/// the coach's call on session n of the date made (`on: true`) or taken off
+/// in their draft (carnet#1814), opened from the live plan when the coach
+/// holds none. The session is left as it stands and is not marked edited.
+/// Answered with the subject plan as `GET …/subject-plan` reads it after the
+/// write, or as it stands when the session already stood as asked.
+///
+/// 409 `session_moved`; 404 `no_plan`; 422 `no_plan_week`; 403
+/// `external_transport`. Nothing is written on any of them.
+pub(super) async fn put_subject_draft_coach_call(
+    State(resources): State<Arc<ServerContext>>,
+    auth: AuthenticatedUser,
+    Path((conversation_id, raw_date, position)): Path<(String, String, u32)>,
+    Query(query): Query<TrainingPlanQuery>,
+    Json(request): Json<CoachCallRequest>,
+) -> Result<Response, AppError> {
+    let write = day_write(&resources, &auth, &conversation_id, &raw_date).await?;
+    let at = SessionAt {
+        position,
+        expect: request.expect,
+    };
+    let runtime = into_runtime(&resources);
+    let outcome =
+        save_draft_coach_call(&runtime, &write.editor, write.date, &at, request.on).await?;
     day_write_answer(
         &resources,
         auth.user_id,

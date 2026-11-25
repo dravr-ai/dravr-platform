@@ -97,6 +97,9 @@ export const ENDPOINTS = {
     /** Remove (POST) session `position` from a date that holds more than one (carnet#1716) */
     SUBJECT_DRAFT_DAY_REMOVE: (conversationId: string, date: string, position: number) =>
       `/api/chat/conversations/${conversationId}/subject-plan/draft/days/${date}/${position}/remove`,
+    /** Make or take off (PUT) the coach's call on session `position`, « C'est mon choix » (carnet#1814) */
+    SUBJECT_DRAFT_DAY_COACH_CALL: (conversationId: string, date: string, position: number) =>
+      `/api/chat/conversations/${conversationId}/subject-plan/draft/days/${date}/${position}/coach-call`,
     /** Add (POST) a session at the end of a date's entries in the coach's draft (carnet#1716) */
     SUBJECT_DRAFT_SESSIONS: (conversationId: string, date: string) =>
       `/api/chat/conversations/${conversationId}/subject-plan/draft/days/${date}/sessions`,

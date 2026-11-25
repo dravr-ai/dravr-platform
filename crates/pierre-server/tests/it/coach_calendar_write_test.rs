@@ -425,6 +425,7 @@ fn planned(date: CivilDate, workout: &str, minutes: u32) -> PlannedDay {
         envelope: None,
         coach_original: None,
         coach_added: false,
+        coach_call: None,
     }
 }
 

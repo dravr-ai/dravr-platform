@@ -1,4 +1,4 @@
-// ABOUTME: One day of the plan card — the session as the card shows it, its evidence, the coach's edit marks and its place on its date
+// ABOUTME: One day of the plan card — the session as the card shows it, its evidence, the coach's marks and call, its place on its date
 // ABOUTME: The card's days and the coach's family editor preview both project a stored day through day_card
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -104,6 +104,12 @@ pub struct DayCard {
     /// (carnet#1716): restoring it removes it. Absent otherwise.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub added: bool,
+    /// `true` when the coach marked this session as their call (carnet#1814),
+    /// « C'est mon choix »: they saw where its evidence stands and keep it.
+    /// Unlike `edited` and `added` it is the day's own, so a live plan's day
+    /// carries it too. Absent otherwise.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub coach_call: bool,
 }
 
 /// The session a coach's edits replaced on a day of their draft: what the
@@ -288,6 +294,7 @@ pub fn day_card(
         }),
         position: 0,
         added: day.coach_added,
+        coach_call: day.coach_call.is_some(),
     }
 }
 
@@ -626,6 +633,39 @@ mod tests {
         assert!(
             agents.get("added").is_none(),
             "bug: a session the coach did not add carries no added key: {agents}"
+        );
+    }
+
+    /// A day the coach marked as their call says so on its card; a day they
+    /// did not carries no key (carnet#1814).
+    #[test]
+    fn only_a_day_the_coach_called_carries_coach_call() {
+        let fueling = FuelingDisclosure::from_gate(None);
+        let strings = MessagingStringsRegistry::new();
+        let wire = |value: serde_json::Value| -> serde_json::Value {
+            let day: PlannedDay = serde_json::from_value(value).expect("a stored day");
+            serde_json::to_value(day_card(&day, &fueling, &strings, "en")).expect("a card")
+        };
+
+        let called = wire(serde_json::json!({
+            "date": "2026-07-14", "sport": "ride", "workout": "Sweet spot 3 × 15",
+            "coach_call": { "by": "8f6f2a4e-1c1b-4d38-9a51-0d6e8b8f4c11", "at": "2026-07-10T09:00:00Z" }
+        }));
+        assert_eq!(
+            called["coach_call"], true,
+            "bug: a day the coach called says so on its card: {called}"
+        );
+        assert!(
+            !called.to_string().contains("8f6f2a4e"),
+            "bug: the card says the day is the coach's call, never who by: {called}"
+        );
+
+        let uncalled = wire(serde_json::json!({
+            "date": "2026-07-14", "sport": "ride", "workout": "Endurance 2 h"
+        }));
+        assert!(
+            uncalled.get("coach_call").is_none(),
+            "bug: a day the coach did not call carries no coach_call key: {uncalled}"
         );
     }
 }

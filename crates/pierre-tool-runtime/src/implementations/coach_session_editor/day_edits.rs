@@ -1,4 +1,4 @@
-// ABOUTME: A coach's own edits of a session of their draft — written by hand or made a rest day, added, removed, or put back
+// ABOUTME: A coach's own edits of a session of their draft — written by hand or made a rest day, added, removed, put back, or marked their call
 // ABOUTME: Each names the session as the client saw it; an edit keeps coach_original, an added session coach_added, and restore undoes either
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -24,17 +24,23 @@
 //! removes the second. The marks are the coach's editor's alone: the agent's
 //! save never takes them from a payload, no agent read serves them, and
 //! publishing drops them.
+//!
+//! The coach marks a session as their call (carnet#1814), « C'est mon
+//! choix », or takes the mark off ([`save_draft_coach_call`]). The call is no
+//! edit of the session, so it stamps no snapshot; it is the day's own, so the
+//! agent reads it and publishing keeps it. A hand edit or family build writes
+//! a session without one: a changed session is asked about again.
 
 use std::future::Future;
 use std::sync::Arc;
 
-use dravr_tronc::dates::CivilDate;
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_contremaitre::messaging_strings::KEY_PLAN_REST;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::periodization::serde_num::whole_u32_opt;
 use pierre_core::models::{RelativeIntensity, WorkoutStep};
 use pierre_database::RepositoryRegistry;
-use pierre_memory::training_plans::{PlanWeek, PlannedDay, MAX_SESSIONS_PER_DATE};
+use pierre_memory::training_plans::{CoachCall, PlanWeek, PlannedDay, MAX_SESSIONS_PER_DATE};
 use pierre_providers::ai_scope;
 use pierre_services::athlete_anchors::stored_athlete_anchors;
 use pierre_services::coach_plan_draft::CoachDraftTarget;
@@ -42,6 +48,7 @@ use pierre_services::provider_notice;
 use serde::Deserialize;
 use serde_json::json;
 use tracing::info;
+use uuid::Uuid;
 
 use super::sessions::{
     entries_on, expected_index, placed, stamp_edit, without, SessionAt, INVALID_SESSION,
@@ -190,6 +197,7 @@ fn hand_day(
         envelope: None,
         coach_original: None,
         coach_added: false,
+        coach_call: None,
     };
     if day.is_rest() {
         day.fueling = None;
@@ -280,6 +288,45 @@ fn added(days: &[PlannedDay], mut day: PlannedDay) -> AppResult<Vec<PlannedDay>>
     placed(days, None, day)
 }
 
+/// The call a write asking for one (`on`) leaves on a session that carries
+/// `held`, `coach` writing at `now`: the call the coach already made stands
+/// as they made it, another coach's becomes theirs, and none when `on` is
+/// false.
+fn call_for(held: Option<CoachCall>, on: bool, coach: Uuid, now: Timestamp) -> Option<CoachCall> {
+    on.then(|| {
+        held.filter(|call| call.by == coach)
+            .unwrap_or(CoachCall { by: coach, at: now })
+    })
+}
+
+/// `days` with the coach's call on the session `at` names on `date` made or
+/// taken off as [`call_for`] says, the session itself and its editor marks
+/// as they stand: the call is no edit of the session, so no snapshot is
+/// stamped. `Unchanged` when the session already carries that call.
+fn called(
+    days: &[PlannedDay],
+    date: &str,
+    at: &SessionAt,
+    on: bool,
+    coach: Uuid,
+    now: Timestamp,
+) -> Edited {
+    let index = expected_index(days, date, at)?;
+    let held = days
+        .get(index)
+        .map(|day| day.coach_call)
+        .ok_or(DraftDayOutcome::SessionMoved)?;
+    let call = call_for(held, on, coach, now);
+    if call == held {
+        return Err(DraftDayOutcome::Unchanged);
+    }
+    let mut days = days.to_vec();
+    if let Some(day) = days.get_mut(index) {
+        day.coach_call = call;
+    }
+    Ok(days)
+}
+
 /// Run `write` on the athlete's record: tracked so the draft is stamped from
 /// what it read (carnet#769), under the athlete's AI consents (carnet#1419).
 async fn as_athletes_write(
@@ -300,7 +347,8 @@ async fn as_athletes_write(
 /// What a saved edit logs beside the athlete, the coach and the draft: never
 /// a session's content.
 struct EditLog {
-    /// Which edit: `hand`, `restore`, `remove` or `add`.
+    /// Which edit: `hand`, `restore`, `remove`, `add`, or the coach's call
+    /// made (`call`) or taken off (`uncall`).
     edit: &'static str,
     /// The date edited.
     date: CivilDate,
@@ -507,10 +555,51 @@ pub async fn add_draft_session(
     as_athletes_write(repos, target, write).await
 }
 
+/// Make (`on`) or take off the coach's call on the session `at` names on
+/// `date` of their draft (carnet#1814), « C'est mon choix », opened from the
+/// live plan when the coach holds none.
+///
+/// The call is the draft's coach's, made now; one they already made on the
+/// session stands as it was. The session and the week's other days stay as
+/// they are, and no edit snapshot is stamped. A session that already stands
+/// as asked writes nothing and opens no draft (`Unchanged`).
+///
+/// # Errors
+///
+/// `UnavailableOverTransport` for a plan an external caller may not read,
+/// and the repository errors of the reads and the save.
+pub async fn save_draft_coach_call(
+    runtime: &Arc<dyn ToolRuntime>,
+    thread: &EditorThread,
+    date: CivilDate,
+    at: &SessionAt,
+    on: bool,
+) -> AppResult<DraftDayOutcome> {
+    let repos = runtime.repos();
+    let target = &thread.target;
+    let write = async {
+        ai_scope::note_member_read(target.athlete());
+        let week = match week_holding(repos, target, date, WeekFrom::DraftOrLive).await? {
+            Ok(week) => week,
+            Err(outcome) => return Ok(outcome),
+        };
+        let now = Timestamp::now();
+        let edited = called(&week.days, &date.to_string(), at, on, target.coach(), now);
+        let log = EditLog {
+            edit: if on { "call" } else { "uncall" },
+            date,
+            position: at.position,
+        };
+        save_edit(repos, thread, &week, edited, log).await
+    };
+    as_athletes_write(repos, target, write).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::sessions::SessionExpect;
     use super::*;
+    use dravr_tronc::dates::Elapsed;
     use pierre_memory::training_plans::{parse_plan_date, TemplateSource};
     use serde_json::{json, Value};
 
@@ -847,6 +936,104 @@ mod tests {
         assert_eq!(
             back, days,
             "bug: restoring puts back the session as it stood, and leaves the others"
+        );
+    }
+
+    #[test]
+    fn a_coachs_call_marks_its_session_and_stamps_no_snapshot() {
+        let coach = Uuid::from_u128(1);
+        let now = Timestamp::now();
+        let days = brick_week();
+        let on = called(&days, DATE, &at(1, "run", "Brick run"), true, coach, now).unwrap();
+        assert_eq!(
+            on[2].coach_call,
+            Some(CoachCall { by: coach, at: now }),
+            "bug: the call is the coach's, made now"
+        );
+        assert!(
+            on[2].coach_original.is_none() && !on[2].coach_added,
+            "bug: a call is no edit of the session: it stamps no snapshot and no added flag"
+        );
+        assert_eq!(
+            PlannedDay {
+                coach_call: None,
+                ..on[2].clone()
+            },
+            days[2],
+            "bug: a call leaves the session and its editor marks as they stand"
+        );
+        assert!(
+            on.iter()
+                .enumerate()
+                .all(|(index, day)| index == 2 || day.coach_call.is_none()),
+            "bug: a call marks only the session it names: {on:?}"
+        );
+
+        let later = now + Elapsed::minutes(5);
+        assert_eq!(
+            called(&on, DATE, &at(1, "run", "Brick run"), true, coach, later),
+            Err(DraftDayOutcome::Unchanged),
+            "bug: the coach's own call stands as they made it, and writes nothing again"
+        );
+        let other = Uuid::from_u128(2);
+        let taken_over = called(&on, DATE, &at(1, "run", "Brick run"), true, other, later).unwrap();
+        assert_eq!(
+            taken_over[2].coach_call,
+            Some(CoachCall {
+                by: other,
+                at: later
+            }),
+            "bug: another coach's call becomes the writing coach's"
+        );
+
+        let off = called(&on, DATE, &at(1, "run", "Brick run"), false, coach, later).unwrap();
+        assert_eq!(
+            off, days,
+            "bug: taking the call off leaves the week as it was"
+        );
+        assert_eq!(
+            called(&days, DATE, &at(1, "run", "Brick run"), false, coach, later),
+            Err(DraftDayOutcome::Unchanged),
+            "bug: taking off a call the session does not carry writes nothing"
+        );
+        assert_eq!(
+            called(&days, DATE, &at(1, "run", "Brick run 40"), true, coach, now),
+            Err(DraftDayOutcome::SessionMoved),
+            "bug: a call on a session that moved writes nothing"
+        );
+    }
+
+    #[test]
+    fn a_hand_edit_drops_the_coachs_call_and_restoring_puts_it_back() {
+        let coach = Uuid::from_u128(1);
+        let days = called(
+            &brick_week(),
+            DATE,
+            &at(1, "run", "Brick run"),
+            true,
+            coach,
+            Timestamp::now(),
+        )
+        .unwrap();
+        let edited = hand_edited(
+            &days,
+            date(),
+            &at(1, "run", "Brick run"),
+            &easy_fifty(),
+            "rest",
+        )
+        .unwrap()
+        .unwrap();
+        assert!(
+            edited[2].coach_call.is_none(),
+            "bug: a changed session carries no call: the pre-publish check asks again"
+        );
+        let back = restored(&edited, DATE, &at(1, "run", "Easy 50 min"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            back, days,
+            "bug: restoring puts the session back as it stood, the coach's call on it included"
         );
     }
 

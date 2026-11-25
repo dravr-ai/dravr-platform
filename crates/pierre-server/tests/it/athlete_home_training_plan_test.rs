@@ -106,6 +106,7 @@ fn day(date: CivilDate, sport: &str, workout: &str, minutes: Option<u32>) -> Pla
         envelope: None,
         coach_original: None,
         coach_added: false,
+        coach_call: None,
     }
 }
 

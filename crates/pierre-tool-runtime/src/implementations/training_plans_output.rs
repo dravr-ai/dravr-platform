@@ -19,7 +19,9 @@
 //! session the coach added (`coach_added`, carnet#1716) are their editor's to
 //! restore, never the agent's to read. Only a draft's days hold them —
 //! publishing drops them, so the live weeks never do — and the draft's weeks
-//! are served without them.
+//! are served without them. The coach's call on a day (`coach_call`,
+//! carnet#1814) is no editor mark: it is the day's own, live or drafted, and
+//! is served with it.
 
 use std::collections::BTreeSet;
 

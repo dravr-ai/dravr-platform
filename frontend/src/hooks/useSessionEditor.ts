@@ -17,6 +17,7 @@ export const {
   useSaveDraftDay,
   useSaveDraftHandDay,
   useRestoreDraftDay,
+  useSetCoachCall,
   useRemoveDraftSession,
   useAddDraftSession,
   useRereadPlan,
@@ -31,6 +32,8 @@ export const {
       chatApi.saveSubjectDraftHandDay(conversationId, date, position, day, expect, locale),
     restoreSubjectDraftDay: (conversationId, date, position, expect, locale) =>
       chatApi.restoreSubjectDraftDay(conversationId, date, position, expect, locale),
+    setSubjectDraftDayCoachCall: (conversationId, date, position, on, expect, locale) =>
+      chatApi.setSubjectDraftDayCoachCall(conversationId, date, position, on, expect, locale),
     removeSubjectDraftDay: (conversationId, date, position, expect, locale) =>
       chatApi.removeSubjectDraftDay(conversationId, date, position, expect, locale),
     addSubjectDraftSession: (conversationId, date, session, locale) =>

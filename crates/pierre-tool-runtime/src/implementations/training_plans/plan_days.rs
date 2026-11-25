@@ -25,8 +25,10 @@ const MAX_CARBS_G_PER_H: f32 = 150.0;
 /// each date holds, each day's bounds through [`validate_day`]), and put its
 /// days in date order. The sort is stable: the agent's order within a date
 /// is kept, so the first entry on a date is its first session (carnet#1716).
-/// A day's coach marks are dropped: the coach's own day saves stamp them,
-/// never a payload (carnet#1714, carnet#1716).
+/// A day's coach marks and the coach's call on it are dropped: the coach's
+/// own day writes stamp them, never a payload (carnet#1714, carnet#1716,
+/// carnet#1814). The save carries a call back onto a session it writes
+/// unchanged, from the week it replaces.
 pub(super) fn validate_week(week: &mut WeekPayload) -> AppResult<()> {
     let start = plan_date("week_start", &week.week_start)?;
     if week.days.is_empty() {
@@ -61,6 +63,7 @@ pub(super) fn validate_week(week: &mut WeekPayload) -> AppResult<()> {
     for (day, position) in week.days.iter_mut().zip(positions) {
         day.coach_original = None;
         day.coach_added = false;
+        day.coach_call = None;
         validate_day(day, position)?;
     }
     Ok(())
@@ -221,18 +224,23 @@ mod tests {
                 "coach_original": {
                     "date": "2026-11-18", "sport": "run", "workout": "Easy 45 min", "intensity": "Z2"
                 },
-                "coach_added": true
+                "coach_added": true,
+                "coach_call": { "by": "8f6f2a4e-1c1b-4d38-9a51-0d6e8b8f4c11", "at": "2026-11-17T10:00:00Z" }
             }]
         }))
         .unwrap();
         assert!(
-            payload.days[0].coach_original.is_some() && payload.days[0].coach_added,
-            "fixture: the payload names a snapshot and an added session"
+            payload.days[0].coach_original.is_some()
+                && payload.days[0].coach_added
+                && payload.days[0].coach_call.is_some(),
+            "fixture: the payload names a snapshot, an added session and a coach's call"
         );
         validate_week(&mut payload).unwrap();
         assert!(
-            payload.days[0].coach_original.is_none() && !payload.days[0].coach_added,
-            "bug: the agent's save took a coach's mark from its payload"
+            payload.days[0].coach_original.is_none()
+                && !payload.days[0].coach_added
+                && payload.days[0].coach_call.is_none(),
+            "bug: the agent's save took a coach's mark or call from its payload"
         );
         assert_eq!(
             payload.days[0].workout, "Easy 50 min",

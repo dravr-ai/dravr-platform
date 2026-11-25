@@ -624,6 +624,29 @@ export function createChatApi(axios: AxiosInstance, adapter: PlatformAdapter) {
       return requireShape(parseSubjectPlanResponse(response.data), endpoint);
     },
 
+    /**
+     * Make (`on`) or take off the coach's call on session `position` of a
+     * date in the coach's draft, « C'est mon choix » (carnet#1814), opening
+     * the draft from the live plan when the coach holds none. The session
+     * itself is left as it stands; `expect` is the session as the card showed
+     * it (409 `session_moved` otherwise). Answers the subject plan as
+     * `getSubjectPlan` reads it after the write.
+     */
+    async setSubjectDraftDayCoachCall(
+      conversationId: string,
+      date: string,
+      position: number,
+      on: boolean,
+      expect: SessionExpect,
+      locale?: string,
+    ): Promise<SubjectPlanResponse> {
+      const endpoint = ENDPOINTS.CHAT.SUBJECT_DRAFT_DAY_COACH_CALL(conversationId, date, position);
+      const response = await axios.put<unknown>(endpoint, { on, expect }, {
+        params: locale ? { locale } : undefined,
+      });
+      return requireShape(parseSubjectPlanResponse(response.data), endpoint);
+    },
+
     /** Add a session at the end of a date's entries in the coach's draft, marked as the coach's (carnet#1716). */
     async addSubjectDraftSession(
       conversationId: string,

@@ -487,6 +487,16 @@ pub(super) struct SessionExpectRequest {
     pub expect: SessionExpect,
 }
 
+/// `PUT …/subject-plan/draft/days/{date}/{n}/coach-call` body: the coach's
+/// call on session n made or taken off (carnet#1814).
+#[derive(Debug, Deserialize)]
+pub(super) struct CoachCallRequest {
+    /// `true` makes the call, « C'est mon choix »; `false` takes it off.
+    pub on: bool,
+    /// Session n as the card showed it.
+    pub expect: SessionExpect,
+}
+
 /// `POST …/subject-plan/draft/days/{date}/sessions` body: exactly one of
 /// `{ "build": … }` or `{ "day": … }` (carnet#1716).
 pub(super) type AddSessionRequest = AddedSession;

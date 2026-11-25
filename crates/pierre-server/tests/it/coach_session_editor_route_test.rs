@@ -1,5 +1,5 @@
 // ABOUTME: GET families, POST session-preview and each session's draft/days/{date}/{n} writes under /api/chat/conversations/{id}/subject-plan
-// ABOUTME: Pins the catalogue's ranges, a warn-only preview, the family and hand-written writes, add, remove, restore, and every refusal by its reason
+// ABOUTME: Pins the catalogue's ranges, a warn-only preview, the writes, add, remove, restore, the coach's call, and every refusal by its reason
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -18,6 +18,11 @@
 //! position and named as the client last saw it (`expect`): the coach adds
 //! one, which restore removes, removes one of several, and a write whose
 //! session moved is a 409 `session_moved` that writes nothing.
+//!
+//! carnet#1814. The coach marks a session as their call, « C'est mon
+//! choix »: the card says `coach_call`, never `edited`, the thread's agent
+//! reads it, an agent's save keeps it only on a session it writes unchanged,
+//! and publishing takes it live.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -368,6 +373,34 @@ impl Fixture {
             .await
     }
 
+    /// `PUT …/draft/days/{date}/{n}/coach-call` on `conversation` as
+    /// `auth`: the call on session n made (`on`) or taken off.
+    async fn coach_call_as(
+        &self,
+        conversation: &str,
+        (date, position): (&str, u32),
+        on: bool,
+        expect: &Value,
+        auth: &str,
+    ) -> (StatusCode, Value) {
+        self.request(
+            AxumTestRequest::put(&format!(
+                "{}/draft/days/{date}/{position}/coach-call?locale=en",
+                Self::base(conversation)
+            ))
+            .json(&json!({ "on": on, "expect": expect })),
+            auth,
+        )
+        .await
+    }
+
+    /// The coach's own call on session n of their thread, made (`on`) or
+    /// taken off.
+    async fn coach_call(&self, at: (&str, u32), on: bool, expect: &Value) -> (StatusCode, Value) {
+        self.coach_call_as(&self.thread, at, on, expect, &self.coach.auth)
+            .await
+    }
+
     /// `POST …/draft/days/{date}/sessions`: a session added to the date.
     async fn add_session(
         &self,
@@ -492,6 +525,7 @@ async fn only_the_coachs_own_thread_about_an_athlete_opens_the_editor() {
         fx.remove(&fx.thread, at, &expect, owner).await,
         fx.add_session(&fx.thread, &date, added.clone(), owner)
             .await,
+        fx.coach_call_as(&fx.thread, at, true, &expect, owner).await,
     ] {
         assert_eq!(
             status,
@@ -526,6 +560,7 @@ async fn only_the_coachs_own_thread_about_an_athlete_opens_the_editor() {
         fx.restore(&plain, at, &expect, coach).await,
         fx.remove(&plain, at, &expect, coach).await,
         fx.add_session(&plain, &date, added.clone(), coach).await,
+        fx.coach_call_as(&plain, at, true, &expect, coach).await,
     ] {
         assert_eq!(
             status,
@@ -557,6 +592,10 @@ async fn only_the_coachs_own_thread_about_an_athlete_opens_the_editor() {
         ("restore", fx.restore(&fx.thread, at, &expect, &key).await),
         ("remove", fx.remove(&fx.thread, at, &expect, &key).await),
         ("add", fx.add_session(&fx.thread, &date, added, &key).await),
+        (
+            "coach's call",
+            fx.coach_call_as(&fx.thread, at, true, &expect, &key).await,
+        ),
     ] {
         assert_eq!(
             status,
@@ -1832,5 +1871,180 @@ async fn a_build_lands_on_the_session_its_position_names_and_leaves_the_dates_ot
         entries_of(&built["draft"], &date)[0],
         entries[0],
         "bug: a build by position leaves the date's other session"
+    );
+}
+
+/// carnet#1814. The coach's call on a session opens the draft, marks the day
+/// `coach_call` and never `edited`, reaches the thread's agent, survives the
+/// agent's save of the session unchanged and not of a changed one, goes live
+/// with the draft, and is taken off the same way.
+#[tokio::test]
+async fn a_coachs_call_marks_its_session_reaches_the_agent_and_goes_live() {
+    let fx = Fixture::new(true).await;
+    let date = ymd(monday(1) + Elapsed::days(2));
+    let called_on = |plan: &Value| day_of(plan, &date)["coach_call"] == true;
+
+    // Taking off a call nobody made opens no draft.
+    let (status, untouched) = fx.coach_call((&date, 0), false, &athletes_session()).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "bug: a call already off answers the plan as it stands: {untouched}"
+    );
+    assert!(
+        !fx.has_draft().await,
+        "bug: a call already off opened a draft"
+    );
+
+    let (status, saved) = fx.coach_call((&date, 0), true, &athletes_session()).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "bug: the coach makes their call on a session: {saved}"
+    );
+    assert!(
+        saved["draft_state"].is_object(),
+        "bug: the call opens a draft from the live plan: {saved}"
+    );
+    let day = day_of(&saved["draft"], &date);
+    assert!(
+        called_on(&saved["draft"]),
+        "bug: the card marks the called day: {day}"
+    );
+    assert!(
+        day.get("edited").is_none() && day["workout"] == ATHLETE_WORKOUT,
+        "bug: a call is no edit of the session: {day}"
+    );
+    for offset in [0, 1, 3, 4, 5, 6] {
+        let other = day_of(&saved["draft"], &ymd(monday(1) + Elapsed::days(offset)));
+        assert!(
+            other.get("coach_call").is_none(),
+            "bug: the call marked another day of the week: {other}"
+        );
+    }
+    assert!(
+        !called_on(&saved["live"]),
+        "bug: the call reached the athlete's live plan before the publish: {saved}"
+    );
+    assert_eq!(
+        fx.get_plan().await,
+        saved,
+        "bug: the write's answer is not the subject plan as the read gives it"
+    );
+
+    // The same call again writes nothing; a session that moved is a 409.
+    let (status, again) = fx.coach_call((&date, 0), true, &athletes_session()).await;
+    assert_eq!(
+        (status, &again),
+        (StatusCode::OK, &saved),
+        "bug: the coach's own call stands as they made it"
+    );
+    let stale = json!({ "sport": "run", "workout": "a session no longer there" });
+    let (status, body) = fx.coach_call((&date, 0), false, &stale).await;
+    assert_eq!(
+        status,
+        StatusCode::CONFLICT,
+        "bug: a call on a session that moved is a 409: {body}"
+    );
+    assert_eq!(
+        reason(&body),
+        "session_moved",
+        "bug: a call on a session that moved is refused by its reason"
+    );
+
+    // The thread's agent reads the call with the day, and who made it.
+    let read = call(
+        &fx.res,
+        &fx.coach,
+        &GetTrainingPlanTool,
+        Some(&fx.thread),
+        json!({}),
+    )
+    .await;
+    let read_day = read["draft"]["weeks"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|week| week["days"].as_array().into_iter().flatten())
+        .find(|day| day["date"] == date)
+        .unwrap_or_else(|| panic!("the agent reads {date} of the draft: {read}"));
+    assert_eq!(
+        read_day["coach_call"]["by"],
+        fx.coach.id.to_string(),
+        "bug: the agent reads the coach's call on the day: {read_day}"
+    );
+
+    // The agent's save keeps the call on the session it writes unchanged.
+    let resaved = call(
+        &fx.res,
+        &fx.coach,
+        &SaveTrainingPlanTool,
+        Some(&fx.thread),
+        json!({ "weeks": [week(monday(1), ATHLETE_WORKOUT)] }),
+    )
+    .await;
+    assert_eq!(
+        resaved["draft"], true,
+        "fixture: the agent saves the week into the coach's draft: {resaved}"
+    );
+    assert!(
+        called_on(&fx.get_plan().await["draft"]),
+        "bug: the agent's save of the session unchanged dropped the coach's call"
+    );
+
+    // A changed session loses it.
+    let changed = call(
+        &fx.res,
+        &fx.coach,
+        &SaveTrainingPlanTool,
+        Some(&fx.thread),
+        json!({ "weeks": [week(monday(1), COACH_WORKOUT)] }),
+    )
+    .await;
+    assert_eq!(
+        changed["draft"], true,
+        "fixture: the agent saves the changed week into the draft: {changed}"
+    );
+    assert!(
+        !called_on(&fx.get_plan().await["draft"]),
+        "bug: a session the agent changed kept the coach's call"
+    );
+
+    // The call goes live with the draft.
+    let coached = json!({ "sport": "run", "workout": COACH_WORKOUT });
+    let (status, body) = fx.coach_call((&date, 0), true, &coached).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "bug: the coach makes their call on the agent's session: {body}"
+    );
+    let (status, published) = fx
+        .request(
+            AxumTestRequest::post(&format!("{}/publish", Fixture::base(&fx.thread)))
+                .json(&json!({ "overwrite_athlete_changes": false })),
+            &fx.coach.auth,
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "fixture: the coach publishes their draft: {published}"
+    );
+    let after = fx.get_plan().await;
+    assert!(
+        called_on(&after["live"]) && after["draft"].is_null(),
+        "bug: the coach's call did not go live with the draft: {after}"
+    );
+
+    // Taken off, the call leaves the live plan only with the next publish.
+    let (status, off) = fx.coach_call((&date, 0), false, &coached).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "bug: the coach takes their call off: {off}"
+    );
+    assert!(
+        !called_on(&off["draft"]) && called_on(&off["live"]),
+        "bug: taking the call off opens a draft without it and leaves the live plan: {off}"
     );
 }

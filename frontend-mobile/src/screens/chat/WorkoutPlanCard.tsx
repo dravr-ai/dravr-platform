@@ -302,6 +302,14 @@ export function DayRow({
         ) : null}
         {outside ? <Badge variant="warning" label={outside} className="mt-1 self-start" /> : null}
         {day.evidence ? <EvidenceChip evidence={day.evidence} /> : null}
+        {day.coach_call ? (
+          <Badge
+            variant="neutral"
+            label={t('humanCoach.coachCall.badge')}
+            className="mt-1 self-start"
+            testID="plan-day-coach-call"
+          />
+        ) : null}
         {countsAs ? (
           <Text className="text-sm text-text-secondary mt-0.5" testID="plan-day-counts-as">
             {countsAs}

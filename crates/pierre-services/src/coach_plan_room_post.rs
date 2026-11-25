@@ -47,7 +47,7 @@ use pierre_core::models::groups::{CoachingGroup, NewGroupTranscriptEntry, Transc
 use pierre_core::transport::TransportPolicy;
 use pierre_core::untrusted::{self, ROSTER_NAME_MAX_CHARS};
 use pierre_database::RepositoryRegistry;
-use pierre_memory::training_plans::{parse_plan_date, PlanWeek};
+use pierre_memory::training_plans::{parse_plan_date, PlanWeek, PlannedDay};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -78,8 +78,10 @@ pub enum PlanChange {
 /// draft keep the athlete's version, so nothing changed there. A date counts
 /// as changed when its entries differ, compared in order and in every field:
 /// a session rewritten, added, taken away — one of two on the date included
-/// (carnet#1716) — or moved within the date. A date that does not parse
-/// cannot be named, and is left out (logged).
+/// (carnet#1716) — or moved within the date. The coach's call on a session
+/// (carnet#1814) is not compared: marking a day the coach's choice changes
+/// nothing the athlete does, so it is no plan change to announce. A date
+/// that does not parse cannot be named, and is left out (logged).
 #[must_use]
 pub fn plan_change(previous: Option<&[PlanWeek]>, published: &[PlanWeek]) -> Option<PlanChange> {
     let Some(previous) = previous else {
@@ -97,8 +99,15 @@ pub fn plan_change(previous: Option<&[PlanWeek]>, published: &[PlanWeek]) -> Opt
             .map(|day| day.date.as_str())
             .collect();
         for date in dates {
-            let was = before.iter().filter(|day| day.date == date);
-            let is = week.days.iter().filter(|day| day.date == date);
+            let was = before
+                .iter()
+                .filter(|day| day.date == date)
+                .map(without_call);
+            let is = week
+                .days
+                .iter()
+                .filter(|day| day.date == date)
+                .map(without_call);
             if !was.eq(is) {
                 changed.insert(date);
             }
@@ -117,6 +126,14 @@ pub fn plan_change(previous: Option<&[PlanWeek]>, published: &[PlanWeek]) -> Opt
         })
         .collect();
     (!days.is_empty()).then_some(PlanChange::Days(days))
+}
+
+/// `day` as the room post compares it: without the coach's call.
+fn without_call(day: &PlannedDay) -> PlannedDay {
+    PlannedDay {
+        coach_call: None,
+        ..day.clone()
+    }
 }
 
 /// One day as the room post names it: the weekday, then the short date —
@@ -383,7 +400,7 @@ async fn post_in_chat(poster: &dyn GroupChatPoster, group: &CoachingGroup, text:
 #[cfg(test)]
 mod tests {
     use dravr_tronc::dates::Timestamp;
-    use pierre_memory::training_plans::{PlannedDay, WeekStatus};
+    use pierre_memory::training_plans::{CoachCall, WeekStatus};
 
     use super::*;
 
@@ -403,6 +420,7 @@ mod tests {
             envelope: None,
             coach_original: None,
             coach_added: false,
+            coach_call: None,
         }
     }
 
@@ -494,6 +512,47 @@ mod tests {
                 date("2026-10-31"),
             ])),
             "the rewritten, added and removed days, nothing else"
+        );
+    }
+
+    /// A day the coach marked as their call, and one whose call they took
+    /// off, are the same sessions: the publish names neither (carnet#1814).
+    /// A rewritten session beside them is still named.
+    #[test]
+    fn a_coachs_call_on_a_day_is_no_plan_change() {
+        let call = Some(CoachCall {
+            by: Uuid::from_u128(7),
+            at: Timestamp::now(),
+        });
+        let previous = [week(
+            "2026-10-26",
+            vec![
+                day("2026-10-27", "easy"),
+                PlannedDay {
+                    coach_call: call,
+                    ..day("2026-10-29", "tempo")
+                },
+                day("2026-10-31", "long"),
+            ],
+        )];
+        let published = [week(
+            "2026-10-26",
+            vec![
+                PlannedDay {
+                    coach_call: call,
+                    ..day("2026-10-27", "easy")
+                },
+                day("2026-10-29", "tempo"),
+                PlannedDay {
+                    coach_call: call,
+                    ..day("2026-10-31", "long run")
+                },
+            ],
+        )];
+        assert_eq!(
+            plan_change(Some(&previous), &published),
+            Some(PlanChange::Days(vec![date("2026-10-31")])),
+            "bug: a call made or taken off is announced as a plan change, or hides a rewritten session"
         );
     }
 

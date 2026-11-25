@@ -53,6 +53,7 @@ fn fuelled_day() -> PlannedDay {
         envelope: None,
         coach_original: None,
         coach_added: false,
+        coach_call: None,
     }
 }
 
@@ -208,6 +209,7 @@ fn a_rest_day_produces_no_session_to_fuel() {
         envelope: None,
         coach_original: None,
         coach_added: false,
+        coach_call: None,
     };
     assert!(plan_day_session(Uuid::new_v4(), &rest, 0, &FuelingDisclosure::Shown).is_none());
 }

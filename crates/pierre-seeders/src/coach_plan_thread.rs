@@ -414,6 +414,7 @@ fn week_days(week_start: CivilDate, key_session: &str, key_intensity: &str) -> V
         envelope: None,
         coach_original: None,
         coach_added: false,
+        coach_call: None,
     })
     .collect()
 }

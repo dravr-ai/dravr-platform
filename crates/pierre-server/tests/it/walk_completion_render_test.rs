@@ -661,6 +661,7 @@ impl Athlete {
                     envelope: None,
                     coach_original: None,
                     coach_added: false,
+                    coach_call: None,
                 }]
             })
             .collect();

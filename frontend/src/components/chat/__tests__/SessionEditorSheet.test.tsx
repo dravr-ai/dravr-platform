@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vite
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { i18n } from '@pierre/i18n';
 import type {
   FamilyCatalogueResponse,
   PlanDay,
@@ -39,6 +40,7 @@ const api = vi.hoisted(() => ({
   saveSubjectDraftDay: vi.fn(),
   saveSubjectDraftHandDay: vi.fn(),
   restoreSubjectDraftDay: vi.fn(),
+  setSubjectDraftDayCoachCall: vi.fn(),
   removeSubjectDraftDay: vi.fn(),
   addSubjectDraftSession: vi.fn(),
 }));
@@ -54,6 +56,7 @@ vi.mock('../../../services/api', () => ({
     saveSubjectDraftDay: (...a: unknown[]) => api.saveSubjectDraftDay(...a),
     saveSubjectDraftHandDay: (...a: unknown[]) => api.saveSubjectDraftHandDay(...a),
     restoreSubjectDraftDay: (...a: unknown[]) => api.restoreSubjectDraftDay(...a),
+    setSubjectDraftDayCoachCall: (...a: unknown[]) => api.setSubjectDraftDayCoachCall(...a),
     removeSubjectDraftDay: (...a: unknown[]) => api.removeSubjectDraftDay(...a),
     addSubjectDraftSession: (...a: unknown[]) => api.addSubjectDraftSession(...a),
   },
@@ -1913,5 +1916,90 @@ describe('"Edit day" on a plan card', () => {
       await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
       expect(api.removeSubjectDraftDay).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+// carnet#1814: a session resting on convention, or outside its family's
+// evidence, can be kept as the coach's own call, saved on the day.
+describe('« C\'est mon choix » on a plan card', () => {
+  const CONVENTION_RUN: PlanDay = {
+    ...EASY_RUN,
+    evidence: { kind: 'convention', label: 'Coaching convention' },
+  };
+  const CALLED_RUN: PlanDay = { ...CONVENTION_RUN, coach_call: true };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    viewer.id = COACH_ID;
+    api.listParticipants.mockResolvedValue([
+      { user_id: COACH_ID, role: 'owner', added_by: COACH_ID, added_at: '2026-11-21T08:00:00Z' },
+      { user_id: ATHLETE_ID, role: 'member', added_by: COACH_ID, added_at: '2026-11-21T08:01:00Z' },
+    ]);
+    api.getSubjectPlan.mockResolvedValue(subjectPlan());
+    api.setSubjectDraftDayCoachCall.mockResolvedValue(subjectPlan(planOf([CALLED_RUN, THIRTY_FIFTEEN, REST])));
+  });
+
+  it('offers the call only on a session the evidence check names, and saves it on the day', async () => {
+    const user = setupUser();
+    renderCard({ blocks: planBlocks(planOf([CONVENTION_RUN, THIRTY_FIFTEEN, REST])) });
+
+    const call = await screen.findByTestId('plan-day-coach-call-2026-11-23-0');
+    // The words name what a press does, and the hint says what the call
+    // means to a screen reader too, beside the date it is for.
+    expect(call).toHaveTextContent(i18n.t('humanCoach.coachCall.action'));
+    expect(call).not.toHaveAttribute('aria-pressed');
+    expect(call).toHaveAccessibleDescription(expect.stringContaining(i18n.t('humanCoach.coachCall.hint')));
+    expect(screen.queryByTestId('plan-day-coach-call-2026-11-24-0')).toBeNull();
+    expect(screen.queryByTestId('plan-day-coach-call-2026-11-25-0')).toBeNull();
+
+    await user.click(call);
+    await waitFor(() =>
+      expect(api.setSubjectDraftDayCoachCall).toHaveBeenCalledWith(
+        CONVERSATION_ID,
+        '2026-11-23',
+        0,
+        true,
+        { sport: 'run', workout: 'Easy 45 min' },
+        'en',
+      ),
+    );
+  });
+
+  it('marks a called day for every reader and lets the coach take the call back', async () => {
+    const user = setupUser();
+    renderCard({ blocks: planBlocks(planOf([CALLED_RUN, THIRTY_FIFTEEN, REST])) });
+
+    expect(await screen.findByTestId('plan-day-coach-call')).toBeInTheDocument();
+    const undo = screen.getByTestId('plan-day-coach-call-2026-11-23-0');
+    expect(undo).toHaveTextContent(i18n.t('humanCoach.coachCall.undo'));
+    expect(undo).not.toHaveAccessibleDescription(expect.stringContaining(i18n.t('humanCoach.coachCall.hint')));
+    await user.click(undo);
+    await waitFor(() =>
+      expect(api.setSubjectDraftDayCoachCall).toHaveBeenCalledWith(
+        CONVERSATION_ID,
+        '2026-11-23',
+        0,
+        false,
+        { sport: 'run', workout: 'Easy 45 min' },
+        'en',
+      ),
+    );
+  });
+
+  it('reads the plan again when the session moved, never calling whichever sits there now', async () => {
+    const user = setupUser();
+    api.setSubjectDraftDayCoachCall.mockRejectedValue({
+      response: { status: 409, data: { error: 'conflict', message: 'moved', details: { reason: 'session_moved' } } },
+    });
+    const { queryClient } = renderCard({ blocks: planBlocks(planOf([CONVENTION_RUN, THIRTY_FIFTEEN, REST])) });
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+
+    await user.click(await screen.findByTestId('plan-day-coach-call-2026-11-23-0'));
+
+    expect(
+      await screen.findByText('This day changed since you opened it. Here it is as it stands now.'),
+    ).toBeInTheDocument();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['chat', 'subject-plan', CONVERSATION_ID] });
+    expect(api.setSubjectDraftDayCoachCall).toHaveBeenCalledTimes(1);
   });
 });
