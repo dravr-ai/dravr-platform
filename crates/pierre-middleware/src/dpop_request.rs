@@ -16,6 +16,7 @@
 
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::fmt;
 
 use axum::extract::{FromRequestParts, OriginalUri};
 use axum::http::request::Parts;
@@ -37,11 +38,24 @@ pub const REQUEST_PATH_METADATA: &str = "pierre-request-path";
 
 /// How an HTTP request presented its credential, captured for the
 /// [`JsonRpcRequest`] a route builds from it.
-#[derive(Debug, Clone, Default)]
+///
+/// `Debug` is hand-written: the token is a credential and prints as
+/// `[REDACTED]`.
+#[derive(Clone, Default)]
 pub struct PresentedCall {
     token: Option<String>,
     metadata: HashMap<String, String>,
     headers: Option<HashMap<String, Value>>,
+}
+
+impl fmt::Debug for PresentedCall {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PresentedCall")
+            .field("token", &self.token.as_ref().map(|_| "[REDACTED]"))
+            .field("metadata", &self.metadata)
+            .field("headers", &self.headers)
+            .finish()
+    }
 }
 
 impl PresentedCall {
