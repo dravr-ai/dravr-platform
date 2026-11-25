@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: E2E for a coach's athlete workspace (carnet#1816) — opened from À traiter, Dravr's swap proposed, Refuser and « C'est mon choix » sent, back to the athlete
+// ABOUTME: E2E for a coach's athlete workspace (carnet#1816) — opened from À traiter, Dravr's swap proposed, Refuser and « C'est mon choix » sent, the panel's tabs by keyboard, back to the athlete
 // ABOUTME: Every route is mocked and dated from the day the spec runs; the routes record what the workspace wrote, so the spec reads the request, not only the page
 
 import { test, expect, type Page } from '@playwright/test';
@@ -97,6 +97,27 @@ test.describe('athlete workspace', () => {
 
     await page.getByTestId(`workspace-check-review-${nextSunday}-0`).click();
     await expect(page.getByRole('dialog')).toBeVisible();
+  });
+
+  test('the panel\'s tabs are one tab stop, and the arrows, Home and End move between them', async ({ page }) => {
+    await openWorkspace(page, { reverted: [], coachCalls: [] });
+    const tab = (id: string) => page.locator(`#athlete-workspace-tab-${id}`);
+
+    await expect(tab('history')).toHaveAttribute('tabindex', '0');
+    await expect(tab('dravr')).toHaveAttribute('tabindex', '-1');
+    await tab('history').focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(tab('dravr')).toBeFocused();
+    await expect(tab('dravr')).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByTestId('workspace-panel-dravr')).toBeVisible();
+
+    await page.keyboard.press('End');
+    await expect(tab('group')).toBeFocused();
+    await expect(page.getByTestId('workspace-panel-group')).toBeVisible();
+    await page.keyboard.press('Home');
+    await expect(tab('history')).toBeFocused();
+    await expect(tab('history')).toHaveAttribute('tabindex', '0');
+    await expect(tab('group')).toHaveAttribute('tabindex', '-1');
   });
 
   test('the back button returns to the athlete in À traiter', async ({ page }) => {

@@ -2,9 +2,9 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Reusable Tabs component — the underline variant is the Boreal v2 text-tab language
-// ABOUTME: Sentence-case words with a primary underline on the active one and a mono count beside it
+// ABOUTME: Sentence-case words with a primary underline on the active one and a mono count beside it; the ARIA tabs keyboard pattern moves between them
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useRef } from 'react';
 
 export interface Tab {
   id: string;
@@ -30,6 +30,39 @@ export interface TabsProps {
   'aria-label'?: string;
 }
 
+/** The keys that move between tabs, and which way: a step either side, or to either end. */
+const MOVE_KEYS: Record<string, 'previous' | 'next' | 'first' | 'last'> = {
+  ArrowLeft: 'previous',
+  ArrowRight: 'next',
+  Home: 'first',
+  End: 'last',
+};
+
+/**
+ * The index of the tab a `move` from `from` lands on: the nearest enabled one
+ * that way, wrapping round the ends, or the first or last enabled one.
+ * `undefined` when no tab is enabled.
+ */
+function landingTab(tabs: readonly Tab[], from: number, move: 'previous' | 'next' | 'first' | 'last'): number | undefined {
+  const count = tabs.length;
+  const enabled = (index: number) => !tabs[index].disabled;
+  if (move === 'first' || move === 'last') {
+    const order = [...tabs.keys()];
+    return (move === 'first' ? order : order.reverse()).find(enabled);
+  }
+  const step = move === 'next' ? 1 : -1;
+  for (let distance = 1; distance <= count; distance += 1) {
+    const index = (((from + step * distance) % count) + count) % count;
+    if (enabled(index)) return index;
+  }
+  return undefined;
+}
+
+/**
+ * A row of tabs with the ARIA tabs keyboard pattern: only the selected tab is
+ * in the tab order, and ArrowLeft, ArrowRight, Home and End move to another
+ * enabled tab and select it. A disabled tab is passed over.
+ */
 export const Tabs: React.FC<TabsProps> = ({
   tabs,
   activeTab,
@@ -48,6 +81,23 @@ export const Tabs: React.FC<TabsProps> = ({
     },
     [onChange]
   );
+
+  // Roving tab order: the selected tab is the one Tab stops on; with none
+  // selected, the first enabled tab stands in so the row stays reachable.
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const inTabOrder = tabs.some((tab) => tab.id === activeTab)
+    ? activeTab
+    : tabs.find((tab) => !tab.disabled)?.id;
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const move = MOVE_KEYS[event.key];
+    if (move === undefined) return;
+    event.preventDefault();
+    const target = landingTab(tabs, index, move);
+    if (target === undefined || target === index) return;
+    tabRefs.current[target]?.focus();
+    onChange(tabs[target].id);
+  };
 
   // Text tabs carry no horizontal padding: the row's gap spaces them, so the
   // underline is exactly as wide as the word. The boxed variants keep theirs.
@@ -94,9 +144,12 @@ export const Tabs: React.FC<TabsProps> = ({
 
   return (
     <div className={`${containerClasses[variant]} ${className}`} role="tablist" aria-label={ariaLabel}>
-      {tabs.map((tab) => (
+      {tabs.map((tab, index) => (
         <button
           key={tab.id}
+          ref={(element) => {
+            tabRefs.current[index] = element;
+          }}
           type="button"
           role="tab"
           id={idPrefix ? `${idPrefix}-tab-${tab.id}` : undefined}
@@ -105,7 +158,9 @@ export const Tabs: React.FC<TabsProps> = ({
           aria-controls={idPrefix && tab.id === activeTab ? `${idPrefix}-panel-${tab.id}` : undefined}
           aria-selected={tab.id === activeTab}
           aria-disabled={tab.disabled}
+          tabIndex={tab.id === inTabOrder ? 0 : -1}
           onClick={() => handleTabClick(tab.id, tab.disabled)}
+          onKeyDown={(event) => handleKeyDown(event, index)}
           className={getTabClasses(tab)}
         >
           {tab.icon && <span className="flex-shrink-0">{tab.icon}</span>}
