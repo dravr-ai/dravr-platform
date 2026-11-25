@@ -1502,7 +1502,6 @@
       "muted_none": "No se excluye a nadie.",
       "save_failed": "No se pudo guardar. Inténtalo de nuevo.",
       "reason": {
-        "consentRevoked": "Dejó de compartir",
         "unverifiedFigure": "Cifra sin verificar en una respuesta del agente",
         "providerReconnect": "Un servicio por reconectar",
         "nothingReceived": "Nada recibido",

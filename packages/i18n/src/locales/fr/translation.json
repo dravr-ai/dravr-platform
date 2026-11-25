@@ -1502,7 +1502,6 @@
       "muted_none": "Personne n’est exclu.",
       "save_failed": "Impossible d’enregistrer. Réessaie.",
       "reason": {
-        "consentRevoked": "A coupé le partage",
         "unverifiedFigure": "Chiffre non vérifié dans une réponse de l’agent",
         "providerReconnect": "Un service à reconnecter",
         "nothingReceived": "Rien reçu",

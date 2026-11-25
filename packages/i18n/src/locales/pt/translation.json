@@ -1502,7 +1502,6 @@
       "muted_none": "Ninguém está de fora.",
       "save_failed": "Não foi possível guardar. Tenta de novo.",
       "reason": {
-        "consentRevoked": "Deixou de partilhar",
         "unverifiedFigure": "Número não verificado numa resposta do agente",
         "providerReconnect": "Um serviço a reconectar",
         "nothingReceived": "Nada recebido",

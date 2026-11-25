@@ -1502,7 +1502,6 @@
       "muted_none": "Niemand ist ausgenommen.",
       "save_failed": "Speichern fehlgeschlagen. Versuch es noch einmal.",
       "reason": {
-        "consentRevoked": "Teilen beendet",
         "unverifiedFigure": "Ungeprüfte Zahl in einer Agentenantwort",
         "providerReconnect": "Ein Dienst muss neu verbunden werden",
         "nothingReceived": "Nichts erhalten",

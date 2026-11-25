@@ -1502,7 +1502,6 @@
       "muted_none": "Nobody is left out.",
       "save_failed": "Couldn't save. Try again.",
       "reason": {
-        "consentRevoked": "Stopped sharing",
         "unverifiedFigure": "Unverified figure in an agent reply",
         "providerReconnect": "A service to reconnect",
         "nothingReceived": "Nothing received",
