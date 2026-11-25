@@ -596,7 +596,7 @@ mod tests {
     #[test]
     fn an_api_copy_sharing_a_held_session_reads_id_does_not_land() {
         let midnight = Timestamp::parse_from_rfc3339("2026-11-18T00:00:00Z").unwrap();
-        // A session read of Strava keeps Strava's own id, under the sciotte key.
+        // A session read of Strava keeps Strava's own id, under the `sciotte` key.
         let session_copy = ride("1234567", "sciotte", midnight);
         let api = ride("1234567", "strava", midnight + Elapsed::hours(10));
         assert_eq!(

@@ -81,7 +81,7 @@ fn build_activity_city_only(id: &str, city: &str, region: &str) -> Activity {
 /// Built only with the `live-e2e` feature so the offline matrix never
 /// depends on the endpoint; built, an unreachable endpoint fails it.
 /// Asserts that an activity carrying only `city` + `region` (the shape
-/// produced by sciotte's dashboard-feed enrichment) does end up in the
+/// produced by the session read's dashboard-feed enrichment) does end up in the
 /// backfill output once Open-Meteo resolves the coords.
 #[tokio::test]
 async fn fills_temperature_via_city_geocoding_when_gps_absent() {

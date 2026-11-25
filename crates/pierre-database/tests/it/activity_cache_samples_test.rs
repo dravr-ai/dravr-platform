@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 //! Samples belong to the one per-activity sample store; a provider that
-//! attaches them on its list path (sciotte with
+//! attaches them on its list path (the session reader with
 //! `PIERRE_SCIOTTE_ENRICH_DETAILS=true`) must not persist them into the
 //! summary row's `data_json` (carnet#1220). `create_test_db` opens whichever
 //! `DATABASE_URL` names, so the same assertions cover `SQLite` and

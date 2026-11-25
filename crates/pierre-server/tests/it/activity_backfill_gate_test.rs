@@ -8,7 +8,7 @@
 //!
 //! The predicate is the safety-critical decision: a deep historical `after`
 //! must route to the bounded background backfill, never an inline provider
-//! session read (the known sciotte timeout outage). These tests assert the routing
+//! session read (the known session-read timeout outage). These tests assert the routing
 //! at the wall-clock boundaries against the default 90-day threshold (the
 //! `PIERRE_HISTORICAL_BACKFILL_THRESHOLD_DAYS` env is unset in this binary).
 

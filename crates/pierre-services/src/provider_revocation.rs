@@ -182,7 +182,7 @@ pub enum RevocationShape {
 /// [`revoke_with_shape`] reports it as [`RevocationOutcome::NoGrant`].
 /// `sciotte`, `sciotte_garmin` and `sciotte_trainingpeaks` are signed-in
 /// sessions: the credential is a browser cookie jar, and there is nothing
-/// upstream to revoke either. The sciotte service's copy of that jar is
+/// upstream to revoke either. The session-read service's copy of that jar is
 /// dropped by [`drop_service_session`] instead.
 ///
 /// LIMITATION(registre#509): `revocation_shape` returns `None` for `coros`
@@ -400,7 +400,7 @@ pub async fn revoke_upstream_grant(
 }
 
 /// Drop the signed-in session a disconnected mirror backend's row names from
-/// every sciotte read service's memory (`DELETE /auth/sessions/{id}`).
+/// every session-read service's memory (`DELETE /auth/sessions/{id}`).
 ///
 /// The platform is the session-of-record and deletes its row next, but a
 /// service keeps its own copy of the provider cookies until the session idles
@@ -434,7 +434,7 @@ pub async fn drop_service_session(
         debug!(
             user_id = %user_id,
             backend = %backend,
-            "Sciotte service not configured; no signed-in session held there to drop"
+            "Session-read service not configured; no signed-in session held there to drop"
         );
         return;
     };
@@ -452,8 +452,8 @@ pub async fn drop_service_session(
     }
 }
 
-/// Log what the sciotte service said about a session drop: a removal at INFO,
-/// a session it no longer held at DEBUG, and a failure at WARN, never an
+/// Log what the session-read service said about a session drop: a removal at
+/// INFO, a session it no longer held at DEBUG, a failure at WARN, never an
 /// error, since the local deletion proceeds regardless.
 fn log_session_removal(
     removal: &Result<SessionRemoval, ClientError>,
@@ -468,20 +468,20 @@ fn log_session_removal(
             user_id = %user_id,
             tenant_id = %tenant_id,
             backend = %backend,
-            "Dropped the signed-in session from the sciotte service"
+            "Dropped the signed-in session from the session-read service"
         ),
         Ok(SessionRemoval::AlreadyGone) => debug!(
             sciotte_service = service,
             user_id = %user_id,
             backend = %backend,
-            "The sciotte service no longer held the signed-in session"
+            "The session-read service no longer held the signed-in session"
         ),
         Err(e) => warn!(
             sciotte_service = service,
             user_id = %user_id,
             backend = %backend,
             error = %e,
-            "Could not drop the signed-in session on the sciotte service; its idle lifetime drops it"
+            "Could not drop the signed-in session on the session-read service; its idle lifetime drops it"
         ),
     }
 }
@@ -506,7 +506,7 @@ async fn stored_session_id(
                 user_id = %user_id,
                 backend = %backend,
                 error = %e,
-                "Could not read the stored signed-in session to drop it on the sciotte service; its idle lifetime drops it"
+                "Could not read the stored signed-in session to drop it on the session-read service; its idle lifetime drops it"
             );
             return None;
         }
@@ -516,7 +516,7 @@ async fn stored_session_id(
         warn!(
             user_id = %user_id,
             backend = %backend,
-            "Stored signed-in session does not parse; no session id to drop on the sciotte service"
+            "Stored signed-in session does not parse; no session id to drop on the session-read service"
         );
         return None;
     };
@@ -834,7 +834,7 @@ pub async fn withdraw_upstream(
 
 /// Withdraw one backend completely: revoke upstream, then delete its rows.
 ///
-/// A signed-in session is dropped from the sciotte service instead of revoked.
+/// A signed-in session is dropped from the session-read service instead of revoked.
 /// The token and connection rows go in lockstep, and every row the provider
 /// contributed is purged.
 ///

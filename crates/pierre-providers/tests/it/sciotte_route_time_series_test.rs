@@ -1,10 +1,10 @@
-// ABOUTME: Pins that a sciotte GPS track survives convert_activity into cageux TimeSeriesData
+// ABOUTME: Pins that a session-read GPS track survives convert_activity into cageux TimeSeriesData
 // ABOUTME: Asserts real coordinates and elevations arrive index-aligned, and a mis-sized series is dropped
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Sciotte route → `TimeSeriesData` conversion contract.
+//! Session-read route → `TimeSeriesData` conversion contract.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! A session-read Garmin/Strava activity carries its GPS track in
@@ -116,7 +116,7 @@ async fn connected_provider(base_url: &str) -> Box<dyn FitnessProvider> {
         .expect("a loopback client needs no audience"); // Safe: loopback URL
     let provider = SciotteProviderFactory::new(Some(client))
         .create(config)
-        .expect("sciotte provider construction is infallible"); // Safe: factory returns Ok unconditionally
+        .expect("session-read provider construction is infallible"); // Safe: factory returns Ok unconditionally
     let session = AuthSession {
         session_id: "stub-session".to_owned(),
         cookies: vec![],

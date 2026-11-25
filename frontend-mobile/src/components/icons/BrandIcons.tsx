@@ -106,9 +106,9 @@ export function AppleLogo({ size = 24, color = '#FFFFFF' }: IconProps) {
 }
 
 /**
- * The glyph for each provider id the server reports. The sciotte ids are the
- * captured Strava, Garmin, TrainingPeaks and COROS accounts, so they share the
- * brand's mark.
+ * The glyph for each provider id the server reports. The session-read ids are
+ * the captured Strava, Garmin, TrainingPeaks and COROS accounts, so they share
+ * the brand's mark.
  */
 const PROVIDER_GLYPHS: Readonly<Record<string, ComponentType<ProviderMarkProps>>> = {
   sciotte: StravaLogo,

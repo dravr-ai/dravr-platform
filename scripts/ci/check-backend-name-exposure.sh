@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
-# ABOUTME: Fails when the session-read backend's name (sciotte) reaches an athlete or coach: a
+# ABOUTME: Fails when the session-read backend's name reaches an athlete or coach: a
 # ABOUTME: translation VALUE in the string catalogue, or the served text of a hosted page template
 
-# carnet#1207. Directive from ChefFamille: "SCIOTTE must not be visible to the
-# user/athlete/coach". Sciotte is the backend that signs in to Strava, Garmin,
+# carnet#1207. Directive from ChefFamille: the backend's name must not be visible
+# to the user/athlete/coach. It is the backend that signs in to Strava, Garmin,
 # TrainingPeaks and COROS with the athlete's own username and password; the
 # athlete knows the service, never the backend. Before this gate the name had
-# reached the Settings switch dialog ("Strava — Sciotte"), the disconnect
+# reached the Settings switch dialog (beside "Strava"), the disconnect
 # banner, the reconnect error text the model repeated, and the comments and
 # script of the hosted sign-in page — every one of them added by an edit that
 # had no reason to think about it, because the provider ids are spelled

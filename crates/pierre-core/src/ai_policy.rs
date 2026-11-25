@@ -28,7 +28,7 @@
 //! [`Transport`](crate::transport::Transport), its items are dropped whole —
 //! whether a model reads them or not — by the same relay-then-origin lookup.
 //! The relay's policy is resolved per item where one name serves several
-//! backends' data: a sciotte item answers to the backend that read it
+//! backends' data: a session-read item answers to the backend that read it
 //! (carnet#765). A relay whose terms name a source settles that source's
 //! items by its own rule alone (carnet#767): intervals.icu licenses the
 //! Garmin-recorded data it relays on its own terms.
@@ -141,7 +141,7 @@ pub trait ProviderTerms: Send + Sync {
     ///
     /// A relay's own terms bind everything it serves, so this is `provider`'s
     /// [`Self::transport_policy`] unless a provider serves several backends'
-    /// data under one name: the sciotte session readers stamp every item `sciotte`
+    /// data under one name: the session readers stamp every item `sciotte`
     /// with the service they read as its `source`, and the backend that read
     /// it is the one whose policy holds (carnet#765). `source` arrives as
     /// stamped, in any case.
@@ -942,7 +942,7 @@ mod tests {
         assert!(!first_party_only(&Lookup, "unknown", Some("other")));
     }
 
-    /// One name serving two backends' data, as the sciotte session readers do: its
+    /// One name serving two backends' data, as the session readers do: its
     /// `strava` backend keeps its data first-party, its `garmin` one does not.
     struct SessionReaders;
 

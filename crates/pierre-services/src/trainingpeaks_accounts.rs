@@ -25,9 +25,10 @@
 //!   user's, or is disconnected ([`revoke_roster_for_coach_connection`]), the
 //!   grant goes unless another `TrainingPeaks` coach connection still holds it
 //!   or an admin made it;
-//! - before sciotte 0.14 a coach account's list read fell through to whichever
-//!   athlete TrainingPeaks served, and the platform filed those workouts as the
-//!   coach's own. They are deleted when the account is found to be a coach's.
+//! - before the session-read service's 0.14 a coach account's list read fell
+//!   through to whichever athlete TrainingPeaks served, and the platform filed
+//!   those workouts as the coach's own. They are deleted when the account is
+//!   found to be a coach's.
 //!
 //! The role is read by [`probe_trainingpeaks_role`], which runs after every
 //! `TrainingPeaks` login and once for a connection made before roles were
@@ -251,11 +252,11 @@ pub async fn coach_binding(
 /// The role lands on the connection row, where the read path and the
 /// providers card read it. A [`ProviderAccountRole::Coach`] account loses the
 /// cached `TrainingPeaks` activities filed under it, which can only be another
-/// athlete's workouts misfiled before sciotte 0.14. A connection recorded as a
-/// coach that now reads as an athlete gives the `manages_roster` grant back
-/// ([`revoke_roster_for_coach_connection`]). The grant itself is earned only
-/// through a profile read ([`record_trainingpeaks_profile`]), which carries
-/// the account's email.
+/// athlete's workouts misfiled before the session-read service's 0.14. A
+/// connection recorded as a coach that now reads as an athlete gives the
+/// `manages_roster` grant back ([`revoke_roster_for_coach_connection`]). The
+/// grant itself is earned only through a profile read
+/// ([`record_trainingpeaks_profile`]), which carries the account's email.
 ///
 /// # Errors
 ///
@@ -365,7 +366,7 @@ async fn grant_roster(repos: &RepositoryRegistry, user_id: Uuid) -> AppResult<()
 
 /// Delete the `TrainingPeaks` activities filed under a coach account: it has
 /// no calendar of its own, so each one is another athlete's workout a read
-/// before sciotte 0.14 misfiled.
+/// before the session-read service's 0.14 misfiled.
 ///
 /// They go through the provider purge, as every deletion of a provider's
 /// activities does: the cached rows and what was kept beside them, the sync
@@ -403,7 +404,7 @@ async fn purge_misfiled_activities(
 }
 
 /// The profile of the `TrainingPeaks` account `session` signed in with, read
-/// on the sciotte service: its names, whether it trains or coaches, and a
+/// on the session-read service: its names, whether it trains or coaches, and a
 /// coach account's roster.
 ///
 /// The read goes through the one of `registry`'s read services the session
@@ -421,7 +422,7 @@ async fn purge_misfiled_activities(
 ///
 /// # Errors
 ///
-/// Returns an error when the sciotte service is not configured, when the
+/// Returns an error when the session-read service is not configured, when the
 /// owner's session-read windows refuse the read, or when the service
 /// cannot import the session or read the profile. A session the service no
 /// longer holds names `sciotte_trainingpeaks`, whose sign-in renews it.
@@ -478,7 +479,7 @@ pub fn account_role(profile: &AthleteProfile) -> ProviderAccountRole {
 /// `read_from` is the token row the session was stored as
 /// ([`trainingpeaks_profile`]).
 ///
-/// The probe costs one profile read on the sciotte service, so callers run it
+/// The probe costs one profile read on the session-read service, so callers run it
 /// off the request that stored the session.
 ///
 /// # Errors

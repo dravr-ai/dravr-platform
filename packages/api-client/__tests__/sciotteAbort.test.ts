@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Unit cover for aborting a sciotte sign-in step — the signal reaches the request and ends the busy backoff (carnet#1300)
+// ABOUTME: Unit cover for aborting a credential sign-in step — the signal reaches the request and ends the busy backoff (carnet#1300)
 // ABOUTME: Red if a closed window's step keeps waiting out a 503 backoff and posts again after the abort
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AxiosInstance } from 'axios';
 import { createOAuthApi } from '../src/domains/oauth';
 
-/** The refusal the platform answers while the sciotte service sheds load. */
+/** The refusal the platform answers while the session-read service sheds load. */
 function busy() {
   return { response: { status: 503, headers: { 'retry-after': '30' }, data: { error: 'busy' } } };
 }
@@ -17,7 +17,7 @@ function stubAxios(post = vi.fn().mockResolvedValue({ data: { status: 'connected
   return { post, api: createOAuthApi({ post } as unknown as AxiosInstance) };
 }
 
-describe('sciotte sign-in steps — abort', () => {
+describe('credential sign-in steps — abort', () => {
   afterEach(() => {
     vi.useRealTimers();
   });

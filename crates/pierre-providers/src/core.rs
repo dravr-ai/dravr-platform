@@ -470,9 +470,10 @@ pub trait FitnessProvider: Send + Sync {
     ///
     /// `true` for every API provider: their list endpoint is the head. A
     /// session-read source can hand back a capture whose head it never saw —
-    /// sciotte's Strava walk carries complete weeks, and the in-progress week
-    /// comes from one best-effort fetch that can fail — and reports `false`
-    /// so the caller declines to stamp that capture as fresh (carnet#151).
+    /// the session reader's Strava walk carries complete weeks, and the
+    /// in-progress week comes from one best-effort fetch that can fail — and
+    /// reports `false` so the caller declines to stamp that capture as fresh
+    /// (carnet#151).
     fn head_complete(&self) -> bool {
         true
     }
@@ -905,7 +906,7 @@ pub trait ProviderFactory: Send + Sync {
     /// # Errors
     ///
     /// Returns an error when the provider cannot be constructed — e.g. the
-    /// sciotte-backed providers parse an embedded session-read config that, while
+    /// session-read providers parse an embedded session-read config that, while
     /// validated at build time, surfaces a structured error rather than panics.
     fn create(&self, config: ProviderConfig) -> AppResult<Box<dyn FitnessProvider>>;
 

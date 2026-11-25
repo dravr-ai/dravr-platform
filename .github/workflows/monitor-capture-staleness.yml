@@ -1,7 +1,7 @@
 # ABOUTME: Daily refresh of every live provider capture, then the check that they are still reaching their provider
 # ABOUTME: Exists because jf@dravr.ai's capture froze for days while the coach kept answering from cache
 #
-# On 2026-08-28 02:59Z the sciotte capture for one athlete stopped. It was still
+# On 2026-08-28 02:59Z the session-read capture for one athlete stopped. It was still
 # stopped on 08-30. Three real activities never landed, and nothing anywhere said
 # so: `get_activities` kept serving the durable cache, the coach kept grounding on
 # it, and the athlete got confident answers about a training log that had stopped

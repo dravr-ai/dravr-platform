@@ -28,7 +28,7 @@
 //! session-read service, both reached through a fresh provider registry; one test
 //! drives every scenario against the pair. Both are test doubles: the real Intervals.icu
 //! requests are pinned in pierre-providers' loopback tests, and the session
-//! reads in dravr-sciotte.
+//! reads in the session-read satellite.
 
 use crate::common::{offline_provider_config, offline_provider_registry};
 use secrecy::SecretString;
@@ -199,7 +199,7 @@ async fn resources_against(intervals_base: String, reader_base: &str) -> Arc<Ser
     let resources = create_test_server_resources().await.unwrap();
     let mut config = offline_provider_config(INTERVALS_ICU).unwrap();
     config.api_base_url = intervals_base;
-    // Built as the server builds its registry's sciotte client, so the
+    // Built as the server builds its registry's session-read client, so the
     // TrainingPeaks reads reach the session-reader stand-in.
     let mut registry = offline_provider_registry()
         .with_sciotte_reads(startup_reads(&[String::from(reader_base)], None));

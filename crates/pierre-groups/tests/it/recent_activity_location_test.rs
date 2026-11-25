@@ -126,7 +126,7 @@ fn renderer_omits_location_for_hr_only_sources() {
 
 #[test]
 fn renderer_surfaces_elevation_when_provider_supplies_it() {
-    // Strava / sciotte / Coros carry total ascent. The Recent: block must
+    // Strava / session reads / Coros carry total ascent. The Recent: block must
     // surface it so the LLM can answer "combien de dénivelé pour vous deux"
     // with a real shared total instead of abstaining.
     let mut ride = ride_with_location(Some("Saint-Bruno-de-Montarville"), None, None);

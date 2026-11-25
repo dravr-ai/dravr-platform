@@ -9,7 +9,7 @@
 //! A coaching turn that asks for an old window (e.g. "my 2022 races") must
 //! never trigger an inline provider read: paginating a provider's
 //! reverse-chronological feed back across years stalls the turn and trips the
-//! known sciotte navigation timeout. Instead the `get_activities` handler
+//! session-read service's navigation timeout. Instead the `get_activities` handler
 //! serves deep windows from the durable activity cache, and — on a cold cache —
 //! kicks off one of these bounded background jobs. The job authenticates the
 //! provider, pages the feed back to the requested `after` via the date-aware
@@ -161,7 +161,7 @@ pub fn backfill_covered_floor_ts(
 
 /// How long one runner holds a job row before the resume sweep may take it.
 ///
-/// A full sciotte season read sits under its 330s client ceiling, so ten
+/// A full season's session read sits under its 330s client ceiling, so ten
 /// minutes covers the slowest legitimate run several times over; a live run
 /// renews well inside it, so only a dead one ever lets it lapse.
 pub const BACKFILL_JOB_LEASE: StdDuration = StdDuration::from_mins(10);
@@ -198,7 +198,7 @@ pub struct ActivityBackfillJob {
     /// Tenant id as a string for provider authentication (`None` for the nil
     /// tenant) — see [`provider_tenant_id_str`].
     pub tenant_id_str: Option<String>,
-    /// Backend provider slug to read (already resolved to the sciotte mirror if any).
+    /// Backend provider slug to read (already resolved to the session-read mirror if any).
     pub provider_name: String,
     /// The original request window — its deep `after` drives the page-to-date read.
     pub query_params: ActivityQueryParams,
@@ -666,8 +666,8 @@ fn lease_ms() -> i64 {
 /// claim has cleared.
 const IN_FLIGHT_WAIT_POLL: StdDuration = StdDuration::from_millis(500);
 
-/// Upper bound on waiting for a concurrent job's claim. A full sciotte
-/// season read sits under its 330s client ceiling, so 8 minutes covers the
+/// Upper bound on waiting for a concurrent job's claim. A full season's
+/// session read sits under its 330s client ceiling, so 8 minutes covers the
 /// slowest legitimate holder; past it the wait gives up instead of hanging
 /// the task on a holder that never ends.
 const IN_FLIGHT_WAIT_CAP: StdDuration = StdDuration::from_mins(8);
@@ -876,7 +876,7 @@ async fn fetch_backfill_activities(
     match ai_scope::unfiltered(provider.get_activities_with_params(&job.query_params)).await {
         Ok(activities) => capture_with_head(job, provider.as_ref(), activities),
         Err(e) => {
-            // sciotte surfaces a lapsed session HERE (cookies existed at auth
+            // A session read surfaces a lapsed session HERE (cookies existed at auth
             // time but the read redirected to sign-in) as
             // `AppError::provider_auth_required`; any other error is transient.
             let auth_required = e.provider_auth_required_provider().is_some();

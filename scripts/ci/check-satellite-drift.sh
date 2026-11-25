@@ -30,7 +30,7 @@
 # duplicate gate. carnet#323 was that exact failure with dravr-equilibre at 0.2.4
 # beside 0.2.5, found twenty minutes into a gate as E0053 in health_sync.rs. So a
 # diamond pin is judged against what the PINNED enforme pins, never against that
-# repo's own latest release — a naive "the pin is behind" check on sciotte is what
+# repo's own latest release — a naive "the pin is behind" check on the session-read pin is what
 # sciotte-pin-check.yml used to file, for a bump that could not be done alone, and
 # it was removed for being noise.
 #

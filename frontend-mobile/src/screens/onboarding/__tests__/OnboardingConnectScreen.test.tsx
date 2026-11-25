@@ -449,7 +449,7 @@ describe('OnboardingConnectScreen — Strava OAuth failure fallback', () => {
     initMobileOAuth.mockResolvedValue({ authorization_url: 'https://www.strava.com/oauth/authorize' });
   });
 
-  it('falls back to the Sciotte modal when the Strava OAuth callback returns an error', async () => {
+  it('falls back to the sign-in modal when the Strava OAuth callback returns an error', async () => {
     openAuthSessionAsync.mockResolvedValue({ type: 'success', url: 'dravr://oauth-callback?success=false&error=cap_exceeded' });
     linkingParse.mockReturnValue({ queryParams: { success: 'false', error: 'cap_exceeded' } });
 
@@ -514,7 +514,7 @@ describe('OnboardingConnectScreen — Strava OAuth failure fallback', () => {
     }
   });
 
-  it('falls back to the Sciotte modal when the Strava OAuth flow cannot start', async () => {
+  it('falls back to the sign-in modal when the Strava OAuth flow cannot start', async () => {
     initMobileOAuth.mockRejectedValue(new Error('network down'));
 
     renderScreen();

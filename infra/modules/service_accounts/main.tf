@@ -44,7 +44,7 @@ resource "google_project_iam_member" "app_secret_accessor" {
 #     retention and erasure sweeps delete them
 #     (infra/environments/dev/archive_imports.tf)
 #   - dev sciotte-scripts bucket, objectViewer: the read-only gcsfuse mount
-#     of the sciotte services (infra/environments/dev/main.tf)
+#     of the session-read services (infra/environments/dev/main.tf)
 # A new bucket the app uses brings its own google_storage_bucket_iam_member.
 
 # AI Platform User (for Vertex AI access)

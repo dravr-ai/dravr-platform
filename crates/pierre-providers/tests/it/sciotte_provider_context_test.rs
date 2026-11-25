@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Provider context of the signed-in Strava session (carnet#1622, sciotte 2.3).
+//! Provider context of the signed-in Strava session (carnet#1622, session-read satellite 2.3).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use std::sync::{Arc, Mutex};
@@ -96,7 +96,7 @@ async fn connected(base_url: &str, factory_name: &str, garmin: bool) -> Box<dyn 
     } else {
         SciotteProviderFactory::new(Some(client)).create(config)
     }
-    .expect("sciotte provider construction is infallible");
+    .expect("session-read provider construction is infallible");
     let session = AuthSession {
         session_id: "stub-session".to_owned(),
         cookies: vec![],

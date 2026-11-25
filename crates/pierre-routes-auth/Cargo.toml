@@ -1,4 +1,4 @@
-# ABOUTME: Auth route group — credential login, OAuth callback, Sciotte hosted flow, provider-link webhook
+# ABOUTME: Auth route group — credential login, OAuth callback, hosted sign-in flow, provider-link webhook
 # ABOUTME: Decoupled from pierre-server via AuthRoutesContext; mounted by the composition root
 
 [package]
@@ -6,7 +6,7 @@ name = "pierre-routes-auth"
 version = "0.3.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "Authentication route group (login, OAuth callbacks, Sciotte hosted login, provider-link webhook) for the Pierre platform"
+description = "Authentication route group (login, OAuth callbacks, hosted session sign-in, provider-link webhook) for the Pierre platform"
 repository = "https://github.com/dravr-ai/dravr-platform"
 publish = false
 
@@ -14,7 +14,7 @@ publish = false
 default = []
 # Health backfill kicks in after a successful OAuth connection (handled inside oauth.rs handler).
 health-sync = ["pierre-services/health-sync", "dep:dravr-enforme"]
-# Sciotte (Strava-mirror) provider routes: credential login + hosted login pages.
+# Session-read provider routes: credential login + hosted login pages.
 provider-sciotte = [
     "dep:dravr-sciotte",
     "dravr-tronc/service-client",
@@ -62,9 +62,9 @@ uuid = { version = "1.29", features = ["v4", "serde"] }
 
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
-# Sciotte (provider-sciotte feature)
+# Session-read satellite client (provider-sciotte feature)
 dravr-sciotte = { workspace = true, optional = true, features = ["client"] }
-# The takeover relay's sciotte leg is tronc's ServiceClient socket (the
+# The takeover relay's service leg is tronc's ServiceClient socket (the
 # provider-sciotte feature turns on dravr-tronc/service-client), and its viewer
 # leg axum's (provider-sciotte turns on axum's ws).
 futures = { version = "0.3", optional = true }

@@ -8,7 +8,7 @@
 //! the reconnect link — lands in the session store, and every one of them is
 //! probed here for the account's role
 //! ([`probe_trainingpeaks_role`](pierre_services::trainingpeaks_accounts::probe_trainingpeaks_role)).
-//! The probe is one profile read on the sciotte service, so it runs in a task
+//! The probe is one profile read on the session-read service, so it runs in a task
 //! of its own and the login answers as soon as the session is stored.
 
 use std::sync::Arc;

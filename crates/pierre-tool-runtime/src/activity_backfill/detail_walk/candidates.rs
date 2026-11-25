@@ -486,7 +486,7 @@ mod tests {
     }
 
     /// A row of `id` under `key`; a session's capture names Strava as its
-    /// source, as sciotte's does.
+    /// source, as the session reader's does.
     fn row(
         key: &str,
         id: &str,

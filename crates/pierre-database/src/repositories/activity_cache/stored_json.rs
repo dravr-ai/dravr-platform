@@ -17,7 +17,7 @@ const TIME_SERIES_KEY: &str = "time_series_data";
 ///
 /// It is the activity as its provider served it, without
 /// `time_series_data`. A provider that reads samples on its list path
-/// (sciotte with `PIERRE_SCIOTTE_ENRICH_DETAILS=true` attaches the route
+/// (the session reader with `PIERRE_SCIOTTE_ENRICH_DETAILS=true` attaches the route
 /// track) would otherwise persist them in every summary row; samples belong
 /// to the one per-activity sample store, and the live providers read them on
 /// demand. `Activity` has no setter for the field, so the strip happens on

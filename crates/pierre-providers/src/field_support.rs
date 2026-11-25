@@ -272,7 +272,7 @@ impl ActivityFieldSupport {
 /// Which of a provider's two backends answers a read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FieldMode {
-    /// The session read that signs in as the athlete (a sciotte backend).
+    /// The session read that signs in as the athlete.
     Mirror,
     /// The provider's own API, behind its OAuth grant or API key.
     Oauth,

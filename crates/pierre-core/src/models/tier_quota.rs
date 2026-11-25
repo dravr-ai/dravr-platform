@@ -110,7 +110,7 @@ pub const ENTERPRISE: TierQuotaConfig = TierQuotaConfig {
 /// How many reads of an athlete's signed-in provider session Dravr makes
 /// before it refuses the next one (carnet#1661).
 ///
-/// Counted per tier and per backend: sciotte on Strava, Garmin, COROS or
+/// Counted per tier and per backend: a session on Strava, Garmin, COROS or
 /// `TrainingPeaks`.
 ///
 /// A read the athlete is waiting on (a tool call, an app route) is `asked`;

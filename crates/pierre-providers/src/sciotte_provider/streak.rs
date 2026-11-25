@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 //! The athlete's active streak, as Strava states it on their dashboard
-//! (sciotte 2.1 reads it with the profile).
+//! (the session-read satellite reads it with the profile from 2.1).
 //!
 //! It is Strava's own figure: nothing here derives it from activities, and
 //! a streak Strava did not report is `None`, never zero days. It rides the

@@ -69,7 +69,7 @@
 //! has not yet spent of its 125, so the history walk can never take them
 //! ([`detail_walk`]).
 //!
-//! A session the platform signs in with (sciotte reading strava.com as the
+//! A session the platform signs in with (strava.com, signed in as the
 //! athlete) has no OAuth app and no API, yet its detail walk draws from the
 //! same two daily windows the grant's walk does ([`RequestBudget::for_session`]):
 //! the 125 a day of the Strava app that signs the athlete's grant (the
@@ -196,7 +196,7 @@ pub fn detail_walk_counter_key(holder_key: &str) -> String {
 /// `holder_key`: the pages one athlete's session walk reads in
 /// [`FIFTEEN_MINUTES`] ([`SESSION_WALK_BURST_CALLS`]).
 #[must_use]
-pub(crate) fn detail_walk_burst_counter_key(holder_key: &str, user_id: Uuid) -> String {
+pub fn detail_walk_burst_counter_key(holder_key: &str, user_id: Uuid) -> String {
     format!("{holder_key}:detail_walk_burst:{user_id}")
 }
 

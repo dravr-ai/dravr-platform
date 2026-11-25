@@ -83,6 +83,7 @@ async fn create_a2a_test_resources() -> Arc<ServerContext> {
                 blobs: None,
                 lab_reader: None,
                 pdf_text_bin: None,
+                contremaitre: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },

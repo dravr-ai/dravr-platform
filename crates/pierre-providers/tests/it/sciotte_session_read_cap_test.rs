@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Sciotte session-read cap at the provider's chokepoint.
+//! Session-read cap at the provider's chokepoint.
 //!
 //! Every read a `SciotteProvider` makes goes through its `read_through`,
 //! which first admits the read against the budget its credentials carry:
@@ -132,7 +132,7 @@ async fn provider(base: &str, budget: RequestBudget) -> Box<dyn FitnessProvider>
             revoke_url: None,
             default_scopes: vec![],
         })
-        .expect("sciotte provider construction is infallible");
+        .expect("session-read provider construction is infallible");
     provider
         .set_credentials(OAuth2Credentials {
             client_id: String::new(),

@@ -1,4 +1,4 @@
-// ABOUTME: End to end, Home against a scripted session reader speaking sciotte's contract: only a list the service vouched for is a sync
+// ABOUTME: End to end, Home against a scripted session reader speaking the service's contract: only a list the service vouched for is a sync
 // ABOUTME: Pins the 2026-09-29 incident, shed/refused/lost sessions, a restarted service, route reads' bounds and turns, and no_gps
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,8 +8,8 @@
 //!
 //! Drives the real Home router — `GET /api/me/activities/recent` and the
 //! activity route read — and the chat's `get_activities` tool for an athlete
-//! whose Strava is read through the sciotte mirror, the server's sciotte
-//! service pointed at a scripted stand-in for it. The stand-in speaks the
+//! whose Strava is read through the session-read mirror, the server's
+//! session-read service pointed at a scripted stand-in for it. The stand-in speaks the
 //! service's REST contract (`/auth/import-session`, `/api/activities`,
 //! `/api/activities/{id}`): it holds sessions in memory as the service does (a
 //! read naming one it does not hold is `401 session_not_found`, a restart
@@ -97,7 +97,7 @@ const HOME: (f64, f64) = (45.5259, -73.5697);
 /// What a list read whose page died under it answered.
 #[derive(Clone, Copy)]
 enum DeadPage {
-    /// `200` with `count: 0` and `head_complete: true`: what dravr-sciotte
+    /// `200` with `count: 0` and `head_complete: true`: what the service
     /// v0.19.0 answered on 2026-09-29, when a detail read closed the browser
     /// the list was walking.
     AnsweredEmpty,
@@ -577,7 +577,7 @@ struct Athlete {
     token: String,
 }
 
-/// A fresh athlete whose Strava is connected through the sciotte mirror with
+/// A fresh athlete whose Strava is connected through the session-read mirror with
 /// a live signed-in session.
 async fn athlete_on_the_mirror(resources: &Arc<ServerContext>, label: &str) -> Athlete {
     let email = format!("{label}-{}@example.com", Uuid::new_v4());
@@ -855,7 +855,7 @@ async fn connection_status(resources: &ServerContext, athlete: &Athlete) -> Conn
         .unwrap()
         .into_iter()
         .find(|c| c.provider == "sciotte")
-        .expect("the sciotte connection exists")
+        .expect("the session-read connection exists")
         .status
 }
 

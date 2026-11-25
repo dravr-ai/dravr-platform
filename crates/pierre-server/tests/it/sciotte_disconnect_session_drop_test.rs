@@ -1,4 +1,4 @@
-// ABOUTME: Pins that disconnecting a sciotte-backed provider drops its session on the sciotte service
+// ABOUTME: Pins that disconnecting a session-backed provider drops its session on the session-read service
 // ABOUTME: DELETE /auth/sessions/{id} with the stored session id; a 404 or an unreachable service never blocks it
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,7 +8,7 @@
 #![allow(missing_docs)]
 
 //! The platform is the session-of-record for a signed-in session, but the shared
-//! sciotte service keeps its own copy of the athlete's provider cookies until
+//! session-read service keeps its own copy of the athlete's provider cookies until
 //! the session idles out. A disconnect therefore asks the service to drop it
 //! (`DELETE /auth/sessions/{id}`, carnet#566), through the chokepoint every
 //! disconnect surface funnels into (`disconnect_provider`).
@@ -71,7 +71,7 @@ impl SessionReader {
     }
 }
 
-/// The service's `DELETE /auth/sessions/{id}`, answered as dravr-sciotte
+/// The service's `DELETE /auth/sessions/{id}`, answered as the service
 /// answers it: `200 removed` for a held session, `404 session_not_found`
 /// otherwise.
 async fn delete_session(

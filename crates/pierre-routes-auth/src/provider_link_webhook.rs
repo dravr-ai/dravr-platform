@@ -6,7 +6,7 @@
 
 //! Outbound webhook for channel-initiated provider connections.
 //!
-//! When a user completes a Sciotte login via the hosted-page flow (authenticated
+//! When a user completes a session sign-in via the hosted-page flow (authenticated
 //! with a link-token minted for a specific channel), Pierre fires a fire-and-forget
 //! webhook at a configured URL so the originating channel bot (e.g. Canot) can
 //! post a confirmation back in the original thread.

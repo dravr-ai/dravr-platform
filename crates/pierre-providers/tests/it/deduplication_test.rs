@@ -309,7 +309,7 @@ fn determinism_same_input_yields_same_canonical() {
 
 #[test]
 fn midnight_starts_are_not_merged_as_fragments() {
-    // Sciotte's date-only list read yields T00:00:00 (UTC midnight) when the
+    // A date-only session list read yields T00:00:00 (UTC midnight) when the
     // start time is unknown. Three distinct same-sport sessions that all land on
     // midnight must NOT collapse into one bogus fragment group — every midnight
     // row trivially "overlaps" every other, which produced the "N sessions

@@ -28,6 +28,7 @@ use pierre_config::database::DatabaseUrl;
 use pierre_config::environment::{ServerConfig, TokioRuntimeConfig};
 #[cfg(feature = "client-messaging")]
 use pierre_config::timeouts::ServerTimeouts;
+use pierre_contremaitre::ContremaitreConfig;
 use pierre_core::billing::stripe::StripeProvider;
 use pierre_core::billing::BillingProvider;
 use pierre_core::errors::{AppError, AppResult};
@@ -551,6 +552,9 @@ async fn create_server(
             blobs: Some(blobs.clone()),
             lab_reader: None,
             pdf_text_bin: None,
+            // The overlay the deployment's environment names, synced in the
+            // background from the context's first poll tick.
+            contremaitre: ContremaitreConfig::from_env(),
             // The production factory, named by this binary and by no
             // constructor of the options: the adapter each tenant's stored
             // channel config names.

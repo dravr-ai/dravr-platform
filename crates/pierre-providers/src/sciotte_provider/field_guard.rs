@@ -1,10 +1,10 @@
-// ABOUTME: Pins that the sciotte mapper fills every field each mirror descriptor declares, list row and detail
+// ABOUTME: Pins that the session-read mapper fills every field each mirror descriptor declares, list row and detail
 // ABOUTME: Fixtures carry the keys the pinned client's extracts write for Strava, Garmin, TrainingPeaks and COROS
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The fixtures name only keys the pinned sciotte client's page extracts write
+//! The fixtures name only keys the pinned session-read client's page extracts write
 //! (`providers/<target>.toml` at the pinned tag), a list row's apart from a
 //! detail page's, so a declaration cannot claim a field the session read
 //! never carries.

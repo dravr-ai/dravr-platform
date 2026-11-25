@@ -109,7 +109,7 @@ async fn a_served_window_stamps_last_used_and_wins_the_next_election() {
     let served = connections
         .iter()
         .find(|c| c.provider == "sciotte")
-        .expect("the sciotte connection still exists");
+        .expect("the session-read connection still exists");
     assert!(
         served.last_used_at.is_some(),
         "a successful serve must stamp last_used_at — the column the resolver \
@@ -118,7 +118,7 @@ async fn a_served_window_stamps_last_used_and_wins_the_next_election() {
 
     // A connection added AFTER the serve has the newer `connected_at` and would
     // win under the collapsed ordering. It must not: the athlete just trained on
-    // sciotte, and that is what `last_used_at` is for.
+    // its session-read connection, and that is what `last_used_at` is for.
     resources
         .common
         .repos

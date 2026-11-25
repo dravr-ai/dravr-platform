@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 //! Provider context reads of the athlete's signed-in Strava session (carnet#1622,
-//! sciotte 2.3).
+//! session-read satellite 2.3).
 //!
 //! Only the Strava target serves them: Garmin, `TrainingPeaks` and COROS share
 //! the provider type and answer the `unsupported` refusal. Each read goes

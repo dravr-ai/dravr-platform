@@ -322,7 +322,7 @@
     @apply opacity-50 cursor-not-allowed;
   }
 
-  /* Input variant for dark modal surfaces (Sciotte login, etc.). Reads
+  /* Input variant for dark modal surfaces (credential login, etc.). Reads
      correctly on `bg-surface-container-highest` and similar dark cards.
      The :-webkit-autofill rules override Chrome's autofill which would
      otherwise paint a light yellow/white background and dark text,

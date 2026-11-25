@@ -1075,7 +1075,7 @@ fn overlaps_substantially(a: &Activity, b: &Activity) -> bool {
     fraction >= CROSS_SPORT_OVERLAP_FRACTION
 }
 
-/// True when the activity has a real start time-of-day. Sciotte's date-only
+/// True when the activity has a real start time-of-day. A date-only session
 /// list read yields `T00:00:00` (UTC midnight) when the start time is
 /// unknown; such rows never match on temporal overlap.
 fn has_known_time(activity: &Activity) -> bool {

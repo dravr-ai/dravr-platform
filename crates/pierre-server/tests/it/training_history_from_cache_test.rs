@@ -12,7 +12,7 @@
 //! **The one that shipped.** `compute_and_persist_history` used to fetch up to
 //! 500 activities live from the provider on every call. On a session-read backend
 //! that is minutes of browser work inside a chat turn bounded at 90s: on
-//! 2026-09-08 a sciotte session read returned 378 activities after 171 seconds, the
+//! 2026-09-08 a session read returned 378 activities after 171 seconds, the
 //! platform had already dropped the future at 90, and the athlete was told the
 //! calculation timed out. `computes_a_full_window_from_cache_without_a_provider`
 //! fails against that implementation — no provider token is registered, so the

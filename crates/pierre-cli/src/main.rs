@@ -812,7 +812,7 @@ async fn main() -> Result<()> {
     if let Command::StravaPool { action } = cli.command {
         return dispatch::dispatch_strava_pool(action).await;
     }
-    // The canary talks only to the sciotte service: no database, no keys.
+    // The canary talks only to the session-read service: no database, no keys.
     if let Command::Canary { action } = cli.command {
         return commands::canary::dispatch(action).await;
     }

@@ -18,7 +18,7 @@
 //!
 //! A `503 Service Unavailable` that carries a `Retry-After` header is graceful,
 //! client-retryable load-shedding from a backpressure gate (for example the
-//! Sciotte Chrome limiter), not a server fault. It logs at `WARN` and so never
+//! session-read service's Chrome limiter), not a server fault. It logs at `WARN` and so never
 //! reaches the ops channel. Every other 5xx logs at `ERROR`, now enriched with
 //! the endpoint so the alert is self-explanatory.
 //!

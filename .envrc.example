@@ -127,19 +127,19 @@ export JWT_EXPIRY_HOURS="24"
 # - "garmin": Real OAuth testing with Garmin
 export PIERRE_DEFAULT_PROVIDER=strava
 
-# Dedicated sciotte service (ADR-021), optional. Set => the server sends
-# sciotte logins and session reads here (the server runs no Chrome of its own, so
-# unset disables the sciotte providers), and the one-shot
+# Dedicated session-read service (ADR-021), optional. Set => the server sends
+# provider sign-ins and session reads here (the server runs no Chrome of its own,
+# so unset disables the session-read providers), and the one-shot
 # setup starts the service on this URL's port (scripts/sciotte-local.sh port).
 # Never 8091: that is the isolated Pierre server's port, and setup refuses a
-# sciotte port equal to HTTP_PORT.
+# session-read port equal to HTTP_PORT.
 # export DRAVR_SCIOTTE_REMOTE_URL="http://127.0.0.1:8096"
 # A deployed API may list several read services, comma-separated, each one
 # instance; every call naming a session goes to the one its id picks
 # (carnet#1504). Local development runs one, and scripts/sciotte-local.sh and
 # the login canary read a single URL.
 #
-# Sign-ins on their own sciotte service (carnet#1504), optional. A sign-in that
+# Sign-ins on their own session-read service (carnet#1504), optional. A sign-in that
 # asks for a code parks its browser in one instance's memory, so a deployment
 # runs sign-ins on a service capped at one instance and reads on the one above.
 # Unset sends sign-ins to DRAVR_SCIOTTE_REMOTE_URL, which is what one local

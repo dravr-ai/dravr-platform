@@ -129,7 +129,7 @@ export async function freshOnboardingCoach(server: CoachServer): Promise<Onboard
       },
       token,
     ),
-    'sciotte login (is the server started with DRAVR_SCIOTTE_REMOTE_URL naming the double?)',
+    'credential login (is the server started with DRAVR_SCIOTTE_REMOTE_URL naming the double?)',
   );
 
   // This coach trains too, so the agent proposal would come before the group

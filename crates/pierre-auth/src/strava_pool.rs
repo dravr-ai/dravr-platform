@@ -290,7 +290,7 @@ pub async fn strava_seat_apps(
 /// Total and used Strava OAuth seats across the env app and the pool.
 ///
 /// The connect recommender uses this to keep offering OAuth while any seat
-/// (env or pool) remains, before falling back to the Sciotte mirror. It is
+/// (env or pool) remains, before falling back to the session mirror. It is
 /// the sum of [`strava_seat_apps`].
 ///
 /// # Errors

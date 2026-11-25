@@ -57,8 +57,9 @@ use pierre_database::repositories::{
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::request_budget::{
-    budget_counter_key, budget_period, detail_walk_athlete_counter_key, detail_walk_counter_key,
-    ONE_DAY, PLATFORM_SCOPE,
+    budget_counter_key, budget_period, detail_walk_athlete_counter_key,
+    detail_walk_burst_counter_key, detail_walk_counter_key, FIFTEEN_MINUTES, ONE_DAY,
+    PLATFORM_SCOPE,
 };
 use pierre_services::live_activities::WriteOrigin;
 use pierre_tool_runtime::activity_backfill::detail_walk::{
@@ -360,7 +361,7 @@ pub(crate) fn since(after: i64) -> DetailWalkAsk<'static> {
 }
 
 /// The service reads a session's segment efforts on a detail read too
-/// (sciotte 2.1): an athlete holding it is walked through it, grant or no
+/// (service 2.1): an athlete holding it is walked through it, grant or no
 /// grant, as every Strava read goes to the session first (carnet#1494), and
 /// one holding only the grant is walked through the grant.
 #[tokio::test]
@@ -756,11 +757,78 @@ async fn a_live_session_answer_on_a_grant_row_keeps_its_detail_but_not_its_effor
     );
 }
 
+/// One pass of the resume sweep over the athlete's session walk, waited
+/// out: every retry made due, the row aged past the sweep's grace, the sweep
+/// run, and the step it started settled. A pass gives the walk every read a
+/// step can make, so no pass after it can see a read land late.
+async fn session_walk_pass(
+    resources: &Arc<ServerContext>,
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant: TenantId,
+    deadline: Instant,
+) {
+    paused_retries_due(resources, user_id).await;
+    age_job_rows(resources, user_id).await;
+    resume_backfill_jobs(Arc::clone(runtime)).await.unwrap();
+    steps_settled_under(
+        resources,
+        user_id,
+        tenant,
+        SESSION,
+        BackfillJobKind::DetailWalk,
+        deadline,
+    )
+    .await;
+}
+
+/// The pages the athlete's session-walk burst window admitted in each
+/// fifteen-minute bucket that holds an instant from `from` to `to`, as the
+/// limiter counted them. The buckets are fixed and epoch-aligned, so a run
+/// that crosses an edge spends two of them.
+async fn burst_admitted(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    from: Timestamp,
+    to: Timestamp,
+) -> Vec<i64> {
+    assert!(
+        to.epoch_seconds() - from.epoch_seconds()
+            < i64::try_from(FIFTEEN_MINUTES.as_secs()).unwrap(),
+        "bug: the test ran longer than one burst window, so it may span more than two buckets"
+    );
+    let key = detail_walk_burst_counter_key(
+        &budget_counter_key(oauth_providers::STRAVA, "walk_client"),
+        user_id,
+    );
+    let mut periods = vec![budget_period(from, FIFTEEN_MINUTES)];
+    let last = budget_period(to, FIFTEEN_MINUTES);
+    if last != periods[0] {
+        periods.push(last);
+    }
+    let mut admitted = Vec::with_capacity(periods.len());
+    for period in &periods {
+        let counter = resources
+            .common
+            .repos
+            .usage_counters
+            .get_counter(PLATFORM_SCOPE, PLATFORM_SCOPE, &key, period)
+            .await
+            .unwrap();
+        admitted.push(counter.value);
+    }
+    admitted
+}
+
 /// The session walk reads at most ten pages of the athlete's account in
-/// fifteen minutes: with twenty-five rides owed, more than two steps' worth
-/// (a step reads at most ten), the stand-in sees ten reads however many
-/// steps the walk takes, and the walk waits for the window instead of
-/// reading on.
+/// one fifteen-minute burst window: with twenty-five rides owed, more than
+/// two steps' worth (a step reads at most ten), every page the stand-in
+/// answered was admitted by the window, no bucket of it admitted more than
+/// ten, one was spent to its ten, and the walk waits instead of ending.
+///
+/// The cap is judged in the limiter's own buckets, never in wall-clock
+/// time: a run that crosses a bucket's edge reads up to ten in each of the
+/// two, which the window allows.
 #[tokio::test]
 async fn a_session_walk_never_loads_more_than_ten_pages_at_once() {
     let (reader_url, reader) = mock_session_reader().await;
@@ -772,6 +840,7 @@ async fn a_session_walk_never_loads_more_than_ten_pages_at_once() {
     open_window(&resources).await;
 
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let walk_from = Timestamp::now();
     let asked = ask_detail_walk(&runtime, user_id, tenant, SESSION, since(now - 30 * DAY)).await;
     assert_eq!(
         asked,
@@ -785,23 +854,32 @@ async fn a_session_walk_never_loads_more_than_ten_pages_at_once() {
             "bug: the walk read only {} pages",
             reader.detail_reads().len()
         );
-        paused_retries_due(&resources, user_id).await;
-        age_job_rows(&resources, user_id).await;
-        resume_backfill_jobs(runtime.clone()).await.unwrap();
-        sleep(Duration::from_millis(50)).await;
+        session_walk_pass(&resources, &runtime, user_id, tenant, deadline).await;
     }
-    // Give wrongly admitted further steps time to arrive: two more steps'
-    // worth of reads would land here without the burst window.
-    for _ in 0..12 {
-        paused_retries_due(&resources, user_id).await;
-        resume_backfill_jobs(runtime.clone()).await.unwrap();
-        sleep(Duration::from_millis(100)).await;
+    // Two more steps' worth of passes: a step the window wrongly admitted
+    // would read here, and each pass is waited out before the count.
+    for _ in 0..2 {
+        session_walk_pass(&resources, &runtime, user_id, tenant, deadline).await;
     }
+    let walk_to = Timestamp::now();
 
+    let reads = i64::try_from(reader.detail_reads().len()).unwrap();
+    let admitted = burst_admitted(&resources, user_id, walk_from, walk_to).await;
     assert_eq!(
-        reader.detail_reads().len(),
-        10,
-        "bug: the session walk loaded more than its 10 pages in 15 minutes"
+        admitted.iter().sum::<i64>(),
+        reads,
+        "bug: the walk read pages its burst window never admitted ({reads} read, \
+         {admitted:?} admitted per 15-minute bucket)"
+    );
+    assert!(
+        admitted.iter().all(|pages| *pages <= 10),
+        "bug: the session walk loaded more than its 10 pages in 15 minutes: \
+         {admitted:?} per bucket"
+    );
+    assert!(
+        admitted.contains(&10),
+        "bug: the walk stopped reading before its burst window was spent: \
+         {admitted:?} per bucket"
     );
     let row = walk_row_under(&resources, user_id, tenant, SESSION)
         .await

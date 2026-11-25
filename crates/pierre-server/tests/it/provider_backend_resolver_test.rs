@@ -1,5 +1,5 @@
 // ABOUTME: Integration tests for the provider backend_resolver and connection-status coalescing
-// ABOUTME: Verifies sciotte* backends are hidden from LLM-visible output and block OAuth reconnect
+// ABOUTME: Verifies `sciotte*` backends are hidden from LLM-visible output and block OAuth reconnect
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -13,7 +13,7 @@
 //! What we assert:
 //!
 //! 1. Unit-level resolver behaviour (sync helpers).
-//! 2. `get_connection_status` multi-provider output hides sciotte / `sciotte_garmin`
+//! 2. `get_connection_status` multi-provider output hides `sciotte` / `sciotte_garmin`
 //!    completely and coalesces their presence into the user-facing provider
 //!    with `backend: "mirror"`.
 //! 3. `get_connection_status` rejects an explicit query for "sciotte" so the
@@ -83,7 +83,7 @@ async fn seed_token(
         provider.to_owned(),
         "test_access_token".to_owned(),
         Some("test_refresh_token".to_owned()),
-        // Sciotte rows have no expiry in production; tokens we insert here
+        // Session-read rows have no expiry in production; tokens we insert here
         // are wall-clock valid so the resolver sees them as present.
         Some(Timestamp::now() + Elapsed::hours(1)),
         Some("read".to_owned()),
@@ -229,7 +229,7 @@ fn the_health_sync_keeps_pulling_garmin_through_its_mirror() {
     assert_eq!(backend_resolver::pushed_backend_for("strava"), None);
 }
 
-/// Sciotte first (carnet#1494): an athlete with nothing connected is sent to
+/// Session first (carnet#1494): an athlete with nothing connected is sent to
 /// every mirror-backed provider's hosted sign-in, Strava's included.
 #[test]
 fn every_mirror_pair_sends_an_unconnected_user_to_its_mirror() {
@@ -305,7 +305,7 @@ async fn resolve_backend_prefers_sciotte_when_row_present() {
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
-    // Only the mirror row exists → resolver picks sciotte
+    // Only the mirror row exists → resolver picks `sciotte`
     seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
 
     let resolved = backend_resolver::resolve_backend(
@@ -666,7 +666,7 @@ async fn multi_provider_status_hides_sciotte_entries() {
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
-    // User has a sciotte row but no OAuth row.
+    // User has a `sciotte` row but no OAuth row.
     seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
 
     let tool = GetConnectionStatusTool;
@@ -683,7 +683,7 @@ async fn multi_provider_status_hides_sciotte_entries() {
     // Mirror backends are never visible to the LLM.
     assert!(
         !providers.contains_key(oauth_providers::SCIOTTE),
-        "sciotte must not appear in multi-provider output"
+        "`sciotte` must not appear in multi-provider output"
     );
     assert!(
         !providers.contains_key(oauth_providers::SCIOTTE_GARMIN),
@@ -813,7 +813,7 @@ async fn single_provider_status_rejects_explicit_sciotte_query() {
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
-    // Even if a sciotte row exists, the tool must refuse to confirm it
+    // Even if a `sciotte` row exists, the tool must refuse to confirm it
     // under the internal name — the LLM should use "strava".
     seed_token(&resources, user_id, tenant_id, oauth_providers::SCIOTTE).await;
 
@@ -828,7 +828,7 @@ async fn single_provider_status_rejects_explicit_sciotte_query() {
     assert_eq!(
         data.get("connected").and_then(Value::as_bool),
         Some(false),
-        "sciotte must be reported as disconnected when queried by its internal name"
+        "`sciotte` must be reported as disconnected when queried by its internal name"
     );
     let note = data.get("note").and_then(|v| v.as_str()).unwrap_or("");
     assert!(
@@ -1135,7 +1135,7 @@ async fn connect_provider_allows_oauth_for_strava_when_mirror_active() {
     let (user_id, _) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant_id = user_primary_tenant(&resources, user_id).await;
 
-    // A sciotte-Strava user authorizing OAuth: with the admin's order on
+    // A session-read Strava user authorizing OAuth: with the admin's order on
     // OAuth first (the kill switch), the connector mints an OAuth URL instead
     // of steering them back to the mirror flow, and the grant it mints stands
     // behind the session as its fallback (carnet#1494).
@@ -1257,7 +1257,7 @@ async fn create_authenticated_provider_signals_reauth_for_dead_connection() {
 }
 
 /// The drift case: a connection whose row still reads Active but whose token
-/// is gone must ALSO signal auth-required. Sciotte sessions never refresh, so
+/// is gone must ALSO signal auth-required. Signed-in sessions never refresh, so
 /// no refresh failure ever flips their status — gating the tag on
 /// `needs_reauth` left the athlete a generic error instead of the reconnect
 /// link (live incident 2026-08-11). `Ok(None)` from the token lookup is

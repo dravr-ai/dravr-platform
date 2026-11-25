@@ -585,7 +585,7 @@ async fn a_whoop_record_is_refused_once_the_athletes_whoop_grant_is_gone() {
         .is_err());
     assert!(nights(&repos, user_id, tenant).await.is_empty());
 
-    // Garmin's own night resolves through its sciotte session.
+    // Garmin's own night resolves through its signed-in session.
     let garmin_ds = data_source(&repos, user_id, tenant, "garmin").await;
     let stored = storage
         .store_sleep_sessions(&[garmin_night(user_id, &garmin_ds)])

@@ -10,8 +10,8 @@
 //! The tool reads what the athlete's coach planned through the provider that
 //! declares a planned calendar — TrainingPeaks — from a seeded
 //! `sciotte_trainingpeaks` connection and session, through the real provider
-//! and remote client, against a stand-in for the dravr-sciotte service (a test
-//! double: the service itself is pinned in dravr-sciotte). What the model
+//! and remote client, against a stand-in for the session-read service (a test
+//! double: the service itself is pinned in the session-read satellite). What the model
 //! then reads is the contract:
 //!
 //! - the plan oldest first, in the step grammar the kernel reads;
@@ -111,7 +111,7 @@ fn plan_body() -> Value {
     })
 }
 
-/// A stand-in for the dravr-sciotte service: imports any session, serves the plan
+/// A stand-in for the session-read service: imports any session, serves the plan
 /// to the athlete's session and the coach-account refusal to the coach's,
 /// recording each planned read.
 async fn spawn_planned_session_reader(seen: Seen) -> String {

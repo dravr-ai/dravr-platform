@@ -80,7 +80,7 @@ pub fn historical_depth_covered(
 /// when a live fetch genuinely succeeded. So a row whose `last_used_at` is recent
 /// while `last_fetch_at` is days behind is an athlete being served from cache by a
 /// provider that has stopped answering — the shape nobody could see when
-/// jf@dravr.ai's sciotte capture froze on 2026-08-28 and stayed frozen for days.
+/// jf@dravr.ai's session-read capture froze on 2026-08-28 and stayed frozen for days.
 #[derive(Debug, Clone)]
 pub struct CaptureFreshness {
     /// Owning tenant, as stored on the connection row.
@@ -163,7 +163,7 @@ pub struct StoredActivityRow {
 ///
 /// Every provider fetch writes through here; chat reads serve the cached rows
 /// immediately and trigger a background revalidation when the data is stale.
-/// This removes the slow per-request session read (notably Garmin/sciotte) from the
+/// This removes the slow per-request session read (notably Garmin's) from the
 /// chat critical path and avoids redundant API calls for token providers.
 #[async_trait]
 pub trait ActivityCacheRepository: Send + Sync {

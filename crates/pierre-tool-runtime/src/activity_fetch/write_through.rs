@@ -287,7 +287,7 @@ async fn stamp_fetch_freshness(
 ///   [`refresh_stale_head`](crate::activity_fetch::refresh_stale_head) returns early on `Fresh` — so the one path that would
 ///   top the head up is disarmed by the act of serving the stale window, and every
 ///   later ask re-arms the disarming. A capture that stops then reports itself
-///   current forever: jf@dravr.ai's sciotte capture froze at 2026-08-28 02:59Z and
+///   current forever: jf@dravr.ai's session capture froze at 2026-08-28 02:59Z and
 ///   two days later all 109 cached rows carried one identical `synced_at`, while
 ///   `activity_fetch_freshness` still held the last real fetch, five days older.
 ///   A stale-head top-up that does reach the provider is written through by

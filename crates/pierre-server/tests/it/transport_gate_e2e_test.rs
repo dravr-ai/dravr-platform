@@ -2049,7 +2049,7 @@ async fn an_athlete_without_a_first_party_only_connection_keeps_api_key_access()
     }
 }
 
-/// D3: what the sciotte service reads stays on Dravr's own surfaces.
+/// D3: what the session-read service reads stays on Dravr's own surfaces.
 #[cfg(feature = "provider-sciotte")]
 mod session_reads {
     use super::*;
@@ -2057,9 +2057,9 @@ mod session_reads {
     use pierre_core::constants::oauth_providers::SCIOTTE;
     use pierre_providers::core::ProviderFactory;
 
-    /// What the sciotte service read for the athlete: one strava.com session and
+    /// What the session-read service read for the athlete: one strava.com session and
     /// one Garmin Connect session, each stamped `sciotte` with the service it
-    /// was read from as `source`, the way every sciotte backend stamps its items.
+    /// was read from as `source`, the way every session-read backend stamps its items.
     fn session_read_sessions() -> Vec<Activity> {
         let session_row = |id: &str, name: &str, source: &str, days_ago: i64| {
             ActivityBuilder::new(
@@ -2080,8 +2080,8 @@ mod session_reads {
         ]
     }
 
-    /// A session reader in place of the live sciotte service: the factory is
-    /// swapped and the registered sciotte descriptors — the terms — are not.
+    /// A session reader in place of the live session-read service: the factory is
+    /// swapped and the registered session-read descriptors — the terms — are not.
     struct SessionRead {
         config: ProviderConfig,
     }
@@ -2156,7 +2156,7 @@ mod session_reads {
         }
     }
 
-    /// D3: an item the sciotte service read — strava.com or Garmin Connect — is
+    /// D3: an item the session-read service read — strava.com or Garmin Connect — is
     /// governed by the backend that read it, so it never leaves over MCP or
     /// A2A, while the athlete's own Dravr surfaces still see it. The note the
     /// external caller reads names none of the withheld services and points it at
@@ -2168,7 +2168,7 @@ mod session_reads {
         assert_eq!(
             registry.transport_policy(SCIOTTE),
             Some(TransportPolicy::FirstPartyOnly),
-            "the real sciotte descriptor governs, not the test's factory"
+            "the real session-read descriptor governs, not the test's factory"
         );
         registry.register_factory(SCIOTTE, Box::new(SessionReadFactory));
         let mut context = (*base).clone();

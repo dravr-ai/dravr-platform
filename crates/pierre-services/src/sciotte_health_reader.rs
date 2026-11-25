@@ -1,5 +1,5 @@
-// ABOUTME: Health sync's daily-summary reads of the athlete's signed-in provider session, made on the dravr-sciotte service
-// ABOUTME: Implements dravr-enforme's DailySummaryReader over the sciotte service client (ADR-021)
+// ABOUTME: Health sync's daily-summary reads of the athlete's signed-in provider session, made on the session-read service
+// ABOUTME: Implements dravr-enforme's DailySummaryReader over the session-read client (ADR-021)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,7 +8,7 @@
 //!
 //! dravr-enforme's Garmin and COROS adapters read one day's summary at a
 //! time through a [`DailySummaryReader`]. Here that read runs on the
-//! dedicated sciotte service, exactly as the platform's activity reads do
+//! dedicated session-read service, exactly as the platform's activity reads do
 //! (ADR-021): the platform-held session is imported first, which re-hydrates
 //! a service that scaled to zero, then the day is read over HTTP. A read
 //! that reaches an instance the import did not is imported once more and
@@ -208,7 +208,7 @@ impl SessionRows {
         if owners.len() > 1 {
             debug!(
                 holders = owners.len(),
-                "an admin's clone shares a sciotte session; its read is counted for the lowest user id"
+                "an admin's clone shares a session; its read is counted for the lowest user id"
             );
         }
         owners.sort_unstable();
@@ -253,11 +253,11 @@ impl SessionRows {
         match rows.as_slice() {
             [row] => store_over_row(&*self.tokens, row, rotated).await,
             [] => {
-                warn!("a read rotated a sciotte session no handed-out row carries; nothing stored");
+                warn!("a read rotated a session no handed-out row carries; nothing stored");
             }
             [..] => warn!(
                 holders = rows.len(),
-                "a read rotated a sciotte session an admin's clone shares; the row read \
+                "a read rotated a session an admin's clone shares; the row read \
                  cannot be told apart, so nothing is stored"
             ),
         }
@@ -323,7 +323,7 @@ impl DailySummaryReader for RefusedSessionReader {
     }
 }
 
-/// Reads daily summaries on the dravr-sciotte service.
+/// Reads daily summaries on the session-read service.
 ///
 /// Every read goes through the read services it was built with
 /// ([`SciotteReads`]), on the one each session names: every day a sync reads
@@ -348,7 +348,7 @@ impl fmt::Debug for SciotteServiceReader {
 }
 
 impl SciotteServiceReader {
-    /// A reader calling the sciotte read services through `reads`; `None`
+    /// A reader calling the session-read services through `reads`; `None`
     /// (no service configured) makes every read report that. A session
     /// rotated on a read is written back over the row `rows` handed it out of.
     #[must_use]
@@ -546,7 +546,7 @@ mod tests {
         let reader = SciotteServiceReader::new(None, rows).with_read_budget(Some(limiter));
 
         // Health sync is background work: counted under the athlete's own
-        // background key at sciotte_garmin.
+        // background key at `sciotte_garmin`.
         request_budget::in_background(reader.admit(&session(), november(1)))
             .await
             .unwrap_or_else(|e| panic!("bug: the first day's read was refused: {e}"));

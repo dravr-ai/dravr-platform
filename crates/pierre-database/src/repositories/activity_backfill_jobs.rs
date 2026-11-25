@@ -107,7 +107,7 @@ pub struct ActivityBackfillJobRow {
     pub tenant_id: TenantId,
     /// Athlete whose history is being backfilled.
     pub user_id: Uuid,
-    /// Backend provider slug (already resolved to the sciotte mirror if any).
+    /// Backend provider slug (already resolved to the session-read mirror if any).
     pub provider: String,
     /// What the job is for, as the ask that started it recorded.
     pub kind: BackfillJobKind,

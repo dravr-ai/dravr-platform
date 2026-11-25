@@ -1,5 +1,5 @@
 // ABOUTME: Resolves user-facing provider names to the backend that serves an athlete's reads and writes
-// ABOUTME: Sciotte first: a session that is not revoked serves, its live OAuth grant stands behind it as the fallback
+// ABOUTME: Session first: a signed-in session that is not revoked serves, its live OAuth grant stands behind it as the fallback
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,7 +10,7 @@
 //!
 //! - `strava` (OAuth against Strava's public API) and `sciotte` (reads the
 //!   athlete's own data from their signed-in Strava session, with their
-//!   consent, via dravr-sciotte)
+//!   consent, through the session-read service)
 //! - `garmin` (OAuth) and `sciotte_garmin` (the same read of the athlete's
 //!   signed-in Garmin Connect session)
 //! - `trainingpeaks` (a name only — no OAuth backend exists) and
@@ -22,7 +22,7 @@
 //! detail that must never be surfaced to an end user via chat, messaging, or
 //! tool output.
 //!
-//! Sciotte first (carnet#1494): every provider with a mirror is read through
+//! Session first (carnet#1494): every provider with a mirror is read through
 //! its usr/pwd session, and the provider's own OAuth grant (Strava's API,
 //! Garmin's Developer Program push, carnet#1155) stands behind it as the
 //! fallback while it is live. One rule decides, [`read_plan`]:
@@ -283,7 +283,7 @@ pub fn is_mirror_backend(provider: &str) -> bool {
 
 /// Does the user have a token row (valid or stale) for this backend?
 ///
-/// The `oauth_tokens` table stores sciotte sessions the same way it stores
+/// The `oauth_tokens` table stores signed-in sessions the same way it stores
 /// OAuth tokens. Row presence — independent of expiry — encodes the user's
 /// intent to use that backend; callers use this to decide whether to
 /// prefer the mirror over OAuth.
@@ -753,7 +753,7 @@ pub enum BackendKind {
     None,
     /// OAuth backend is the active one
     Oauth,
-    /// Mirror (sciotte*) backend is the active one
+    /// Mirror (session-read) backend is the active one
     Mirror,
     /// A coaching platform read through the group coach's own credential
     /// under a link the member confirmed: the member holds no credential of

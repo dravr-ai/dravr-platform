@@ -113,6 +113,7 @@ impl McpTestSetup {
                     blobs: None,
                     lab_reader: None,
                     pdf_text_bin: None,
+                    contremaitre: None,
                     #[cfg(feature = "client-messaging")]
                     channel_adapters: common::offline_adapters(),
                 },
@@ -1030,6 +1031,7 @@ async fn setup_with_admin_flag(
                 blobs: None,
                 lab_reader: None,
                 pdf_text_bin: None,
+                contremaitre: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },

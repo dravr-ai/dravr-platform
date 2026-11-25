@@ -1,5 +1,5 @@
 #!/bin/bash
-# ABOUTME: Local-first harness for the ADR-021 dedicated sciotte service.
+# ABOUTME: Local-first harness for the ADR-021 dedicated session-read service.
 # ABOUTME: Runs dravr-sciotte-server on the port DRAVR_SCIOTTE_REMOTE_URL names (default 8096) and drives it via curl.
 
 # Lets you exercise the isolated service on localhost before any Cloud Run deploy:
@@ -18,7 +18,7 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[0;33m'; NC
 # order: SCIOTTE_LOCAL_PORT, then the port of DRAVR_SCIOTTE_REMOTE_URL (the
 # environment's, else the one this checkout's .envrc declares, for a run without
 # direnv), then 8096. Never 8091: that is the isolated Pierre server's port, and
-# a sciotte there is killed by the server that takes it (carnet#898).
+# a session-read service there is killed by the server that takes it (carnet#898).
 SCIOTTE_DEFAULT_PORT=8096
 # shellcheck source=../bin/tunnel-env.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")/../bin" && pwd)/tunnel-env.sh"
@@ -152,7 +152,7 @@ get_for_session() { # path session_id
 
 usage() {
   cat <<EOF
-$(echo -e "${BLUE}sciotte-local${NC}") — local harness for the dedicated sciotte service
+$(echo -e "${BLUE}sciotte-local${NC}") — local harness for the dedicated session-read service
 
   Server:   ${BASE}   (bin: ${BIN})
 
@@ -161,7 +161,7 @@ Usage: scripts/sciotte-local.sh <command> [args]
   build              Build dravr-sciotte-server (debug)
   port               Print the port the service listens on (and Pierre calls)
   check-port <port>  Exit 1, saying why, when a Pierre server on <port> would
-                       collide with the sciotte Pierre calls (setup and
+                       collide with the session-read service Pierre calls (setup and
                        start-server run it before taking their port)
   serve [provider]   Run the server in the foreground (Ctrl-C to stop)
                        no arg = ONE instance serving garmin+strava (ADR-021);
@@ -195,10 +195,10 @@ require_bin() {
   [ -x "${BIN}" ] || { err "server binary not built at ${BIN}"; warn "run: scripts/sciotte-local.sh build"; exit 1; }
 }
 
-# Refuse a Pierre port that would collide with the sciotte it calls. Pierre
-# takes its port by killing what holds it, so a sciotte there comes up only to
-# be killed, and Pierre then calls itself (carnet#898). Nothing to check when no
-# remote sciotte is configured.
+# Refuse a Pierre port that would collide with the session-read service it
+# calls. Pierre takes its port by killing what holds it, so a service there comes
+# up only to be killed, and Pierre then calls itself (carnet#898). Nothing to
+# check when no remote session-read service is configured.
 cmd_check_port() { # server_port
   local server="${1:-}" url port
   [ -n "${server}" ] || { err "check-port needs the Pierre server's port"; return 2; }
@@ -258,12 +258,12 @@ cmd_serve_bg() {
   while IFS= read -r line; do args+=("${line}"); done < <(provider_args "${1:-}")
   local owned pid logdir logf
   # A 200 on this port says the port answered, not whose service answered it:
-  # every worktree runs its own sciotte on the same port. The skip needs both halves — a
+  # every worktree runs its own session-read service on the same port. The skip needs both halves — a
   # live record of ours, and that recorded process behind the port.
   if owned="$(dev_owned sciotte)"; then
     read -r pid _ <<<"${owned}"
     if dev_pid_owns_port "${pid}" "${PORT}"; then
-      ok "sciotte service already up on ${BASE} (pid ${pid})"
+      ok "session-read service already up on ${BASE} (pid ${pid})"
       return 0
     fi
   fi
@@ -271,16 +271,16 @@ cmd_serve_bg() {
   logdir="${SCIOTTE_LOCAL_LOGDIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/logs}"
   mkdir -p "${logdir}"
   logf="${logdir}/sciotte-service.log"
-  info "Starting sciotte service (${1:-both providers}) on ${BASE} (log: ${logf})"
-  dev_stop sciotte "Sciotte service" >/dev/null
+  info "Starting the session-read service (${1:-both providers}) on ${BASE} (log: ${logf})"
+  dev_stop sciotte "Session-read service" >/dev/null
   dev_spawn sciotte "${logf}" \
     "${BIN}" ${args[@]+"${args[@]}"} serve --host "${HOST}" --port "${PORT}"
   pid="${DEV_SPAWNED_PID}"
   if dev_wait_healthy "${PORT}" "${pid}" /health 30; then
-    ok "sciotte service healthy (pid ${pid}, log ${logf})"
+    ok "session-read service healthy (pid ${pid}, log ${logf})"
     return 0
   fi
-  err "sciotte service did not become healthy in 30s — see ${logf}"
+  err "session-read service did not become healthy in 30s — see ${logf}"
   return 1
 }
 
@@ -302,7 +302,7 @@ cmd_login() {
   local email="${1:-}"
   [ -n "${email}" ] || { err "usage: login <email> [provider]"; exit 1; }
   # Multi-provider server: name the provider on every new flow (defaults to
-  # garmin — the account sciotte reads). The continuation steps (otp/2fa)
+  # garmin — the account the service reads). The continuation steps (otp/2fa)
   # need no provider: the server resumes the flow by its id.
   local provider="${2:-${SCIOTTE_PROVIDER:-garmin}}"
   local method="${SCIOTTE_TEST_METHOD:-email}"

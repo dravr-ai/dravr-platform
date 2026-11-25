@@ -1,4 +1,4 @@
-// ABOUTME: The sciotte session-read caps as admin config — every cap of every tier is in the catalog
+// ABOUTME: The session-read caps as admin config — every cap of every tier is in the catalog
 // ABOUTME: An athlete's caps resolve by their tier, user over system-wide, and reach the limiter (carnet#1661)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0

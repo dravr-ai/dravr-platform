@@ -308,7 +308,7 @@ impl AuthService {
     ///
     /// The `requested_provider` is the name the caller asked for (typically a
     /// user-facing name like "strava" or "garmin"). When the user has a
-    /// sciotte* row in the database the resolver swaps that for the mirror
+    /// session-read row in the database the resolver swaps that for the mirror
     /// backend — callers never need to know about that distinction.
     ///
     /// Every provider it returns is an [`AiGovernedProvider`]: inside a read
@@ -526,7 +526,7 @@ impl AuthService {
                     // action that can fix this. The tag is unconditional because
                     // gating it on a `needs_reauth` status missed the drift case
                     // where the row still reads Active but the token/session is
-                    // gone — sciotte sessions never refresh, so no refresh
+                    // gone — signed-in sessions never refresh, so no refresh
                     // failure ever flips their status (live incident 2026-08-11:
                     // the athlete's dead signed-in session produced a generic error
                     // and never the reconnect link). The tag makes the chat tool
@@ -539,7 +539,7 @@ impl AuthService {
                     // to pick the hosted-login mint over the OAuth mint, and the
                     // metadata never reaches the LLM (`FunctionResponse` drops
                     // it), so there is nothing to sanitise. Tagging "strava" for
-                    // a dead sciotte session sent the athlete to a Strava OAuth
+                    // a dead signed-in session sent the athlete to a Strava OAuth
                     // flow their tenant may not even have credentials for.
                     let mut map = HashMap::new();
                     map.insert(
@@ -592,7 +592,7 @@ impl AuthService {
     /// windows, which every athlete it signs for shares (on Intervals.icu one
     /// pool sized by how many granted the app).
     ///
-    /// Non-OAuth providers (sciotte, synthetic) skip the client lookup
+    /// Non-OAuth providers (session reads, synthetic) skip the client lookup
     /// entirely, and so does a pasted API key on a provider that also links
     /// by OAuth (intervals.icu): no client issued it, so no app budget
     /// applies, and its provider-side user id rides as `client_id`, the

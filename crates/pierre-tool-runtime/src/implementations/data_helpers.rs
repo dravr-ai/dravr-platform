@@ -68,7 +68,7 @@ pub const fn historical_window_read_limit() -> usize {
 
 /// Default fetch limit a background backfill passes to the provider so the read
 /// pages the WHOLE requested window instead of stopping at the user's display
-/// limit. The sciotte date-bounded read stops on `in_window_count >= limit`
+/// limit. The session's date-bounded read stops on `in_window_count >= limit`
 /// OR `oldest <= after`; with a small (display) limit it caps at the recent tail
 /// and never reaches the window start. A generous limit makes `oldest <= after`
 /// the binding condition, so the read pages the full season.

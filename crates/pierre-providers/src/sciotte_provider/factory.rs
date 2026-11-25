@@ -1,11 +1,11 @@
-// ABOUTME: The sciotte clients a server builds at startup and the per-platform factories that share them
+// ABOUTME: The session-read clients a server builds at startup and the per-platform factories that share them
 // ABOUTME: Each factory builds a SciotteProvider aimed at one platform the athlete signs in to (ADR-021)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Building the sciotte clients once at startup, and the [`ProviderFactory`]
-//! for each platform the sciotte service reads the athlete's own data from,
+//! Building the session-read clients once at startup, and the [`ProviderFactory`]
+//! for each platform the service reads the athlete's own data from,
 //! through their signed-in session and with their consent — Strava, Garmin Connect,
 //! TrainingPeaks and COROS Training Hub.
 
@@ -21,7 +21,7 @@ use crate::core::{FitnessProvider, ProviderConfig, ProviderFactory};
 use crate::delegation::DelegatedReads;
 use crate::errors::{AppError, AppResult};
 
-/// One sciotte service's client, built once at startup from its `base_url`
+/// One session-read service's client, built once at startup from its `base_url`
 /// and the shared `audience` (`DRAVR_SCIOTTE_AUDIENCE`).
 ///
 /// `None` — logged once here — when the client cannot be built, including a
@@ -34,22 +34,22 @@ pub(super) fn startup_client(base_url: &str, audience: Option<&str>) -> Option<S
         Ok(client) => Some(client),
         Err(ClientError::Config(ConfigError::AudienceRequired { .. })) => {
             warn!(
-                "The sciotte service is configured without an audience; disabling the \
-                 sciotte client rather than sending requests the service will refuse"
+                "The session-read service is configured without an audience; disabling its \
+                 client rather than sending requests the service will refuse"
             );
             None
         }
         Err(e) => {
             error!(
                 error = %e,
-                "The sciotte client could not be built; session reads will report the service unconfigured"
+                "The session-read client could not be built; session reads will report the service unconfigured"
             );
             None
         }
     }
 }
 
-/// The client sign-ins reach the sciotte service through, as the server's
+/// The client sign-ins reach the session-read service through, as the server's
 /// configuration built it at startup.
 ///
 /// A sign-in parks its browser in one instance's memory while the athlete
@@ -103,10 +103,10 @@ pub fn startup_login_client(login_url: Option<&str>, audience: Option<&str>) -> 
     }
 }
 
-/// Factory for Strava — Sciotte provider
+/// Factory for Strava — session-read provider
 ///
 /// Every factory holds a clone of the server's read services ([`SciotteReads`], `None`
-/// when no sciotte service is configured), so each provider it builds shares
+/// when no session-read service is configured), so each provider it builds shares
 /// those clients' connection pools and identity-token caches.
 pub struct SciotteProviderFactory {
     reads: Option<SciotteReads>,
@@ -120,7 +120,7 @@ impl fmt::Debug for SciotteProviderFactory {
 }
 
 impl SciotteProviderFactory {
-    /// A factory whose providers call the sciotte services through `reads`.
+    /// A factory whose providers call the session-read services through `reads`.
     #[must_use]
     pub const fn new(reads: Option<SciotteReads>) -> Self {
         Self { reads }
@@ -141,7 +141,7 @@ impl ProviderFactory for SciotteProviderFactory {
     }
 }
 
-/// Factory for Garmin Connect — Sciotte provider
+/// Factory for Garmin Connect — session-read provider
 pub struct SciotteGarminProviderFactory {
     reads: Option<SciotteReads>,
 }
@@ -154,7 +154,7 @@ impl fmt::Debug for SciotteGarminProviderFactory {
 }
 
 impl SciotteGarminProviderFactory {
-    /// A factory whose providers call the sciotte services through `reads`.
+    /// A factory whose providers call the session-read services through `reads`.
     #[must_use]
     pub const fn new(reads: Option<SciotteReads>) -> Self {
         Self { reads }
@@ -175,7 +175,7 @@ impl ProviderFactory for SciotteGarminProviderFactory {
     }
 }
 
-/// Factory for TrainingPeaks — Sciotte provider
+/// Factory for TrainingPeaks — session-read provider
 pub struct SciotteTrainingPeaksProviderFactory {
     reads: Option<SciotteReads>,
 }
@@ -188,7 +188,7 @@ impl fmt::Debug for SciotteTrainingPeaksProviderFactory {
 }
 
 impl SciotteTrainingPeaksProviderFactory {
-    /// A factory whose providers call the sciotte services through `reads`.
+    /// A factory whose providers call the session-read services through `reads`.
     #[must_use]
     pub const fn new(reads: Option<SciotteReads>) -> Self {
         Self { reads }
@@ -237,7 +237,7 @@ impl DelegatedReads for SciotteTrainingPeaksProviderFactory {
     }
 }
 
-/// Factory for COROS Training Hub — Sciotte provider
+/// Factory for COROS Training Hub — session-read provider
 pub struct SciotteCorosProviderFactory {
     reads: Option<SciotteReads>,
 }
@@ -250,7 +250,7 @@ impl fmt::Debug for SciotteCorosProviderFactory {
 }
 
 impl SciotteCorosProviderFactory {
-    /// A factory whose providers call the sciotte services through `reads`.
+    /// A factory whose providers call the session-read services through `reads`.
     #[must_use]
     pub const fn new(reads: Option<SciotteReads>) -> Self {
         Self { reads }

@@ -25,7 +25,7 @@
 //! traits on its `ServerContext`.
 //!
 //! Note: the broader auth surface (credential login, OAuth callback
-//! handling for fitness providers, Sciotte hosted-login flow,
+//! handling for fitness providers, the session hosted-login flow,
 //! provider-link webhook) is still tangled with `pierre-server`-internal
 //! types (`AuthService`, `OAuthService`,
 //! `crate::context::{AuthContext, ConfigContext, DataContext}`) and stays

@@ -1,11 +1,11 @@
-// ABOUTME: Explicit cancel of a sciotte sign-in a closed window left running, by the attempt id its steps named
+// ABOUTME: Explicit cancel of a session sign-in a closed window left running, by the attempt id its steps named
 // ABOUTME: Binds the attempt to its caller, so one user never stops another's login, and refuses a cancelled attempt on every pod
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Closing a sign-in window aborts its request, but that disconnect does not
-//! reach the sciotte service: the frontend proxy, the API and the service are
+//! reach the sign-in service: the frontend proxy, the API and the service are
 //! separate hops, and none of them carries a client's dropped connection on
 //! to the next. The login kept its browser and its sign-in permit until it
 //! finished on its own. So a window names each opening with an attempt id,
@@ -198,7 +198,7 @@ pub(crate) async fn refuse_cancelled_attempt(
     if was_cancelled(cache, attempt).await {
         info!(
             user_id = %attempt.user_id,
-            "Sciotte sign-in step refused: its window cancelled the attempt"
+            "Session sign-in step refused: its window cancelled the attempt"
         );
         return Err(login_cancelled_refusal());
     }
@@ -229,7 +229,7 @@ pub(crate) async fn refuse_cancelled_outcome(
         return Ok(());
     }
     if let Err(e) = remote.cancel_login(attempt.cancel_key()).await {
-        debug!(error = %e, "Sciotte release of a cancelled step's flow did not arrive");
+        debug!(error = %e, "Sign-in service release of a cancelled step's flow did not arrive");
     }
     if let Some(flow_id) = continued_flow {
         let remembered = recall_remote_flow(cache, attempt.tenant_id, attempt.user_id).await;
@@ -239,7 +239,7 @@ pub(crate) async fn refuse_cancelled_outcome(
     }
     info!(
         user_id = %attempt.user_id,
-        "Sciotte sign-in step outlived its cancel: its result is dropped"
+        "Session sign-in step outlived its cancel: its result is dropped"
     );
     Err(login_cancelled_refusal())
 }
@@ -299,7 +299,7 @@ async fn stop_on_service(
                 %user_id,
                 cancelled_running = outcome.cancelled_running,
                 released_parked = outcome.released_parked,
-                "Sciotte answered the sign-in cancel"
+                "The sign-in service answered the sign-in cancel"
             );
             outcome.cancelled_running || outcome.released_parked
         }
@@ -307,7 +307,7 @@ async fn stop_on_service(
             warn!(
                 %user_id,
                 error = %e,
-                "Sciotte sign-in cancel did not reach the service — the login ends on its own"
+                "Session sign-in cancel did not reach the service — the login ends on its own"
             );
             false
         }
@@ -344,7 +344,7 @@ pub(crate) async fn handle_sciotte_cancel(
 /// # Errors
 ///
 /// [`AppError::invalid_input`] for a malformed attempt id, and the error of
-/// an unconfigured sciotte service.
+/// an unconfigured sign-in service.
 pub(crate) async fn cancel_attempt(
     resources: &AuthRoutesContext,
     tenant_id: Uuid,
@@ -355,7 +355,7 @@ pub(crate) async fn cancel_attempt(
     let remote = resources.provider_registry.require_sciotte_login_client()?;
     let filed = file_cancelled_attempt(&resources.cache, tenant_id, user_id, attempt_id).await;
     let stopped = stop_on_service(&resources.cache, remote, tenant_id, user_id, &cancel_key).await;
-    info!(%user_id, filed, stopped, "Sciotte sign-in cancelled by its caller");
+    info!(%user_id, filed, stopped, "Session sign-in cancelled by its caller");
     Ok(filed || stopped)
 }
 

@@ -8,7 +8,7 @@
 //!
 //! A tool that analyses an activity or reads the athlete's profile reads
 //! Strava's own zones, best efforts, records, weight and gear live, beside
-//! its answer. Through a signed-in session (sciotte reading strava.com as the
+//! its answer. Through a signed-in session (strava.com, signed in as the
 //! athlete), each of those reads is a page of the athlete's own session, so
 //! they are counted per athlete ([`RequestBudget::for_session_context`]):
 //! [`CONTEXT_READ_BURST_CALLS`] in [`FIFTEEN_MINUTES`] and

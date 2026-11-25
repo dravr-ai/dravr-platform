@@ -8,10 +8,10 @@ members = ["crates/*"]
 #
 # Every dravr-* dependency is declared once, here, and inherited by members
 # with `{ workspace = true }`. Before this table each pin was repeated at every
-# crate that used it -- dravr-tronc at nine sites, cageux, sciotte and
-# contremaitre at three each -- so "bump the X pin" was never one edit, and a
-# half-moved pin either trips the duplicate-version gate or silently keeps the
-# old revision alive in crates nobody remembered to change.
+# crate that used it -- dravr-tronc at nine sites, cageux, the session-read
+# satellite and contremaitre at three each -- so "bump the X pin" was never one
+# edit, and a half-moved pin either trips the duplicate-version gate or silently
+# keeps the old revision alive in crates nobody remembered to change.
 #
 # Members may still add `features` (they are unioned with whatever is set here)
 # and `optional`, so per-crate feature sets are unchanged by the move.

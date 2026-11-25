@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Real-backend E2E: a COROS code the service refuses keeps the sign-in dialog on its code step, then the right code connects
-// ABOUTME: Drives the real modal and sciotte routes against the scripted service double, as a fresh athlete it suspends after
+// ABOUTME: Drives the real modal and sign-in routes against the scripted service double, as a fresh athlete it suspends after
 
 import { test, expect, request as apiRequest, type APIRequestContext } from '@playwright/test';
 import { SCIOTTE_DOUBLE_PORT, startSciotteDouble, type SciotteDouble } from './sciotte-double';

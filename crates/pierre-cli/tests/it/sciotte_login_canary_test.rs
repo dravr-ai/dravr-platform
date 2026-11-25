@@ -1,4 +1,4 @@
-// ABOUTME: The credential-login canary's verdict for every answer the sciotte service gives a login
+// ABOUTME: The credential-login canary's verdict for every answer the session-read service gives a login
 // ABOUTME: Drives the real SciotteClient against a loopback stand-in for the service
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

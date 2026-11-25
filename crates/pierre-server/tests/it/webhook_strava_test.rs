@@ -11,7 +11,7 @@
 // without a surviving crate doc the command-line `-D warnings` trips
 // `missing_docs`.
 //
-// The route used to call enforme's `sync_user`, which is the sciotte TSB
+// The route used to call enforme's `sync_user`, which is the session-read TSB
 // session reader — an OAuth-connected athlete's activity never reached the cache.
 // It now goes through `fetch_provider_head`, the platform's real OAuth
 // activity path, so these tests point the Strava provider at a local mock

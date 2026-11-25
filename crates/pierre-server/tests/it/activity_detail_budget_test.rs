@@ -11,7 +11,7 @@
 //! reading 30 detail pages one at a time — 4m37s total for an answer the
 //! summary already supported.
 //!
-//! The fix rations rather than removes. Detail is not decoration on sciotte:
+//! The fix rations rather than removes. Detail is not decoration on a session read:
 //! it carries HR streams, laps, and the real UTC start time that the
 //! date-only list page lacks, so disabling it outright would trade latency
 //! for an agent that no longer knows when a session happened. These tests pin

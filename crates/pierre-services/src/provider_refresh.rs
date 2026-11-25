@@ -45,7 +45,7 @@ use crate::health_sync::{sync_error_is_push_stand_down, wellness_pull_stands_dow
 /// How the agent treats a provider whose newest data it may not have.
 ///
 /// A sync an hour old, or a live read that outlives the turn's budget (a
-/// sciotte capture drives a browser and finishes in the background), is
+/// session capture drives a browser and finishes in the background), is
 /// routine, so telling the athlete about it on every turn read as a broken
 /// sync: "Tes toutes dernières séances peuvent manquer, ta synchro n'est pas
 /// complètement à jour" on 2026-10-23 and again on 2026-10-27. Nothing here
@@ -64,9 +64,9 @@ pub struct RefreshService {
     /// (last-sync timestamps for orchestrator-managed providers, credential
     /// refresh). On-demand providers' freshness comes from `activity_cache`.
     repos: AuthRepos,
-    /// Source of truth for on-demand providers' freshness. sciotte (and other
-    /// session-read providers) aren't background-synced, so their
-    /// `oauth_tokens.last_sync` is written once at login and never updated —
+    /// Source of truth for on-demand providers' freshness. Session-read
+    /// providers aren't background-synced, so their `oauth_tokens.last_sync`
+    /// is written once at login and never updated —
     /// the cache's `synced_at` is the real timestamp of the last successful
     /// session read. Read for on-demand providers so the agent hint reflects honest
     /// staleness instead of unconditionally reporting them Fresh.
@@ -156,7 +156,7 @@ impl RefreshService {
 
     /// The effective last-sync timestamp used to judge a provider's freshness.
     ///
-    /// On-demand providers (sciotte) are read per chat request and never
+    /// On-demand providers (session reads) are read per chat request and never
     /// background-synced, so their `oauth_tokens.last_sync` is stamped once at
     /// login and never moves — reading it would report perpetual staleness (or,
     /// with the old shortcut, perpetual freshness). Their real freshness is the
@@ -294,13 +294,13 @@ impl RefreshService {
 
             #[cfg(feature = "health-sync")]
             {
-                // On-demand providers (sciotte) reaching here are genuinely
+                // On-demand providers (session reads) reaching here are genuinely
                 // stale per the activity cache, and there is no background sync
                 // to trigger — they are read again per chat request via
                 // get_activities (the agent hint instructs the model to do so).
                 // Report them honestly as stale instead of the previous
                 // unconditional Fresh shortcut, which made the agent claim
-                // sciotte data was current when it was hours old.
+                // session-read data was current when it was hours old.
                 if self.is_on_demand_provider(&pf.provider) {
                     refreshing.push(pf.provider.clone());
                     continue;
@@ -569,7 +569,7 @@ impl RefreshService {
                 return;
             };
 
-            // Skip providers the orchestrator doesn't manage (e.g. sciotte, an
+            // Skip providers the orchestrator doesn't manage (e.g. an
             // on-demand session-read provider fetched per chat request). Spawning
             // a sync for them only yields a "provider not registered" failure.
             if !orchestrator.provider_names().contains(&provider.as_str()) {
@@ -612,7 +612,7 @@ impl RefreshService {
             };
         };
 
-        // On-demand providers (e.g. sciotte) are not registered with the
+        // On-demand providers (e.g. session reads) are not registered with the
         // orchestrator — there is no background sync to run; they are read
         // per chat request. The chat path already classifies their freshness
         // from the activity cache (see `check_and_refresh`/`last_sync_for`), so

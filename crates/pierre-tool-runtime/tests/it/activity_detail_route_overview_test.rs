@@ -101,7 +101,7 @@ fn detail_mode_names_the_service_a_session_read_row_was_read_from() {
     );
 }
 
-/// A run whose detail read carried its track, the way a sciotte (Garmin,
+/// A run whose detail read carried its track, the way a session-read (Garmin,
 /// TrainingPeaks) detail page does: every sampled point, door to door.
 fn run_with_track() -> Activity {
     ActivityBuilder::new(

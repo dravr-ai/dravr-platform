@@ -6,7 +6,7 @@
 
 //! The fallback serve behind a dead or unreachable elected provider.
 //!
-//! Sciotte first (carnet#1494): an athlete's usr/pwd session serves their
+//! The session first (carnet#1494): an athlete's usr/pwd session serves their
 //! reads, and the provider's own OAuth grant stands behind it while it is
 //! live (`backend_resolver::read_plan`). Every read the session cannot answer
 //! asks that grant first, the same way: a head read that falls back

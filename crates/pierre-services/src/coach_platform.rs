@@ -140,7 +140,7 @@ pub trait CoachPlatform: Send + Sync {
     }
 }
 
-/// `TrainingPeaks`, read on the sciotte service through the coach's session.
+/// `TrainingPeaks`, read on the session-read service through the coach's session.
 ///
 /// A `TrainingPeaks` coach account keeps no calendar of its own, and only an
 /// account `TrainingPeaks` reports as a coach's lists a roster.

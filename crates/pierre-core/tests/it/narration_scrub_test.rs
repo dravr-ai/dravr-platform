@@ -281,7 +281,7 @@ fn capability_failure_scrubbed_on_replay_but_kept_outbound() {
 /// scrubbed «je ne peux pas» family into «je ne suis pas capable», the
 /// mutation escaped the table, replayed for 18 days, and the 08-11 reply
 /// came out a near-verbatim copy of the 07-24 one — with zero tool calls
-/// and every sciotte session read in the window green.
+/// and every session read in the window green.
 const CAPABILITY_LEAK_2026_07_24: &str =
     "Je ne suis pas capable de récupérer tes activités en ce moment (problème de \
      connexion de mon côté) — je ne veux pas inventer des chiffres.";

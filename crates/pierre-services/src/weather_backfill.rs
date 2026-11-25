@@ -7,7 +7,7 @@
 //! Weather backfill orchestrator.
 //!
 //! Many providers don't surface ambient temperature on workouts —
-//! sciotte (the Strava mirror), Whoop, Terra all leave the field
+//! the Strava session mirror, Whoop, Terra all leave the field
 //! empty. For activities that have GPS coordinates and a start
 //! time, we can fill the gap post-hoc by hitting a historical weather
 //! provider keyed on `(lat, lng, hour)`.
@@ -108,7 +108,7 @@ impl WeatherBackfill {
 /// 1. Activities with explicit `start_latitude` / `start_longitude` are
 ///    used as-is.
 /// 2. Activities lacking GPS but carrying a `city` (e.g., Strava-Mirror
-///    sciotte rows enriched from the dashboard feed) are geocoded via
+///    session rows enriched from the dashboard feed) are geocoded via
 ///    Open-Meteo's free geocoding API. Each unique city resolves once
 ///    per backfill pass — typical users repeat 5-10 places across
 ///    hundreds of activities.

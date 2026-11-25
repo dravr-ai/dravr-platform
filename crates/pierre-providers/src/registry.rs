@@ -110,7 +110,7 @@ pub struct ProviderRegistry {
     /// signing OAuth app or personal API key. `None` counts nothing (a
     /// registry built for a test).
     request_limiter: Option<Arc<ProviderRateLimiter>>,
-    /// The read services every sciotte backend calls the service through,
+    /// The read services every session-read backend calls the service through,
     /// shared so they reuse one connection pool and one cached identity token
     /// per service. A session's calls go to the one its id picks. `None` (a
     /// registry built for a test, or a server started with no service
@@ -299,15 +299,15 @@ impl ProviderRegistry {
     #[cfg(not(feature = "provider-coros"))]
     fn register_coros(_registry: &mut Self) {}
 
-    /// Register Sciotte session-read provider
+    /// Register the Strava session-read provider
     ///
-    /// Sciotte uses browser-based session cookies for authentication (not OAuth).
+    /// It uses browser-based session cookies for authentication (not OAuth).
     /// It runs as a separate sidecar service and provides activity data read
     /// from fitness platform HTML pages (Strava, Garmin, etc.).
     #[cfg(feature = "provider-sciotte")]
     fn register_sciotte(registry: &mut Self) {
         registry.register_descriptor(oauth_providers::SCIOTTE, Box::new(SciotteDescriptor));
-        // Sciotte runs in-process via dravr-sciotte library — no OAuth, no external URLs
+        // Session read: no OAuth, no external URLs
         registry.set_default_config(
             oauth_providers::SCIOTTE,
             ProviderConfig {
@@ -324,7 +324,7 @@ impl ProviderRegistry {
     #[cfg(not(feature = "provider-sciotte"))]
     fn register_sciotte(_registry: &mut Self) {}
 
-    /// Register Sciotte Garmin Connect provider (session read)
+    /// Register the Garmin Connect session-read provider
     #[cfg(feature = "provider-sciotte")]
     fn register_sciotte_garmin(registry: &mut Self) {
         registry.register_descriptor(
@@ -347,7 +347,7 @@ impl ProviderRegistry {
     #[cfg(not(feature = "provider-sciotte"))]
     fn register_sciotte_garmin(_registry: &mut Self) {}
 
-    /// Register Sciotte TrainingPeaks provider (session read on the service)
+    /// Register the TrainingPeaks session-read provider
     #[cfg(feature = "provider-sciotte")]
     fn register_sciotte_trainingpeaks(registry: &mut Self) {
         registry.register_descriptor(
@@ -370,7 +370,7 @@ impl ProviderRegistry {
     #[cfg(not(feature = "provider-sciotte"))]
     fn register_sciotte_trainingpeaks(_registry: &mut Self) {}
 
-    /// Register the COROS Training Hub mirror (sciotte session read), the
+    /// Register the COROS Training Hub mirror (a session read), the
     /// `coros` backend until the partner API (carnet#509) is approved.
     #[cfg(feature = "provider-sciotte")]
     fn register_sciotte_coros(registry: &mut Self) {
@@ -394,7 +394,7 @@ impl ProviderRegistry {
     #[cfg(not(feature = "provider-sciotte"))]
     fn register_sciotte_coros(_registry: &mut Self) {}
 
-    /// Register the four sciotte backends' factories, each holding a clone of
+    /// Register the four session-read backends' factories, each holding a clone of
     /// this registry's read services.
     #[cfg(feature = "provider-sciotte")]
     fn register_sciotte_factories(registry: &mut Self) {
@@ -640,8 +640,8 @@ impl ProviderTerms for ProviderRegistry {
             .map(ProviderDescriptor::audience_policy)
     }
 
-    /// Every sciotte backend stamps its items `sciotte` with the session-read
-    /// service as `source`, while `sciotte` is also the name of its Strava
+    /// Every session-read backend stamps its items `sciotte` with the service
+    /// it read as `source`, while `sciotte` is also the name of its Strava
     /// backend: a Garmin activity it read is the `sciotte_garmin` backend's
     /// to govern, not the Strava one's (carnet#765). An unstamped read names
     /// its backend itself.
@@ -674,7 +674,7 @@ impl ProviderRegistry {
     /// The display names of the services whose descriptors declare `policy`.
     ///
     /// A reader of another service ([`ProviderDescriptor::origin`]) is named
-    /// as that service when it is registered too, so the sciotte Garmin
+    /// as that service when it is registered too, so the session-read Garmin
     /// backend and the Garmin API read as one service, not "Garmin" beside
     /// "Garmin Connect".
     fn sources_served(&self, policy: TransportPolicy) -> Vec<&'static str> {
@@ -787,9 +787,9 @@ impl ProviderRegistry {
         self
     }
 
-    /// This registry, calling the sciotte read services through `reads`
-    /// from every sciotte backend it builds and handing the same services to
-    /// the other sciotte calls through [`Self::sciotte_reads`]. The server
+    /// This registry, calling the session-read services through `reads`
+    /// from every session-read backend it builds and handing the same services
+    /// to the other session-read calls through [`Self::sciotte_reads`]. The server
     /// builds them once, at startup; `None` leaves the service unconfigured.
     #[cfg(feature = "provider-sciotte")]
     #[must_use]
@@ -865,7 +865,7 @@ impl ProviderRegistry {
                 require_client(self.sciotte_reads.as_ref().map(SciotteReads::primary))
             }
             SciotteLoginClient::Unbuildable => Err(AppError::config(
-                "DRAVR_SCIOTTE_LOGIN_URL is set but its sciotte client could not be built \
+                "DRAVR_SCIOTTE_LOGIN_URL is set but its client could not be built \
                  (see the startup log); sign-ins are refused rather than sent to the read service",
             )),
         }

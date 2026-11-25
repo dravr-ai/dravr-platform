@@ -331,7 +331,7 @@ jobs:
           # decision below is a disjunction: enforme can be current while dravr-sciotte
           # has drifted, and a lane that only compared the primary would report
           # "nothing to integrate" against a real diamond split. Second, a caller that
-          # ships a companion's service — the sciotte image is enforme's — needs the
+          # ships a companion's service — the session-read image is enforme's — needs the
           # companion version even on a run that bumps nothing, so it can converge.
           #
           # The release's own manifest is the authority, never the dispatch payload:

@@ -1,4 +1,4 @@
-// ABOUTME: Resolves an athlete's sciotte session-read caps: their tier, then each sciotte_reads.* parameter
+// ABOUTME: Resolves an athlete's session-read caps: their tier, then each sciotte_reads.* parameter
 // ABOUTME: The SessionReadLimits the provider rate limiter is bound to at startup (carnet#1661)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,7 +7,7 @@
 //! The athlete's session-read caps, as the admin config holds them.
 //!
 //! The provider rate limiter counts every read of an athlete's signed-in
-//! sciotte session against caps by tier
+//! session against caps by tier
 //! ([`pierre_providers::request_budget::SessionReadLimits`]). This resolver
 //! reads the athlete's tier from their `users` row (Starter when the row
 //! cannot be read, as the quota ladder does), then each

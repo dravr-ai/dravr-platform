@@ -10,7 +10,7 @@
 //! A session connect fires its own reads at once: the pre-fetch that warms the
 //! cache, the health backfill, and whatever screen the athlete lands on next
 //! (the web onboarding asks for its coach proposal within a second). Each one
-//! is a browser on the sciotte service, which serves a fixed number at a time,
+//! is a browser on the session-read service, which serves a fixed number at a time,
 //! so on 2026-10-02 a COROS connect shed its own proposal read with a 503 and
 //! failed a daily-summary read with a 500 (carnet#736).
 //!
@@ -38,7 +38,7 @@ use crate::core::ActivityQueryParams;
 
 /// Longest a reader waits on a pre-fetch before reading live itself.
 ///
-/// The sciotte client bounds one list read at 330 s, so a pre-fetch still
+/// The session-read client bounds one list read at 330 s, so a pre-fetch still
 /// running past this is wedged, and the reader stops waiting on it.
 pub const PREFETCH_WAIT_CAP: Duration = Duration::from_mins(6);
 

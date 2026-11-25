@@ -363,7 +363,7 @@ async fn one_workout_held_by_three_sources_counts_once() {
 
     assert_eq!(
         payload["totals"]["count"], 1,
-        "bug: the Strava API copy, its sciotte mirror and its Garmin twin are one workout: {payload}"
+        "bug: the Strava API copy, its session-read mirror and its Garmin twin are one workout: {payload}"
     );
     assert_eq!(
         payload["totals"]["distance_km"], 30.0,

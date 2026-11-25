@@ -4,11 +4,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! ADR-034: a login that names its window's attempt asks sciotte for a
+//! ADR-034: a login that names its window's attempt asks the service for a
 //! takeover. One a captcha parks answers `takeover_required` with a link to
 //! `/sign-in-check` carrying a takeover token in its fragment; the page opens
 //! `/ws/providers/sciotte/takeover?token=…`, and the platform relays it to
-//! sciotte's own takeover socket. These tests run the platform's real routes
+//! the service's own takeover socket. These tests run the platform's real routes
 //! against a loopback stand-in of the service (a test double, per the
 //! repo's mock rule), on a thread of its own so it outlives each test's
 //! runtime.
@@ -153,7 +153,7 @@ async fn login(State(seen): State<Arc<Seen>>, Json(body): Json<Value>) -> Respon
 
 /// The takeover socket: a status, one frame, then each input recorded; a
 /// pointer `up` signs the athlete in. A flow whose name says `gone` is
-/// refused before the upgrade, as sciotte refuses one it does not hold; one
+/// refused before the upgrade, as the service refuses one it does not hold; one
 /// whose name says `drop` closes with no answer on its first input.
 async fn takeover(
     State(seen): State<Arc<Seen>>,
@@ -537,7 +537,7 @@ async fn the_athlete_signs_in_through_the_relay_and_the_session_is_stored() {
 }
 
 /// The athlete keeps moving the pointer after the click that signs them in:
-/// sciotte answers and closes while those moves are still on their way, and
+/// the service answers and closes while those moves are still on their way, and
 /// the sign-in concludes from that answer instead of ending as if the service
 /// had left without one.
 #[tokio::test]

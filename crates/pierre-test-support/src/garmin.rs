@@ -1,5 +1,5 @@
 // ABOUTME: Garmin athlete fixtures: an athlete in their own tenant, the usr/pwd session, the API grant pushing wellness
-// ABOUTME: The rows the sciotte login and the Garmin OAuth callback leave, for tests of the pull standing down for the push
+// ABOUTME: The rows the session sign-in and the Garmin OAuth callback leave, for tests of the pull standing down for the push
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -46,7 +46,7 @@ pub async fn create_athlete(repos: &RepositoryRegistry) -> AppResult<(Uuid, Tena
     Ok((user.id, tenant))
 }
 
-/// The usr/pwd session the sciotte login stores as the token row's access
+/// The usr/pwd session the session sign-in stores as the token row's access
 /// token: a session `AuthSession` deserializes, holding no expiry of its own.
 const GARMIN_SESSION: &str = r#"{"session_id":"garmin-session","cookies":[{"name":"SESSIONID",
     "value":"t","domain":".garmin.com","path":"/","secure":true,"http_only":true}],
@@ -94,7 +94,7 @@ fn token_row(
     }
 }
 
-/// The usr/pwd Garmin session and its live connection, as the sciotte login
+/// The usr/pwd Garmin session and its live connection, as the sign-in
 /// leaves them: the session itself as the access token a session reader reads, with
 /// no expiry, under a manual connection.
 ///

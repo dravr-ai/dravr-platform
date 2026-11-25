@@ -22,8 +22,8 @@ echo -e "${YELLOW}=== Stopping This Checkout's Pierre Services ===${NC}"
 # every other worktree's workers as well.
 dev_stop pierre-server "Pierre MCP Server"
 dev_stop fixture "Dev Fixture API"
-dev_stop sciotte "Sciotte service"
-# The setup script's --maestro control process; its sciotte double is a child
+dev_stop sciotte "Session-read service"
+# The setup script's --maestro control process; its session-read double is a child
 # in the same process group.
 dev_stop maestro-control "Maestro control process"
 dev_stop vite "Vite dev server"
@@ -44,7 +44,7 @@ METRO_PORT="${EXPO_PORT:-$(tunnel_env_declared_port "$PROJECT_ROOT/.envrc" EXPO_
 # alone when it belongs to another.
 foreign=0
 dev_reclaim_port "$SERVER_PORT" "Pierre MCP Server" || foreign=1
-dev_reclaim_port "$("$PROJECT_ROOT/scripts/sciotte-local.sh" port)" "Sciotte service" || foreign=1
+dev_reclaim_port "$("$PROJECT_ROOT/scripts/sciotte-local.sh" port)" "Session-read service" || foreign=1
 dev_reclaim_port 5173 "Vite dev server" || foreign=1
 dev_reclaim_port "$METRO_PORT" "Expo / Metro" || foreign=1
 dev_reclaim_port 9555 "Dev Fixture API" || foreign=1

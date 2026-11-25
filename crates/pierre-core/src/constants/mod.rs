@@ -458,15 +458,15 @@ pub mod provider_capture {
     /// Coverage rows written before the column existed carry it too.
     pub const BASELINE_CAPTURE_VERSION: u32 = 0;
 
-    /// Strava via sciotte.
+    /// Strava read through a signed-in session.
     ///
     /// 1: elevation is read by the unit its value carries rather than by the
-    /// feed's localized label (dravr-sciotte 0.12.1). Rows the dedicated
+    /// feed's localized label (session-read service 0.12.1). Rows the dedicated
     /// service captured before that carry no elevation.
     ///
     /// 2: a list row carries the athlete's description, the workout tag, the
     /// commute flag and the average heart rate, and the newest rows the
-    /// trainer flag and the moving time (dravr-sciotte 2.0.0). Rows
+    /// trainer flag and the moving time (session-read service 2.0.0). Rows
     /// backfilled before carry none of them.
     pub const SCIOTTE_STRAVA_CAPTURE_VERSION: u32 = 2;
 

@@ -240,7 +240,7 @@ variable "frontend_previous_origins" {
 }
 
 variable "backend_cpu" {
-  description = "CPU allocation for backend instances. The pod runs no Chrome since carnet#978 (provider reads run on the dedicated sciotte service); it holds the chat turns and, when the LLM chain falls through to Copilot, the Copilot runtime (ADR-019). See terraform.tfvars for why the value stands."
+  description = "CPU allocation for backend instances. The pod runs no Chrome since carnet#978 (provider reads run on the dedicated session-read service); it holds the chat turns and, when the LLM chain falls through to Copilot, the Copilot runtime (ADR-019). See terraform.tfvars for why the value stands."
   type        = string
   default     = "2"
 }
@@ -264,43 +264,43 @@ variable "backend_max_instances" {
 }
 
 variable "backend_max_instance_request_concurrency" {
-  description = "Maximum concurrent requests per backend container. terraform.tfvars sets Cloud Run's default 80: chat turns are serialized by the ACP mutex, not by this, and read admission lives on the sciotte service."
+  description = "Maximum concurrent requests per backend container. terraform.tfvars sets Cloud Run's default 80: chat turns are serialized by the ACP mutex, not by this, and read admission lives on the session-read service."
   type        = number
   default     = 4
 }
 
 variable "backend_sciotte_login_timeout_secs" {
-  description = "Overall sciotte credential-login budget in seconds. Used as DRAVR_SCIOTTE_LOGIN_TIMEOUT env var (dravr-sciotte crate default is 120). Sized for the slowest interactive path: number-match 2FA where the user must tap a number on their phone."
+  description = "Overall session-read credential-login budget in seconds. Used as DRAVR_SCIOTTE_LOGIN_TIMEOUT env var (crate default is 120). Sized for the slowest interactive path: number-match 2FA where the user must tap a number on their phone."
   type        = number
   default     = 240
 }
 
 variable "backend_sciotte_password_step_timeout_secs" {
-  description = "Seconds the sciotte service waits for the login result after submitting the password. Used as DRAVR_SCIOTTE_PASSWORD_STEP_TIMEOUT env var (crate default is 30 — too short for a number-match 2FA challenge that surfaces during this poll)."
+  description = "Seconds the session-read service waits for the login result after submitting the password. Used as DRAVR_SCIOTTE_PASSWORD_STEP_TIMEOUT env var (crate default is 30 — too short for a number-match 2FA challenge that surfaces during this poll)."
   type        = number
   default     = 240
 }
 
 variable "backend_sciotte_phone_tap_timeout_secs" {
-  description = "Seconds the sciotte service waits for a phone tap / number-match approval during 2FA. Used as DRAVR_SCIOTTE_PHONE_TAP_TIMEOUT env var (crate default is 60 — too short for a real human tapping a phone)."
+  description = "Seconds the session-read service waits for a phone tap / number-match approval during 2FA. Used as DRAVR_SCIOTTE_PHONE_TAP_TIMEOUT env var (crate default is 60 — too short for a real human tapping a phone)."
   type        = number
   default     = 240
 }
 
 variable "sciotte_max_concurrent_reads" {
-  description = "Concurrent HTTP reads the sciotte service runs at once. Used as DRAVR_SCIOTTE_MAX_CONCURRENT_READS env var, which the service requires from 1.0.0 (no crate default). Each read is a plain HTTP request over the session's cookie jar, measured at ~16 MB, against 2.8 GB for a headless Chrome; DRAVR_SCIOTTE_MAX_CONCURRENT still bounds the Chrome logins."
+  description = "Concurrent HTTP reads the session-read service runs at once. Used as DRAVR_SCIOTTE_MAX_CONCURRENT_READS env var, which the service requires from 1.0.0 (no crate default). Each read is a plain HTTP request over the session's cookie jar, measured at ~16 MB, against 2.8 GB for a headless Chrome; DRAVR_SCIOTTE_MAX_CONCURRENT still bounds the Chrome logins."
   type        = number
   default     = 16
 }
 
 variable "enable_sciotte_service" {
-  description = "Deploy the dedicated sciotte Cloud Run service (ADR-021). Deploying it does NOT route traffic — backend_sciotte_remote flips the API's client toggle separately."
+  description = "Deploy the dedicated session-read Cloud Run service (ADR-021). Deploying it does NOT route traffic — backend_sciotte_remote flips the API's client toggle separately."
   type        = bool
   default     = false
 }
 
 variable "sciotte_image" {
-  description = "Container image for the dedicated sciotte service (built from dravr-sciotte's Dockerfile with the vision feature)"
+  description = "Container image for the dedicated session-read service (built from the session-read satellite's Dockerfile with the vision feature)"
   type        = string
   default     = "northamerica-northeast1-docker.pkg.dev/dravr-artifacts/dravr-images/sciotte:latest"
 }
@@ -329,18 +329,18 @@ variable "backend_photograveur" {
 }
 
 variable "backend_sciotte_remote" {
-  description = "Point the API's sciotte client at the dedicated sciotte service (sets DRAVR_SCIOTTE_REMOTE_URL to the service URL). Off = the sciotte providers are disabled: the API pod has no in-process sciotte reader. Requires enable_sciotte_service."
+  description = "Point the API's session-read client at the dedicated session-read service (sets DRAVR_SCIOTTE_REMOTE_URL to the service URL). Off = the session-read providers are disabled: the API pod has no in-process session reader. Requires enable_sciotte_service."
   type        = bool
   default     = false
 
   validation {
     condition     = !var.backend_sciotte_remote || var.enable_sciotte_service
-    error_message = "backend_sciotte_remote requires enable_sciotte_service = true (the URL references the sciotte module)."
+    error_message = "backend_sciotte_remote requires enable_sciotte_service = true (the URL references the session-read module)."
   }
 }
 
 variable "enable_sciotte_login_service" {
-  description = "Deploy the sciotte sign-in Cloud Run service (sciotte_login.tf, carnet#1504): same image as the read service, min 0, max 1. Deploying it does NOT route sign-ins — backend_sciotte_login_split does. Requires enable_sciotte_service."
+  description = "Deploy the session-read sign-in Cloud Run service (sciotte_login.tf, carnet#1504): same image as the read service, min 0, max 1. Deploying it does NOT route sign-ins — backend_sciotte_login_split does. Requires enable_sciotte_service."
   type        = bool
   default     = false
 
@@ -351,7 +351,7 @@ variable "enable_sciotte_login_service" {
 }
 
 variable "backend_sciotte_login_split" {
-  description = "Send sciotte sign-ins to the sign-in service (sets the API's DRAVR_SCIOTTE_LOGIN_URL and the login canary's service URL). Off = sign-ins run on the read service. Requires enable_sciotte_login_service and backend_sciotte_remote."
+  description = "Send session-read sign-ins to the sign-in service (sets the API's DRAVR_SCIOTTE_LOGIN_URL and the login canary's service URL). Off = sign-ins run on the read service. Requires enable_sciotte_login_service and backend_sciotte_remote."
   type        = bool
   default     = false
 
@@ -362,7 +362,7 @@ variable "backend_sciotte_login_split" {
 }
 
 variable "sciotte_read_services" {
-  description = "How many sciotte read services run (module.sciotte), each one instance; the platform sends every call naming a session to the service its id picks (carnet#1504). Every one scales to zero. Change it at a quiet hour: about one session in N+1 moves to the new service, and while two API revisions disagree a session can be read on two instances at once."
+  description = "How many session-read services run (module.sciotte), each one instance; the platform sends every call naming a session to the service its id picks (carnet#1504). Every one scales to zero. Change it at a quiet hour: about one session in N+1 moves to the new service, and while two API revisions disagree a session can be read on two instances at once."
   type        = number
   default     = 1
 
@@ -593,7 +593,7 @@ variable "meta_messenger_verify_token" {
 }
 
 variable "backend_sciotte_iam" {
-  description = "Enforce Cloud Run IAM on the sciotte service (allow_unauthenticated=false + run.invoker for the app SA). Flip to true only after both the sciotte service and the API are deployed with identity-token auth — before that, Cloud Run would reject an API that is still sending the old shared bearer."
+  description = "Enforce Cloud Run IAM on the session-read service (allow_unauthenticated=false + run.invoker for the app SA). Flip to true only after both the session-read service and the API are deployed with identity-token auth — before that, Cloud Run would reject an API that is still sending the old shared bearer."
   type        = bool
   default     = false
 }

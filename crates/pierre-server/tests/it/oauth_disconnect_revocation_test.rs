@@ -920,7 +920,7 @@ async fn terra_backend_deauthenticates_user_with_developer_headers() {
 /// dispatch table rather than by accident: `sciotte`/`sciotte_garmin` are
 /// signed-in sessions, and `coros` is the residue registered at
 /// `revocation_shape` (registre#509). An `intervals_icu` API-key link is the
-/// row-level case, pinned in `intervals_icu_oauth_test`. A sciotte-backed
+/// row-level case, pinned in `intervals_icu_oauth_test`. A session-backed
 /// "Strava" disconnect must not touch Strava's revoke endpoint either.
 #[tokio::test]
 async fn local_only_backends_send_nothing_upstream() {
@@ -941,8 +941,8 @@ async fn local_only_backends_send_nothing_upstream() {
         );
     }
 
-    // A sciotte session mirrors "strava" at the chokepoint: disconnecting
-    // Strava deletes the sciotte rows and never calls Strava's revoke.
+    // A signed-in session mirrors "strava" at the chokepoint: disconnecting
+    // Strava deletes the session-read rows and never calls Strava's revoke.
     let (user_id, tenant_id) = seed_connected(
         &resources,
         "sciotte",
@@ -960,7 +960,7 @@ async fn local_only_backends_send_nothing_upstream() {
         )
         .await
         .expect("disconnect succeeds");
-    strava_upstream.assert_silent("a sciotte-backed Strava disconnect");
+    strava_upstream.assert_silent("a session-backed Strava disconnect");
     assert_locally_disconnected(&resources, user_id, tenant_id, "sciotte").await;
 
     // TrainingPeaks has no backend of its own: a disconnect names the card
@@ -1028,7 +1028,7 @@ async fn disconnect_by_sciotte_clears_a_native_strava_grant() {
     let resources = strava_revoking_at(format!("{}/oauth/revoke", strava_upstream.base_url)).await;
     let service = oauth_service(&resources);
 
-    // A native Strava OAuth grant — no sciotte row anywhere.
+    // A native Strava OAuth grant — no session-read row anywhere.
     let (user_id, tenant_id) = seed_connected(
         &resources,
         "strava",

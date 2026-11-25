@@ -45,7 +45,7 @@ export default function OAuthAppSetupModal({
   const [clientSecret, setClientSecret] = useState('');
   const [error, setError] = useState<string | null>(null);
   // Focus trap, focus restore, Escape and the scroll lock, as one layer on the
-  // dialog stack: opened over the Sciotte login, one Escape closes this form
+  // dialog stack: opened over the credential login, one Escape closes this form
   // alone and Tab stays inside it.
   const { containerRef } = useDialog({ open: isOpen, onClose });
 

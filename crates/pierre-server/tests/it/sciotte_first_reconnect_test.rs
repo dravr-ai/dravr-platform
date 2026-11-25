@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Sciotte first: the reconnect (carnet#1494, JF's directives 2 and 3).
+//! Session first: the reconnect (carnet#1494, JF's directives 2 and 3).
 //
 // This `//!` precedes the module-level `#![cfg]` so the docs survive a build
 // without the features.

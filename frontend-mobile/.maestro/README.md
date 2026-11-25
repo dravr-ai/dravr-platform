@@ -174,7 +174,7 @@ API. Two ways to get it:
   for the emulator) builds that CLI, starts the control process on 8098 against the
   dev database, and starts Expo Go with the flag. It is opt-in, like `--tunnel`,
   because it adds a way to sign the app in from a link. It does not point the server
-  at the control process's sciotte double, so `home-sync/` still needs the script
+  at the control process's session-read service double, so `home-sync/` still needs the script
   below; with `--tunnel` the API is not local and Metro leaves the route out.
 - `scripts/e2e-home-sync-local.sh --mobile [flows…]` boots that whole stack on its
   own ports, `home-sync/` included.
@@ -213,7 +213,7 @@ content process never launched".
   the seeder.
 - `onboarding/02-coach-group-step.yaml` and `home-sync/` call the control process,
   `frontend/e2e-real/home-sync-control.ts` (port 8098), from their `runScript` steps.
-  It runs the sciotte double on 8097, so the server must have
+  It runs the session-read service double on 8097, so the server must have
   `DRAVR_SCIOTTE_REMOTE_URL=http://127.0.0.1:8097`. `scripts/e2e-home-sync-local.sh
   --mobile` boots such a stack; the onboarding flow asks it for a fresh coach per path
   and per attempt, since the app keeps the step's done flag on the device per user.

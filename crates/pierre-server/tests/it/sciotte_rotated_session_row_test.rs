@@ -1,4 +1,4 @@
-// ABOUTME: A sciotte session rotated on a health-sync or TrainingPeaks profile read is stored over its token row
+// ABOUTME: A signed-in session rotated on a health-sync or TrainingPeaks profile read is stored over its token row
 // ABOUTME: Only while that row still stands: a reconnect that replaced it during the read keeps its own session
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -72,7 +72,7 @@ fn session_with(cookie: &str) -> AuthSession {
     .unwrap()
 }
 
-/// A token row exactly as a sciotte login stores it.
+/// A token row exactly as a session sign-in stores it.
 fn session_row(user_id: Uuid, tenant: TenantId, backend: &str, cookie: &str) -> UserOAuthToken {
     let now = Timestamp::now();
     UserOAuthToken {

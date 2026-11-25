@@ -111,7 +111,7 @@ async fn dispatch(
     )
 }
 
-/// A server whose sciotte client reaches the stand-in, and the stand-in's book.
+/// A server whose session-read client reaches the stand-in, and the stand-in's book.
 async fn server() -> (Arc<ServerContext>, SessionReaderBook) {
     let (url, book) = spawn_injection_session_reader().await;
     let resources = create_test_server_resources_with_config(test_server_config_with_sciotte(&url))
@@ -357,7 +357,7 @@ async fn the_snapshot_sees_what_each_target_tool_changes() {
     assert_eq!(diff.recipes_removed, vec![RECIPE_RICE_BOWL.to_owned()]);
     assert_eq!(diff.configs_removed, vec![FITNESS_CONFIG_NAME.to_owned()]);
     assert!(diff.physiology_changed, "{diff:?}");
-    // Disconnecting Strava also drops the sciotte session reading the same
+    // Disconnecting Strava also drops the signed-in session reading the same
     // account; the diff reports what the athlete lost.
     assert!(
         diff.connections_removed.iter().any(|c| c == "strava"),
@@ -620,7 +620,7 @@ fn reader_call(surface: Surface) -> Option<String> {
     })
 }
 
-/// A server whose chat provider is `model`, sciotte reaching the stand-in, and
+/// A server whose chat provider is `model`, the session reader reaching the stand-in, and
 /// the system-agent catalogue seeded.
 async fn pipeline_server(model: &Arc<ReadingModel>, url: &str) -> Arc<ServerContext> {
     let resources = create_test_server_resources_with_chat_provider_and_config(

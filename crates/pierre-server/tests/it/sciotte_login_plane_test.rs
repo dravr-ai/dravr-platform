@@ -1,10 +1,10 @@
-// ABOUTME: carnet#1504 — every step of a sciotte sign-in reaches the sign-in service, reads stay on the read service
+// ABOUTME: carnet#1504 — every step of a session sign-in reaches the sign-in service, reads stay on the read service
 // ABOUTME: Pins the routing across two loopback stand-ins, the one-service fallback, and a lost parked sign-in
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! A sign-in parks its browser in one sciotte instance's memory while the
+//! A sign-in parks its browser in one service instance's memory while the
 //! athlete fetches a code, so a deployment runs sign-ins on their own service,
 //! capped at one instance, and reads on another (carnet#1504). Every step of a
 //! sign-in — the login, its code step, the export of the session it signed
@@ -349,7 +349,7 @@ async fn every_sign_in_step_reaches_the_sign_in_service_and_none_the_read_servic
     );
 
     // Reads, and the session drops a disconnect sends, go through the read
-    // client every sciotte provider holds.
+    // client every session-read provider holds.
     athlete
         .resources
         .fitness

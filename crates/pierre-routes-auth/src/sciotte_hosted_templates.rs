@@ -1,16 +1,16 @@
-// ABOUTME: HTML template rendering for the Sciotte hosted-login flow
+// ABOUTME: HTML template rendering for the hosted session sign-in flow
 // ABOUTME: Uses compile-time embedded templates with HTML attribute escaping for XSS prevention
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Templates for the channel-initiated Sciotte hosted-login pages.
+//! Templates for the channel-initiated hosted session sign-in pages.
 //!
 //! Three pages share the Boreal stylesheet every hosted page embeds
 //! ([`pierre_core::html::with_hosted_page_css`]):
 //!
 //! - Login page: embeds a signed link-token and a `target` (strava / garmin /
-//!   trainingpeaks / coros) and runs the full Sciotte login state machine in
+//!   trainingpeaks / coros) and runs the full session sign-in state machine in
 //!   vanilla JS.
 //! - Success page: shown after a successful connection.
 //! - Error page: shown when the link-token is missing/invalid, or when the user
@@ -139,7 +139,7 @@ pub(crate) fn fill_consent(
         .replace("{{CONSENT_LABEL}}", &escape_html_attribute(&notice.consent))
 }
 
-/// Render the Sciotte hosted-login page in the athlete's locale, embedding
+/// Render the hosted session sign-in page in the athlete's locale, embedding
 /// the signed link-token and the target platform into the page's JS config.
 ///
 /// `consent_required` shows the provider's exposure notice with a required

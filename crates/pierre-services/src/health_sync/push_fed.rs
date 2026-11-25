@@ -165,7 +165,7 @@ pub async fn wellness_pull_stands_down(
 ///
 /// [`wellness_pull_stands_down`] is asked once, before a sync starts. A
 /// push grant stored while the sync runs (the Garmin OAuth callback that
-/// follows a sciotte login) turns its next cursor read, write or credential
+/// follows a session sign-in) turns its next cursor read, write or credential
 /// read into [`EnformeError::PushFed`], and the sync ends on it. That is the
 /// same stand-down, reached late: nothing to tell the athlete and nothing to
 /// alert on, and the connect's history walk reads what came before the

@@ -267,7 +267,7 @@ impl AdminConfigService {
         // How often the coach reacts to a synced workout, and whether that replaces the digest — see pierre_config::activity_landed
         register_activity_landed(&mut defs);
 
-        // Per-athlete sciotte session-read caps, one per cap per tier — see pierre_config::sciotte_reads
+        // Per-athlete session-read caps, one per cap per tier — see pierre_config::sciotte_reads
         register_sciotte_reads(&mut defs);
 
         defs

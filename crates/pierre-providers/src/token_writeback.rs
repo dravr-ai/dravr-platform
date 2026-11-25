@@ -175,7 +175,7 @@ impl StoredTokenRow {
         expires_at: Option<Timestamp>,
     ) {
         let Some(session_id) = session_id_of(session_json) else {
-            warn!(provider = %self.provider, "a rotated sciotte session names no session id; nothing stored");
+            warn!(provider = %self.provider, "a rotated signed-in session names no session id; nothing stored");
             return;
         };
         let carries_session = stored.token_type == TOKEN_TYPE_SESSION

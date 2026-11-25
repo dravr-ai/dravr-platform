@@ -26,7 +26,7 @@ async fn gate_flips_with_connection_status_active_then_reauth_then_reconnect() {
     let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user, tenant) = seed_user(&db).await;
 
-    // A freshly-registered Garmin (sciotte mirror) connection is Active → usable,
+    // A freshly-registered Garmin (session-read mirror) connection is Active → usable,
     // so the gate must NOT short-circuit to a reconnect prompt.
     repos
         .provider_connections

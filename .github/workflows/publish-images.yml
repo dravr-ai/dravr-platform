@@ -667,8 +667,8 @@ jobs:
             "${{ steps.tags.outputs.registry }}/server@${{ steps.build.outputs.digest }}"
 
       - name: Server image carries no browser
-        # carnet#978: nothing in the server launches a browser (sciotte runs in
-        # its own service, reached over HTTP), and chromium alone drove most of
+        # carnet#978: nothing in the server launches a browser (session reads run in
+        # their own service, reached over HTTP), and chromium alone drove most of
         # this image's Trivy gate failures. The Dockerfile's apt layer refuses
         # chromium at build time; this checks the pushed digest's package list.
         # Trivy reads it from the layer cache the passes above filled, so it

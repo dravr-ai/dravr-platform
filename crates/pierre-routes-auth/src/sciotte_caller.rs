@@ -1,4 +1,4 @@
-// ABOUTME: Who is calling a sciotte sign-in route: a Pierre session, or a channel's provider link-token
+// ABOUTME: Who is calling a session sign-in route: a Pierre session, or a channel's provider link-token
 // ABOUTME: Carries a link-token's channel context so a sign-in it started posts back to its conversation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -51,7 +51,7 @@ pub(crate) struct LinkContext {
 /// Accepts two authentication methods, tried in order:
 /// 1. A channel-initiated provider link-token (`Authorization: Bearer <link-token>`),
 ///    minted in-process by the messaging pipeline or the backfill notifier. This
-///    is the path used by the hosted Sciotte login page embedded in chat
+///    is the path used by the hosted session sign-in page embedded in chat
 ///    channels, and it reaches only the login, 2FA, OTP and cancel routes.
 /// 2. A standard Pierre session (cookie or Bearer JWT) — used by the web/mobile
 ///    `SciotteLoginModal` component.
@@ -97,7 +97,7 @@ pub(crate) async fn authenticate(
     Ok((auth_result.user_id, tenant.as_uuid(), None))
 }
 
-/// If an `Authorization: Bearer ...` header contains a Sciotte-scoped link-token,
+/// If an `Authorization: Bearer ...` header contains a sign-in-scoped link-token,
 /// verify it against the server's admin JWT secret and return the claims.
 /// Returns None when the header is absent, not a Bearer token, or fails verification
 /// as a link-token (so the caller falls through to normal auth).

@@ -1,5 +1,5 @@
 // ABOUTME: Strava athlete self-report mapping — Perceived Exertion as the API's 1–10 number or the slider's band label
-// ABOUTME: Pure functions the Strava OAuth and sciotte conversions call so a Strava encoding never leaves this module
+// ABOUTME: Pure functions the Strava OAuth and session-read conversions call so a Strava encoding never leaves this module
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

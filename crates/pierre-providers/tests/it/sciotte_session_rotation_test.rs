@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Sciotte session rotation contract.
+//! Session-read rotation contract.
 //!
 //! Garmin rotates its `session` cookie on a read and logs the old value out.
 //! The platform is the session-of-record (ADR-021) and imports its stored
@@ -268,7 +268,7 @@ async fn provider_holding(
             revoke_url: None,
             default_scopes: vec![],
         })
-        .expect("sciotte provider construction is infallible"); // Safe: factory returns Ok
+        .expect("session-read provider construction is infallible"); // Safe: factory returns Ok
     provider
         .set_credentials(credentials_for(&session_with(session_id, STORED_COOKIE)))
         .await

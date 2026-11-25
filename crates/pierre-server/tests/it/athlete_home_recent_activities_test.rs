@@ -688,7 +688,7 @@ fn synced_ride(tag: &str, started: Timestamp) -> [(&'static str, Activity); 3] {
                 5_460,
                 oauth_providers::SCIOTTE,
             )
-            // A capture names the service it signed in to, as sciotte stamps it.
+            // A capture names the service it signed in to, as the session-read service stamps it.
             .source(oauth_providers::GARMIN)
             .distance_meters(42_000.0)
             .summary_polyline(overview)

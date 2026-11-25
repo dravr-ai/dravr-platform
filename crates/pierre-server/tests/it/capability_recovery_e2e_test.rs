@@ -480,7 +480,7 @@ mod capability_recovery {
     async fn fabricated_claim_with_dead_provider_becomes_a_reconnect_challenge() {
         let mock = Arc::new(ClaimThenCleanMockProvider);
         let resources = create_test_server_resources_with_llm(mock).await.unwrap();
-        // A sciotte connection with no stored signed-in session: the verification
+        // A session-read connection with no stored signed-in session: the verification
         // fetch fails auth-shaped, which must route to the reconnect link.
         let (user_id, tenant_id) = create_user_with_connection(
             &resources,
@@ -1354,7 +1354,7 @@ mod capability_recovery {
                 .unwrap();
         }
 
-        /// Phil (the asker, sciotte-connected; `asker_session_alive` seeds his
+        /// Phil (the asker, session-connected; `asker_session_alive` seeds his
         /// signed-in session so his own fetch verifies, `false` leaves the
         /// connection auth-dead) and JD (the peer, a cached Strava ride under
         /// his own tenant) in one Telegram-bound group under the bot tenant.

@@ -10,7 +10,7 @@
 
 //! Provider context on a tool's answer (carnet#1622).
 //!
-//! The provider is a stand-in behind the real sciotte descriptor: the factory
+//! The provider is a stand-in behind the real session-read descriptor: the factory
 //! is swapped, the terms are not. Each test reads through the real executor,
 //! as Dravr's own web surface, unless it says otherwise.
 

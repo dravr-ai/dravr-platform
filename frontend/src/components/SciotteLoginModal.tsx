@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Login modal for sciotte provider — collects credentials, Pierre runs Chrome in-process
+// ABOUTME: Login modal for a session-read provider — collects credentials, Pierre runs Chrome in-process
 // ABOUTME: Supports Google/Apple/email login methods with 2FA (OTP and phone tap) and a provider robot check's takeover
 
 import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState } from 'react';
@@ -498,7 +498,7 @@ export default function SciotteLoginModal({
     return () => clearTimeout(timer);
   }, [phase, matchNumber, pollRound]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Elapsed seconds + cycling status text while the sciotte browser runs.
+  // Elapsed seconds + cycling status text while the sign-in browser runs.
   // The single-shot POST gives no real-time progress; this keeps the modal
   // visibly alive so it doesn't look frozen during the ~30s Chrome flow.
   const [elapsedSecs, setElapsedSecs] = useState(0);

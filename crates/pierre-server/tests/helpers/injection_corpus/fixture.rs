@@ -322,7 +322,7 @@ pub(crate) async fn seed_injection_fixture(
             .collect(),
     );
     // A TrainingPeaks calendar only for a planned-workout scenario, registered
-    // first so the sciotte Strava capture stays the activity primary. Its
+    // first so the session-read Strava capture stays the activity primary. Its
     // session serves no activities, only the plan.
     let planned = scenario.surface == Surface::PlannedWorkout;
     if planned {

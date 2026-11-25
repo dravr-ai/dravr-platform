@@ -34,7 +34,7 @@ pub(super) fn time_series(sciotte: &SciotteActivity) -> Option<TimeSeriesData> {
     }
 }
 
-/// Sciotte's [`SciotteStreams`] as cageux's [`TimeSeriesData`]: the two
+/// The service's [`SciotteStreams`] as cageux's [`TimeSeriesData`]: the two
 /// mirror each other field for field, every channel as long as the time axis
 /// and a `None` sample one the channel did not record. Strava's own
 /// `grade_smooth` and `moving` cross as they stand; the route fallback below
@@ -55,14 +55,14 @@ fn streams_to_time_series(streams: &SciotteStreams) -> TimeSeriesData {
     }
 }
 
-/// Fold sciotte's GPS [`SciotteRouteTrack`] into cageux's [`TimeSeriesData`],
+/// Fold the service's GPS [`SciotteRouteTrack`] into cageux's [`TimeSeriesData`],
 /// the channel every route consumer reads — `export_routes` and the endurance
 /// route endpoint hydrate their geometry from `gps_coordinates` + `altitude`.
 ///
 /// The track of a detail that answered no time stream (Garmin's, COROS', or
 /// a Strava read refused its sensor streams), so the numeric channels the
 /// API providers fill from device streams stay absent here. `timestamps` is
-/// empty: sciotte's `RouteTrack` carries coordinates, elevations, distances
+/// empty: the service's `RouteTrack` carries coordinates, elevations, distances
 /// and bounds but no time, and its coordinate list may be downsampled, so a
 /// sample index is not a second and no time axis can be read from it. The
 /// route consumers read `gps_coordinates` and `altitude` alone, and a stream
@@ -98,7 +98,7 @@ fn route_to_time_series(route: &SciotteRouteTrack) -> TimeSeriesData {
             warn!(
                 coordinates = route.coordinates.len(),
                 altitudes = meters.len(),
-                "sciotte route elevation series is not index-aligned with its track; dropping it"
+                "session route elevation series is not index-aligned with its track; dropping it"
             );
             None
         }
