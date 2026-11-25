@@ -133,7 +133,10 @@ pub(crate) async fn challenge_unauthorized<C: MiddlewareCtx + A2ACtx>(
             .a2a_resource_for_host(host.as_deref());
         let bearer = www_authenticate_challenge(&resource, presented.then_some("invalid_token"));
         let challenge = if used_dpop {
-            format!("{DPOP_SCHEME} algs=\"{}\", {bearer}", signing_algorithms().join(" "))
+            format!(
+                "{DPOP_SCHEME} algs=\"{}\", {bearer}",
+                signing_algorithms().join(" ")
+            )
         } else {
             bearer
         };

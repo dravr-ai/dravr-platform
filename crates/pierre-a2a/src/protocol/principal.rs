@@ -12,6 +12,7 @@
 
 use dravr_tronc::dates::Timestamp;
 use dravr_tronc::error::SERVER_ERROR_START;
+use pierre_auth::dpop::{check_binding, PresentedScheme, DPOP_SCHEME};
 use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
 use pierre_auth::rate_limiting::{a2a_client_window_start, calculate_a2a_client_rate_limit};
 use pierre_core::errors::{AppError, ErrorCode};
@@ -19,7 +20,6 @@ use pierre_core::models::a2a::{user_task_key, A2AClient};
 use pierre_core::permissions::impersonation::{CallerCredential, CredentialKind};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_logging::record_identity;
-use pierre_auth::dpop::{check_binding, PresentedScheme, DPOP_SCHEME};
 use pierre_middleware::dpop_request::{authorization_value, dialed_uri, dpop_context};
 use pierre_middleware::rate_limiting::{
     enforce_request_budget, log_budget_refusal, report_a2a_client_request, report_request_budget,
@@ -181,7 +181,11 @@ impl A2AServer {
         // How the token was presented, `Bearer` or `DPoP` (RFC 9449), and
         // what a proof must name: the A2A URL the client dialed.
         let auth_header = authorization_value(request, auth_token);
-        let htu = dialed_uri(request, resources.ctx.oauth2_server_config(), A2A_JSONRPC_PATH);
+        let htu = dialed_uri(
+            request,
+            resources.ctx.oauth2_server_config(),
+            A2A_JSONRPC_PATH,
+        );
         let dpop = dpop_context(request, htu.as_deref());
 
         // Client-credentials JWT: the client is the subject. Read off the two

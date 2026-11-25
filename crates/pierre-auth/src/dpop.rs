@@ -359,7 +359,10 @@ mod tests {
         let challenge = dpop_challenge("invalid_dpop_proof");
         assert!(challenge.starts_with("DPoP error=\"invalid_dpop_proof\", algs=\""));
         for alg in &algs {
-            assert!(challenge.contains(alg.as_str()), "{alg} missing from {challenge}");
+            assert!(
+                challenge.contains(alg.as_str()),
+                "{alg} missing from {challenge}"
+            );
         }
     }
 

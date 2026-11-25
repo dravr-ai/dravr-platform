@@ -55,7 +55,10 @@ pub(super) fn check_dpop_jkt(dpop_jkt: Option<&str>) -> Result<(), OAuth2Error> 
 
 impl OAuth2AuthorizationServer {
     /// Generate authorization code
-    pub(super) async fn generate_authorization_code(&self, params: AuthCodeParams<'_>) -> AppResult<String> {
+    pub(super) async fn generate_authorization_code(
+        &self,
+        params: AuthCodeParams<'_>,
+    ) -> AppResult<String> {
         let code = Self::generate_random_string(32)?;
         let expires_at = Timestamp::now() + Elapsed::minutes(10); // 10 minute expiry
 

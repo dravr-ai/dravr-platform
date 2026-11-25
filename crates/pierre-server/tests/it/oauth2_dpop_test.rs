@@ -407,7 +407,10 @@ fn assert_refused_with_dpop_challenge(response: &AxumTestResponse) {
     assert!(challenge.starts_with("DPoP error="), "{challenge}");
     assert!(challenge.contains("algs=\""), "{challenge}");
     assert!(challenge.contains("ES256"), "{challenge}");
-    assert!(challenge.contains("Bearer resource_metadata="), "{challenge}");
+    assert!(
+        challenge.contains("Bearer resource_metadata="),
+        "{challenge}"
+    );
 }
 
 /// A code bound at PAR is exchanged with a proof by its key: the token is a
@@ -435,9 +438,7 @@ async fn a_bound_code_mints_a_dpop_token_the_mcp_door_admits_with_its_proof() {
     // RFC 9449 §7.2: never as Bearer, with or without a proof.
     assert_refused_with_dpop_challenge(&mcp(&world, &format!("Bearer {access}"), &[]).await);
     let proof = A.proof("POST", &world.resource_url("/mcp"), Some(&access));
-    assert_refused_with_dpop_challenge(
-        &mcp(&world, &format!("Bearer {access}"), &[proof]).await,
-    );
+    assert_refused_with_dpop_challenge(&mcp(&world, &format!("Bearer {access}"), &[proof]).await);
 
     // A proof is good once.
     let proof = A.proof("POST", &world.resource_url("/mcp"), Some(&access));
@@ -658,8 +659,11 @@ async fn pushed_dpop_jkt_binds_the_code_and_must_name_the_proofs_key() {
     let body: Value = serde_json::from_str(&pushed.body_text()).unwrap();
     let code = approve(&world, &client, body["request_uri"].as_str().unwrap()).await;
     let token_url = world.issuer_url("/oauth2/token");
-    assert_proof_refused(&exchange(&world, &client, &code, &[A.proof("POST", &token_url, None)]).await);
-    let (access, _, _) = issued(&exchange(&world, &client, &code, &[B.proof("POST", &token_url, None)]).await);
+    assert_proof_refused(
+        &exchange(&world, &client, &code, &[A.proof("POST", &token_url, None)]).await,
+    );
+    let (access, _, _) =
+        issued(&exchange(&world, &client, &code, &[B.proof("POST", &token_url, None)]).await);
     let claims = insecure_decode::<Claims>(&access).unwrap().claims;
     assert_eq!(claims.cnf.map(|cnf| cnf.jkt), Some(B.thumbprint()));
 }

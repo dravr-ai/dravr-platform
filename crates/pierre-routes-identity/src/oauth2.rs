@@ -67,10 +67,10 @@ mod consent_copy;
 mod consent_role;
 /// The consent flow's text, in the reader's language
 mod consent_text;
-/// The DPoP proof a token or pushed authorization request carries (RFC 9449)
-mod dpop_proof;
 /// Which consent text a grant was approved under, and whether it is current.
 mod consent_version;
+/// The DPoP proof a token or pushed authorization request carries (RFC 9449)
+mod dpop_proof;
 /// "Continue with Google": server-side Google sign-in on the hosted login page
 mod google_login;
 /// RFC 7662 token introspection for the resource servers an admin named

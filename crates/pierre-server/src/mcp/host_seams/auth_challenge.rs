@@ -8,8 +8,8 @@ use dravr_tronc::mcp::auth::AuthError;
 use pierre_auth::config::{protected_resource_metadata_url, www_authenticate_challenge};
 use pierre_auth::dpop::dpop_challenge;
 use pierre_core::errors::ErrorCode;
-use pierre_middleware::auth::AuthRefusal;
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_middleware::auth::AuthRefusal;
 use tracing::{debug, error};
 
 /// Build the RFC 6750 §3.1 `insufficient_scope` challenge naming the grant the
