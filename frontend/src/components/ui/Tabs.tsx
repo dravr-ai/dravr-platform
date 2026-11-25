@@ -21,6 +21,13 @@ export interface TabsProps {
   variant?: 'underline' | 'pills';
   size?: 'sm' | 'md' | 'lg';
   className?: string;
+  /**
+   * Gives each tab the id `<idPrefix>-tab-<id>` and points the active one at
+   * the panel `<idPrefix>-panel-<id>`, for a host that draws its own `tabpanel`.
+   */
+  idPrefix?: string;
+  /** The tab list's accessible name. */
+  'aria-label'?: string;
 }
 
 export const Tabs: React.FC<TabsProps> = ({
@@ -30,6 +37,8 @@ export const Tabs: React.FC<TabsProps> = ({
   variant = 'underline',
   size = 'md',
   className = '',
+  idPrefix,
+  'aria-label': ariaLabel,
 }) => {
   const handleTabClick = useCallback(
     (tabId: string, disabled?: boolean) => {
@@ -84,12 +93,16 @@ export const Tabs: React.FC<TabsProps> = ({
   };
 
   return (
-    <div className={`${containerClasses[variant]} ${className}`} role="tablist">
+    <div className={`${containerClasses[variant]} ${className}`} role="tablist" aria-label={ariaLabel}>
       {tabs.map((tab) => (
         <button
           key={tab.id}
           type="button"
           role="tab"
+          id={idPrefix ? `${idPrefix}-tab-${tab.id}` : undefined}
+          // Only the active tab's panel is drawn, and a reference to a panel
+          // that is not in the page is an invalid one.
+          aria-controls={idPrefix && tab.id === activeTab ? `${idPrefix}-panel-${tab.id}` : undefined}
           aria-selected={tab.id === activeTab}
           aria-disabled={tab.disabled}
           onClick={() => handleTabClick(tab.id, tab.disabled)}

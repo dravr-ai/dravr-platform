@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { i18n } from '@pierre/i18n';
 import { civilDayNumber, civilFromDayNumber, civilShortDate, localToday } from '@pierre/ui-logic';
 import { ToastProvider } from '../../ui';
 import CoachHome from '../CoachHome';
@@ -37,8 +38,14 @@ vi.mock('../../../services/api', () => ({
     openAthleteThread: (...a: unknown[]) => openAthleteThread(...a),
     openGroupRoom: (...a: unknown[]) => openGroupRoom(...a),
   },
-  groupsApi: { listInvites: (...a: unknown[]) => listInvites(...a) },
+  groupsApi: { listInvites: (...a: unknown[]) => listInvites(...a), getGroup: vi.fn().mockRejectedValue(new Error('not mocked')) },
+  // The athlete workspace's threads load with it; nothing here reads them.
+  coachesApi: { list: vi.fn().mockResolvedValue({ agents: [] }) },
+  providersApi: { getProvidersStatus: vi.fn().mockResolvedValue({ providers: [] }) },
 }));
+
+// The athlete workspace reads who the coach is to know they own the plan thread.
+vi.mock('../../../hooks/useAuth', () => ({ useAuth: () => ({ user: { id: 'user-coach' } }) }));
 
 const mobile = vi.hoisted(() => ({ value: false }));
 vi.mock('../../../hooks/useBreakpoint', () => ({
@@ -365,6 +372,32 @@ describe('actions', () => {
     expect(screen.queryByTestId('coach-write-group')).not.toBeInTheDocument();
   });
 
+  it('opens the athlete\'s workspace from « Ouvrir le plan », and draws it on its route (carnet#1816)', async () => {
+    const user = userEvent.setup();
+    const { navigate } = renderHome();
+    await user.click(await screen.findByTestId('coach-queue-row-u-lea'));
+    const open = await screen.findByTestId('coach-open-workspace');
+    expect(open).toHaveTextContent(i18n.t('plan.workspace.open'));
+    await user.click(open);
+    expect(navigate).toHaveBeenCalledWith('home/athlete/u-lea/plan');
+    expect(await screen.findByTestId('athlete-workspace')).toBeInTheDocument();
+    expect(screen.queryByTestId('coach-home')).not.toBeInTheDocument();
+  });
+
+  it('offers no workspace on an athlete who stopped sharing with the coach', async () => {
+    renderHome();
+    // Maude leads the queue: she stopped sharing.
+    await screen.findByTestId('coach-athlete-pane');
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Maude Poirier');
+    expect(screen.queryByTestId('coach-open-workspace')).not.toBeInTheDocument();
+  });
+
+  it('opens À traiter on an athlete the roster does not hold, for a workspace route', async () => {
+    renderHome({ view: 'workspace', athleteId: 'u-nobody' });
+    expect(await screen.findByTestId('coach-queue')).toBeInTheDocument();
+    expect(screen.queryByTestId('athlete-workspace')).not.toBeInTheDocument();
+  });
+
   it('opens the reply review on the athlete for "Corriger la réponse"', async () => {
     const user = userEvent.setup();
     const { navigate } = renderHome();
@@ -529,6 +562,8 @@ describe('the switch and the routes', () => {
     const routes: CoachHomeRoute[] = [
       { view: 'queue', athleteId: null },
       { view: 'queue', athleteId: 'u/with space' },
+      { view: 'workspace', athleteId: 'u-lea' },
+      { view: 'workspace', athleteId: 'u/with space' },
       { view: 'team' },
       { view: 'season' },
       { view: 'me' },
@@ -541,6 +576,10 @@ describe('the switch and the routes', () => {
     expect(parseCoachHomeRoute('chat/abc')).toBeNull();
     expect(parseCoachHomeRoute('activity/strava/1')).toBeNull();
     expect(parseCoachHomeRoute('athlete/%E0%A4%A')).toBeNull();
+    expect(coachHomeRoute({ view: 'workspace', athleteId: 'u-lea' })).toBe('home/athlete/u-lea/plan');
+    expect(parseCoachHomeRoute('athlete/u-lea/history')).toBeNull();
+    expect(parseCoachHomeRoute('athlete//plan')).toBeNull();
+    expect(parseCoachHomeRoute('athlete/u-lea/plan/more')).toBeNull();
   });
 
   it('the switch alone presses the scope it is given', async () => {

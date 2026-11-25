@@ -5,8 +5,14 @@
 // ABOUTME: Red if a date the plan holds nothing on goes missing, past and today read alike, or a change names a fortnight of dates in one line
 
 import { describe, expect, it } from 'vitest';
-import type { PlanChangeEvent, PlanDay, WorkoutPlan } from '@pierre/shared-types';
-import { planCalendarWeeks, planHistoryLine } from '../src/planWorkspace';
+import type { CoachingGroup, Conversation, PlanChangeEvent, PlanDay, WorkoutPlan } from '@pierre/shared-types';
+import {
+  athleteRoomGroup,
+  planCalendarWeeks,
+  planHistoryLine,
+  roomConversationOf,
+  usablePlanThread,
+} from '../src/planWorkspace';
 
 function day(date: string, workout: string, position = 0): PlanDay {
   return { date, position, sport: 'ride', workout, intensity: 'Z2', rest: false };
@@ -98,5 +104,39 @@ describe('planHistoryLine', () => {
   it('words the coach’s call in its own words', () => {
     const line = planHistoryLine(event({ kind: 'coach_call', dates: ['2026-11-29'] }), { t, language: 'en', agentName: 'Dravr', now });
     expect(line.what).toBe('humanCoach.coachCall.badge · Sun, Nov 29');
+  });
+});
+
+describe('the athlete\'s room and plan thread', () => {
+  const COACH = 'user-coach';
+  const HALINA = { user_id: 'user-halina', display_name: 'Halina Torresan' };
+  type GroupRead = Pick<CoachingGroup, 'id' | 'coach_user_id' | 'solo_athlete'>;
+  const shared: GroupRead = { id: 'g-club', coach_user_id: COACH };
+  const own: GroupRead = { id: 'g-traka', coach_user_id: COACH, solo_athlete: HALINA };
+
+  function conversation(partial: Partial<Conversation>): Conversation {
+    return { id: 'c', title: null, message_count: 0, created_at: '2026-11-01T00:00:00Z', updated_at: '2026-11-01T00:00:00Z', ...partial };
+  }
+
+  it('finds the group whose one athlete is them, for their coach only', () => {
+    expect(athleteRoomGroup([shared, own], HALINA.user_id, COACH)?.id).toBe('g-traka');
+    expect(athleteRoomGroup([shared], HALINA.user_id, COACH)).toBeNull();
+    expect(athleteRoomGroup([own], 'user-other', COACH)).toBeNull();
+    expect(athleteRoomGroup([own], HALINA.user_id, 'user-someone-else')).toBeNull();
+  });
+
+  it('finds the coach\'s conversation in the room, an archived one aside', () => {
+    const archived = conversation({ id: 'c-old', group_id: 'g-traka', archived_at: '2026-11-10T00:00:00Z' });
+    const room = conversation({ id: 'c-room', group_id: 'g-traka' });
+    expect(roomConversationOf([archived, room], 'g-traka')?.id).toBe('c-room');
+    expect(roomConversationOf([archived], 'g-traka')).toBeNull();
+  });
+
+  it('finds the plan thread bound to the athlete through the group, never the room or an archived one', () => {
+    const room = conversation({ id: 'c-room', group_id: 'g-traka', subject_user_id: HALINA.user_id, subject_group_id: 'g-traka' });
+    const thread = conversation({ id: 'c-plan', subject_user_id: HALINA.user_id, subject_group_id: 'g-traka' });
+    expect(usablePlanThread([room, thread], HALINA.user_id, 'g-traka')?.id).toBe('c-plan');
+    expect(usablePlanThread([{ ...thread, archived_at: '2026-11-10T00:00:00Z' }], HALINA.user_id, 'g-traka')).toBeNull();
+    expect(usablePlanThread([thread], HALINA.user_id, 'g-club')).toBeNull();
   });
 });

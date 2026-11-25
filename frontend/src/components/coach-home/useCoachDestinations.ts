@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Where each of Coach Home's actions goes — the group room, the coach's plan thread on an athlete, the reply review
+// ABOUTME: Where each of Coach Home's actions goes — the group room, the coach's plan thread on an athlete, the athlete's workspace, the reply review
 // ABOUTME: Every action reaches a real screen — a room the server finds or opens once per click; a refusal says why in a toast
 
 import { useCallback } from 'react';
@@ -11,6 +11,7 @@ import { GROUP_ROOM_KEYS } from '@pierre/chat-utils';
 import { openThreadRefusalText } from '@pierre/ui-logic';
 import { useOpenAthleteThread, useOpenGroupRoom } from '../../hooks/useCoachPlan';
 import { useErrorToast } from '../ui';
+import { coachHomeRoute } from './coachHomeRoute';
 
 /** The group an action about `athlete` acts in: the one the reason names, else the athlete's first. */
 function actionGroupId(athlete: CoachRosterAthlete, reason: CoachAttentionReason | null): string | null {
@@ -25,6 +26,8 @@ export interface CoachDestinations {
   perform: (action: CoachAttentionAction, athlete: CoachRosterAthlete, reason: CoachAttentionReason) => void;
   /** Open the coach's plan thread on the athlete. */
   openPlanThread: (athlete: CoachRosterAthlete, reason: CoachAttentionReason | null) => void;
+  /** Open the athlete's workspace: their plan, with the coach's threads beside it (carnet#1816). */
+  openWorkspace: (athlete: CoachRosterAthlete) => void;
   /** The athlete whose plan thread is opening, while one is. */
   pendingAthleteId: string | null;
   /** The athlete whose group room is opening, while one is: its buttons wait and say so. */
@@ -76,6 +79,11 @@ export function useCoachDestinations(onNavigate: (route: string) => void): Coach
     [onNavigate, openThread, showError, t],
   );
 
+  const openWorkspace = useCallback(
+    (athlete: CoachRosterAthlete) => onNavigate(coachHomeRoute({ view: 'workspace', athleteId: athlete.user_id })),
+    [onNavigate],
+  );
+
   const perform = useCallback(
     (action: CoachAttentionAction, athlete: CoachRosterAthlete, reason: CoachAttentionReason) => {
       switch (action) {
@@ -99,6 +107,7 @@ export function useCoachDestinations(onNavigate: (route: string) => void): Coach
     writeToGroup,
     perform,
     openPlanThread,
+    openWorkspace,
     pendingAthleteId,
     pendingRoomAthleteId,
     primaryIsGroupRoom: (action) => action === 'write_to_athlete',

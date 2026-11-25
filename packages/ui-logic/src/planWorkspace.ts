@@ -5,10 +5,19 @@
 // ABOUTME: Layout and words only: which dates are proposed is chat-utils' one comparison, what changed is the server's history (carnet#1816)
 
 import { COACH_CALL_KEYS, countKey, entriesByDate, formatList, type CountKeys, type Translate } from '@pierre/chat-utils';
-import type { PlanChangeEvent, PlanChangeKind, PlanDay, PlanWeek, WorkoutPlan } from '@pierre/shared-types';
+import type {
+  CoachingGroup,
+  Conversation,
+  PlanChangeEvent,
+  PlanChangeKind,
+  PlanDay,
+  PlanWeek,
+  WorkoutPlan,
+} from '@pierre/shared-types';
 import { instantMs } from '@pierre/shared-types';
 import { civilDayNumber, civilFromDayNumber, localToday } from './coachHome';
 import { formatCivilDate, formatInstant, ROW_DATE } from './homeFormat';
+import { findWorkThread, soloAthleteFor } from './privateLaneHooks';
 
 /** The workspace's catalogue keys (contremaitre `strings/`, `plan.workspace`). */
 export const PLAN_WORKSPACE_KEYS = {
@@ -180,4 +189,42 @@ export function planHistoryLine(event: PlanChangeEvent, words: PlanHistoryWords)
     language,
   );
   return { when, who, what: `${label} · ${dates}` };
+}
+
+/**
+ * The athlete's own room with the coach, among the groups read: the one
+ * whose one athlete the server names to this coach as them (`solo_athlete`,
+ * carnet#1249) — the room of the trifecta, the coach, the athlete and the
+ * agent. `null` when every group of theirs holds other athletes too.
+ */
+export function athleteRoomGroup<G extends Pick<CoachingGroup, 'id' | 'coach_user_id' | 'solo_athlete'>>(
+  groups: readonly G[],
+  athleteId: string,
+  viewerId: string | null,
+): G | null {
+  return groups.find((group) => soloAthleteFor(group, viewerId)?.user_id === athleteId) ?? null;
+}
+
+/**
+ * The caller's conversation in `groupId`'s room, the one the room is drawn
+ * over; an archived one is not it. `null` while the list holds none — the
+ * server finds or opens it when asked.
+ */
+export function roomConversationOf(conversations: readonly Conversation[], groupId: string): Conversation | null {
+  return conversations.find((conversation) => conversation.group_id === groupId && !conversation.archived_at) ?? null;
+}
+
+/**
+ * The coach's plan thread on the athlete through `groupId` that the
+ * workspace can open as it stands: the one the private lane writes to
+ * (carnet#1070). An archived one is not usable until the server un-archives
+ * it, which opening it does.
+ */
+export function usablePlanThread(
+  conversations: readonly Conversation[],
+  athleteId: string,
+  groupId: string,
+): Conversation | null {
+  const thread = findWorkThread(conversations, athleteId, groupId);
+  return thread !== null && !thread.archived_at ? thread : null;
 }
