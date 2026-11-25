@@ -213,10 +213,12 @@ pub(super) fn importer(resources: &Arc<ServerContext>, wiring: &ImportWiring) ->
     importer_over(resources, wiring.stores.clone())
 }
 
-/// An importer over `stores`, projecting into `resources` as an import does
-/// ([`importer`]), whether or not imports run here: the `record_log`
-/// worker's re-key of pre-v0.28 Apple ids (`apple-<hex16>`) moves records an import stored and
-/// projects them the same way (carnet#1550), needing no export fetcher.
+/// An importer over `stores`, projecting into `resources` as [`importer`] does.
+///
+/// It is built whether or not imports run here: the `record_log` worker's
+/// re-key of pre-v0.28 Apple ids (`apple-<hex16>`) moves records an import
+/// stored and projects them the same way (carnet#1550), needing no export
+/// fetcher.
 #[must_use]
 pub fn importer_over(resources: &Arc<ServerContext>, stores: BarrageStores) -> Importer {
     Importer::new(
