@@ -66,6 +66,20 @@ pub fn challenge_scope(granted: &str, streams: &[Stream]) -> String {
     names.join(" ")
 }
 
+/// The scope a step-up child of a grant held for `parent_scope` is stored
+/// under: the parent's, then [`STEP_UP_PRESET_SCOPE`].
+///
+/// Never the parent's own: the previous release's consent upsert names
+/// `idx_oauth_client_grants_active`, one live row per (user, tenant, client,
+/// scope) over children and parents alike, and a child sharing its parent's
+/// scope would collide with it there (migration `20261126100000`, expand
+/// then contract). A parent never holds a `pdpp:` name ([`split`] reads them
+/// out), so no parent's scope is ever a child's.
+#[must_use]
+pub fn child_grant_scope(parent_scope: &str) -> String {
+    format!("{parent_scope} {STEP_UP_PRESET_SCOPE}")
+}
+
 /// The step-up an authorization request's `scope` names: `None` when it
 /// names no `pdpp:` scope, the request then read as any other.
 ///

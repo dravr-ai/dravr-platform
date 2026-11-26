@@ -509,6 +509,18 @@ async fn an_approved_step_up_is_a_child_the_parents_code_names() {
         "bug: basis"
     );
     assert_eq!(child.terms.host_profile_tier, "T2", "bug: tier");
+    let parent_scope = live_grants(&world)
+        .await
+        .into_iter()
+        .find(|grant| grant.id == parent)
+        .map(|grant| grant.scope)
+        .expect("the parent stands");
+    assert_eq!(
+        child.grant.scope,
+        format!("{parent_scope} pdpp:preset:one_off_question"),
+        "bug: a child shares its parent's scope, which the previous release's \
+         one-live-row-per-scope index refuses beside the live parent"
+    );
     assert!(
         child
             .grant

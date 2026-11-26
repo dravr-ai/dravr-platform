@@ -92,8 +92,8 @@ pub(crate) const REVOKE_CLIENT_GRANT_SQL: &str = r"
             ";
 
 /// Soft-delete every active parent grant a user gave one client in one
-/// tenant; returns the rows revoked. Their children go first
-/// ([`REVOKE_CLIENT_CHILD_GRANTS_SQL`]).
+/// tenant; returns the rows revoked. Their children go next
+/// ([`REVOKE_CLIENT_CHILD_GRANTS_SQL`]), once the parents are locked.
 pub(crate) const WITHDRAW_CLIENT_GRANTS_SQL: &str = r"
             UPDATE oauth_client_grants
             SET revoked_at = CURRENT_TIMESTAMP
@@ -227,14 +227,25 @@ pub(crate) const STORE_CHILD_GRANT_SQL: &str = r"
             ";
 
 /// The live parent grant `$1` a child would be approved under, held by `$2`
-/// in `$3` for client `$4`; `user_id` + `tenant_id` is the ownership check.
-pub(crate) const FIND_LIVE_PARENT_GRANT_SQL: &str = r"
-            SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
-                   consent_version, consent_locale, authorization_details, expires_at
-            FROM oauth_client_grants
-            WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND client_id = $4
-              AND parent_grant_id IS NULL AND revoked_at IS NULL
-            ";
+/// in `$3` for client `$4`, locked; `user_id` + `tenant_id` is the ownership
+/// check. `$lock` is the backend's clause: `FOR UPDATE` on `PostgreSQL`, so a
+/// revoke or a withdrawal of the parent in flight is waited out and read
+/// committed (the row then no longer matches), and one that starts after
+/// waits for the child to commit and ends it; nothing on `SQLite`, whose
+/// `BEGIN IMMEDIATE` already holds the one write lock (carnet#1544).
+macro_rules! find_live_parent_grant_sql {
+    ($lock:literal) => {
+        concat!(
+            "SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at, ",
+            "consent_version, consent_locale, authorization_details, expires_at ",
+            "FROM oauth_client_grants ",
+            "WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND client_id = $4 ",
+            "AND parent_grant_id IS NULL AND revoked_at IS NULL ",
+            $lock
+        )
+    };
+}
+pub(crate) use find_live_parent_grant_sql;
 
 /// Soft-delete the live child of parent `$1`, held by `$2` in `$3`; returns
 /// it, with its step-up columns.
@@ -296,9 +307,11 @@ pub(crate) const LATEST_ISSUE_RECEIPT_SQL: &str = r"
             ";
 
 /// Emit the grant-writing helpers for one backend type, `$row` being its row
-/// type (the transaction's connection is named through it).
+/// type (the transaction's connection is named through it). `$begin` opens
+/// the step-up's transaction (`BEGIN IMMEDIATE` on `SQLite`) and `$row_lock`
+/// locks its parent ([`find_live_parent_grant_sql`]).
 macro_rules! impl_client_grant_writes {
-    ($ty:ty, $row:ty) => {
+    ($ty:ty, $row:ty, $begin:literal, $row_lock:literal) => {
         impl $ty {
             /// Write `event` of `grant` at `at`, caused as `approval` says,
             /// in `conn`'s transaction: its payload is built and hashed now.
@@ -702,13 +715,9 @@ macro_rules! impl_client_grant_writes {
                     AppError::database(format!("Failed to withdraw OAuth client access: {e}"))
                 };
                 let client = GrantActor::Client;
-                Self::end_children_in(
-                    conn,
-                    $crate::repositories::tokens::grant_writes::REVOKE_CLIENT_CHILD_GRANTS_SQL,
-                    [user_id, tenant_id, client_id],
-                    client,
-                )
-                .await?;
+                // The parents first: revoking them takes their row locks, so a
+                // step-up holding one ([`Self::store_child_rows`]) commits its
+                // child before the children are read, and is ended with them.
                 let withdrawn = sqlx::query(WITHDRAW_CLIENT_GRANTS_SQL)
                     .bind(user_id)
                     .bind(tenant_id)
@@ -721,6 +730,13 @@ macro_rules! impl_client_grant_writes {
                     let ended_at = grant.revoked_at.unwrap_or(grant.granted_at);
                     Self::end_grant_in(conn, &grant, client, ended_at).await?;
                 }
+                Self::end_children_in(
+                    conn,
+                    $crate::repositories::tokens::grant_writes::REVOKE_CLIENT_CHILD_GRANTS_SQL,
+                    [user_id, tenant_id, client_id],
+                    client,
+                )
+                .await?;
                 if !withdrawn.is_empty() {
                     return Ok(());
                 }
@@ -957,13 +973,17 @@ macro_rules! impl_client_grant_writes {
             /// receipt, in one transaction. Returns the child's id, or
             /// `None`, storing nothing, when the parent is no longer a live
             /// grant of the same user, tenant and client.
+            ///
+            /// The parent is read locked, so a revoke or a withdrawal of it
+            /// racing this write never leaves the child live under an ended
+            /// parent: whichever commits first, the other sees it.
             async fn store_child_rows(
                 &self,
                 child: &ChildGrant,
                 approval: &GrantApproval,
             ) -> AppResult<Option<String>> {
                 use $crate::repositories::tokens::grant_writes::{
-                    FIND_LIVE_PARENT_GRANT_SQL, REVOKE_LIVE_CHILD_GRANTS_SQL,
+                    find_live_parent_grant_sql, REVOKE_LIVE_CHILD_GRANTS_SQL,
                     STORE_CHILD_GRANT_SQL,
                 };
                 let store_error = |e: sqlx::Error| {
@@ -971,8 +991,8 @@ macro_rules! impl_client_grant_writes {
                 };
                 let grant = &child.grant;
                 let terms = &child.terms;
-                let mut tx = self.pool().begin().await.map_err(store_error)?;
-                let parent = sqlx::query(FIND_LIVE_PARENT_GRANT_SQL)
+                let mut tx = self.pool().begin_with($begin).await.map_err(store_error)?;
+                let parent = sqlx::query(find_live_parent_grant_sql!($row_lock))
                     .bind(&terms.parent_grant_id)
                     .bind(&grant.user_id)
                     .bind(&grant.tenant_id)

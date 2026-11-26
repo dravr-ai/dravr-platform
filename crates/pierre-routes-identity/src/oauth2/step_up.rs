@@ -35,6 +35,7 @@ use pierre_auth::oauth2_server::authorization_details::ResolvedDetails;
 use pierre_auth::oauth2_server::cimd::host_profile_tier;
 use pierre_auth::oauth2_server::endpoints::CheckedAuthorization;
 use pierre_auth::oauth2_server::models::{AuthorizeRequest, OAuth2Error};
+use pierre_auth::oauth2_server::step_up_scope;
 use pierre_auth::security::cookies::auth_cookie_name_on;
 use pierre_core::errors::AppError;
 use pierre_core::models::{
@@ -238,7 +239,7 @@ impl OAuth2Routes {
                 user_id: user.clone(),
                 tenant_id: tenant_id.to_owned(),
                 client_id: client_id.to_owned(),
-                scope: parent.scope.clone(),
+                scope: step_up_scope::child_grant_scope(&parent.scope),
                 granted_at: now,
                 revoked_at: None,
                 consent_version: Some(review_digest),
