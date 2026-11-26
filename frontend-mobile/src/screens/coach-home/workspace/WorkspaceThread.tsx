@@ -6,6 +6,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TextInput } from 'react-native';
+import { readMarkerRowId } from '@pierre/chat-utils';
 import type { TurnSendOptions } from '@pierre/shared-types';
 import { usePlanThreadDraft } from '../../../hooks/useCoachPlan';
 import { trackMobile } from '../../../services/analytics';
@@ -83,12 +84,7 @@ export function WorkspaceThread({
   // Reading is looking, as on the chat screen: the newest row of the coach's
   // own conversation moves its read marker — a room's rows are not theirs.
   const { messages } = messagesHook;
-  const lastMessageId = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      if (!messages[i].room) return messages[i].id;
-    }
-    return null;
-  }, [messages]);
+  const lastMessageId = useMemo(() => readMarkerRowId(messages), [messages]);
   useMarkConversationRead({ conversationId: readId === conversationId ? conversationId : null, lastMessageId });
 
   const { isSending, sendTurn } = messagesHook;

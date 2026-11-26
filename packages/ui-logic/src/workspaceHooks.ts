@@ -46,6 +46,28 @@ export interface WorkspaceThreads {
   roomError: boolean;
 }
 
+/** What the Groupe tab holds: the athlete's room, why there is none, or the groups' read that failed. */
+export type WorkspaceGroupTab =
+  | { kind: 'room'; room: WorkspaceRoom }
+  | { kind: 'noRoom' }
+  | { kind: 'failed'; retry: () => void };
+
+/**
+ * The Groupe tab of `athlete`'s workspace, from what its threads know: the
+ * athlete's own room once found, the failed groups' read to try again, or no
+ * room of their own once every group was read. `null` — no Groupe tab — while
+ * the groups are read, and for an athlete in no group of the coach's.
+ */
+export function workspaceGroupTab(
+  threads: Pick<WorkspaceThreads, 'room' | 'roomKnown' | 'groupsFailed' | 'retryGroups'>,
+  athlete: Pick<CoachRosterAthlete, 'groups'>,
+): WorkspaceGroupTab | null {
+  if (threads.room !== null) return { kind: 'room', room: threads.room };
+  if (threads.groupsFailed) return { kind: 'failed', retry: threads.retryGroups };
+  if (threads.roomKnown && athlete.groups.length > 0) return { kind: 'noRoom' };
+  return null;
+}
+
 /** What the coach can answer to the draft from the workspace. */
 export interface WorkspaceAnswers {
   /** Whether the coach accepted the proposal on a date in this visit, as it stands now (decision W1). */

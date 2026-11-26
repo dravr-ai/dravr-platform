@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { GroupTranscriptEntry, Message } from '@pierre/shared-types';
-import { composeRoomThread, correctionAuthorLabel, roomEntryIdOf, runAuthorOf } from '../src/room-thread';
+import { composeRoomThread, correctionAuthorLabel, readMarkerRowId, roomEntryIdOf, runAuthorOf } from '../src/room-thread';
 import { isSameMessageGroup } from '../src/message-time';
 
 const ALICE = 'user-alice';
@@ -224,6 +224,19 @@ describe('roomEntryIdOf', () => {
   it("is null for a row of the caller's own conversation, whatever its id says", () => {
     expect(roomEntryIdOf(OWN[0])).toBeNull();
     expect(roomEntryIdOf({ id: 'room-msg-1' })).toBeNull();
+  });
+});
+
+describe('readMarkerRowId', () => {
+  it("names the caller's newest own row, past the room rows woven in after it", () => {
+    const rows = composeRoomThread(OWN, [entry({ id: 't-9', created_at: '2026-09-14T12:00:00Z', content: 'see you Saturday' })]);
+    expect(rows.map((row) => row.id)).toEqual(['msg-1', 'msg-2', 'room-t-9']);
+    expect(readMarkerRowId(rows)).toBe('msg-2');
+  });
+
+  it('is null for a thread holding none of the caller\'s own rows', () => {
+    expect(readMarkerRowId(composeRoomThread([], [entry({ id: 't-9', created_at: '2026-09-14T12:00:00Z' })]))).toBeNull();
+    expect(readMarkerRowId([])).toBeNull();
   });
 });
 

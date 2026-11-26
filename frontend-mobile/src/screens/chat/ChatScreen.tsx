@@ -46,7 +46,7 @@ import { useProviderConnected } from '../../hooks/useHome';
 import { useCoachInfo } from '../../hooks/useCoachInfo';
 import { useGroup } from '../../hooks/useGroups';
 import { usePrivateLane } from '../../hooks/usePrivateLane';
-import { coachRoomName, composerVoicePending, threadSubtitle } from '@pierre/chat-utils';
+import { coachRoomName, composerVoicePending, readMarkerRowId, threadSubtitle } from '@pierre/chat-utils';
 import { useEmptyThreadStarters } from '../../hooks/useEmptyThreadStarters';
 import { usePlanThreadDraft } from '../../hooks/useCoachPlan';
 import { useMarkConversationRead } from './useMarkConversationRead';
@@ -165,12 +165,7 @@ export function ChatScreen() {
   const { messages } = messagesHook;
   // The newest row of the caller's own conversation: the read marker names a
   // chat message, and a group thread's room rows are not the caller's.
-  const lastMessageId = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      if (!messages[i].room) return messages[i].id;
-    }
-    return null;
-  }, [messages]);
+  const lastMessageId = useMemo(() => readMarkerRowId(messages), [messages]);
   // Reading is looking: the marker advances only while this screen is focused
   // and the app is awake, and again on every new last message.
   useMarkConversationRead({

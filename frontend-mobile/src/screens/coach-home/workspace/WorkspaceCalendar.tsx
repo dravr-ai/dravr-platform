@@ -79,7 +79,8 @@ function SessionBlock({
           session: title,
           date: formatCivilDate(day.date, language, ROW_DATE),
         })}
-        className="flex-row items-start gap-2"
+        // A rest day is one line: the press keeps the 44 pt floor all the same.
+        className="min-h-11 flex-row items-start gap-2"
         testID={`workspace-session-${day.date}-${position}`}
       >
         <View className="flex-1">

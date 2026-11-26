@@ -26,6 +26,18 @@ export function roomEntryIdOf(row: { id: string; room?: RoomAttribution | null }
 }
 
 /**
+ * The row a group thread's read marker names: the newest of the caller's own
+ * conversation, never a row shown from the room. `null` while the thread
+ * holds none of the caller's own.
+ */
+export function readMarkerRowId(rows: readonly { id: string; room?: RoomAttribution | null }[]): string | null {
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    if (!rows[i].room) return rows[i].id;
+  }
+  return null;
+}
+
+/**
  * The room entry as a thread row. A member's words are a user row; the
  * agent's reply and the human coach's correction of one speak from the other
  * side of the thread, whoever reads them.

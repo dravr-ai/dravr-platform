@@ -12,7 +12,7 @@ import type { CoachingGroup, CoachRosterAthlete, Conversation, PlanDay } from '@
 import { API_ERROR_KEYS } from '../src/apiError';
 import { PLAN_WORKSPACE_KEYS, type PlanCalendarDay } from '../src/planWorkspace';
 import { SESSION_EDITOR_KEYS, type SessionAt } from '../src/sessionEditor';
-import { createWorkspaceHooks } from '../src/workspaceHooks';
+import { createWorkspaceHooks, workspaceGroupTab, type WorkspaceRoom } from '../src/workspaceHooks';
 
 const COACH_ID = 'user-coach';
 const LEA = { user_id: 'u-lea', display_name: 'Léa Gagnon' };
@@ -245,6 +245,32 @@ describe('useWorkspaceThreads', () => {
     client.pendingRoomAthleteId = 'u-other';
     const other = renderHook(() => useWorkspaceThreads(ATHLETE), { wrapper: wrapper() });
     expect(other.result.current.roomOpening).toBe(false);
+  });
+});
+
+describe('workspaceGroupTab', () => {
+  const ROOM: WorkspaceRoom = { group: group('g-lea', true), conversationId: ROOM_ID };
+  const retryGroups = vi.fn();
+  const known = { room: null, roomKnown: true, groupsFailed: false, retryGroups };
+
+  it("holds the athlete's own room once it is found", () => {
+    expect(workspaceGroupTab({ ...known, room: ROOM }, ATHLETE)).toEqual({ kind: 'room', room: ROOM });
+  });
+
+  it("offers the failed groups' read again while which group is the room is not known", () => {
+    const tab = workspaceGroupTab({ ...known, roomKnown: false, groupsFailed: true }, ATHLETE);
+    expect(tab?.kind).toBe('failed');
+    if (tab?.kind === 'failed') tab.retry();
+    expect(retryGroups).toHaveBeenCalledTimes(1);
+  });
+
+  it('says there is no room of their own once every group was read and none is theirs alone', () => {
+    expect(workspaceGroupTab(known, ATHLETE)).toEqual({ kind: 'noRoom' });
+  });
+
+  it('has no tab while the groups are read, nor for an athlete in no group of the coach\'s', () => {
+    expect(workspaceGroupTab({ ...known, roomKnown: false }, ATHLETE)).toBeNull();
+    expect(workspaceGroupTab(known, { groups: [] })).toBeNull();
   });
 });
 

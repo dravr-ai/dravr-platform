@@ -22,6 +22,7 @@ import { formatList } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 import {
   buildQueue,
+  canOpenWorkspace,
   civilDayNumber,
   civilShortDate,
   cutReadingDay,
@@ -395,7 +396,7 @@ function Actions({ athlete, entry, treatedReason, destinations, onTreat, onUndo 
   const primaryBusy = primaryOpensRoom ? roomBusy : threadBusy;
   // The workspace is reached through the athlete's group and reads their
   // plan, so an athlete in no group, or who stopped sharing, has none.
-  const opensWorkspace = athlete.groups.length > 0 && athlete.status !== 'no_coach_consent';
+  const opensWorkspace = canOpenWorkspace(athlete);
   const hasPrimary = primary !== null && reason !== null;
   return (
     <View className="gap-2 px-4" testID="coach-actions">

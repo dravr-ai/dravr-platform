@@ -7,6 +7,7 @@
 import { COACH_CALL_KEYS, countKey, entriesByDate, formatList, type CountKeys, type Translate } from '@pierre/chat-utils';
 import type {
   CoachingGroup,
+  CoachRosterAthlete,
   Conversation,
   PlanChangeEvent,
   PlanChangeKind,
@@ -189,6 +190,15 @@ export function planHistoryLine(event: PlanChangeEvent, words: PlanHistoryWords)
     language,
   );
   return { when, who, what: `${label} · ${dates}` };
+}
+
+/**
+ * Whether a coach can open `athlete`'s workspace: its plan is worked through
+ * a group's coaching link, so an athlete in no group of the coach's has none,
+ * and not at all once the athlete stopped sharing with the coach.
+ */
+export function canOpenWorkspace(athlete: Pick<CoachRosterAthlete, 'groups' | 'status'>): boolean {
+  return athlete.groups.length > 0 && athlete.status !== 'no_coach_consent';
 }
 
 /**

@@ -418,6 +418,23 @@ describe('the plan', () => {
     expect(mockApi.setSubjectDraftDayCoachCall).not.toHaveBeenCalled();
   });
 
+  it('keeps an acceptance while the coach reads another tab and comes back to the plan', async () => {
+    renderWorkspace();
+    await screen.findByTestId('workspace-calendar');
+    fireEvent.press(screen.getByTestId('workspace-accept-2026-11-26'));
+
+    fireEvent.press(screen.getByTestId('workspace-tabs-history'));
+    await screen.findAllByTestId('workspace-history-event');
+    expect(screen.queryByTestId('workspace-calendar')).toBeNull();
+    fireEvent.press(screen.getByTestId('workspace-tabs-plan'));
+
+    await screen.findByTestId('workspace-calendar');
+    expect(within(dateCell('2026-11-26')).getByRole('header')).toHaveProp('accessibilityLabel', 'Thursday, November 26, Accepted');
+    expect(screen.queryByTestId('workspace-accept-2026-11-26')).toBeNull();
+    // Only the date accepted: the others are still proposed.
+    expect(screen.getByTestId('workspace-accept-2026-11-25')).toBeTruthy();
+  });
+
   it('opens the editor on the session pressed', async () => {
     renderWorkspace();
     await screen.findByTestId('workspace-calendar');

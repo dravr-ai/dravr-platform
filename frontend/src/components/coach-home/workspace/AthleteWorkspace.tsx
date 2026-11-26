@@ -10,7 +10,13 @@ import { clsx } from 'clsx';
 import { useTranslation, type TFunction } from '@pierre/i18n';
 import type { CoachRosterAthlete, DraftState, PlanSubject, WorkoutPlan } from '@pierre/shared-types';
 import { PLAN_DRAFT_KEYS, PLAN_THREAD_KEYS, countKey, prePublishChecks } from '@pierre/chat-utils';
-import { PLAN_WORKSPACE_KEYS, formatCivilDate, openThreadRefusalText, planCalendarWeeks } from '@pierre/ui-logic';
+import {
+  PLAN_WORKSPACE_KEYS,
+  formatCivilDate,
+  openThreadRefusalText,
+  planCalendarWeeks,
+  workspaceGroupTab,
+} from '@pierre/ui-logic';
 import { useAuth } from '../../../hooks/useAuth';
 import { useIsDesktop, useIsMobile } from '../../../hooks/useBreakpoint';
 import { usePlanDraftCard, useSubjectPlan } from '../../../hooks/useCoachPlan';
@@ -26,7 +32,7 @@ import { coachHomeRoute } from '../coachHomeRoute';
 import type { CoachDestinations } from '../useCoachDestinations';
 import { PrePublishCheck } from './PrePublishCheck';
 import { WorkspaceCalendar } from './WorkspaceCalendar';
-import { WorkspacePanel, WorkspacePanelOpeners, type WorkspaceGroupTab, type WorkspaceTab } from './WorkspacePanel';
+import { WorkspacePanel, WorkspacePanelOpeners, type WorkspaceTab } from './WorkspacePanel';
 
 // The editor loads when a coach first opens it, never before first paint, as
 // on the plan card: it is a coach-only sheet.
@@ -202,10 +208,7 @@ export default function AthleteWorkspace({ athlete, onNavigate, destinations }: 
   };
 
   const agentName = threads.planGroup?.agent_title?.trim() || t('shell.brandName');
-  let groupTab: WorkspaceGroupTab | null = null;
-  if (threads.room !== null) groupTab = { kind: 'room', room: threads.room };
-  else if (threads.groupsFailed) groupTab = { kind: 'failed', retry: threads.retryGroups };
-  else if (threads.roomKnown && athlete.groups.length > 0) groupTab = { kind: 'noRoom' };
+  const groupTab = workspaceGroupTab(threads, athlete);
 
   const goal = shown?.goal_race ?? null;
 

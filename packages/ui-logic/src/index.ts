@@ -190,6 +190,7 @@ export {
   type PlanHistoryWords,
   PLAN_WORKSPACE_KEYS,
   athleteRoomGroup,
+  canOpenWorkspace,
   planCalendarWeeks,
   planHistoryLine,
   roomConversationOf,
@@ -198,12 +199,11 @@ export {
 // The athlete workspace's two threads and the coach's answers to the draft, one factory both clients bind (carnet#1816, #1818)
 export {
   type WorkspaceAnswers,
-  type WorkspaceHooksDeps,
+  type WorkspaceGroupTab,
   type WorkspaceRoom,
   type WorkspaceThreads,
-  type WorkspaceWords,
-  type WorkspaceWrite,
   createWorkspaceHooks,
+  workspaceGroupTab,
 } from './workspaceHooks';
 // A coach's Groups list with one row per trifecta athlete, opening their workspace (carnet#1817)
 export { type AthleteWorkspaceFold, type GroupsListRow, foldAthleteRows } from './athleteRows';

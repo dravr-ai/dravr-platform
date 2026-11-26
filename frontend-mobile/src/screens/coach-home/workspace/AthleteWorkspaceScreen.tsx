@@ -24,7 +24,9 @@ import {
   PLAN_WORKSPACE_KEYS,
   openThreadRefusalText,
   planCalendarWeeks,
-  type WorkspaceRoom,
+  workspaceGroupTab,
+  type WorkspaceAnswers,
+  type WorkspaceGroupTab,
   type WorkspaceThreads,
 } from '@pierre/ui-logic';
 import { EmptyState, TextTabs, type TextTabItem } from '../../../components/ui';
@@ -48,12 +50,6 @@ type WorkspaceTab = 'plan' | 'history' | 'dravr' | 'group';
 
 const WORKSPACE_TABS: readonly WorkspaceTab[] = ['plan', 'history', 'dravr', 'group'];
 
-/** What the Groupe tab holds: the athlete's room, why there is none, or the groups' read that failed. */
-type WorkspaceGroupTab =
-  | { kind: 'room'; room: WorkspaceRoom }
-  | { kind: 'noRoom' }
-  | { kind: 'failed'; retry: () => void };
-
 type SubjectPlanQuery = ReturnType<typeof useSubjectPlan>;
 
 /** A thread or a plan still being found, opened or read. */
@@ -73,19 +69,22 @@ function Pending({ testID }: { testID: string }) {
  * read: the draft when one is open, else the live plan; a date the read names
  * proposed — one the draft changes over the live plan — is a proposal the
  * coach accepts, for as long as the screen is open (decision W1), or refuses,
- * which puts the live plan back on it.
+ * which puts the live plan back on it. The answers are the screen's, held
+ * above the tabs, so reading another tab keeps what was accepted.
  */
 function PlanTab({
   athlete,
   name,
   threads,
   plan,
+  answers,
   onDraftPlan,
 }: {
   athlete: CoachRosterAthlete;
   name: string;
   threads: WorkspaceThreads;
   plan: SubjectPlanQuery;
+  answers: WorkspaceAnswers;
   onDraftPlan: () => void;
 }) {
   const { t } = useTranslation();
@@ -112,7 +111,6 @@ function PlanTab({
   }, [draftState]);
   const publishDraft = draftState ?? heldDraft;
 
-  const answers = useWorkspaceAnswers(planThreadId);
   const [editing, setEditing] = useState<SessionEditorTarget | null>(null);
 
   let body: React.ReactNode;
@@ -289,6 +287,7 @@ function AthleteWorkspace({ athlete }: { athlete: CoachRosterAthlete }) {
   const plan = useSubjectPlan(planThreadId, planThreadId !== null);
   const subject = plan.read?.status === 'ok' ? plan.read.plan : null;
   const name = subject?.athlete.display_name.trim() || athlete.name;
+  const answers = useWorkspaceAnswers(planThreadId);
 
   const [tab, setTab] = useState<WorkspaceTab>('plan');
   // « Rédiger le plan de … » with no plan yet: the agent's tab takes the
@@ -305,10 +304,7 @@ function AthleteWorkspace({ athlete }: { athlete: CoachRosterAthlete }) {
   const planSurface = useMemo<WorkspacePlanSurface>(() => ({ kind: 'workspace', onShowCalendar: showPlan }), [showPlan]);
 
   const agentName = threads.planGroup?.agent_title?.trim() || t('shell.brandName');
-  let groupTab: WorkspaceGroupTab | null = null;
-  if (threads.room !== null) groupTab = { kind: 'room', room: threads.room };
-  else if (threads.groupsFailed) groupTab = { kind: 'failed', retry: threads.retryGroups };
-  else if (threads.roomKnown && athlete.groups.length > 0) groupTab = { kind: 'noRoom' };
+  const groupTab = workspaceGroupTab(threads, athlete);
 
   const tabs: TextTabItem[] = [
     { key: 'plan', label: t('coachHome.detail.plan') },
@@ -324,7 +320,7 @@ function AthleteWorkspace({ athlete }: { athlete: CoachRosterAthlete }) {
 
   let body: React.ReactNode;
   if (active === 'plan') {
-    body = <PlanTab athlete={athlete} name={name} threads={threads} plan={plan} onDraftPlan={draftPlan} />;
+    body = <PlanTab athlete={athlete} name={name} threads={threads} plan={plan} answers={answers} onDraftPlan={draftPlan} />;
   } else if (active === 'history') {
     body = <WorkspaceHistory planThreadId={planThreadId} agentName={agentName} />;
   } else if (active === 'dravr') {
