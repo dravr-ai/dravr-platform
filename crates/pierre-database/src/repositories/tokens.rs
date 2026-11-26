@@ -867,7 +867,7 @@ macro_rules! impl_oauth2_server_repository {
 
             async fn store_child_grant(
                 &self,
-                child: &pierre_core::models::ChildGrant,
+                child: &ChildGrant,
                 approval: &GrantApproval,
             ) -> AppResult<Option<String>> {
                 self.store_child_rows(child, approval).await
@@ -886,7 +886,7 @@ macro_rules! impl_oauth2_server_repository {
                 &self,
                 user_id: &str,
                 tenant_id: &str,
-            ) -> AppResult<Vec<pierre_core::models::ChildGrant>> {
+            ) -> AppResult<Vec<ChildGrant>> {
                 let rows = sqlx::query($crate::repositories::tokens::LIST_LIVE_CHILD_GRANTS_SQL)
                     .bind(user_id)
                     .bind(tenant_id)

@@ -7,9 +7,9 @@
 use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    ClientGrantStanding, DeviceAuthorization, GrantActor, GrantApproval, GrantEvent, GrantReceipt,
-    OAuth2AuthCode, OAuth2Client, OAuth2ClientSweep, OAuth2PushedRequest, OAuth2RefreshToken,
-    OAuth2State, OAuthClientGrant, ReceiptApproval,
+    ChildGrant, ClientGrantStanding, DeviceAuthorization, GrantActor, GrantApproval, GrantEvent,
+    GrantReceipt, OAuth2AuthCode, OAuth2Client, OAuth2ClientSweep, OAuth2PushedRequest,
+    OAuth2RefreshToken, OAuth2State, OAuthClientGrant, ReceiptApproval,
 };
 use secrecy::ExposeSecret;
 use sqlx::postgres::PgRow;

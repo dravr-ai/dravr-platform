@@ -8,12 +8,13 @@
 //! narrows it; [`ResolvedDetails`] is what the grant stores, the token
 //! response echoes and introspection returns.
 
-use dravr_barrage::Stream;
+use dravr_barrage::{AccessMode as PresetAccessMode, Stream};
 use dravr_tronc::dates::{Elapsed, Timestamp, Zone};
 use pierre_core::errors::{AppError, AppResult};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest, Sha256};
+use std::time::Duration;
 use tracing::warn;
 
 use super::duration::{format_seconds, parse_seconds};
@@ -202,7 +203,7 @@ pub fn preset_defaults(preset: Preset, source_id: &str) -> ResolvedDetails {
             },
             selection_preset: PresetName(preset),
             access_mode: match preset.access_mode() {
-                dravr_barrage::AccessMode::SingleUse => AccessMode::SingleUse,
+                PresetAccessMode::SingleUse => AccessMode::SingleUse,
                 _ => AccessMode::Continuous,
             },
             streams: Vec::new(),
@@ -430,7 +431,7 @@ pub fn review_digest(text_version: &str, details: Option<&ResolvedDetails>) -> A
 }
 
 /// `duration` in whole seconds, saturating.
-fn seconds_of(duration: std::time::Duration) -> i64 {
+fn seconds_of(duration: Duration) -> i64 {
     i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
 }
 

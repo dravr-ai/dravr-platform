@@ -34,6 +34,7 @@
 //! carriers — its CIMD at consent, and the per-request claim of the call
 //! ([`Self::with_request_host_tier`]), the stricter of the two winning.
 
+use dravr_barrage::Preset;
 use dravr_barrage::{Stream, Tier};
 use dravr_tronc::dates::{CivilDate, Timestamp, Zone};
 use pierre_core::errors::{AppError, AppResult};
@@ -173,7 +174,7 @@ impl GrantCeiling {
     #[must_use]
     pub fn step_up_cures(&self, streams: &[Stream]) -> bool {
         let own = self.for_streams(&[]);
-        let one_off = dravr_barrage::Preset::OneOffQuestion.streams();
+        let one_off = Preset::OneOffQuestion.streams();
         !streams.is_empty()
             && streams.iter().all(|stream| one_off.contains(stream))
             && streams
@@ -240,6 +241,7 @@ mod tests {
     use super::*;
     use crate::oauth2_server::authorization_details::{preset_defaults, Preset, ResolvedDetails};
     use dravr_tronc::dates::Elapsed;
+    use pierre_core::models::{HostProfileBasis, OWNER_VERIFIED_ACR};
     const MCP: &str = "https://mcp.example.test/mcp";
 
     fn approved(details: &ResolvedDetails) -> ResolvedDetails {
@@ -370,7 +372,7 @@ mod tests {
             parent_grant_id: "g".to_owned(),
             auth_time: Timestamp::now(),
             acr: acr.to_owned(),
-            host_profile_basis: pierre_core::models::HostProfileBasis::DeclaredCimd,
+            host_profile_basis: HostProfileBasis::DeclaredCimd,
             host_profile_tier: tier.to_owned(),
         }
     }
@@ -389,7 +391,7 @@ mod tests {
 
     #[test]
     fn a_call_runs_under_the_parent_unless_only_the_child_covers_it() {
-        let ceiling = with_labs_child(pierre_core::models::OWNER_VERIFIED_ACR, "T2");
+        let ceiling = with_labs_child(OWNER_VERIFIED_ACR, "T2");
         let sleep = ceiling.for_streams(&[Stream::Sleep]);
         assert_eq!(
             sleep.client_grant_id, "g",
@@ -423,7 +425,7 @@ mod tests {
 
     #[test]
     fn t2_opens_only_with_owner_verified_a_t2_host_and_its_per_request_claim() {
-        let open = with_labs_child(pierre_core::models::OWNER_VERIFIED_ACR, "T2")
+        let open = with_labs_child(OWNER_VERIFIED_ACR, "T2")
             .with_request_host_tier(Some(Tier::T2))
             .for_streams(&[Stream::Labs]);
         assert!(
@@ -434,13 +436,12 @@ mod tests {
             !open.opens_t2(Stream::ClinicalRaw),
             "bug: an unpicked T2 stream opened"
         );
-        let no_claim = with_labs_child(pierre_core::models::OWNER_VERIFIED_ACR, "T2")
-            .for_streams(&[Stream::Labs]);
+        let no_claim = with_labs_child(OWNER_VERIFIED_ACR, "T2").for_streams(&[Stream::Labs]);
         assert!(
             !no_claim.opens_t2(Stream::Labs),
             "bug: no per-request claim opened T2"
         );
-        let t1_claim = with_labs_child(pierre_core::models::OWNER_VERIFIED_ACR, "T2")
+        let t1_claim = with_labs_child(OWNER_VERIFIED_ACR, "T2")
             .with_request_host_tier(Some(Tier::T1))
             .for_streams(&[Stream::Labs]);
         assert!(
@@ -451,15 +452,15 @@ mod tests {
             .with_request_host_tier(Some(Tier::T2))
             .for_streams(&[Stream::Labs]);
         assert!(!weak.opens_t2(Stream::Labs), "bug: a weaker acr opened T2");
-        let t1_host = with_labs_child(pierre_core::models::OWNER_VERIFIED_ACR, "T1")
+        let t1_host = with_labs_child(OWNER_VERIFIED_ACR, "T1")
             .with_request_host_tier(Some(Tier::T2))
             .for_streams(&[Stream::Labs]);
         assert!(
             !t1_host.opens_t2(Stream::Labs),
             "bug: a T1 CIMD host opened T2"
         );
-        let parent = with_labs_child(pierre_core::models::OWNER_VERIFIED_ACR, "T2")
-            .with_request_host_tier(Some(Tier::T2));
+        let parent =
+            with_labs_child(OWNER_VERIFIED_ACR, "T2").with_request_host_tier(Some(Tier::T2));
         assert!(
             !parent.opens_t2(Stream::Labs),
             "bug: the parent itself opened T2"

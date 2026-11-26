@@ -720,8 +720,8 @@ mod tests {
         let terms = StepUpTerms {
             parent_grant_id: "parent-1".to_owned(),
             auth_time: at(1_700_000_000)?,
-            acr: crate::models::OWNER_VERIFIED_ACR.to_owned(),
-            host_profile_basis: crate::models::HostProfileBasis::DeclaredCimd,
+            acr: super::super::OWNER_VERIFIED_ACR.to_owned(),
+            host_profile_basis: super::super::HostProfileBasis::DeclaredCimd,
             host_profile_tier: "T2".to_owned(),
         };
         let (text, _) = GrantReceipt {

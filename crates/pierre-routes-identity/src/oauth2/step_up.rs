@@ -27,11 +27,12 @@
 //! athlete's `sensitive_t2` switch at every read.
 
 use axum::http::{header, HeaderMap};
-use dravr_tronc::dates::Timestamp;
+use dravr_tronc::dates::{Timestamp, Zone};
 use pierre_auth::oauth2_server::authorization_details::ResolvedDetails;
 use pierre_auth::oauth2_server::cimd::host_profile_tier;
 use pierre_auth::oauth2_server::models::OAuth2Error;
 use pierre_auth::security::cookies::auth_cookie_name_on;
+use pierre_core::errors::AppError;
 use pierre_core::models::{
     ChildGrant, GrantApproval, HostProfileBasis, OAuthClientGrant, StepUpTerms, OWNER_VERIFIED_ACR,
     STEP_UP_MAX_AGE_SECS,
@@ -69,7 +70,7 @@ pub(super) struct StepUpApproval<'a> {
     /// The language of the consent text it was given under
     pub(super) consent_locale: String,
     /// The athlete's zone, which the window is frozen in
-    pub(super) zone: dravr_tronc::dates::Zone,
+    pub(super) zone: Zone,
     /// When the athlete signed in on the hosted page
     pub(super) auth_time: Timestamp,
 }
@@ -128,7 +129,7 @@ impl OAuth2Routes {
         if now.epoch_seconds() - auth_time.epoch_seconds() > STEP_UP_MAX_AGE_SECS {
             return Err(OAuth2Error::access_denied(STEP_UP_SIGN_IN_STALE));
         }
-        let failed = |e: pierre_core::errors::AppError| {
+        let failed = |e: AppError| {
             error!(user_id = %user_id, client_id, "Failed to record a step-up grant: {e}");
             OAuth2Error::server_error(super::consent::CONSENT_NOT_RECORDED)
         };

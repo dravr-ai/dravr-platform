@@ -873,7 +873,7 @@ macro_rules! impl_client_grant_writes {
             /// grant of the same user, tenant and client.
             async fn store_child_rows(
                 &self,
-                child: &pierre_core::models::ChildGrant,
+                child: &ChildGrant,
                 approval: &GrantApproval,
             ) -> AppResult<Option<String>> {
                 use $crate::repositories::tokens::grant_writes::{
