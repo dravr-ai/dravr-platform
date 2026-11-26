@@ -219,21 +219,19 @@ impl OAuth2Routes {
         {
             // The screen read as rendered (the digest above); the child holds
             // the streams the athlete left ticked, under a digest of them.
-            let recorded = match picker::step_up_selection(&form, one_off, &text, subject) {
-                Ok((selected, review_digest)) => {
-                    let approval = StepUpApproval {
-                        client_id: &request.client_id,
-                        scope: &scope,
-                        details: &selected,
-                        review_digest,
-                        consent_locale: text.lang().to_owned(),
-                        zone: athlete_zone(user.timezone.as_deref()),
-                    };
-                    Self::approve_step_up(&context, &headers, approval, user_id, tenant_id.clone())
-                        .await
-                }
-                Err(error) => Err(error),
-            };
+            let approval = picker::step_up_selection(&form, one_off, &text, subject).map(
+                |(details, review_digest)| StepUpApproval {
+                    client_id: &request.client_id,
+                    scope: &scope,
+                    details,
+                    review_digest,
+                    consent_locale: text.lang().to_owned(),
+                    zone: athlete_zone(user.timezone.as_deref()),
+                },
+            );
+            let recorded =
+                Self::approve_step_up(&context, &headers, approval, user_id, tenant_id.clone())
+                    .await;
             return Self::step_up_answer(&context, recorded, request, user_id, tenant_id).await;
         }
 
@@ -323,10 +321,11 @@ impl OAuth2Routes {
     async fn approve_step_up(
         context: &OAuth2Context,
         headers: &HeaderMap,
-        approval: StepUpApproval<'_>,
+        approval: Result<StepUpApproval<'_>, OAuth2Error>,
         user_id: Uuid,
         tenant_id: Option<String>,
     ) -> Result<String, OAuth2Error> {
+        let approval = approval?;
         let Some(auth_time) = Self::fresh_sign_in(headers, context, Timestamp::now()).await else {
             warn!(user_id = %user_id, "Step-up refused: no sign-in on this page in the last five minutes");
             return Err(OAuth2Error::access_denied(step_up::STEP_UP_SIGN_IN_STALE));

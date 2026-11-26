@@ -109,8 +109,9 @@ pub(super) struct StepUpApproval<'req> {
     pub(super) client_id: &'req str,
     /// The scope the code carries: never wider than the parent's
     pub(super) scope: &'req str,
-    /// The one-off details approved
-    pub(super) details: &'req ResolvedDetails,
+    /// The one-off details approved: the request's, narrowed to the
+    /// streams the athlete left ticked
+    pub(super) details: ResolvedDetails,
     /// The review digest the approval was given under
     pub(super) review_digest: String,
     /// The language of the consent text it was given under
