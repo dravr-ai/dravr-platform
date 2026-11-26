@@ -25,6 +25,8 @@ on:
       - 'sdk/**'
       - 'packages/mcp-types/**'
       - 'packages/eslint-config-pierre/testing/**'
+      # The SDK types generator the SDK Types job runs.
+      - 'scripts/sdk/**'
       - 'scripts/ci/ensure-mcp-compliance.sh'
       - '.github/workflows/server-e2e.yml'
       # The binary reuse every server build goes through (carnet#1258).
@@ -42,6 +44,8 @@ on:
       - 'sdk/**'
       - 'packages/mcp-types/**'
       - 'packages/eslint-config-pierre/testing/**'
+      # The SDK types generator the SDK Types job runs.
+      - 'scripts/sdk/**'
       - 'scripts/ci/ensure-mcp-compliance.sh'
       - '.github/workflows/server-e2e.yml'
       # The binary reuse every server build goes through (carnet#1258).
@@ -137,6 +141,7 @@ jobs:
             sdk:
               - 'sdk/**'
               - 'packages/mcp-types/**'
+              - 'scripts/sdk/**'
               - 'packages/eslint-config-pierre/testing/**'
               - 'crates/**'
               - 'migrations/**'
