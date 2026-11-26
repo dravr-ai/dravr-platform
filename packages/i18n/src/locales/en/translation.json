@@ -5316,6 +5316,7 @@
     "intervalsAuthorizeHint": "You'll sign in on Intervals.icu and approve Dravr there — no key to copy.",
     "intervalsCoachKeyAction": "Coaching athletes? Link with your API key",
     "intervalsCoachKeyHelp": "Use your own Athlete ID and API key, not your athlete’s. The Intervals.icu account must use the email you signed up to Dravr with, and your athlete must give you access there.",
+    "intervalsKeyReplacesAuthorization": "Linking a key replaces the authorization you gave Dravr on Intervals.icu, and Dravr revokes it.",
     "notificationsBellUnreadOne": "Notifications, {{count}} unread",
     "notificationsBellUnreadN": "Notifications, {{count}} unread",
     "modePickerTitle": "How do you want to use Dravr?",

@@ -5316,6 +5316,7 @@
     "intervalsAuthorizeHint": "Du meldest dich bei Intervals.icu an und gibst Dravr dort frei — kein Schlüssel zum Kopieren.",
     "intervalsCoachKeyAction": "Trainierst du Athleten? Mit deinem API-Schlüssel verknüpfen",
     "intervalsCoachKeyHelp": "Nutze deine eigene Athleten-ID und deinen eigenen API-Schlüssel, nicht die deines Athleten. Das Intervals.icu-Konto muss die E-Mail-Adresse deiner Dravr-Anmeldung verwenden, und dein Athlet muss dir dort Zugriff geben.",
+    "intervalsKeyReplacesAuthorization": "Wenn du einen Schlüssel verknüpfst, ersetzt das die Autorisierung, die du Dravr bei Intervals.icu erteilt hast, und Dravr widerruft sie.",
     "notificationsBellUnreadOne": "Benachrichtigungen, {{count}} ungelesen",
     "notificationsBellUnreadN": "Benachrichtigungen, {{count}} ungelesen",
     "modePickerTitle": "Wie möchtest du Dravr nutzen?",
