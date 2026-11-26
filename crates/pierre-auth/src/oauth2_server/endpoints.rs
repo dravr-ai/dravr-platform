@@ -79,6 +79,10 @@ pub struct CheckedAuthorization {
     /// [`OAuth2AuthorizationServer::enroll_checked_client`] stores it once an
     /// athlete is signed in
     pub unstored_client: Option<OAuth2Client>,
+    /// The Host Profile the client's metadata document declared when it was
+    /// read for this request (owl §6.2 carrier A); `None` when it declares
+    /// none, was not re-read, or the client has no document
+    pub client_host_profile: Option<String>,
     /// Whether an admin's Admin access may be granted on this request: it is
     /// bound to the platform's own `/mcp` or `/a2a` resource. No resource, or
     /// a satellite's, is never granted `admin`
@@ -128,6 +132,11 @@ pub struct OAuth2AuthorizationServer {
     /// [`Self::with_token_limiter`] names it, which meters nobody per user.
     /// Shared with the routes' limiter, so one store counts every window
     token_limiter: Option<Arc<OAuth2RateLimiter>>,
+    /// Whether the step-up screen is offered, so a step-up preset's request
+    /// (`one_off_question`) is resolved rather than refused "step-up is not
+    /// offered yet"; off until [`Self::with_step_up_offered`] says the
+    /// catalogue words the screen (carnet#1544 slice 4b, dark launch)
+    step_up_offered: bool,
 }
 
 impl fmt::Debug for OAuth2AuthorizationServer {
@@ -180,6 +189,7 @@ impl OAuth2AuthorizationServer {
             metadata_fetcher: cimd::production_fetcher(),
             max_pending_registrations: ClientRetentionConfig::default().max_pending_registrations,
             token_limiter: None,
+            step_up_offered: false,
         }
     }
 
@@ -235,6 +245,20 @@ impl OAuth2AuthorizationServer {
     pub fn with_token_limiter(mut self, limiter: Arc<OAuth2RateLimiter>) -> Self {
         self.token_limiter = Some(limiter);
         self
+    }
+
+    /// Offer the step-up screen: a `one_off_question` request is resolved,
+    /// and granted only as a child of a live grant after a fresh sign-in.
+    #[must_use]
+    pub const fn with_step_up_offered(mut self, offered: bool) -> Self {
+        self.step_up_offered = offered;
+        self
+    }
+
+    /// Whether the step-up screen is offered here.
+    #[must_use]
+    pub const fn step_up_offered(&self) -> bool {
+        self.step_up_offered
     }
 
     /// Read client metadata documents through `fetcher` instead of the SSRF
@@ -299,6 +323,7 @@ impl OAuth2AuthorizationServer {
         &self,
         request: &AuthorizeRequest,
     ) -> Result<CheckedAuthorization, AuthorizeRejection> {
+        let mut host_profile = None;
         let (client, is_stored) = if cimd::is_metadata_document_id(&request.client_id) {
             // An https URL `client_id` names its own metadata document.
             let resolved = self
@@ -306,6 +331,7 @@ impl OAuth2AuthorizationServer {
                 .resolve(&request.client_id)
                 .await
                 .map_err(|e| AuthorizeRejection::ShownToUser(e.into_oauth2_error()))?;
+            host_profile = resolved.host_profile;
             (resolved.client, resolved.is_stored)
         } else {
             let client = self
@@ -351,6 +377,7 @@ impl OAuth2AuthorizationServer {
         if !is_stored {
             checked.unstored_client = Some(client);
         }
+        checked.client_host_profile = host_profile;
         Ok(checked)
     }
 
@@ -375,7 +402,7 @@ impl OAuth2AuthorizationServer {
             return Ok(());
         };
         self.metadata_resolver()
-            .enroll(client)
+            .enroll(client, checked.client_host_profile.as_deref())
             .await
             .map_err(|error| {
                 warn!(error = %error, "metadata document client could not be stored");
@@ -448,6 +475,7 @@ impl OAuth2AuthorizationServer {
             client_name: client.client_name.clone(),
             consent_every_time: redirects_to_any_local_process(client, &request.redirect_uri),
             unstored_client: None,
+            client_host_profile: None,
             admin_grantable,
             details,
             preset_source,

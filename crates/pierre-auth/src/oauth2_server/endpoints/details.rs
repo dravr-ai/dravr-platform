@@ -42,9 +42,10 @@ impl OAuth2AuthorizationServer {
         };
         let requested = parse_authorization_details(raw)?;
         // A step-up preset is granted only as a child of a live grant, after
-        // a fresh sign-in (carnet#1544 slice 4b); until that path is offered
-        // it is never resolved here, so no ordinary consent grants it.
-        if requested.requires_step_up() {
+        // a fresh sign-in (carnet#1544 slice 4b); while the step-up screen is
+        // not offered (its words are not in the catalogue) it is never
+        // resolved here, so no consent grants it.
+        if requested.requires_step_up() && !self.step_up_offered {
             return Err(OAuth2Error::invalid_authorization_details(
                 "step-up is not offered yet",
             ));

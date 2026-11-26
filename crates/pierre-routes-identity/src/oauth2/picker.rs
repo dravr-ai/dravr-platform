@@ -46,7 +46,8 @@ use pierre_contremaitre::consent_strings::{
     KEY_CONSENT_GRANT_PURPOSE, KEY_CONSENT_GRANT_REQUESTED, KEY_CONSENT_GRANT_SLEEP_COACH,
     KEY_CONSENT_GRANT_SLEEP_COACH_HINT, KEY_CONSENT_GRANT_TRAINING_COACH,
     KEY_CONSENT_GRANT_TRAINING_COACH_HINT, KEY_CONSENT_GRANT_TRAINING_COACH_SUMMARY_HINT,
-    PRESET_KEY_STANDING_POLICY,
+    PRESET_KEY_STANDING_POLICY, PRESET_KEY_STEP_UP_HOST, PRESET_KEY_STEP_UP_T2_DISCLOSURE,
+    PRESET_KEY_STEP_UP_TITLE, STEP_UP_SCREEN_KEYS,
 };
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::time_constants;
@@ -110,6 +111,17 @@ pub(super) const CONSENT_CHANGED: &str =
 pub(super) fn offered(strings: &MessagingStringsRegistry) -> bool {
     let english = ConsentText::new(strings, "en");
     GRANT_KEYS.iter().all(|key| !english.line(key).is_empty())
+}
+
+/// Whether the catalogue words the step-up screen, in English at least: a
+/// step-up request is resolved only then (carnet#1544 slice 4b), and refused
+/// before sign-in otherwise.
+pub(super) fn step_up_offered(strings: &MessagingStringsRegistry) -> bool {
+    let english = ConsentText::new(strings, "en");
+    offered(strings)
+        && STEP_UP_SCREEN_KEYS
+            .iter()
+            .all(|key| !english.line(key).is_empty())
 }
 
 /// One of the picker's choices.
@@ -226,6 +238,13 @@ impl GrantChoice {
         };
         match &self.offer {
             Offer::Plain { review_digest } => hidden(FIELD_DIGEST, review_digest),
+            Offer::Requested {
+                details,
+                raw,
+                review_digest,
+            } if details.preset().requires_step_up() => {
+                step_up_html(details, raw, review_digest, client, text)
+            }
             Offer::Requested {
                 details,
                 raw,
@@ -438,6 +457,42 @@ fn requested_html(
     html
 }
 
+/// The step-up screen's details: a one-off look that includes health
+/// records (T2), read once and then ended, how long it may wait to be used,
+/// the host's own unverifiable declaration, and the client's purpose in its
+/// own words. No standing-policy box: a policy never renews a T2 grant (owl
+/// §6.4).
+fn step_up_html(
+    details: &ResolvedDetails,
+    raw: &str,
+    review_digest: &str,
+    client: &str,
+    text: &ConsentText<'_>,
+) -> String {
+    let mut html = format!(
+        r#"<div class="scopes grant-requested step-up"><p class="grant-label">{}</p><p>{} {}</p><p class="step-up-host">{}</p>"#,
+        text.html(PRESET_KEY_STEP_UP_TITLE, &[client]),
+        text.html(PRESET_KEY_STEP_UP_T2_DISCLOSURE, &[client]),
+        lasts_line(details, text),
+        text.html(PRESET_KEY_STEP_UP_HOST, &[client]),
+    );
+    if let Some(purpose) = details.purpose_description() {
+        write!(
+            html,
+            "<p>{}</p>",
+            text.html(
+                KEY_CONSENT_GRANT_PURPOSE,
+                &[client, &escape_html_attribute(purpose)]
+            )
+        )
+        .ok();
+    }
+    html.push_str(&hidden("authorization_details", raw));
+    html.push_str(&hidden(FIELD_DIGEST, review_digest));
+    html.push_str("</div>");
+    html
+}
+
 /// The details the athlete approved with `form` for `checked`: a request's
 /// own, a preset the picker offered, or `None` for the plain grant; and the
 /// field the screen carried their digest in.
@@ -577,6 +632,7 @@ mod tests {
             client_name: None,
             consent_every_time: false,
             unstored_client: None,
+            client_host_profile: None,
             admin_grantable: false,
             details: None,
             preset_source: Some(SOURCE.to_owned()),

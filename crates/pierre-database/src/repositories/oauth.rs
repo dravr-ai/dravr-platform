@@ -10,10 +10,11 @@ use pierre_core::errors::AppResult;
 
 use pierre_core::models::TenantId;
 use pierre_core::models::{
-    ChildGrant, ClientGrantStanding, ConnectionType, DeviceAuthorization, GrantActor, GrantApproval,
-    OAuth2AuthCode, OAuth2Client, OAuth2ClientSweep, OAuth2PushedRequest, OAuth2RefreshToken,
-    OAuth2State, OAuthClientGrant, OAuthClientState, ProviderAccountRole, ProviderConnection,
-    ReauthMark, StravaPoolApp, StravaSeatHolder, StravaTokenApp, UserOAuthApp, UserOAuthToken,
+    ChildGrant, ClientGrantStanding, ConnectionType, DeviceAuthorization, GrantActor,
+    GrantApproval, OAuth2AuthCode, OAuth2Client, OAuth2ClientSweep, OAuth2PushedRequest,
+    OAuth2RefreshToken, OAuth2State, OAuthClientGrant, OAuthClientState, ProviderAccountRole,
+    ProviderConnection, ReauthMark, StravaPoolApp, StravaSeatHolder, StravaTokenApp, UserOAuthApp,
+    UserOAuthToken,
 };
 use uuid::Uuid;
 
@@ -457,6 +458,17 @@ pub trait OAuth2ServerRepository: Send + Sync {
         now: Timestamp,
     ) -> AppResult<bool>;
 
+    /// Record the Host Profile public client `client_id`'s metadata document
+    /// declares (owl §6.2 carrier A, `{"tier_max", "version"}` as JSON), or
+    /// `None` when it declares none. A confidential client is never written.
+    async fn set_client_host_profile(
+        &self,
+        client_id: &str,
+        host_profile: Option<&str>,
+    ) -> AppResult<()>;
+    /// The Host Profile `client_id`'s metadata document declared; `None` for
+    /// a client that declared none, and for every client registered by DCR.
+    async fn client_host_profile(&self, client_id: &str) -> AppResult<Option<String>>;
     /// Record a step-up child grant under the live parent its terms name
     /// (carnet#1544 slice 4b, owl §7.6): the parent's previous live child is
     /// revoked, the child inserted and its `step_up` receipt written, in one

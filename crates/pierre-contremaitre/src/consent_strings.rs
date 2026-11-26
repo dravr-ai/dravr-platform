@@ -138,6 +138,28 @@ pub const KEY_CONSENT_GRANT_COMMITMENTS: &str = "oauth.consent.grantCommitments"
 /// preset, renewing it without asking again
 pub const PRESET_KEY_STANDING_POLICY: &str = "oauth.consent.standingPolicy";
 
+// The step-up screen's lines (owl Phase 5, slice 4b): named PRESET_KEY_*
+// ahead of the catalogue, as the standing-policy line is. While the English
+// line of any is empty, the step-up screen is not offered and a step-up
+// request is refused before sign-in ("step-up is not offered yet").
+
+/// Key: the step-up screen's title: `{0}`, the client, asks for a one-off
+/// look that includes health records
+pub const PRESET_KEY_STEP_UP_TITLE: &str = "oauth.consent.stepUpTitle";
+/// Key: what a one-off grant discloses: health records (T2) among what it
+/// reads, read once, then ended. `{0}`, the client
+pub const PRESET_KEY_STEP_UP_T2_DISCLOSURE: &str = "oauth.consent.stepUpT2Disclosure";
+/// Key: the host's own declaration, which Dravr cannot verify: `{0}`, the
+/// client, says it handles health records with care
+pub const PRESET_KEY_STEP_UP_HOST: &str = "oauth.consent.stepUpHost";
+
+/// Every line the step-up screen shows beside the requested details'.
+pub const STEP_UP_SCREEN_KEYS: [&str; 3] = [
+    PRESET_KEY_STEP_UP_TITLE,
+    PRESET_KEY_STEP_UP_T2_DISCLOSURE,
+    PRESET_KEY_STEP_UP_HOST,
+];
+
 /// Every line the consent screen can show.
 ///
 /// What the user reads when they choose Allow access.
@@ -145,7 +167,7 @@ pub const PRESET_KEY_STANDING_POLICY: &str = "oauth.consent.standingPolicy";
 /// a key the screen renders and this list leaves out is a wording change
 /// nobody is asked again about; its test holds every `oauth.consent.` key in
 /// the catalogue to this list.
-pub const CONSENT_SCREEN_KEYS: [&str; 52] = [
+pub const CONSENT_SCREEN_KEYS: [&str; 55] = [
     KEY_CONSENT_TITLE,
     KEY_CONSENT_LEAD,
     KEY_CONSENT_RETURNS_TO,
@@ -198,6 +220,9 @@ pub const CONSENT_SCREEN_KEYS: [&str; 52] = [
     KEY_CONSENT_GRANT_PURPOSE,
     KEY_CONSENT_GRANT_COMMITMENTS,
     PRESET_KEY_STANDING_POLICY,
+    PRESET_KEY_STEP_UP_TITLE,
+    PRESET_KEY_STEP_UP_T2_DISCLOSURE,
+    PRESET_KEY_STEP_UP_HOST,
 ];
 
 /// Key: "Connection Failed": the error page's title and heading. No format placeholders.

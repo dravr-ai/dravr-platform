@@ -24,6 +24,7 @@ use super::admin_access;
 use super::consent_text::ConsentText;
 use super::consent_version::ConsentSubject;
 use super::picker;
+use super::step_up::{self, StepUpApproval};
 use super::{OAuth2Context, OAuth2Routes};
 use crate::authorize_redirect::{error_redirect, rejection_response};
 
@@ -209,6 +210,50 @@ impl OAuth2Routes {
             );
         }
 
+        // A step-up records a child of the client's live grant, after a
+        // sign-in on this server's page at most five minutes old; its code
+        // names the parent (carnet#1544 slice 4b).
+        if let Some(one_off) = details
+            .as_ref()
+            .filter(|details| step_up::asks_step_up(Some(details)))
+        {
+            let recorded = Self::approve_step_up(
+                &context,
+                &headers,
+                StepUpApproval {
+                    client_id: &request.client_id,
+                    details: one_off,
+                    review_digest,
+                    consent_locale: text.lang().to_owned(),
+                    zone: athlete_zone(user.timezone.as_deref()),
+                    auth_time: Timestamp::now(),
+                },
+                user_id,
+                tenant_id.clone(),
+            )
+            .await;
+            return match recorded {
+                Ok(parent_grant_id) => {
+                    Self::mint_authorization_code(
+                        &context,
+                        request,
+                        user_id,
+                        tenant_id,
+                        redirect_uri,
+                        AdminAccess::Withheld,
+                        Some(parent_grant_id),
+                    )
+                    .await
+                }
+                Err(error) => error_redirect(
+                    &context.config.issuer_url,
+                    &redirect_uri,
+                    request.state.as_deref(),
+                    &error,
+                ),
+            };
+        }
+
         // No record, no code: the athlete can neither see nor revoke a grant
         // that was not written, and a code would connect the client anyway.
         // The code names the grant actually stored, so its tokens stand and
@@ -248,6 +293,41 @@ impl OAuth2Routes {
             redirect_uri,
             access,
             Some(client_grant_id),
+        )
+        .await
+    }
+
+    /// Approve a step-up for `user_id`: the sign-in cookie `headers` carry
+    /// must be this server's own, at most five minutes old, and the grant's
+    /// tenant resolve. Returns the parent grant's id.
+    ///
+    /// # Errors
+    /// `access_denied` for a stale sign-in, and as
+    /// [`Self::record_step_up`] refuses; `server_error` when the tenant
+    /// cannot be resolved.
+    async fn approve_step_up(
+        context: &OAuth2Context,
+        headers: &HeaderMap,
+        approval: StepUpApproval<'_>,
+        user_id: Uuid,
+        tenant_id: Option<String>,
+    ) -> Result<String, OAuth2Error> {
+        let Some(auth_time) = Self::fresh_sign_in(headers, context, Timestamp::now()).await else {
+            warn!(user_id = %user_id, "Step-up refused: no sign-in on this page in the last five minutes");
+            return Err(OAuth2Error::access_denied(step_up::STEP_UP_SIGN_IN_STALE));
+        };
+        let Some(tid) = Self::resolve_grant_tenant(context, user_id, tenant_id).await else {
+            error!(user_id = %user_id, "Step-up not recorded: the grant has no tenant");
+            return Err(OAuth2Error::server_error(CONSENT_NOT_RECORDED));
+        };
+        Self::record_step_up(
+            context,
+            StepUpApproval {
+                auth_time,
+                ..approval
+            },
+            user_id,
+            &tid,
         )
         .await
     }

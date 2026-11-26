@@ -87,6 +87,8 @@ mod pages;
 mod par;
 /// What the consent screen offers to grant, and the review digest of each choice
 mod picker;
+/// The step-up approval of a one-off T2 question
+mod step_up;
 /// RFC 7009 token revocation
 mod revoke;
 /// The sign-in cookie: its name, value and reading.
@@ -349,6 +351,19 @@ impl OAuth2Routes {
             return Redirect::to(&login_url).into_response();
         };
 
+        // A step-up is approved only after a sign-in on this page at most
+        // five minutes old: any other session signs in again first
+        // (carnet#1544 slice 4b).
+        if step_up::asks_step_up(checked.details.as_ref())
+            && Self::fresh_sign_in(&headers, &context, Timestamp::now())
+                .await
+                .is_none()
+        {
+            info!("Step-up authorization without a fresh sign-in, redirecting to login");
+            return Redirect::to(&Self::build_login_url_with_oauth_params(&request))
+                .into_response();
+        }
+
         Self::execute_authorization(
             &context,
             request,
@@ -608,6 +623,7 @@ impl OAuth2Routes {
             context.refresh_token_expiry_days,
         )
         .with_token_limiter(context.rate_limiter.clone())
+        .with_step_up_offered(picker::step_up_offered(&context.strings))
     }
 
     /// Mint an authorization code and redirect back to the client.
