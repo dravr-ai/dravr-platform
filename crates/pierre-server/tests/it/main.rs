@@ -669,6 +669,7 @@ mod oauth_notification_test;
 mod oauth_routes_test;
 mod oauth_scope_gate_test;
 mod oauth_standing_policy_test;
+mod oauth_step_up_migration_test;
 mod oauth_template_test;
 mod oauth_tenant_regression_test;
 mod oauth_token_refresh_test;

@@ -41,6 +41,7 @@ use dravr_tronc::mcp::tasks::{
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext, ToolRegistry};
 use pierre_auth::auth::AuthResult;
 use pierre_auth::config::www_authenticate_challenge;
+use pierre_auth::oauth2_server::cimd::host_profile_tier;
 use pierre_auth::oauth2_server::first_party::names_third_party;
 use pierre_auth::oauth2_server::step_up_scope::challenge_scope;
 use pierre_config::timeouts::ServerTimeouts;
@@ -278,8 +279,15 @@ impl PierreAuthHook {
     /// The step-up scope a `tools/call` in `request` is challenged with: a
     /// call under a consent grant's ceiling that the ceiling refuses and a
     /// one-off question would open ([`tool_access::step_up_cure`]), while the
-    /// step-up screen is worded; `None` for every other request.
-    fn step_up_scope_for(&self, request: &JsonRpcRequest, auth: &AuthResult) -> Option<String> {
+    /// step-up screen is worded, from a client that can complete a step-up
+    /// (its metadata document declares a Host Profile T2, which every
+    /// step-up needs); `None` for every other request, which the dispatch
+    /// chokepoint refuses in band.
+    async fn step_up_scope_for(
+        &self,
+        request: &JsonRpcRequest,
+        auth: &AuthResult,
+    ) -> Option<String> {
         let ceiling = auth.ceiling.as_ref()?;
         let name = called_tool(request)?;
         if !step_up_worded(&self.resources.mcp.messaging_strings_registry) {
@@ -297,6 +305,21 @@ impl PierreAuthHook {
             &auth.scopes,
             ceiling,
         )?;
+        let client_id = auth.client_id.as_deref()?;
+        let declared = self
+            .resources
+            .common
+            .repos
+            .oauth2_server
+            .client_host_profile(client_id)
+            .await
+            .inspect_err(|e| warn!(client_id, "a client's Host Profile could not be read: {e}"))
+            .ok()
+            .flatten();
+        declared
+            .as_deref()
+            .and_then(host_profile_tier)
+            .filter(|tier| tier.eq_ignore_ascii_case("T2"))?;
         Some(challenge_scope(
             &OAuthScope::render_granted(&auth.scopes),
             &streams,
@@ -468,7 +491,8 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
                 // A call a step-up would cure, rendered here for the reason
                 // the scope refusal is: the dispatch chokepoint answers the
                 // same call in band, from the same predicate.
-                if let Some(scope) = self.step_up_scope_for(request, &auth_result) {
+                // Boxed: the hook's future rides in every request's.
+                if let Some(scope) = Box::pin(self.step_up_scope_for(request, &auth_result)).await {
                     debug!(
                         scope,
                         "MCP request rejected: a step-up would open what this tool reads"

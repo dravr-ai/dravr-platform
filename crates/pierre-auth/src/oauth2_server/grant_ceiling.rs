@@ -170,14 +170,21 @@ impl GrantCeiling {
 
     /// Whether a step-up could cure a call reading `streams` this ceiling
     /// refuses: each is a stream a one-off question may pick (owl §3.1, the
-    /// summary streams of tiers T0 to T2) and this grant's own does not
-    /// cover it. A T3 stream never qualifies.
+    /// summary streams of tiers T0 to T2), this grant's own does not cover
+    /// one of them, and one of them is T2. A T3 stream never qualifies.
+    ///
+    /// A step-up is the athlete's fresh sign-in for health records (owl
+    /// §6.1: every T2 grant). A call reading only T0 or T1 streams its grant
+    /// leaves out (a sleep grant's call for workouts) is not cured by a
+    /// one-off T2 question: it stays `stream_not_granted`, which the client
+    /// answers by asking for another preset.
     #[must_use]
     pub fn step_up_cures(&self, streams: &[Stream]) -> bool {
         let own = self.for_streams(&[]);
         let one_off = Preset::OneOffQuestion.streams();
         !streams.is_empty()
             && streams.iter().all(|stream| one_off.contains(stream))
+            && streams.iter().any(|stream| stream.tier() == Tier::T2)
             && streams
                 .iter()
                 .any(|stream| !own.holds(*stream) || !own.reaches(stream.tier()))
@@ -483,6 +490,20 @@ mod tests {
         assert!(
             !parent.step_up_cures(&[Stream::Sleep]),
             "bug: a held stream curable"
+        );
+        let sleep = GrantCeiling::of_details(
+            "s",
+            &approved(&preset_defaults(Preset::SleepCoach, MCP)),
+            &Zone::utc(),
+        )
+        .unwrap();
+        assert!(
+            !sleep.holds(Stream::Workout) && !sleep.step_up_cures(&[Stream::Workout]),
+            "bug: a T1 stream outside the grant curable by a T2 step-up"
+        );
+        assert!(
+            sleep.step_up_cures(&[Stream::Workout, Stream::Labs]),
+            "bug: a T2 read beside a T1 stream outside the grant not curable"
         );
         assert!(
             !parent.step_up_cures(&[Stream::RestrictedNotes]),

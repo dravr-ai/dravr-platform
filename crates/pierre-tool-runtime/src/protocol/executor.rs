@@ -859,7 +859,7 @@ impl UniversalExecutor {
         // ones without a grant reaching T2 (`tier_gate`, carnet#1544).
         let call_data = self.resources.tool_registry().call_data(&tool_name, &args);
         let streams = call_data.map_or(&[][..], |data| data.streams());
-        let claim = self.single_use_claim(&tool_name, parties, call_ceiling.as_ref());
+        let claim = Box::pin(self.single_use_claim(&tool_name, parties, call_ceiling.as_ref()));
         let execute = tier_gate::gated(&tool_name, streams, async move {
             // Past the tier gate a single-use grant is spent before it reads.
             if let Some(consumed) = claim.await {
