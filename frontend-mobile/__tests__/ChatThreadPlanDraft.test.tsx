@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The coach's plan thread on the phone — the open draft drawn whenever no card in the thread shows it, and the one-tap start
-// ABOUTME: Also pins that a composer whose thread is not yet read shows no placeholder, never the athlete's words
+// ABOUTME: Also pins that a composer whose thread is not yet read shows no placeholder, and that the athlete workspace draws no open draft and no day editor
 
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
@@ -19,13 +19,19 @@ jest.mock('../src/screens/chat/MessageList', () => {
     MessageList: ({
       planDraft,
       planStarter,
+      planSurface,
+      onBuildPlanDay,
     }: {
       planDraft?: React.ReactNode;
       planStarter?: { label: string; onPress: () => void; disabled: boolean } | null;
+      planSurface?: { kind: string } | null;
+      onBuildPlanDay?: unknown;
     }) =>
       React.createElement(
         View,
         null,
+        React.createElement(Text, { testID: 'list-plan-surface' }, planSurface?.kind ?? 'none'),
+        React.createElement(Text, { testID: 'list-builds-days' }, onBuildPlanDay ? 'yes' : 'no'),
         planDraft ?? null,
         planStarter
           ? React.createElement(
@@ -91,6 +97,7 @@ interface Setup {
   composerPending?: boolean;
   planSubjectName?: string | null;
   sendText?: ChatThreadProps['sendText'];
+  planSurface?: ChatThreadProps['planSurface'];
 }
 
 function renderThread({
@@ -101,6 +108,7 @@ function renderThread({
   composerPending = false,
   planSubjectName = 'Chloé Tremblay',
   sendText = jest.fn().mockResolvedValue(undefined),
+  planSurface = null,
 }: Setup) {
   // Only what the thread reads itself; every child that reads more is mocked.
   const messagesHook = {
@@ -134,6 +142,7 @@ function renderThread({
       planSubjectName={planSubjectName}
       planDraftRead={planDraftRead}
       composerPending={composerPending}
+      planSurface={planSurface}
     />,
   );
   return { sendText };
@@ -186,6 +195,35 @@ describe('ChatThread — the coach plan thread', () => {
     const { sendText } = renderThread({ planDraftRead: { open: null, noDraft: true }, turnInFlight: true });
     fireEvent.press(screen.getByTestId('starter'));
     expect(sendText).not.toHaveBeenCalled();
+  });
+});
+
+describe('ChatThread — the plan thread inside the athlete workspace', () => {
+  it('draws no open draft after the rows, its plan tab being where the draft is drawn', () => {
+    renderThread({ planDraftRead: OPEN, messages: [row('m1')], planSurface: { kind: 'workspace', onShowCalendar: jest.fn() } });
+
+    expect(screen.queryByTestId('open-draft')).toBeNull();
+    expect(screen.getByTestId('list-plan-surface')).toHaveTextContent('workspace');
+    // A day is edited on the plan tab, never from a card in the thread.
+    expect(screen.getByTestId('list-builds-days')).toHaveTextContent('no');
+  });
+
+  it('still offers the one-tap start while the coach holds no draft', () => {
+    const { sendText } = renderThread({
+      planDraftRead: { open: null, noDraft: true },
+      planSurface: { kind: 'workspace', onShowCalendar: jest.fn() },
+    });
+
+    fireEvent.press(screen.getByTestId('starter'));
+    expect(sendText).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves every other host as it was: the open draft drawn and the day editor offered', () => {
+    renderThread({ planDraftRead: OPEN, messages: [row('m1')] });
+
+    expect(screen.getByTestId('open-draft')).toHaveTextContent('draft-7');
+    expect(screen.getByTestId('list-plan-surface')).toHaveTextContent('none');
+    expect(screen.getByTestId('list-builds-days')).toHaveTextContent('yes');
   });
 });
 

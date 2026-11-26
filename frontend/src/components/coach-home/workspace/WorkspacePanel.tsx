@@ -9,24 +9,17 @@ import { History, Lock, Users, type LucideIcon } from 'lucide-react';
 import { useTranslation, type TFunction } from '@pierre/i18n';
 import { GROUP_ROOM_KEYS, PRIVATE_LANE_KEYS } from '@pierre/chat-utils';
 import type { CoachRosterAthlete } from '@pierre/shared-types';
-import { PLAN_WORKSPACE_KEYS, planHistoryLine } from '@pierre/ui-logic';
+import { PLAN_WORKSPACE_KEYS, planHistoryLine, type WorkspaceGroupTab } from '@pierre/ui-logic';
 import { Button, EmptyState, Tabs, type Tab } from '../../ui';
 import EmbeddedChat from '../../chat/EmbeddedChat';
 import type { PendingComposerAction, WorkspacePlanSurface } from '../../chat/types';
 import { useSubjectPlanHistory } from '../../../hooks/useSessionEditor';
-import type { WorkspaceRoom } from './useWorkspaceThreads';
 
 /** The panel's tabs: the plan's history, the coach's private thread with the agent, the athlete's room. */
 export type WorkspaceTab = 'history' | 'dravr' | 'group';
 
 /** The id prefix the tabs and the panel body share. */
 const PANEL_ID = 'athlete-workspace';
-
-/** What the Groupe tab holds: the athlete's room, why there is none, or the groups' read that failed. */
-export type WorkspaceGroupTab =
-  | { kind: 'room'; room: WorkspaceRoom }
-  | { kind: 'noRoom' }
-  | { kind: 'failed'; retry: () => void };
 
 /** The panel's tabs in the reader's words: Historique, the agent by its name, and Groupe when there is one. */
 function tabWords(t: TFunction, agentName: string, hasGroup: boolean): { id: WorkspaceTab; label: string }[] {

@@ -8,8 +8,10 @@ import { describe, expect, it } from 'vitest';
 import type { CoachingGroup, Conversation, PlanChangeEvent, PlanDay, WorkoutPlan } from '@pierre/shared-types';
 import {
   athleteRoomGroup,
+  canOpenWorkspace,
   planCalendarWeeks,
   planHistoryLine,
+  shownPlan,
   roomConversationOf,
   usablePlanThread,
 } from '../src/planWorkspace';
@@ -138,5 +140,28 @@ describe('the athlete\'s room and plan thread', () => {
     expect(usablePlanThread([room, thread], HALINA.user_id, 'g-traka')?.id).toBe('c-plan');
     expect(usablePlanThread([{ ...thread, archived_at: '2026-11-10T00:00:00Z' }], HALINA.user_id, 'g-traka')).toBeNull();
     expect(usablePlanThread([thread], HALINA.user_id, 'g-club')).toBeNull();
+  });
+});
+
+describe('canOpenWorkspace', () => {
+  const GROUP = { id: 'g-traka', name: 'TRAKA' };
+
+  it('opens for an athlete in one of the coach\'s groups, sharing or with no source yet', () => {
+    expect(canOpenWorkspace({ groups: [GROUP], status: 'shared' })).toBe(true);
+    expect(canOpenWorkspace({ groups: [GROUP], status: 'no_source' })).toBe(true);
+  });
+
+  it('never opens for an athlete who stopped sharing, or who is in none of the coach\'s groups', () => {
+    expect(canOpenWorkspace({ groups: [GROUP], status: 'no_coach_consent' })).toBe(false);
+    expect(canOpenWorkspace({ groups: [], status: 'shared' })).toBe(false);
+  });
+});
+
+describe('shownPlan', () => {
+  it('draws the draft while one is open, else the live plan, else nothing', () => {
+    const live = { ...PLAN, weeks_deferred: 1 };
+    expect(shownPlan({ draft: PLAN, live })).toBe(PLAN);
+    expect(shownPlan({ draft: null, live })).toBe(live);
+    expect(shownPlan({ draft: null, live: null })).toBeNull();
   });
 });

@@ -41,7 +41,10 @@ export function Section({ title, description, actions, children, className, test
     <View className={`min-w-0 ${className ?? ''}`} testID={testID}>
       <View className="flex-row items-start justify-between gap-4 px-4">
         <View className="flex-1 min-w-0">
-          <Text className="text-sm font-semibold text-text-primary">{title}</Text>
+          {/* A header to a screen reader, as the web's is an h2: moving heading by heading lands on each group. */}
+          <Text accessibilityRole="header" className="text-sm font-semibold text-text-primary">
+            {title}
+          </Text>
           {description !== undefined && (
             <Text className="text-sm text-text-secondary mt-0.5">{description}</Text>
           )}

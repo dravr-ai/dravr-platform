@@ -7,11 +7,13 @@
 import { COACH_CALL_KEYS, countKey, entriesByDate, formatList, type CountKeys, type Translate } from '@pierre/chat-utils';
 import type {
   CoachingGroup,
+  CoachRosterAthlete,
   Conversation,
   PlanChangeEvent,
   PlanChangeKind,
   PlanDay,
   PlanWeek,
+  SubjectPlanResponse,
   WorkoutPlan,
 } from '@pierre/shared-types';
 import { instantMs } from '@pierre/shared-types';
@@ -114,6 +116,14 @@ function timingOf(date: string, today: string): PlanDateTiming {
 }
 
 /**
+ * The plan a coach's workspace draws from a subject-plan read: the draft
+ * while one is open, else the live plan; `null` for an athlete with neither.
+ */
+export function shownPlan(subject: Pick<SubjectPlanResponse, 'draft' | 'live'>): WorkoutPlan | null {
+  return subject.draft ?? subject.live;
+}
+
+/**
  * The plan's weeks as the workspace calendar draws them: each week's seven
  * dates from its Monday, a date the plan holds nothing on included, each
  * date's entries in order, the dates `proposed` names marked. A week whose
@@ -189,6 +199,15 @@ export function planHistoryLine(event: PlanChangeEvent, words: PlanHistoryWords)
     language,
   );
   return { when, who, what: `${label} · ${dates}` };
+}
+
+/**
+ * Whether a coach can open `athlete`'s workspace: its plan is worked through
+ * a group's coaching link, so an athlete in no group of the coach's has none,
+ * and not at all once the athlete stopped sharing with the coach.
+ */
+export function canOpenWorkspace(athlete: Pick<CoachRosterAthlete, 'groups' | 'status'>): boolean {
+  return athlete.groups.length > 0 && athlete.status !== 'no_coach_consent';
 }
 
 /**

@@ -13,7 +13,8 @@ export default function HomeLayout() {
   return (
     <Stack screenOptions={useStackScreenOptions()}>
       <Stack.Screen name="index" options={{ title: t('nav.home') }} />
-      <Stack.Screen name="athlete/[athleteId]" options={{ title: '' }} />
+      <Stack.Screen name="athlete/[athleteId]/index" options={{ title: '' }} />
+      <Stack.Screen name="athlete/[athleteId]/plan" options={{ title: '' }} />
       <Stack.Screen name="replies" options={{ title: t('coachReview.nav') }} />
     </Stack>
   );

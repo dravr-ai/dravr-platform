@@ -8,7 +8,7 @@ import { createCoachGroupSetupHook, createGroupHooks, type GroupFreshness } from
 import { chatApi, groupsApi } from '../services/api';
 
 /** The mobile client's freshness for the group reads the two clients set differently. */
-const MOBILE_GROUP_FRESHNESS: GroupFreshness = {
+export const MOBILE_GROUP_FRESHNESS: GroupFreshness = {
   detail: 60_000,
   members: 60_000,
   stats: 5 * 60_000,

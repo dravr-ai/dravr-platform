@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Where each of Coach Home's actions goes on the phone — the group's room, or the coach's plan thread on the athlete
-// ABOUTME: Each action opens a screen the app has: the group's room (found or opened by the server, once per tap), the plan thread, or the reply review
+// ABOUTME: Where each of Coach Home's actions goes on the phone — the group's room, the coach's plan thread on the athlete, or their workspace
+// ABOUTME: Each action opens a screen the app has: the group's room (found or opened by the server, once per tap), the plan thread, the workspace, or the reply review
 
 import { useCallback } from 'react';
 import { Alert } from 'react-native';
@@ -12,7 +12,7 @@ import { useTranslation } from '@pierre/i18n';
 import { GROUP_ROOM_KEYS } from '@pierre/chat-utils';
 import { openThreadRefusalText } from '@pierre/ui-logic';
 import { useOpenAthleteThread, useOpenGroupRoom } from '../../hooks/useCoachPlan';
-import { coachRepliesHref, threadHref } from '../../navigation/routes';
+import { coachRepliesHref, coachWorkspaceHref, threadHref } from '../../navigation/routes';
 
 /** The group an action about `athlete` acts in: the one the reason names, else the athlete's first. */
 export function actionGroupId(athlete: CoachRosterAthlete, reason: CoachAttentionReason | null): string | null {
@@ -29,6 +29,8 @@ export interface CoachDestinations {
   openReplies: (athlete: CoachRosterAthlete) => void;
   /** Open the coach's plan thread on the athlete. */
   openPlanThread: (athlete: CoachRosterAthlete, reason: CoachAttentionReason | null) => void;
+  /** Open the coach's workspace on the athlete: the plan, its history and their threads (carnet#1818). */
+  openWorkspace: (athlete: CoachRosterAthlete) => void;
   /** The athlete whose plan thread is opening, while one is. */
   pendingAthleteId: string | null;
   /** The athlete whose group room is opening, while one is: its buttons wait and say so. */
@@ -84,6 +86,11 @@ export function useCoachDestinations(): CoachDestinations {
     [router],
   );
 
+  const openWorkspace = useCallback(
+    (athlete: CoachRosterAthlete) => router.push(coachWorkspaceHref(athlete.user_id)),
+    [router],
+  );
+
   const perform = useCallback(
     (action: CoachAttentionAction, athlete: CoachRosterAthlete, reason: CoachAttentionReason) => {
       switch (action) {
@@ -103,5 +110,5 @@ export function useCoachDestinations(): CoachDestinations {
     [openPlanThread, openReplies, writeToGroup],
   );
 
-  return { writeToGroup, perform, openReplies, openPlanThread, pendingAthleteId, pendingRoomAthleteId };
+  return { writeToGroup, perform, openReplies, openPlanThread, openWorkspace, pendingAthleteId, pendingRoomAthleteId };
 }

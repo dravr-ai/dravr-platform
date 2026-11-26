@@ -3,7 +3,7 @@
 
 import React from 'react';
 import { Pressable, View, Text } from 'react-native';
-import { countKey, countsAsLine, fuelParts, outsideEvidenceLabel, stepDuration } from '@pierre/chat-utils';
+import { COACH_CALL_KEYS, countKey, countsAsLine, fuelParts, outsideEvidenceLabel, stepDuration } from '@pierre/chat-utils';
 import { PLAN_HARD_PER_WEEK_KEYS, PLAN_MORE_WEEKS_KEYS } from '@pierre/shared-constants';
 import {
   canAddSession,
@@ -233,11 +233,16 @@ function Season({ plan }: { plan: WorkoutPlan }) {
  * naming no family — says it is not checked against a family's evidence.
  * Only a draft carries either, so the athlete's card and Home never show
  * them. `children` end the row: the coach's actions on it.
+ *
+ * The athlete workspace names each date in a heading of its own, so its rows
+ * drop the date column altogether (`dateColumn={false}`) rather than leave
+ * its width empty.
  */
 export function DayRow({
   day,
   position = 0,
   showDate = true,
+  dateColumn = true,
   children,
 }: {
   day: PlanDay;
@@ -245,6 +250,8 @@ export function DayRow({
   position?: number;
   /** Whether the row leads with the date: a date's first entry does, the ones after it do not. */
   showDate?: boolean;
+  /** Whether the row keeps the date column at all; without it neither the date nor its width is drawn. */
+  dateColumn?: boolean;
   children?: React.ReactNode;
 }) {
   const { t, language } = useTranslation();
@@ -254,7 +261,7 @@ export function DayRow({
   const id = `${day.date}-${position}`;
   return (
     <View className="flex-row mt-2" testID={`workout-plan-day-${id}`}>
-      {showDate ? (
+      {!dateColumn ? null : showDate ? (
         <Text className={`w-24 text-sm text-text-secondary ${FIGURE}`}>
           {formatCivilDate(day.date, language, ROW_DATE)}
         </Text>
@@ -305,7 +312,7 @@ export function DayRow({
         {day.coach_call ? (
           <Badge
             variant="neutral"
-            label={t('humanCoach.coachCall.badge')}
+            label={t(COACH_CALL_KEYS.badge)}
             className="mt-1 self-start"
             testID="plan-day-coach-call"
           />

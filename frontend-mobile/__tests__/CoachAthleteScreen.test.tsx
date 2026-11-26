@@ -10,7 +10,7 @@ import { act, fireEvent, render, waitFor, within } from '@testing-library/react-
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { i18n } from '@pierre/i18n';
 import type { CoachBrief, CoachBriefUpdate, CoachRosterAthlete, CoachRosterResponse } from '@pierre/shared-types';
-import { HUGO, JULIEN, LEA, MATHIEU, ROSTER, day, reason } from '../integration/app/helpers/coachRosterFixtures';
+import { CAMILLE, HUGO, JULIEN, LEA, MATHIEU, ROSTER, day, reason } from '../integration/app/helpers/coachRosterFixtures';
 
 const mockPush = jest.fn();
 let mockAthleteId = 'lea';
@@ -405,6 +405,46 @@ describe('actions', () => {
     const screen = renderAthlete('camille');
     await screen.findByTestId('coach-agent-block');
     expect(screen.queryByTestId('coach-agent-replies-link')).toBeNull();
+  });
+
+  it("opens the athlete's workspace from « Open the plan », pushed in the Home stack", async () => {
+    const screen = renderAthlete('lea');
+    const open = await screen.findByTestId('coach-open-workspace');
+    expect(open).toHaveTextContent('Open the plan');
+    fireEvent.press(open);
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/(app)/(tabs)/(home)/athlete/[athleteId]/plan', params: { athleteId: 'lea' } });
+    expect(mockOpenThread).not.toHaveBeenCalled();
+  });
+
+  it('draws « Open the plan » as the one filled button only when no reason has an action of its own', async () => {
+    // The touchable's host view does not carry the className; the element does.
+    const ground = (screen: ReturnType<typeof renderAthlete>, testID: string): string => {
+      const { TouchableOpacity } = require('react-native');
+      const button = screen.UNSAFE_getAllByType(TouchableOpacity).find((node) => node.props.testID === testID);
+      return String(button?.props.className);
+    };
+    const withReason = renderAthlete('lea');
+    await withReason.findByTestId('coach-open-workspace');
+    expect(ground(withReason, 'coach-open-workspace')).toContain('bg-transparent');
+    expect(ground(withReason, 'coach-open-workspace')).not.toMatch(/\bbg-primary\b/);
+    expect(ground(withReason, 'coach-primary-action')).toMatch(/\bbg-primary\b/);
+    withReason.unmount();
+
+    const calm = renderAthlete('camille');
+    await calm.findByTestId('coach-open-workspace');
+    expect(ground(calm, 'coach-open-workspace')).toMatch(/\bbg-primary\b/);
+    expect(calm.queryByTestId('coach-primary-action')).toBeNull();
+  });
+
+  it('offers no workspace to an athlete who stopped sharing, or who is in none of the coach\'s groups', async () => {
+    const stopped = renderAthlete('maude');
+    await stopped.findByTestId('coach-actions');
+    expect(stopped.queryByTestId('coach-open-workspace')).toBeNull();
+    stopped.unmount();
+
+    const groupless = renderAthlete('camille', [{ ...CAMILLE, groups: [] }]);
+    await groupless.findByTestId('coach-actions');
+    expect(groupless.queryByTestId('coach-open-workspace')).toBeNull();
   });
 });
 
