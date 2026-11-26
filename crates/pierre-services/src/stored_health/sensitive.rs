@@ -88,9 +88,10 @@ mod tests {
     }
 
     /// The notes `rows` keep read over `transport` under consents
-    /// `withheld`, and the sensitive tally.
+    /// `withheld`, and how many were withheld: tallied once each, as off
+    /// the interface for an outside client and as the athlete's choice for
+    /// Dravr's own agent.
     async fn read(transport: Transport, withheld: &[&str]) -> (Vec<Option<String>>, usize) {
-        // The notes, and how many the interface's ceiling withheld.
         let withheld: BTreeSet<String> = withheld.iter().map(|key| (*key).to_owned()).collect();
         let (notes, tally) = serve_over(
             transport,
@@ -104,7 +105,7 @@ mod tests {
             ),
         )
         .await;
-        (notes, tally.off_interface)
+        (notes, tally.off_interface + tally.sensitive_reduced)
     }
 
     #[tokio::test]

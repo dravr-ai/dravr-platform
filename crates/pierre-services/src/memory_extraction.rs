@@ -27,7 +27,7 @@
 //! the [`crate::memory_extraction_resume`] sweep re-runs on whichever
 //! instance is alive.
 
-use pierre_core::transport::TransportPolicy;
+use pierre_core::transport::{Transport, TransportPolicy};
 use std::fmt;
 use std::fmt::Write as _;
 use std::sync::{Arc, LazyLock};
@@ -369,14 +369,20 @@ where
     // without `sensitive_t2`, the rest without `sensitive_t3` (carnet#1544).
     // The code's own same-sentence match still compares against every stored
     // fact the consents admit, so a restatement merges though the model never
-    // saw the fact it restates; the stored facts are never sent to it.
-    let candidates = ai_scope::for_model(async move {
-        let mut stored = existing;
-        ai_scope::retain_consented(&mut stored, |fact| &fact.ai_consent_sources, true);
-        let mut shown = stored.clone();
-        MemoryReach::now().retain_facts(&mut shown);
-        (stored, shown)
-    });
+    // saw the fact it restates; the stored facts are never sent to it. The
+    // extractor is Dravr's own model, a platform job, so it is declared one:
+    // a read declaring no transport counts as an outside client's, which T3
+    // never reaches (JF 2026-11-25).
+    let candidates = ai_scope::serve_over(
+        Transport::PlatformJob,
+        ai_scope::for_model(async move {
+            let mut stored = existing;
+            ai_scope::retain_consented(&mut stored, |fact| &fact.ai_consent_sources, true);
+            let mut shown = stored.clone();
+            MemoryReach::now().retain_facts(&mut shown);
+            (stored, shown)
+        }),
+    );
     let (stored, existing) = match req.consent_withheld {
         Some(withheld) => {
             ai_scope::with_ai_consent(withheld.iter().cloned().collect(), candidates).await

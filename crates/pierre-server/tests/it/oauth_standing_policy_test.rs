@@ -664,7 +664,13 @@ async fn the_box_ticked_beside_a_preset_stores_the_policy_that_renews_it() {
         authorize_query_as(&world, &request_query(&client, &fresh_state(), &[]), true).await;
     assert_eq!(screen.status(), 200, "{}", screen.body_text());
     let page = screen.body_text();
-    for preset in Preset::ALL {
+    // A step-up preset is never offered on ordinary consent (slice 4b), so
+    // it carries no box there.
+    let ordinary: Vec<Preset> = Preset::ALL
+        .into_iter()
+        .filter(|preset| !preset.requires_step_up())
+        .collect();
+    for preset in &ordinary {
         assert!(
             page.contains(&format!(r#"name="standing_policy_{}""#, preset.name())),
             "bug: no box beside {}: {page}",
@@ -682,7 +688,7 @@ async fn the_box_ticked_beside_a_preset_stores_the_policy_that_renews_it() {
     );
     assert_eq!(
         page.matches(line.as_str()).count(),
-        Preset::ALL.len(),
+        ordinary.len(),
         "bug: the box's line is not shown beside each preset: {page}"
     );
 
