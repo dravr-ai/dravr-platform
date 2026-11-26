@@ -424,8 +424,10 @@ module "backend" {
       #   incident corpus it gave 3 findings deferred against 6 with every
       #   tool loaded. A spent credit answers HTTP 400 invalid_request_error
       #   ("Your credit balance is too low"), not the 402 Anthropic
-      #   documents; embacle 0.47.1 maps that wording to RateLimit, so it
-      #   falls through like a quota. A credential that is dead under any
+      #   documents, and so does a reached Console spend limit ("You have
+      #   reached your specified API usage limits"); embacle 0.48.1 maps both
+      #   wordings to RateLimit, so the turn falls through to the next key
+      #   like a quota. A credential that is dead under any
       #   other wording is caught by the probe instead: a tier that cannot
       #   answer "ping" is benched and passed over
       #   (crates/pierre-llm/src/tier_bench.rs). Any quota answer fires

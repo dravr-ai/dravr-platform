@@ -216,11 +216,13 @@ pub(crate) fn note_tool_loop_fallback(
 
 /// Record a tool loop passing over a chain head inside its quota cooldown.
 ///
-/// Mirrors what embacle's chain does for the same skip: no `fallback: ` line
-/// (that line is a refusal, and the tier-quota alert counts it — this one was
-/// counted when the window started), and no "Runtime LLM fallback engaged"
-/// event (nothing failed: the head was not asked). The turn's provider
-/// attribution already names the tier that served it.
+/// Mirrors what embacle's chain does for the same skip: an info line with no
+/// `error` field (embacle's reads "fallback: provider passed over, trying
+/// next"), so the tier-quota alert, which counts a refusal by its error text,
+/// does not count it again — it was counted when the window started — and no
+/// "Runtime LLM fallback engaged" event (nothing failed: the head was not
+/// asked). The turn's provider attribution already names the tier that
+/// served it.
 pub(crate) fn note_tool_loop_cooldown_skip(
     from: &ChatProvider,
     to: &ChatProvider,
