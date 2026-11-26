@@ -109,6 +109,12 @@ export const PLAN_HARD_PER_WEEK_KEYS: CountKeys = {
   many: 'plan.card.hardPerWeekN',
 };
 
+/** The steps a plan session folds under in the Home day detail: « 1 étape », « 9 étapes ». */
+export const PLAN_DAY_STEPS_KEYS: CountKeys = {
+  one: 'home.calendar.stepsOne',
+  many: 'home.calendar.stepsN',
+};
+
 /** An API key's usage over the window: « 1 requête ces 30 derniers jours ». */
 export const API_KEY_REQUESTS_KEYS: CountKeys = {
   one: 'apiKeys.requests30dOne',

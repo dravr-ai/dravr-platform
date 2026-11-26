@@ -17,7 +17,7 @@ import {
   outsideEvidenceLabel,
   stepDuration,
 } from '@pierre/chat-utils';
-import { countKey, PLAN_HARD_PER_WEEK_KEYS, PLAN_MORE_WEEKS_KEYS } from '@pierre/shared-constants';
+import { countKey, PLAN_DAY_STEPS_KEYS, PLAN_HARD_PER_WEEK_KEYS, PLAN_MORE_WEEKS_KEYS } from '@pierre/shared-constants';
 import {
   civilDayMonth,
   dayIsUncheckedEdit,
@@ -38,7 +38,10 @@ import type {
 
 /** Where one entry sits on the card, for the action drawn under it. */
 export interface PlanEntryPlace {
-  /** The id of the date's cell, on the date's first row, for the action to be described by. */
+  /**
+   * The id of the date's cell, on the date's first row, for the action to be
+   * described by; the stacked list has no date cell and gives the entry's own title.
+   */
   dateId: string;
   /** The id of the entry's own title (or its rest word), telling a date's entries apart. */
   sessionId: string;
@@ -186,11 +189,11 @@ function Season({ plan }: { plan: WorkoutPlan }) {
  * its first row spanning the others. A row's keys and test ids carry its
  * place among the date's entries, which is its position (carnet#1716).
  *
- * The card lays a week out as a table, and the Home page's day detail draws
- * the same rows in a table of their own, so a date reads the same in both
- * places. `action` is drawn last in each entry's session cell.
+ * The card lays a week out as a table; the Home page's day detail stacks the
+ * same entries through `PlanDateList`, both drawing an entry's words with
+ * `EntryBody`. `action` is drawn last in each entry's session cell.
  */
-export function PlanDateRows({ entries, action }: { entries: readonly PlanDay[]; action?: PlanDayAction }) {
+function PlanDateRows({ entries, action }: { entries: readonly PlanDay[]; action?: PlanDayAction }) {
   const dateId = useId();
   return (
     <>
@@ -252,9 +255,6 @@ function DayRow({
   );
 }
 
-/** The steps' count, the fold's label in the day detail: « 9 étapes ». */
-const DAY_STEPS_KEYS = { one: 'home.calendar.stepsOne', many: 'home.calendar.stepsN' } as const;
-
 /**
  * A session's steps folded under their count, for a column too narrow to run
  * them inline: the button opens the list one step a line (carnet#1840).
@@ -273,7 +273,7 @@ function FoldedSteps({ steps }: { steps: readonly PlanStep[] }) {
         data-testid="plan-day-steps-toggle"
         className="inline-flex items-center gap-1 rounded font-medium text-on-surface transition-colors hover:text-primary focus-ring touch-target"
       >
-        {t(countKey(steps.length, language, DAY_STEPS_KEYS), { count: steps.length })}
+        {t(countKey(steps.length, language, PLAN_DAY_STEPS_KEYS), { count: steps.length })}
         <ChevronDown aria-hidden="true" className={clsx('h-3.5 w-3.5 transition-transform motion-reduce:transition-none', open && 'rotate-180')} />
       </button>
       <div id={listId} hidden={!open}>

@@ -203,6 +203,25 @@ describe('HomeWeek — this week', () => {
     expect(onOpenChatDraft).toHaveBeenCalledExactlyOnceWith(`Walk me through my session on ${named}: Tempo run`);
   });
 
+  it("keeps a rest entry's own question as its link in the open day, beside the session's short one", async () => {
+    const { onOpenChatDraft } = renderWeek(twoSessionPlan());
+    await loadedStrip();
+
+    // Tomorrow is rest with an optional spin beside it (carnet#1716).
+    await userEvent.click(screen.getByTestId('home-week-day-2026-09-25'));
+    const detail = screen.getByTestId('home-week-detail');
+    const named = formatCivilDate('2026-09-25', 'en', DRAFT_DATE);
+    const rest = within(detail).getByTestId('home-week-detail-draft-0');
+    expect(rest).toHaveTextContent(`Why is ${named} a rest day in my plan?`);
+    expect(rest).toHaveAccessibleDescription('Rest');
+    const spin = within(detail).getByTestId('home-week-detail-draft-1');
+    expect(spin).toHaveTextContent('Why this session?');
+    expect(spin).toHaveAccessibleDescription('Optional: easy spin');
+
+    await userEvent.click(rest);
+    expect(onOpenChatDraft).toHaveBeenCalledExactlyOnceWith(`Why is ${named} a rest day in my plan?`);
+  });
+
   it('closes the open day on a second tap', async () => {
     renderWeek();
     await loadedStrip();

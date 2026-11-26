@@ -42,8 +42,8 @@ const DAYS_PER_WEEK = 7;
  * The few characters the plan's day leaves in a cell: the minutes its
  * sessions add up to, else the first session's sport; a rest-only day is the
  * word (carnet#1716: a date may hold several sessions). Minutes are the
- * number alone: a narrow cell truncated « 82 min » to « 8… » (carnet#1840),
- * and the cell's label says them with their unit.
+ * number alone, so a narrow cell never truncates them to « 8… », and the
+ * cell's label says them with their unit (carnet#1840).
  */
 function planHint(t: TFunction, lookup: PlanDayLookup | null): string {
   if (lookup === null) return '';

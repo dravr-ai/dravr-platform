@@ -121,7 +121,7 @@ describe('HomeToday', () => {
   });
 
   it('names today and tomorrow in one line when both are empty, with no tomorrow line repeating it', () => {
-    // Past the fixture's last shown week, neither the 29th nor the 30th has an entry.
+    // The fixture's last week holds only the 28th, so neither the 29th nor the 30th has an entry.
     render(<HomeToday plan={homePlan()} calendar={calendarFor('2026-09-29')} onOpenChatDraft={vi.fn()} />);
 
     expect(screen.getByTestId('home-today-uncovered')).toHaveTextContent('Your plan has nothing today or tomorrow.');
