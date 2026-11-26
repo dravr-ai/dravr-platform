@@ -17,6 +17,8 @@ use pierre_core::models::{
 };
 use uuid::Uuid;
 
+use crate::clear_lock::ProviderClearLock;
+
 /// OAuth token storage repository (tenant-scoped, includes OAuth apps and sync tracking)
 #[async_trait]
 pub trait OAuthTokenRepository: Send + Sync {
@@ -577,6 +579,22 @@ pub trait ProviderConnectionRepository: Send + Sync {
         tenant_id: TenantId,
         provider: &str,
     ) -> AppResult<()>;
+    /// Hold the clear of `provider` (the user-facing name) for `user_id` in
+    /// `tenant_id` until the returned lock drops, waiting for a holder.
+    ///
+    /// Serialises disconnects of one pair, on every instance: taken across
+    /// the read of what is held and its clear, so a disconnect racing a
+    /// finished one reads nothing held (carnet#1838). See
+    /// [`clear_lock`](crate::clear_lock) for its two layers.
+    ///
+    /// # Errors
+    /// Returns a database error when the advisory lock cannot be taken.
+    async fn lock_clear(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<ProviderClearLock>;
     /// Remove a provider connection only when its type is
     /// [`ConnectionType::Delegated`]: ending a delegated link can never delete
     /// the member's own connection to the same provider. Returns whether a

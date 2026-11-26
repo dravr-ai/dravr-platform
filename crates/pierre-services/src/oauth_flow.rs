@@ -622,6 +622,16 @@ impl OAuthService {
     /// event who asked. Returns what the provider said about the grant, which
     /// never blocks the local deletion.
     ///
+    /// Safe to repeat: a pair none of whose backends is still held
+    /// (`provider_revocation::backend_held`) is left alone, with no
+    /// revocation, purge or event, and answers
+    /// [`RevocationOutcome::NoGrant`](provider_revocation::RevocationOutcome::NoGrant).
+    /// A disconnect that failed part way leaves a connection row standing, so
+    /// its retry clears the pair again. Disconnects of one pair arriving at
+    /// once are serialised by its clear lock, on every instance
+    /// ([`lock_clear`](pierre_database::repositories::ProviderConnectionRepository::lock_clear)):
+    /// one clears and emits, the others wait and find nothing held.
+    ///
     /// # Errors
     /// Returns error if provider is unsupported or disconnection fails
     pub async fn disconnect_provider(
@@ -647,35 +657,35 @@ impl OAuthService {
         let user_facing = backend_resolver::user_facing_name(provider).to_owned();
         let backends = disconnected_backends(provider, reason);
 
-        let mut outcomes = Vec::with_capacity(backends.len());
-        for backend in &backends {
-            outcomes.push(
-                provider_revocation::clear_backend(
-                    self, &self.data, user_id, tenant_id, backend, reason,
-                )
-                .await?,
-            );
-        }
-
-        // Post-condition: prove the state changed before reporting success (see
-        // `surviving_rows` for why a false success is invisible here). ERROR,
-        // not WARN, because the alert policy filters `severity>=ERROR` — a WARN
-        // would reach nobody, which is the same gap in a quieter form.
-        let survivors =
-            provider_revocation::surviving_rows(&self.data, user_id, tenant_id, &backends).await;
-        if !survivors.is_empty() {
-            error!(
-                requested = %provider,
-                user_facing = %user_facing,
+        // A pair with no backend held has nothing to clear: a repeat press, or
+        // a provider never connected. Clearing it again would re-run the
+        // revocation and the purge and count a second `provider.disconnected`
+        // (carnet#1838). Read without the lock, so a repeat takes none.
+        let (held, _) = self.split_held(user_id, tenant_id, &backends).await?;
+        if held.is_empty() {
+            debug!(
                 user_id = %user_id,
                 tenant_id = %tenant_id,
-                survivors = ?survivors,
-                "disconnect deleted its backends but rows survived — refusing to report success the client would render as disconnected"
+                provider = %user_facing,
+                reason = reason.as_str(),
+                "Disconnect found no backend of the provider held; nothing to clear"
             );
-            return Err(AppError::internal(format!(
-                "Disconnect of {user_facing} did not clear every stored credential"
-            )));
+            return Ok(provider_revocation::RevocationOutcome::NoGrant);
         }
+
+        let Some(outcomes) = self
+            .clear_if_held(
+                user_id,
+                tenant_id,
+                provider,
+                &user_facing,
+                &backends,
+                reason,
+            )
+            .await?
+        else {
+            return Ok(provider_revocation::RevocationOutcome::NoGrant);
+        };
 
         // notify: provider revoked. Emitted here rather than on any transport
         // so chat/MCP disconnects count the same as REST ones, and carries
@@ -693,6 +703,131 @@ impl OAuthService {
         );
 
         Ok(provider_revocation::RevocationOutcome::combine(outcomes))
+    }
+
+    /// Clear the pair under its clear lock, or `None` when none of
+    /// `backends` is held any more (a concurrent disconnect cleared it).
+    ///
+    /// The lock is held across the second read of what is held and the
+    /// clear, on every instance: a disconnect racing this one waits, then
+    /// reads nothing held.
+    async fn clear_if_held(
+        &self,
+        user_id: uuid::Uuid,
+        tenant_id: TenantId,
+        requested: &str,
+        user_facing: &str,
+        backends: &[String],
+        reason: DisconnectReason,
+    ) -> AppResult<Option<Vec<provider_revocation::RevocationOutcome>>> {
+        let lock = self
+            .data
+            .repos()
+            .provider_connections
+            .lock_clear(user_id, tenant_id, user_facing)
+            .await?;
+        let (held, rowless) = self.split_held(user_id, tenant_id, backends).await?;
+        if held.is_empty() {
+            drop(lock);
+            debug!(
+                user_id = %user_id,
+                tenant_id = %tenant_id,
+                provider = %user_facing,
+                reason = reason.as_str(),
+                "Disconnect waited behind a concurrent one that cleared the provider; nothing to clear"
+            );
+            return Ok(None);
+        }
+        // The backends the user does not hold are cleared first, for the rows
+        // filed under their key: should one of their purges fail, the held
+        // backends' connection rows still stand, so the retry runs again.
+        let outcomes = self
+            .clear_in_order(user_id, tenant_id, rowless.into_iter().chain(held), reason)
+            .await?;
+        Self::refuse_survivors(
+            &self.data,
+            user_id,
+            tenant_id,
+            requested,
+            user_facing,
+            backends,
+        )
+        .await?;
+        drop(lock);
+        Ok(Some(outcomes))
+    }
+
+    /// Split `backends` into those the user still holds in `tenant_id` and
+    /// those holding no row, in their order.
+    async fn split_held<'a>(
+        &self,
+        user_id: uuid::Uuid,
+        tenant_id: TenantId,
+        backends: &'a [String],
+    ) -> AppResult<(Vec<&'a String>, Vec<&'a String>)> {
+        let mut held = Vec::with_capacity(backends.len());
+        let mut rowless = Vec::with_capacity(backends.len());
+        for backend in backends {
+            if provider_revocation::backend_held(&self.data, user_id, tenant_id, backend).await? {
+                held.push(backend);
+            } else {
+                rowless.push(backend);
+            }
+        }
+        Ok((held, rowless))
+    }
+
+    /// Clear each of `backends` in the order given, stopping at the first
+    /// that fails, and collect what each provider said about its grant.
+    async fn clear_in_order<'a>(
+        &self,
+        user_id: uuid::Uuid,
+        tenant_id: TenantId,
+        backends: impl Iterator<Item = &'a String>,
+        reason: DisconnectReason,
+    ) -> AppResult<Vec<provider_revocation::RevocationOutcome>> {
+        let mut outcomes = Vec::new();
+        for backend in backends {
+            outcomes.push(
+                provider_revocation::clear_backend(
+                    self, &self.data, user_id, tenant_id, backend, reason,
+                )
+                .await?,
+            );
+        }
+        Ok(outcomes)
+    }
+
+    /// Refuse to report a disconnect whose backends still hold rows.
+    ///
+    /// The post-condition proves the state changed before success is reported
+    /// (see `surviving_rows` for why a false success is invisible otherwise).
+    /// Logged at ERROR, not WARN, because the alert policy filters
+    /// `severity>=ERROR` — a WARN would reach nobody.
+    async fn refuse_survivors(
+        data: &DataContext,
+        user_id: uuid::Uuid,
+        tenant_id: TenantId,
+        requested: &str,
+        user_facing: &str,
+        backends: &[String],
+    ) -> AppResult<()> {
+        let survivors =
+            provider_revocation::surviving_rows(data, user_id, tenant_id, backends).await;
+        if survivors.is_empty() {
+            return Ok(());
+        }
+        error!(
+            requested = %requested,
+            user_facing = %user_facing,
+            user_id = %user_id,
+            tenant_id = %tenant_id,
+            survivors = ?survivors,
+            "disconnect deleted its backends but rows survived — refusing to report success the client would render as disconnected"
+        );
+        Err(AppError::internal(format!(
+            "Disconnect of {user_facing} did not clear every stored credential"
+        )))
     }
 
     /// Generate OAuth authorization URL for provider

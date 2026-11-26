@@ -494,6 +494,10 @@ impl GarminPushHost for ServerHost {
             ),
             runtime,
         );
+        // The chokepoint emits `provider.disconnected` (provider, user,
+        // tenant and the `provider_revoked` reason) when it cleared the
+        // grant, and nothing when a repeated deregistration found none, so
+        // this path emits no event of its own (carnet#1838).
         withdrawal
             .disconnect(
                 owner.user_id,
@@ -503,13 +507,9 @@ impl GarminPushHost for ServerHost {
             )
             .await?;
         info!(
-            target: "notify",
-            event = "provider.disconnected",
-            provider = GARMIN,
             user_id = %owner.user_id,
             tenant_id = %owner.tenant_id,
-            reason = DisconnectReason::ProviderRevoked.as_str(),
-            "Garmin deregistered the athlete; their Garmin API connection and its data are deleted"
+            "Garmin deregistered the athlete; any Garmin API connection they held and its data are deleted"
         );
         Ok(())
     }

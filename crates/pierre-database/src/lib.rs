@@ -27,6 +27,9 @@ pub(crate) mod uuid_column;
 /// Keyed digests under the platform's Index key.
 pub mod keyed;
 
+/// The lock serialising the clear of one user's provider (carnet#1838).
+pub mod clear_lock;
+
 /// Repository trait definitions for each database domain.
 pub mod repositories;
 

@@ -1686,8 +1686,22 @@ async fn disconnecting_a_provider_deletes_the_routes_it_drew() {
         assert!(stored(&resources, &athlete, provider, id).await.is_some());
     }
 
-    // No Strava token is stored, so the revocation step sends nothing
-    // upstream; the purge is what is under test.
+    // The athlete holds Strava by its connection row alone: no token is
+    // stored, so the revocation step sends nothing upstream; the purge is
+    // what is under test.
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(
+            athlete.user_id,
+            athlete.tenant,
+            "strava",
+            &ConnectionType::OAuth,
+            None,
+        )
+        .await
+        .unwrap();
     OAuthService::new(
         resources.data(),
         Arc::new((*resources.common.config).clone()),

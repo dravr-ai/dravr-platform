@@ -19,6 +19,7 @@
 
 use crate::common;
 use crate::helpers::axum_test::AxumTestRequest;
+use crate::helpers::notify_capture::{capture_notify, named, only};
 use secrecy::SecretString;
 
 use std::io;
@@ -1565,6 +1566,75 @@ async fn a_deregistration_tells_a_grant_only_athlete_once_and_spares_a_session()
         captured.len(),
         1,
         "bug: the session's rows went with the grant"
+    );
+}
+
+/// A deregistration counts one `provider.disconnected`, the chokepoint's,
+/// however often Garmin redelivers it (carnet#1838): the worker emits none of
+/// its own, and a redelivery finds nothing held, so it counts none. An athlete holding only the usr/pwd connection is not the
+/// Garmin API athlete a deregistration names, and counts none.
+#[tokio::test]
+async fn a_deregistration_counts_one_provider_disconnected() {
+    let resources = context(None).await;
+    let (user_id, tenant_id) = seed_athlete(&resources).await;
+    let (events, _guard) = capture_notify();
+    for _delivery in 0..2 {
+        push(
+            &resources,
+            "deregistrations",
+            json!([{ "userId": GARMIN_USER }]),
+        )
+        .await;
+    }
+    let event = only(&events, "provider.disconnected");
+    assert_eq!(
+        event.field("provider"),
+        "garmin",
+        "bug: the deregistration's event names another provider"
+    );
+    assert_eq!(
+        event.field("user_id"),
+        user_id.to_string(),
+        "bug: the deregistration's event names another user"
+    );
+    assert_eq!(
+        event.field("tenant_id"),
+        tenant_id.to_string(),
+        "bug: the deregistration's event names another tenant"
+    );
+    assert_eq!(
+        event.field("reason"),
+        "provider_revoked",
+        "bug: the deregistration's event carries another reason"
+    );
+
+    let resources = context(None).await;
+    let (session_only, session_tenant) = common::create_test_user_with_plan(
+        &resources.agent.database,
+        &format!("garmin-session-{}@example.com", Uuid::new_v4()),
+        "starter",
+    )
+    .await
+    .map(|(user_id, _user, tenant_id)| (user_id, tenant_id))
+    .unwrap();
+    store_token(
+        &resources,
+        session_only,
+        session_tenant,
+        "sciotte_garmin",
+        Some(GARMIN_USER),
+    )
+    .await;
+    let (events, _guard) = capture_notify();
+    push(
+        &resources,
+        "deregistrations",
+        json!([{ "userId": GARMIN_USER }]),
+    )
+    .await;
+    assert!(
+        named(&events, "provider.disconnected").is_empty(),
+        "bug: a deregistration counted a disconnect for an athlete holding no Garmin API grant"
     );
 }
 

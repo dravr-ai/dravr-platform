@@ -191,8 +191,12 @@ module "sciotte_login" {
   env_vars        = local.sciotte_env_vars
   secret_env_vars = local.sciotte_secret_env_vars
 
-  health_check_path           = "/health"
-  startup_probe_initial_delay = 5
+  # Same image and listen time as the read services (main.tf): probe every
+  # second from 1 s, a ~50 s budget, so a cold sign-in is not held 5 s.
+  health_check_path               = "/health"
+  startup_probe_initial_delay     = 1
+  startup_probe_period            = 1
+  startup_probe_failure_threshold = 50
 
   labels = merge(var.labels, { component = "sciotte" })
 

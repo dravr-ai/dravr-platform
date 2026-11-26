@@ -1249,8 +1249,15 @@ module "sciotte" {
 
   secret_env_vars = local.sciotte_secret_env_vars
 
-  health_check_path           = "/health"
-  startup_probe_initial_delay = 5
+  # The server listens ~0.8 s after an instance starts, and a scaled-to-zero
+  # read service is cold-started inside requests that wait on it: a
+  # disconnect drops the session on every read service and waits for the
+  # slowest. A 5 s initial delay held one disconnect 5.4 s on 2026-11-26
+  # (carnet#1838); probing every second from 1 s keeps the same ~50 s budget.
+  health_check_path               = "/health"
+  startup_probe_initial_delay     = 1
+  startup_probe_period            = 1
+  startup_probe_failure_threshold = 50
 
   labels = merge(var.labels, { component = "sciotte" })
 
