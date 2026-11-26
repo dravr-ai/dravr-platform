@@ -108,8 +108,9 @@ fn step_up_view(child: &ChildGrant) -> StepUpChildView {
                 .inspect_err(|error| warn!(grant_id = %child.grant.id, error = %error, "A step-up child's details do not read"))
                 .ok()
         })
-        .map(|details| details.picked_streams().into_iter().map(Stream::name).collect())
-        .unwrap_or_default();
+        .map_or_else(Vec::new, |details| {
+            details.picked_streams().into_iter().map(Stream::name).collect()
+        });
     StepUpChildView {
         id: child.grant.id.clone(),
         expires_at: child.grant.expires_at.map(Timestamp::to_rfc3339),
