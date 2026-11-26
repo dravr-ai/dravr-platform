@@ -200,8 +200,9 @@ pub const STEP_UP_SCREEN_KEYS: [&str; 14] = [
     KEY_STEP_UP_STREAM_LABS,
 ];
 
-/// Whether `strings` word every line of the step-up screen in English: the
-/// one switch of the step-up. The pinned catalogue words them; a catalogue
+/// Whether `strings` word every line of the step-up screen in English.
+///
+/// The one switch of the step-up. The pinned catalogue words them; a catalogue
 /// that lost any (a contremaitre sync dropping it) turns the step-up off
 /// rather than show an athlete a screen with a line missing: the AS refuses a
 /// step-up request and no tool refusal offers one.

@@ -111,8 +111,9 @@ pub fn split(scope: Option<&str>) -> Result<Option<StepUpScope>, OAuth2Error> {
     Ok(Some(StepUpScope { scope, streams }))
 }
 
-/// The `authorization_details` a step-up scope asks for, read from `source`:
-/// a single-use `one_off_question` over its streams, at most T2, after a
+/// The `authorization_details` a step-up scope asks for, read from `source`.
+///
+/// A single-use `one_off_question` over its streams, at most T2, after a
 /// step-up `owner_verified`, for a host declaring a Host Profile T2.
 #[must_use]
 pub fn one_off_details(step_up: &StepUpScope, source: &str) -> String {

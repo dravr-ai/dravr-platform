@@ -12,6 +12,7 @@
 //! ends, owl's `step_up_result` (`satisfied_at`, `acr`, `device: null`) and
 //! the Host Profile basis it was approved on.
 
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{ChildGrant, HostProfileBasis, StandingChild, StepUpResult, StepUpTerms};
 use serde::Serialize;
@@ -52,7 +53,7 @@ impl StepUpEcho {
         Self::of(
             &child.id,
             &child.authorization_details,
-            child.expires_at.map(|at| at.to_rfc3339()),
+            child.expires_at.map(Timestamp::to_rfc3339),
             &child.terms,
         )
     }
@@ -66,7 +67,7 @@ impl StepUpEcho {
         Self::of(
             &child.grant.id,
             document,
-            child.grant.expires_at.map(|at| at.to_rfc3339()),
+            child.grant.expires_at.map(Timestamp::to_rfc3339),
             &child.terms,
         )
     }
