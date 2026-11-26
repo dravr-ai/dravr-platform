@@ -21,7 +21,7 @@
 //! sign-in on Dravr's own hosted page, password or Google verified by Dravr,
 //! at most [`STEP_UP_MAX_AGE_SECS`] before the approval. That is a recorded
 //! deviation (plan revision 17): the value is owl's so a conforming client
-//! works, the assurance is ChefFamille's 2026-11-25 answer, and a passkey
+//! works, the assurance is JF's 2026-11-25 answer, and a passkey
 //! later makes it exact.
 
 use dravr_tronc::dates::Timestamp;
@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use super::OAuthClientGrant;
 
 /// The oldest a hosted-page sign-in may be when the athlete approves a
-/// step-up, in seconds (RFC 9470 `max_age`; ChefFamille 2026-11-25: five
+/// step-up, in seconds (RFC 9470 `max_age`; JF 2026-11-25: five
 /// minutes).
 pub const STEP_UP_MAX_AGE_SECS: i64 = 300;
 
