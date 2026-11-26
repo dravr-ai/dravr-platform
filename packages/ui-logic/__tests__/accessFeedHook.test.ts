@@ -138,6 +138,17 @@ describe('groupAccessFeedApps', () => {
     expect(groups[0].reads.map((r) => r.tool)).toEqual(['get_activities', 'get_athlete']);
   });
 
+  it('carries a Connected app\'s live one-off look, and only for its OAuth grant reads', () => {
+    const stepUp = { id: 'child', expires_at: null, streams: ['labs.summary'], host_profile_basis: 'declared_request' as const };
+    const grants = [grant('g1', 'client-claude'), { ...grant('g2', 'client-claude', 'fitness:write'), step_up: stepUp }];
+    const [app] = groupAccessFeedApps([read()], grants);
+    expect(app.stepUp).toEqual(stepUp);
+    const [key] = groupAccessFeedApps([read({ credential: 'api_key' })], grants);
+    expect(key.stepUp).toBeNull();
+    const [none] = groupAccessFeedApps([read()], [grant('g1', 'client-claude')]);
+    expect(none.stepUp).toBeNull();
+  });
+
   it('keeps clients apart, in the order of their newest read', () => {
     const groups = groupAccessFeedApps(
       [read({ client_id: 'b', client_name: 'B' }), read({ client_id: 'a', client_name: 'A' }), read({ client_id: 'b', client_name: 'B' })],

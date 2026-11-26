@@ -23,6 +23,7 @@ import {
   groupAccessFeedApiKeyDays,
   groupAccessFeedApps,
   revokedInKeySettings,
+  stepUpLines,
   type AccessFeedApiKeyGroup,
   type AccessFeedAppGroup,
 } from '@pierre/ui-logic';
@@ -69,7 +70,7 @@ interface AppGroupProps {
  * app the athlete still holds a grant of.
  */
 function AppGroup({ group, revoking, onRevoke }: AppGroupProps) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const credentialKey = accessFeedCredentialKey(group.credential);
   const meta = [
     group.host,
@@ -107,6 +108,20 @@ function AppGroup({ group, revoking, onRevoke }: AppGroupProps) {
           </Button>
         )}
       </div>
+      {group.stepUp && (
+        <div className="mt-1" data-testid="access-feed-step-up">
+          <p className="text-xs text-on-surface-variant break-words">
+            {t('tokens.connectedAppsStepUpChild', {
+              time: group.stepUp.expires_at ? formatDateTime(group.stepUp.expires_at, language) : '',
+            })}
+          </p>
+          {stepUpLines(group.stepUp, t).map((line) => (
+            <p key={line} className="text-xs text-on-surface-variant break-words">
+              {line}
+            </p>
+          ))}
+        </div>
+      )}
       {group.kind === 'app' && revokedInKeySettings(group.credential) && (
         <p className="mt-1 text-xs text-on-surface-variant" data-testid="access-feed-key-hint">
           {t(ACCESS_FEED_KEYS.apiKeyHint)}

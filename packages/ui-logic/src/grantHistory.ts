@@ -4,7 +4,7 @@
 // ABOUTME: How Connected apps reads a grant receipt and a standing policy — the outcome a receipt records, its app, who is always allowed
 // ABOUTME: One reading for web and mobile, so both name each consent event the same way (carnet#1544)
 
-import type { OAuthGrant, OAuthGrantReceipt, OAuthStandingPolicy } from '@pierre/shared-types';
+import type { OAuthGrant, OAuthGrantReceipt, OAuthGrantStepUp, OAuthStandingPolicy } from '@pierre/shared-types';
 
 /**
  * What a receipt records, as Connected apps names it:
@@ -45,6 +45,53 @@ export function connectedAppPresetLabel(preset: string | null, t: (key: string) 
   return preset !== null && Object.prototype.hasOwnProperty.call(CONNECTED_APP_PRESET_KEYS, preset)
     ? t(CONNECTED_APP_PRESET_KEYS[preset])
     : null;
+}
+
+/** The corpus key naming each stream a one-off question can read, as the step-up screen names it. */
+export const STEP_UP_STREAM_KEYS: Readonly<Record<string, string>> = {
+  'activity.daily.summary': 'oauth.stepUp.stream.activityDaily',
+  'workout.summary': 'oauth.stepUp.stream.workout',
+  'training.load.summary': 'oauth.stepUp.stream.trainingLoad',
+  'sleep.summary': 'oauth.stepUp.stream.sleep',
+  'cardio.daily.summary': 'oauth.stepUp.stream.cardioDaily',
+  'body.summary': 'oauth.stepUp.stream.body',
+  'fitness.summary': 'oauth.stepUp.stream.fitness',
+  'recovery.daily.summary': 'oauth.stepUp.stream.recoveryDaily',
+  'profile.summary': 'oauth.stepUp.stream.profile',
+  'labs.summary': 'oauth.stepUp.stream.labs',
+};
+
+/** The corpus key saying how an app declared it handles health records (its Host Profile basis). */
+export const STEP_UP_BASIS_KEYS: Readonly<Record<string, string>> = {
+  declared_cimd: 'tokens.connectedAppsStepUpDeclaredCimd',
+  declared_request: 'tokens.connectedAppsStepUpDeclaredRequest',
+};
+
+/**
+ * What a connected app's one-off question reads and on what the app's word stands, one line each:
+ * the streams the athlete left ticked (a stream this build has no label for is named as the server
+ * names it), then the basis of its Host Profile. A line the server sent nothing for is left out.
+ * Own keys only, so `toString` is no stream or basis.
+ */
+export function stepUpLines(
+  stepUp: OAuthGrantStepUp,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string[] {
+  const own = (keys: Readonly<Record<string, string>>, name: string) =>
+    Object.prototype.hasOwnProperty.call(keys, name) ? keys[name] : null;
+  const lines: string[] = [];
+  const streams = (stepUp.streams ?? []).map((stream) => {
+    const key = own(STEP_UP_STREAM_KEYS, stream);
+    return key ? t(key) : stream;
+  });
+  if (streams.length > 0) {
+    lines.push(t('tokens.connectedAppsStepUpStreams', { streams: streams.join(', ') }));
+  }
+  const basis = stepUp.host_profile_basis ? own(STEP_UP_BASIS_KEYS, stepUp.host_profile_basis) : null;
+  if (basis) {
+    lines.push(t(basis));
+  }
+  return lines;
 }
 
 /** The signed payload's member `name`, as an object, or null. */

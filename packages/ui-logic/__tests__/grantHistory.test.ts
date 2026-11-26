@@ -20,6 +20,8 @@ import {
   grantReceiptAppName,
   grantReceiptClientId,
   grantReceiptOutcome,
+  STEP_UP_STREAM_KEYS,
+  stepUpLines,
 } from '../src/grantHistory';
 
 // The catalogues are read as data: check-i18n-keys.sh scans the clients' own
@@ -139,5 +141,41 @@ describe('the keys both clients name an outcome and a preset with', () => {
     expect(connectedAppPresetLabel(null, t)).toBeNull();
     expect(connectedAppPresetLabel('recovery_coach', t)).toBeNull();
     expect(connectedAppPresetLabel('toString', t)).toBeNull();
+  });
+});
+
+describe('stepUpLines', () => {
+  const t = (key: string, options?: Record<string, unknown>) =>
+    options ? `${key}(${JSON.stringify(options)})` : key;
+
+  it('names the ticked streams, then the basis the app stands on', () => {
+    expect(
+      stepUpLines(
+        { id: 'c', expires_at: null, streams: ['labs.summary', 'mystery.summary'], host_profile_basis: 'declared_request' },
+        t,
+      ),
+    ).toEqual([
+      'tokens.connectedAppsStepUpStreams({"streams":"oauth.stepUp.stream.labs, mystery.summary"})',
+      'tokens.connectedAppsStepUpDeclaredRequest',
+    ]);
+    expect(stepUpLines({ id: 'c', expires_at: null, streams: [], host_profile_basis: 'declared_cimd' }, t)).toEqual([
+      'tokens.connectedAppsStepUpDeclaredCimd',
+    ]);
+  });
+
+  it('says nothing a server predating it did not send', () => {
+    expect(stepUpLines({ id: 'c', expires_at: null }, t)).toEqual([]);
+    expect(stepUpLines({ id: 'c', expires_at: null, streams: ['toString'] }, t)).toEqual([
+      'tokens.connectedAppsStepUpStreams({"streams":"toString"})',
+    ]);
+  });
+
+  it('labels each stream with a line every locale words', () => {
+    for (const corpus of [en, fr, es, de, pt]) {
+      const stream = (corpus as { oauth: { stepUp: { stream: Record<string, string> } } }).oauth.stepUp.stream;
+      for (const key of Object.values(STEP_UP_STREAM_KEYS)) {
+        expect(stream[key.replace('oauth.stepUp.stream.', '')], key).toBeTruthy();
+      }
+    }
   });
 });

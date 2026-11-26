@@ -11,7 +11,7 @@ import { EmptyState, PaneScrollView, Row, Section } from '../../components/ui';
 import { useConnectedApps, useRevokeConnectedApps } from '../../hooks/useAccessFeed';
 import { useStandingPolicies } from '../../hooks/useGrantHistory';
 import { useTranslation } from '@pierre/i18n';
-import { alwaysAllowedClients, connectedAppPresetLabel, describeApiError } from '@pierre/ui-logic';
+import { alwaysAllowedClients, connectedAppPresetLabel, describeApiError, stepUpLines } from '@pierre/ui-logic';
 import { formatDate, formatDateTime } from '@pierre/chat-utils';
 import { StandingPoliciesSection } from './StandingPoliciesSection';
 import { GrantHistorySection } from './GrantHistorySection';
@@ -153,6 +153,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
                       title={t('tokens.connectedAppsStepUpChild', {
                         time: stepUp.expires_at ? formatDateTime(stepUp.expires_at, language) : '',
                       })}
+                      subtitle={stepUpLines(stepUp, t).join(' · ') || undefined}
                       last={lastGrant}
                       trailing={
                         stepUpRevoking ? (

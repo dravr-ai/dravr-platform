@@ -823,6 +823,39 @@ describe('UserSettings Component', () => {
       expect(screen.getByText('Claude')).toBeInTheDocument();
     });
 
+    it('says what a one-off question reads and on what the app\'s word stands', async () => {
+      listConnectedApps.mockResolvedValue([
+        {
+          id: 'parent-2',
+          client_id: 'client-dcr',
+          client_name: 'Desk host',
+          client_host: 'desk.example',
+          scope: 'fitness:read',
+          granted_at: '2026-11-01T10:00:00Z',
+          preset: 'training_coach',
+          max_tier: 'T1',
+          expires_at: null,
+          step_up: {
+            id: 'child-2',
+            expires_at: '2026-11-25T11:00:00Z',
+            streams: ['labs.summary'],
+            host_profile_basis: 'declared_request',
+          },
+        },
+      ]);
+
+      await act(async () => {
+        renderUserSettings({ initialTab: 'account' });
+      });
+
+      const details = await screen.findAllByTestId('connected-app-step-up-detail-parent-2');
+      expect(details).toHaveLength(2);
+      expect(details[0]).toHaveTextContent(
+        i18n.t('tokens.connectedAppsStepUpStreams', { streams: i18n.t('oauth.stepUp.stream.labs') }),
+      );
+      expect(details[1]).toHaveTextContent(i18n.t('tokens.connectedAppsStepUpDeclaredRequest'));
+    });
+
     it("shows a grant whose end has passed as expired, muted, with Revoke kept", async () => {
       vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-22T00:00:00Z'));
       listConnectedApps.mockResolvedValueOnce([

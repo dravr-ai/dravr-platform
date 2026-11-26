@@ -89,7 +89,7 @@ import PreferredCalendarSettings from './settings/PreferredCalendarSettings';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { ownAppDevPortal } from '@pierre/domain-utils';
-import { alwaysAllowedClients, connectedAppPresetLabel, describeApiError, followConnectPlan, MIN_PASSWORD_LENGTH, isPasswordLongEnough } from '@pierre/ui-logic';
+import { alwaysAllowedClients, connectedAppPresetLabel, describeApiError, stepUpLines, followConnectPlan, MIN_PASSWORD_LENGTH, isPasswordLongEnough } from '@pierre/ui-logic';
 
 // Garmin's offered consents, asked before its connect: loaded on the first
 // connect that offers them, so the dialog stays out of the entry bundle.
@@ -1571,6 +1571,15 @@ Authorization: Bearer <your-token-here>`}
                                             : '',
                                         })}
                                       </p>
+                                      {stepUpLines(app.step_up, t).map((line) => (
+                                        <p
+                                          key={line}
+                                          className="w-full text-xs text-on-surface-variant break-words"
+                                          data-testid={`connected-app-step-up-detail-${app.id}`}
+                                        >
+                                          {line}
+                                        </p>
+                                      ))}
                                       <Button
                                         variant="danger-outline"
                                         size="sm"
