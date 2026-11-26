@@ -3,7 +3,8 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Runs both hosted sign-in pages' own scripts: a refused code keeps the page on its code step, empty and focused
-// ABOUTME: Pins the inline refusal, a lapsed or challenged sign-in, the pagehide cancel, a Garmin grant's history sign-in, the OAuth fallback, and a Garmin sign-in that ends connected
+// ABOUTME: Pins the inline refusal, a lapsed or challenged sign-in, the pagehide cancel, a Garmin grant's history sign-in, the OAuth fallback, a Garmin sign-in that ends connected,
+// ABOUTME: and a number match left for another method once the poll in flight answers
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -138,7 +139,12 @@ afterEach(() => {
  * path; `cards` and `search` (extra query, such as an OAuth return's) default
  * to the code-step tests' one COROS card and none.
  */
-function open(page: Page, answers: Record<string, Answer[]>, cards?: unknown[], search = '') {
+function open(
+  page: Page,
+  answers: Record<string, Answer[] | ((body: unknown) => Answer | Promise<Answer>)>,
+  cards?: unknown[],
+  search = '',
+) {
   const calls: Array<{ path: string; body: unknown; keepalive?: boolean; authorization?: string }> = [];
   const navigations: string[] = [];
   const virtualConsole = new VirtualConsole();
@@ -156,14 +162,17 @@ function open(page: Page, answers: Record<string, Answer[]>, cards?: unknown[], 
           init: { body: string; keepalive?: boolean; headers?: Record<string, string> },
         ) => {
           const queue = answers[url];
-          if (!queue || queue.length === 0) throw new Error(`no answer scripted for ${url}`);
+          const body: unknown = JSON.parse(init.body);
+          if (!queue || (Array.isArray(queue) && queue.length === 0)) {
+            throw new Error(`no answer scripted for ${url}`);
+          }
           calls.push({
             path: url,
-            body: JSON.parse(init.body),
+            body,
             keepalive: init.keepalive,
             authorization: init.headers?.Authorization,
           });
-          const answer = queue.shift() as Answer;
+          const answer = Array.isArray(queue) ? (queue.shift() as Answer) : await queue(body);
           return {
             ok: answer.status >= 200 && answer.status < 300,
             status: answer.status,
@@ -264,6 +273,74 @@ describe.each<Page>(['sciotte_link_login', 'connect_hosted'])('%s — the code s
     view.submit('login-form');
     await vi.waitFor(() => expect(view.visible('phase-error')).toBe(true));
     expect(view.byId('error-message').textContent).toBe(SIGN_IN_CHALLENGED);
+  });
+});
+
+describe.each<Page>(['sciotte_link_login', 'connect_hosted'])('%s — a number match (carnet#1825)', (page) => {
+  const SELECT = '/api/providers/sciotte/select-2fa';
+  const NUMBER_MATCH = { status: 200, body: { status: 'number_match', number: '92' } };
+
+  it('leaves the number for another method as the step after the poll in flight', async () => {
+    const view = open(page, {
+      [LOGIN]: [NUMBER_MATCH],
+      // A poll answers the number while it shows; another method answers the chooser.
+      [SELECT]: (body) =>
+        (body as { option_id: string }).option_id === 'another_way'
+          ? { status: 200, body: { status: 'two_factor_choice', options: [{ id: 'otp', label: 'Authenticator code' }] } }
+          : NUMBER_MATCH,
+    });
+    if (page === 'connect_hosted') {
+      (view.document.querySelector('.provider-card') as HTMLButtonElement).click();
+    }
+    (view.byId('email') as HTMLInputElement).value = 'athlete@example.com';
+    (view.byId('password') as HTMLInputElement).value = 'not-a-real-password';
+    view.submit('login-form');
+    await vi.waitFor(() => expect(view.calls.some((call) => call.path === SELECT)).toBe(true));
+    expect(view.visible('phase-number-match')).toBe(true);
+    expect(view.byId('another-way').textContent).toBe(text('hosted.common.useAnotherMethod'));
+
+    view.byId('another-way').click();
+    await vi.waitFor(() => expect(view.visible('phase-two-factor')).toBe(true));
+    const steps = view.calls.filter((call) => call.path === SELECT).map((call) => (call.body as { option_id: string }).option_id);
+    expect(steps[steps.length - 1]).toBe('another_way');
+    expect(steps.filter((step) => step === 'another_way')).toHaveLength(1);
+    expect(view.byId('two-factor-options').textContent).toContain('Authenticator code');
+  });
+
+  it('forgets another method a poll overtook, so a retry keeps polling its new number', async () => {
+    let refusePoll: () => void = () => undefined;
+    const polls: string[] = [];
+    const view = open(page, {
+      [LOGIN]: [NUMBER_MATCH, NUMBER_MATCH],
+      // The first poll is held, then refused: the sign-in ends under it.
+      // Every later step connects.
+      [SELECT]: (body) => {
+        polls.push((body as { option_id: string }).option_id);
+        if (polls.length > 1) return { status: 200, body: { status: 'connected' } };
+        return new Promise<Answer>((resolve) => {
+          refusePoll = () => resolve({ status: 200, body: { status: 'failed' } });
+        });
+      },
+    });
+    const signIn = () => {
+      if (page === 'connect_hosted') {
+        (view.document.querySelector('.provider-card') as HTMLButtonElement).click();
+      }
+      (view.byId('email') as HTMLInputElement).value = 'athlete@example.com';
+      (view.byId('password') as HTMLInputElement).value = 'not-a-real-password';
+      view.submit('login-form');
+    };
+
+    signIn();
+    await vi.waitFor(() => expect(polls).toHaveLength(1));
+    view.byId('another-way').click();
+    refusePoll();
+    await vi.waitFor(() => expect(view.visible('phase-error')).toBe(true));
+
+    view.byId('retry-btn').click();
+    signIn();
+    await vi.waitFor(() => expect(view.visible('phase-success')).toBe(true));
+    expect(polls).toEqual(['poll', 'poll']);
   });
 });
 

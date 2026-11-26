@@ -123,6 +123,8 @@
                 <div><strong>{{t:hosted.common.tapNumber}}</strong></div>
                 <p>{{t:hosted.common.checkNotification}}</p>
                 <div class="spinner spinner-sm" role="status" aria-label="{{t:hosted.common.waitingAria}}"></div>
+                <p>{{t:hosted.common.noPromptHint}}</p>
+                <button type="button" class="btn btn-secondary" id="another-way">{{t:hosted.common.useAnotherMethod}}</button>
             </div>
         </section>
 
@@ -579,7 +581,11 @@
                     case 'number_match':
                         document.getElementById('number-match-digit').textContent = data.number || '--';
                         showPhase('number-match');
-                        setTimeout(() => selectTwoFactor('poll'), 150);
+                        document.getElementById('another-way').disabled = anotherWayAsked;
+                        // Poll while the number shows; another method, once
+                        // asked for, is the next step instead (a poll in
+                        // flight holds the sign-in until it answers).
+                        setTimeout(nextNumberMatchStep, 150);
                         break;
                     case 'takeover_required':
                         // The provider asks the athlete to prove they are not
@@ -652,6 +658,8 @@
                 const consent = document.getElementById('tos-consent');
                 if (consentRequired && !consent.checked) return;
                 clearError();
+                // A new sign-in has asked for no other method yet.
+                anotherWayAsked = false;
                 showPhase('logging-in');
                 setLoggingInStatus(fmt(S.connectingTo, credLabel));
                 try {
@@ -665,6 +673,24 @@
                     showFailure(err.failure);
                 }
             }
+
+            // The athlete asked to leave the number match for another
+            // method: sent as the next step, once the poll in flight answers.
+            let anotherWayAsked = false;
+
+            function nextNumberMatchStep() {
+                if (anotherWayAsked) {
+                    anotherWayAsked = false;
+                    selectTwoFactor('another_way');
+                } else {
+                    selectTwoFactor('poll');
+                }
+            }
+
+            document.getElementById('another-way').addEventListener('click', (event) => {
+                anotherWayAsked = true;
+                event.currentTarget.disabled = true;
+            });
 
             async function selectTwoFactor(optionId) {
                 clearError();

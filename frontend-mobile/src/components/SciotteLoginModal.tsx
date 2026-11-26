@@ -45,6 +45,7 @@ import {
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
   SCIOTTE_NUMBER_MATCH_REPOLL_MS,
+  SCIOTTE_ANOTHER_WAY_OPTION,
   SIGN_IN_BRAND,
   loginIdentifierField,
   signInFallsBackToOAuth,
@@ -544,6 +545,9 @@ export function SciotteLoginModal({
 
   // How many number-match polls have answered `number_match` again.
   const [pollRound, setPollRound] = useState(0);
+  // The athlete asked to leave the number match for another method; it is
+  // sent once no poll is in flight, since a poll holds the flow meanwhile.
+  const [anotherWayAsked, setAnotherWayAsked] = useState(false);
 
   const handleSelect2FA = useCallback(async (optionId: string) => {
     setIsLoading(true);
@@ -560,6 +564,11 @@ export function SciotteLoginModal({
         setStatus(t('app.connectedBang'));
         onConnected();
         setTimeout(onClose, 1500);
+      } else if (data.status === 'two_factor_choice') {
+        // Leaving a number match for another method answers the chooser.
+        setTwoFactorOptions(data.options || []);
+        setPhase('two-factor');
+        setStatus(t('app.verificationRequired'));
       } else if (data.status === 'otp_required') {
         setPhase('otp');
         setStatus(t('app.enterVerificationCode'));
@@ -593,13 +602,28 @@ export function SciotteLoginModal({
   // SCIOTTE_NUMBER_MATCH_REPOLL_MS after a poll that answered it again, until
   // the athlete's tap moves the sign-in on or the modal leaves the phase.
   useEffect(() => {
-    if (phase !== 'number-match' || !matchNumber) return undefined;
+    if (phase !== 'number-match' || !matchNumber || anotherWayAsked) return undefined;
     const timer = setTimeout(
       () => handleSelect2FA('poll'),
       pollRound === 0 ? 0 : SCIOTTE_NUMBER_MATCH_REPOLL_MS
     );
     return () => clearTimeout(timer);
-  }, [phase, matchNumber, pollRound]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [phase, matchNumber, pollRound, anotherWayAsked]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Another method, once asked for: sent when no poll is in flight. A poll
+  // holds the flow while it looks, so a step sent beside it would be refused;
+  // the poll that is running answers first, then this leaves the prompt. A
+  // poll that moved the sign-in off the number leaves nothing to ask for.
+  useEffect(() => {
+    if (!anotherWayAsked) return;
+    if (phase !== 'number-match') {
+      setAnotherWayAsked(false);
+      return;
+    }
+    if (isLoading) return;
+    setAnotherWayAsked(false);
+    handleSelect2FA(SCIOTTE_ANOTHER_WAY_OPTION);
+  }, [anotherWayAsked, phase, isLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleOtpSubmit = useCallback(async () => {
     if (!otpCode) return;
@@ -950,6 +974,22 @@ export function SciotteLoginModal({
           )}
           <ActivityIndicator size="small" color={colors.text.tertiary} />
           <Text className="text-xs text-text-tertiary mt-3">{t('app.waitingConfirmation')}</Text>
+          <Text className="text-xs text-text-secondary text-center mt-4 px-4">
+            {t('shell.sciotteNoPromptHint')}
+          </Text>
+          <TouchableOpacity
+            onPress={() => setAnotherWayAsked(true)}
+            disabled={anotherWayAsked}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: anotherWayAsked }}
+            activeOpacity={0.7}
+            className="mt-3 bg-background-secondary rounded-xl px-5 py-3 border border-border active:border-primary"
+            testID="sciotte-another-way"
+          >
+            <Text className="text-sm text-text-primary font-medium text-center">
+              {t('shell.sciotteUseAnotherMethod')}
+            </Text>
+          </TouchableOpacity>
         </View>
       );
     }

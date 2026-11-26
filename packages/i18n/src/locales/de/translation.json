@@ -4085,6 +4085,24 @@
       "title": "Verbindung fehlgeschlagen",
       "tryAgain": "Bitte versuchen Sie es erneut.",
       "unavailable": "Der Dienst ist vorübergehend nicht verfügbar. Versuchen Sie es gleich erneut."
+    },
+    "stepUp": {
+      "title": "{0} bittet um einen einmaligen Einblick in Ihre Gesundheitsdaten",
+      "t2Disclosure": "Dazu gehören Gesundheitsdaten wie Laborwerte, also sensible Gesundheitsinformationen. {0} kann sie einmal lesen, danach endet dieser Zugriff. Wenn Sie ihn erlauben, willigen Sie ausdrücklich ein, dass Dravr diese Daten mit {0} teilt.",
+      "host": "{0} gibt an, sorgfältig mit Gesundheitsdaten umzugehen. Dravr kann das nicht überprüfen.",
+      "streamsTitle": "Was {0} einmal lesen kann:",
+      "stream": {
+        "activityDaily": "Tägliche Aktivität",
+        "workout": "Trainingseinheiten",
+        "trainingLoad": "Trainingsbelastung",
+        "sleep": "Schlaf",
+        "cardioDaily": "Tägliche Herzfrequenz-Zusammenfassung",
+        "body": "Körpermaße",
+        "fitness": "Fitnessschätzungen",
+        "recoveryDaily": "Tägliche Erholung",
+        "profile": "Profil",
+        "labs": "Laborwerte"
+      }
     }
   },
   "onboarding": {
@@ -5335,7 +5353,8 @@
     "grantEventEndedByYou": "Von Ihnen beendet",
     "grantEventEndedByApp": "Von der App beendet",
     "grantEventEndedByDravr": "Von Dravr beendet",
-    "grantEventExpired": "Abgelaufen"
+    "grantEventExpired": "Abgelaufen",
+    "connectedAppsStepUpChild": "Dazu ein einmaliger Einblick in Ihre Gesundheitsdaten, bis {{time}}"
   },
   "usage": {
     "counter": {

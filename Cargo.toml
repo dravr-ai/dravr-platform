@@ -41,11 +41,11 @@ dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", tag = "
 
 # Coach catalogue, locale strings and notify-event catalogue. Pinned by rev
 # rather than tag; contremaitre-bump.yml advances it.
-dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "0228469af07782b253d5ec0a6e840233d0b648f4" }
+dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "d159c5731606c8968c1d06527025f1ff45da6261" }
 
 # Health provider sync. default-features off so each consumer's own
 # provider-* features select the backends.
-dravr-enforme = { version = "0.23.0", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.23.0", default-features = false }
+dravr-enforme = { version = "0.23.1", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.23.1", default-features = false }
 
 # Health and wellness domain models.
 dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.12.0" }
@@ -62,7 +62,7 @@ dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "
 
 # Provider capture. Moves with dravr-enforme, which pins it too -- see its
 # companions stanza in satellites.toml for why the two pins can never move apart.
-dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v5.0.0", default-features = false }
+dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v5.1.0", default-features = false }
 
 # Billing capability, gated behind the billing-stripe feature.
 dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", tag = "v0.13.0" }

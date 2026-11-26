@@ -66,6 +66,10 @@ pub const KEY_HOSTED_COMMON_TAP_YES: &str = "hosted.common.tapYes";
 pub const KEY_HOSTED_COMMON_TAP_NUMBER: &str = "hosted.common.tapNumber";
 /// Key: "Check the notification on your device" No format placeholders.
 pub const KEY_HOSTED_COMMON_CHECK_NOTIFICATION: &str = "hosted.common.checkNotification";
+/// Key: "No notification? On an iPhone, open the Gmail or Google app…" No format placeholders.
+pub const KEY_HOSTED_COMMON_NO_PROMPT_HINT: &str = "hosted.common.noPromptHint";
+/// Key: "Use another method" No format placeholders.
+pub const KEY_HOSTED_COMMON_USE_ANOTHER_METHOD: &str = "hosted.common.useAnotherMethod";
 /// Key: "Waiting" No format placeholders.
 pub const KEY_HOSTED_COMMON_WAITING_ARIA: &str = "hosted.common.waitingAria";
 /// Key: "Verification Code" No format placeholders.
@@ -470,7 +474,7 @@ pub const IMPORT_GARMIN_FAILURES: [(&str, &str); 7] = [
 
 /// Every slot-less key above: the set a hosted template may name as
 /// `{{t:<key>}}` and a renderer substitutes.
-pub const TEMPLATE_KEYS: [&str; 101] = [
+pub const TEMPLATE_KEYS: [&str; 103] = [
     KEY_HOSTED_COMMON_SUBTITLE,
     KEY_HOSTED_COMMON_YOUR_CHAT_APP,
     KEY_HOSTED_COMMON_BACK,
@@ -488,6 +492,8 @@ pub const TEMPLATE_KEYS: [&str; 101] = [
     KEY_HOSTED_COMMON_TAP_YES,
     KEY_HOSTED_COMMON_TAP_NUMBER,
     KEY_HOSTED_COMMON_CHECK_NOTIFICATION,
+    KEY_HOSTED_COMMON_NO_PROMPT_HINT,
+    KEY_HOSTED_COMMON_USE_ANOTHER_METHOD,
     KEY_HOSTED_COMMON_WAITING_ARIA,
     KEY_HOSTED_COMMON_OTP_TITLE,
     KEY_HOSTED_COMMON_VERIFY,
