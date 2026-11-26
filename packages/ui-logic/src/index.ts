@@ -200,10 +200,14 @@ export {
 export {
   type WorkspaceAnswers,
   type WorkspaceGroupTab,
+  type WorkspacePlanRead,
+  type WorkspacePlanState,
   type WorkspaceRoom,
   type WorkspaceThreads,
   createWorkspaceHooks,
+  workspaceAgentName,
   workspaceGroupTab,
+  workspacePlanState,
 } from './workspaceHooks';
 // A coach's Groups list with one row per trifecta athlete, opening their workspace (carnet#1817)
 export { type AthleteWorkspaceFold, type GroupsListRow, foldAthleteRows } from './athleteRows';

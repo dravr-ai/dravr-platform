@@ -24,9 +24,12 @@ import {
   PLAN_WORKSPACE_KEYS,
   openThreadRefusalText,
   planCalendarWeeks,
+  workspaceAgentName,
   workspaceGroupTab,
+  workspacePlanState,
   type WorkspaceAnswers,
   type WorkspaceGroupTab,
+  type WorkspacePlanRead,
   type WorkspaceThreads,
 } from '@pierre/ui-logic';
 import { EmptyState, TextTabs, type TextTabItem } from '../../../components/ui';
@@ -49,8 +52,6 @@ import { WorkspaceThread } from './WorkspaceThread';
 type WorkspaceTab = 'plan' | 'history' | 'dravr' | 'group';
 
 const WORKSPACE_TABS: readonly WorkspaceTab[] = ['plan', 'history', 'dravr', 'group'];
-
-type SubjectPlanQuery = ReturnType<typeof useSubjectPlan>;
 
 /** A thread or a plan still being found, opened or read. */
 function Pending({ testID }: { testID: string }) {
@@ -83,14 +84,13 @@ function PlanTab({
   athlete: CoachRosterAthlete;
   name: string;
   threads: WorkspaceThreads;
-  plan: SubjectPlanQuery;
+  plan: WorkspacePlanRead;
   answers: WorkspaceAnswers;
   onDraftPlan: () => void;
 }) {
   const { t } = useTranslation();
   const { planThreadId } = threads;
-  const { read, isLoading, isError, refetch } = plan;
-  const subject = read?.status === 'ok' ? read.plan : null;
+  const subject = plan.read?.status === 'ok' ? plan.read.plan : null;
 
   const shown = subject ? (subject.draft ?? subject.live) : null;
   // Which dates are proposed is the server's to say, by the rule a publish
@@ -113,79 +113,90 @@ function PlanTab({
 
   const [editing, setEditing] = useState<SessionEditorTarget | null>(null);
 
+  // Which state the plan is in is decided once, for both clients; this only draws it.
+  const planState = workspacePlanState(athlete, threads, plan);
   let body: React.ReactNode;
-  if (athlete.groups.length === 0) {
-    body = <EmptyState testID="workspace-thread-failed">{t(PLAN_THREAD_KEYS.openError)}</EmptyState>;
-  } else if (threads.planError !== null) {
-    body = (
-      <EmptyState
-        action={{ label: t('common.retry'), onPress: threads.retryPlanThread, testID: 'workspace-thread-retry' }}
-        testID="workspace-thread-failed"
-      >
-        {openThreadRefusalText(threads.planError, name, t)}
-      </EmptyState>
-    );
-  } else if (planThreadId === null && threads.groupsFailed) {
-    body = (
-      <EmptyState
-        action={{ label: t('common.retry'), onPress: threads.retryGroups, testID: 'workspace-thread-retry' }}
-        testID="workspace-thread-failed"
-      >
-        {t(PLAN_THREAD_KEYS.openError)}
-      </EmptyState>
-    );
-  } else if (planThreadId === null || isLoading) {
-    body = <Pending testID="workspace-plan-loading" />;
-  } else if (read?.status === 'consentRevoked') {
-    body = <EmptyState testID="workspace-consent-revoked">{t(PLAN_DRAFT_KEYS.consentRevoked, { name })}</EmptyState>;
-  } else if (isError || subject === null) {
-    body = (
-      <EmptyState
-        action={{ label: t('common.retry'), onPress: () => void refetch(), testID: 'workspace-plan-retry' }}
-        testID="workspace-plan-failed"
-      >
-        {t(PLAN_WORKSPACE_KEYS.loadFailed, { name })}
-      </EmptyState>
-    );
-  } else if (shown === null) {
-    body = (
-      <EmptyState
-        action={{ label: t(PLAN_THREAD_KEYS.starterLabel, { name }), onPress: onDraftPlan, testID: 'workspace-draft-plan' }}
-        testID="workspace-no-plan"
-      >
-        {t(PLAN_WORKSPACE_KEYS.noPlan, { name })}
-      </EmptyState>
-    );
-  } else {
-    body = (
-      <>
-        <PrePublishCheck
-          items={checks}
-          athleteName={name}
-          onKeep={(item) => void answers.setCall(item.day, item.position, true)}
-          keeping={answers.callSaving}
-          onReview={(item) => setEditing({ day: item.day, entries: item.entries, mode: 'edit' })}
-        />
-        {publishDraft !== null ? (
-          <PlanDraftControls
-            key={publishDraft.draft_id}
-            conversationId={planThreadId}
-            subject={subject.athlete}
-            draft={publishDraft}
+  switch (planState.kind) {
+    case 'noGroup':
+      body = <EmptyState testID="workspace-thread-failed">{t(PLAN_THREAD_KEYS.openError)}</EmptyState>;
+      break;
+    case 'threadFailed':
+      body = (
+        <EmptyState
+          action={{ label: t('common.retry'), onPress: planState.retry, testID: 'workspace-thread-retry' }}
+          testID="workspace-thread-failed"
+        >
+          {openThreadRefusalText(planState.error, name, t)}
+        </EmptyState>
+      );
+      break;
+    case 'groupsFailed':
+      body = (
+        <EmptyState
+          action={{ label: t('common.retry'), onPress: planState.retry, testID: 'workspace-thread-retry' }}
+          testID="workspace-thread-failed"
+        >
+          {t(PLAN_THREAD_KEYS.openError)}
+        </EmptyState>
+      );
+      break;
+    case 'loading':
+      body = <Pending testID="workspace-plan-loading" />;
+      break;
+    case 'consentRevoked':
+      body = <EmptyState testID="workspace-consent-revoked">{t(PLAN_DRAFT_KEYS.consentRevoked, { name })}</EmptyState>;
+      break;
+    case 'loadFailed':
+      body = (
+        <EmptyState
+          action={{ label: t('common.retry'), onPress: planState.retry, testID: 'workspace-plan-retry' }}
+          testID="workspace-plan-failed"
+        >
+          {t(PLAN_WORKSPACE_KEYS.loadFailed, { name })}
+        </EmptyState>
+      );
+      break;
+    case 'noPlan':
+      body = (
+        <EmptyState
+          action={{ label: t(PLAN_THREAD_KEYS.starterLabel, { name }), onPress: onDraftPlan, testID: 'workspace-draft-plan' }}
+          testID="workspace-no-plan"
+        >
+          {t(PLAN_WORKSPACE_KEYS.noPlan, { name })}
+        </EmptyState>
+      );
+      break;
+    case 'plan':
+      body = (
+        <>
+          <PrePublishCheck
+            items={checks}
+            athleteName={name}
+            onKeep={(item) => void answers.setCall(item.day, item.position, true)}
+            keeping={answers.callSaving}
+            onReview={(item) => setEditing({ day: item.day, entries: item.entries, mode: 'edit' })}
           />
-        ) : null}
-        <WorkspaceCalendar
-          weeks={weeks}
-          isAccepted={answers.isAccepted}
-          onAccept={answers.accept}
-          onRefuse={(date) => void answers.refuse(date)}
-          refusing={answers.refusing}
-          onWithdrawCall={(day, position) => void answers.setCall(day, position, false)}
-          callSaving={answers.callSaving}
-          onEdit={setEditing}
-        />
-      </>
-    );
+          {publishDraft !== null ? (
+            <PlanDraftControls
+              key={publishDraft.draft_id}
+              conversationId={planState.planThreadId}
+              subject={planState.subject.athlete}
+              draft={publishDraft}
+            />
+          ) : null}
+          <WorkspaceCalendar
+            weeks={weeks}
+            isAccepted={answers.isAccepted}
+            onAccept={answers.accept}
+            onRefuse={(date) => void answers.refuse(date)}
+            refusing={answers.refusing}
+            onWithdrawCall={(day, position) => void answers.setCall(day, position, false)}
+            callSaving={answers.callSaving}
+            onEdit={setEditing}
+          />
+        </>
+      );
+      break;
   }
 
   return (
@@ -303,7 +314,7 @@ function AthleteWorkspace({ athlete }: { athlete: CoachRosterAthlete }) {
   const showPlan = useCallback(() => setTab('plan'), []);
   const planSurface = useMemo<WorkspacePlanSurface>(() => ({ kind: 'workspace', onShowCalendar: showPlan }), [showPlan]);
 
-  const agentName = threads.planGroup?.agent_title?.trim() || t('shell.brandName');
+  const agentName = workspaceAgentName(threads.planGroup, t('shell.brandName'));
   const groupTab = workspaceGroupTab(threads, athlete);
 
   const tabs: TextTabItem[] = [

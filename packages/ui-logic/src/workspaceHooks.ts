@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The athlete workspace hooks both clients bind — the workspace's two threads, found or opened, and the coach's answers to the draft
+// ABOUTME: The athlete workspace both clients draw — its two threads found or opened, the coach's answers to the draft, and which state its plan and tabs are in
 // ABOUTME: One definition for web and phone: each client hands in its groups API and freshness, its list, its plan and day-editor hooks, its words and its error report (carnet#1816, #1818)
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -9,9 +9,16 @@ import { useQueries } from '@tanstack/react-query';
 import type { GroupsApi } from '@pierre/api-client';
 import type { Translate } from '@pierre/chat-utils';
 import { QUERY_KEYS } from '@pierre/shared-constants';
-import type { CoachingGroup, CoachRosterAthlete, Conversation, PlanDay } from '@pierre/shared-types';
+import type {
+  CoachingGroup,
+  CoachRosterAthlete,
+  Conversation,
+  PlanDay,
+  SubjectPlanResponse,
+  WorkoutPlan,
+} from '@pierre/shared-types';
 import { API_ERROR_KEYS, describeApiError } from './apiError';
-import type { UseOpenAthleteThreadResult, UseOpenGroupRoomResult } from './coachPlanHooks';
+import type { SubjectPlanRead, UseOpenAthleteThreadResult, UseOpenGroupRoomResult } from './coachPlanHooks';
 import { athleteRoomGroup, PLAN_WORKSPACE_KEYS, roomConversationOf, usablePlanThread, type PlanCalendarDay } from './planWorkspace';
 import { isSessionMoved, SESSION_EDITOR_KEYS, sessionExpect, type SessionAt } from './sessionEditor';
 
@@ -66,6 +73,75 @@ export function workspaceGroupTab(
   if (threads.groupsFailed) return { kind: 'failed', retry: threads.retryGroups };
   if (threads.roomKnown && athlete.groups.length > 0) return { kind: 'noRoom' };
   return null;
+}
+
+/**
+ * The name the workspace's agent goes by: the plan thread's group's agent,
+ * else `fallback` — the brand — while the group is read or names none.
+ */
+export function workspaceAgentName(planGroup: Pick<CoachingGroup, 'agent_title'> | null, fallback: string): string {
+  return planGroup?.agent_title?.trim() || fallback;
+}
+
+/** The plan thread's subject-plan read, as the client's bound `useSubjectPlan` answers it. */
+export interface WorkspacePlanRead {
+  read: SubjectPlanRead | undefined;
+  isLoading: boolean;
+  isError: boolean;
+  refetch: () => unknown;
+}
+
+/**
+ * What the workspace's plan shows, and what each state needs to be drawn:
+ * the retry it offers, the refusal it words, the subject plan and the plan
+ * shown — the draft when one is open, else the live plan.
+ */
+export type WorkspacePlanState =
+  /** The athlete is in no group of the coach's: there is no plan thread to work through. */
+  | { kind: 'noGroup' }
+  /** The plan thread could not be opened; `error` is the refusal the sentence words. */
+  | { kind: 'threadFailed'; error: unknown; retry: () => void }
+  /** A group's read failed before the plan thread was known. */
+  | { kind: 'groupsFailed'; retry: () => void }
+  /** The plan thread is found or opened, or its plan read. */
+  | { kind: 'loading' }
+  /** The athlete stopped sharing with the coach. */
+  | { kind: 'consentRevoked' }
+  /** The plan could not be read. */
+  | { kind: 'loadFailed'; retry: () => void }
+  /** The athlete has no plan yet, live or drafted. */
+  | { kind: 'noPlan'; planThreadId: string; subject: SubjectPlanResponse }
+  | { kind: 'plan'; planThreadId: string; subject: SubjectPlanResponse; shown: WorkoutPlan };
+
+/**
+ * Which state `athlete`'s workspace plan is in, first match winning: no group,
+ * the plan thread refused, the groups' read failed while no plan thread is
+ * known, loading, sharing revoked, the plan's read failed, no plan, the plan.
+ * A refused plan thread outranks a failed group read, which outranks the
+ * wait; a read that answered `consentRevoked` is that, never a failure.
+ */
+export function workspacePlanState(
+  athlete: Pick<CoachRosterAthlete, 'groups'>,
+  threads: Pick<WorkspaceThreads, 'planThreadId' | 'planError' | 'retryPlanThread' | 'groupsFailed' | 'retryGroups'>,
+  plan: WorkspacePlanRead,
+): WorkspacePlanState {
+  const { planThreadId } = threads;
+  if (athlete.groups.length === 0) return { kind: 'noGroup' };
+  if (threads.planError !== null) return { kind: 'threadFailed', error: threads.planError, retry: threads.retryPlanThread };
+  if (planThreadId === null && threads.groupsFailed) return { kind: 'groupsFailed', retry: threads.retryGroups };
+  if (planThreadId === null || plan.isLoading) return { kind: 'loading' };
+  if (plan.read?.status === 'consentRevoked') return { kind: 'consentRevoked' };
+  if (plan.isError || plan.read === undefined) {
+    return {
+      kind: 'loadFailed',
+      retry: () => {
+        void plan.refetch();
+      },
+    };
+  }
+  const subject = plan.read.plan;
+  const shown = subject.draft ?? subject.live;
+  return shown === null ? { kind: 'noPlan', planThreadId, subject } : { kind: 'plan', planThreadId, subject, shown };
 }
 
 /** What the coach can answer to the draft from the workspace. */
