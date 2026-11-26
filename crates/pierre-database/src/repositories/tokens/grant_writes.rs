@@ -114,10 +114,13 @@ pub(crate) const STORE_WITHDRAWN_CLIENT_GRANT_SQL: &str = r"
             ";
 
 /// The live grants naming client `$1`, in every tenant, with the
-/// statement's time (`event_at`): what deleting the client ends.
+/// statement's time (`event_at`): what deleting the client ends. A step-up
+/// child comes with its step-up columns, so its receipt states its step-up.
 pub(crate) const LIST_LIVE_CLIENT_GRANTS_FOR_CLIENT_SQL: &str = r"
             SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
                    consent_version, consent_locale, authorization_details, expires_at,
+                   parent_grant_id, step_up_auth_time, step_up_acr, host_profile_basis,
+                   host_profile_tier,
                    CURRENT_TIMESTAMP AS event_at
             FROM oauth_client_grants
             WHERE client_id = $1 AND revoked_at IS NULL
@@ -130,10 +133,13 @@ pub(crate) const DELETE_CLIENT_GRANTS_FOR_CLIENT_SQL: &str = r"
             ";
 
 /// The live grants naming a client that no longer exists, with the
-/// statement's time (`event_at`): what the orphan delete ends.
+/// statement's time (`event_at`): what the orphan delete ends. A step-up
+/// child comes with its step-up columns, as above.
 pub(crate) const LIST_LIVE_ORPHANED_CLIENT_GRANTS_SQL: &str = r"
             SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
                    consent_version, consent_locale, authorization_details, expires_at,
+                   parent_grant_id, step_up_auth_time, step_up_acr, host_profile_basis,
+                   host_profile_tier,
                    CURRENT_TIMESTAMP AS event_at
             FROM oauth_client_grants
             WHERE revoked_at IS NULL
@@ -822,13 +828,35 @@ macro_rules! impl_client_grant_writes {
             ) -> AppResult<()> {
                 use sqlx::Row as _;
                 for row in rows {
-                    let grant = $crate::repositories::tokens::client_grant_from_row(row)?;
                     let ended_at = row.try_get::<Timestamp, _>("event_at").map_err(|e| {
                         AppError::database(format!(
                             "Failed to read oauth_client_grants.event_at: {e}"
                         ))
                     })?;
-                    Self::end_grant_in(conn, &grant, actor, ended_at).await?;
+                    let parent = row
+                        .try_get::<Option<String>, _>("parent_grant_id")
+                        .map_err(|e| {
+                            AppError::database(format!(
+                                "Failed to read oauth_client_grants.parent_grant_id: {e}"
+                            ))
+                        })?;
+                    if parent.is_none() {
+                        let grant = $crate::repositories::tokens::client_grant_from_row(row)?;
+                        Self::end_grant_in(conn, &grant, actor, ended_at).await?;
+                        continue;
+                    }
+                    // A step-up child's ending states its step-up, as every
+                    // other receipt of a child does.
+                    let child = $crate::repositories::tokens::child_grant_from_row(row)?;
+                    let (event, actor, at) = GrantEvent::ending(&child.grant, actor, ended_at);
+                    Self::record_grant_event_in(
+                        conn,
+                        &child.grant,
+                        event,
+                        ReceiptApproval::by(actor).stepped_up(&child.terms),
+                        at,
+                    )
+                    .await?;
                 }
                 Ok(())
             }

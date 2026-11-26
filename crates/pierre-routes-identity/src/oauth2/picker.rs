@@ -541,8 +541,11 @@ pub(super) fn chosen(
     else {
         return (None, FIELD_DIGEST.to_owned());
     };
+    // Only a preset the picker offers: a step-up preset is granted on the
+    // step-up screen alone, never from a picker form naming it.
     form.get(FIELD_GRANT)
         .and_then(|choice| Preset::from_name(choice))
+        .filter(|preset| !preset.requires_step_up())
         .map_or_else(
             || (None, picker_digest_field(EVERYTHING)),
             |preset| {
@@ -701,6 +704,31 @@ mod tests {
             .iter()
             .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
             .collect()
+    }
+
+    #[test]
+    fn a_picker_form_naming_the_step_up_preset_grants_the_plain_choice() {
+        let strings = worded();
+        let (details, field) = chosen(
+            &form(&[("grant", Preset::OneOffQuestion.name())]),
+            &scope_only(),
+            &strings,
+        );
+        assert!(
+            details.is_none(),
+            "bug: a picker form granted the step-up preset: {details:?}"
+        );
+        assert_eq!(
+            field,
+            picker_digest_field(EVERYTHING),
+            "bug: the plain choice's digest"
+        );
+        let (details, _) = chosen(
+            &form(&[("grant", "training_coach")]),
+            &scope_only(),
+            &strings,
+        );
+        assert!(details.is_some(), "control: an offered preset is granted");
     }
 
     #[test]

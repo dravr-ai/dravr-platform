@@ -136,11 +136,14 @@ async fn handle_list_grants(
         .oauth2_server
         .list_live_child_grants(&auth.user_id.to_string(), &tenant_id)
         .await?;
+    // An expired child keeps `revoked_at` NULL (the expire pass writes only
+    // its receipt), so it is left out here: it reads nothing any more.
+    let now = Timestamp::now();
     let mut views = Vec::with_capacity(grants.len());
     for grant in grants {
         let step_up = children
             .iter()
-            .find(|child| child.terms.parent_grant_id == grant.id)
+            .find(|child| child.terms.parent_grant_id == grant.id && child.grant.is_live_at(now))
             .map(|child| StepUpChildView {
                 id: child.grant.id.clone(),
                 expires_at: child.grant.expires_at.map(Timestamp::to_rfc3339),

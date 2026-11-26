@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use dravr_barrage::Stream;
+use pierre_auth::oauth2_server::cimd::host_profile_tier;
 use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
 use pierre_contremaitre::consent_strings::step_up_worded;
 use pierre_core::transport::Transport;
@@ -76,13 +77,15 @@ impl UniversalExecutor {
                 .filter(|why| *why != Withheld::Role(Audience::Admin))
         });
         // A tier or stream refusal the athlete's step-up would cure says so,
-        // once the step-up screen is worded (carnet#1544 slice 4b).
+        // once the step-up screen is worded (carnet#1544 slice 4b), to a
+        // client that can complete one, as `/mcp`'s 403 challenge is given.
         if let (Some(Withheld::Tier(_) | Withheld::Stream), Some(ceiling)) = (answer, ceiling) {
             let streams: Vec<Stream> = registry
                 .call_data(tool_name, args)
                 .map_or_default(|data| data.required_streams().collect());
             if ceiling.step_up_cures(&streams)
                 && step_up_worded(self.resources.messaging_strings_registry())
+                && self.client_can_step_up().await
             {
                 return Ok(Some(grant_ceiling_refusal::step_up(tool_name, &streams)));
             }
@@ -90,6 +93,31 @@ impl UniversalExecutor {
         answer
             .map(|answer| render_withheld(tool_name, answer))
             .transpose()
+    }
+
+    /// Whether the calling client can complete a step-up: its metadata
+    /// document declares a Host Profile T2, which every step-up approval
+    /// needs. A client registered by DCR, or whose profile cannot be read,
+    /// cannot, so it is never told to step up.
+    async fn client_can_step_up(&self) -> bool {
+        let Some(client_id) = self
+            .credential
+            .as_ref()
+            .and_then(|credential| credential.client_id.as_deref())
+        else {
+            return false;
+        };
+        self.resources
+            .repos()
+            .oauth2_server
+            .client_host_profile(client_id)
+            .await
+            .inspect_err(|e| warn!(client_id, "a client's Host Profile could not be read: {e}"))
+            .ok()
+            .flatten()
+            .as_deref()
+            .and_then(host_profile_tier)
+            .is_some_and(|tier| tier.eq_ignore_ascii_case("T2"))
     }
 }
 

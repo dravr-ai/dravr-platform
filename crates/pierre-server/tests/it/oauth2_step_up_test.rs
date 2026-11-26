@@ -934,7 +934,15 @@ async fn records_status(world: &World, bearer: &str, kind: &str) -> (u16, String
             "jsonrpc": "2.0",
             "id": 1,
             "method": "tools/call",
-            "params": {"name": "get_health_records", "arguments": {"kind": kind}},
+            "params": {
+                "name": "get_health_records",
+                "arguments": {"kind": kind},
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientInfo": {"name": "step-up-test", "version": "1"},
+                    "io.modelcontextprotocol/clientCapabilities": {},
+                },
+            },
         }))
         .send(ProviderToolRouter::build_http_app(&world.resources))
         .await;
@@ -1205,5 +1213,37 @@ async fn an_expired_unused_child_leaves_the_refresh_and_its_expire_receipt_names
     assert_eq!(
         payload["approval"]["step_up_result"]["acr"], OWNER_VERIFIED_ACR,
         "bug: the child's expire receipt does not state its step-up: {payload}"
+    );
+}
+
+#[tokio::test]
+async fn connected_apps_leave_out_a_child_past_its_expiry() {
+    let (world, _client, parent, child) = stepped_up().await;
+    expire(&world, &child).await;
+    let apps = connected_apps(&world).await;
+    assert_eq!(apps.len(), 1, "bug: {apps:?}");
+    assert_eq!(apps[0]["id"], json!(parent), "bug: {apps:?}");
+    assert!(
+        apps[0]["step_up"].is_null(),
+        "bug: an expired child is still listed under its app: {apps:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_client_declaring_no_t2_host_is_never_told_to_step_up() {
+    let world = world().await;
+    let client = register(&world).await;
+    light_step_up(&world);
+    let approved = approve_with(&world, &client, &[], Some("training_coach")).await;
+    assert_eq!(approved.status(), 303, "{}", approved.body_text());
+    let (token, _) = tokens(&exchange(&world, &client, &code_of(&approved)).await);
+    let (status, challenge, body) = records_status(&world, &token, "labs").await;
+    assert_eq!(
+        status, 200,
+        "bug: a client that cannot step up was challenged: {challenge}"
+    );
+    assert!(
+        !body.contains("step_up_required") && !body.contains("one_off_question"),
+        "bug: a client that cannot step up was told to: {body}"
     );
 }
