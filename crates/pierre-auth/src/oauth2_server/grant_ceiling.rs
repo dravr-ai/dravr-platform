@@ -62,8 +62,9 @@ pub struct GrantCeiling {
     pub budgets: Budgets,
     /// Whether the grant is consumed by the first call that reads under it
     pub single_use: bool,
-    /// The step-up a child grant was approved with; `None` on a parent
-    pub step_up: Option<StepUpTerms>,
+    /// The step-up a child grant was approved with; `None` on a parent.
+    /// Boxed: a ceiling rides in many futures, and a parent carries none
+    pub step_up: Option<Box<StepUpTerms>>,
     /// The tier the call's own per-request Host Profile claim declares (owl
     /// §6.2 carrier B); `None` when the call carries none
     pub request_host_tier: Option<Tier>,
@@ -125,7 +126,7 @@ impl GrantCeiling {
     /// approved with `terms`.
     #[must_use]
     pub fn with_child(mut self, mut child: Self, terms: StepUpTerms) -> Self {
-        child.step_up = Some(terms);
+        child.step_up = Some(Box::new(terms));
         child.child = None;
         self.child = Some(Box::new(child));
         self
@@ -190,7 +191,7 @@ impl GrantCeiling {
     /// besides, by the tier gate.
     #[must_use]
     pub fn opens_t2(&self, stream: Stream) -> bool {
-        self.step_up.as_ref().is_some_and(StepUpTerms::opens_t2)
+        self.step_up.as_deref().is_some_and(StepUpTerms::opens_t2)
             && self.request_host_tier == Some(Tier::T2)
             && stream.tier() == Tier::T2
             && self.holds(stream)

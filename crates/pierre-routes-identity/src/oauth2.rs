@@ -354,14 +354,8 @@ impl OAuth2Routes {
         // A step-up is approved only after a sign-in on this page at most
         // five minutes old: any other session signs in again first
         // (carnet#1544 slice 4b).
-        if step_up::asks_step_up(checked.details.as_ref())
-            && Self::fresh_sign_in(&headers, &context, Timestamp::now())
-                .await
-                .is_none()
-        {
-            info!("Step-up authorization without a fresh sign-in, redirecting to login");
-            return Redirect::to(&Self::build_login_url_with_oauth_params(&request))
-                .into_response();
+        if let Some(sign_in) = Self::step_up_sign_in(&context, &checked, &request, &headers).await {
+            return sign_in;
         }
 
         Self::execute_authorization(

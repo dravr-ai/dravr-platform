@@ -27,10 +27,12 @@
 //! athlete's `sensitive_t2` switch at every read.
 
 use axum::http::{header, HeaderMap};
+use axum::response::{IntoResponse, Redirect, Response};
 use dravr_tronc::dates::{Timestamp, Zone};
 use pierre_auth::oauth2_server::authorization_details::ResolvedDetails;
 use pierre_auth::oauth2_server::cimd::host_profile_tier;
-use pierre_auth::oauth2_server::models::OAuth2Error;
+use pierre_auth::oauth2_server::endpoints::CheckedAuthorization;
+use pierre_auth::oauth2_server::models::{AuthorizeRequest, OAuth2Error};
 use pierre_auth::security::cookies::auth_cookie_name_on;
 use pierre_core::errors::AppError;
 use pierre_core::models::{
@@ -101,6 +103,27 @@ impl OAuth2Routes {
             return None;
         }
         Timestamp::from_epoch_seconds(auth_time).ok()
+    }
+
+    /// The redirect to the hosted sign-in a step-up request needs while the
+    /// browser holds no sign-in on this page at most
+    /// [`STEP_UP_MAX_AGE_SECS`] old; `None` for any other request, or once
+    /// it does.
+    pub(super) async fn step_up_sign_in(
+        context: &OAuth2Context,
+        checked: &CheckedAuthorization,
+        request: &AuthorizeRequest,
+        headers: &HeaderMap,
+    ) -> Option<Response> {
+        if !asks_step_up(checked.details.as_ref())
+            || Self::fresh_sign_in(headers, context, Timestamp::now())
+                .await
+                .is_some()
+        {
+            return None;
+        }
+        info!("Step-up authorization without a fresh sign-in, redirecting to login");
+        Some(Redirect::to(&Self::build_login_url_with_oauth_params(request)).into_response())
     }
 
     /// Record `approval` as a child of the client's live grant for

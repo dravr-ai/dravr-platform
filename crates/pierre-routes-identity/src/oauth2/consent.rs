@@ -217,41 +217,18 @@ impl OAuth2Routes {
             .as_ref()
             .filter(|details| step_up::asks_step_up(Some(details)))
         {
-            let recorded = Self::approve_step_up(
-                &context,
-                &headers,
-                StepUpApproval {
-                    client_id: &request.client_id,
-                    details: one_off,
-                    review_digest,
-                    consent_locale: text.lang().to_owned(),
-                    zone: athlete_zone(user.timezone.as_deref()),
-                    auth_time: Timestamp::now(),
-                },
-                user_id,
-                tenant_id.clone(),
-            )
-            .await;
-            return match recorded {
-                Ok(parent_grant_id) => {
-                    Self::mint_authorization_code(
-                        &context,
-                        request,
-                        user_id,
-                        tenant_id,
-                        redirect_uri,
-                        AdminAccess::Withheld,
-                        Some(parent_grant_id),
-                    )
-                    .await
-                }
-                Err(error) => error_redirect(
-                    &context.config.issuer_url,
-                    &redirect_uri,
-                    request.state.as_deref(),
-                    &error,
-                ),
+            let approval = StepUpApproval {
+                client_id: &request.client_id,
+                details: one_off,
+                review_digest,
+                consent_locale: text.lang().to_owned(),
+                zone: athlete_zone(user.timezone.as_deref()),
+                auth_time: Timestamp::now(),
             };
+            let recorded =
+                Self::approve_step_up(&context, &headers, approval, user_id, tenant_id.clone())
+                    .await;
+            return Self::step_up_answer(&context, recorded, request, user_id, tenant_id).await;
         }
 
         // No record, no code: the athlete can neither see nor revoke a grant
@@ -295,6 +272,38 @@ impl OAuth2Routes {
             Some(client_grant_id),
         )
         .await
+    }
+
+    /// The answer to a step-up approval `recorded`: a code naming the parent
+    /// grant, or the refusal sent back to the client.
+    async fn step_up_answer(
+        context: &OAuth2Context,
+        recorded: Result<String, OAuth2Error>,
+        request: AuthorizeRequest,
+        user_id: Uuid,
+        tenant_id: Option<String>,
+    ) -> Response {
+        let redirect_uri = request.redirect_uri.clone();
+        match recorded {
+            Ok(parent_grant_id) => {
+                Self::mint_authorization_code(
+                    context,
+                    request,
+                    user_id,
+                    tenant_id,
+                    redirect_uri,
+                    AdminAccess::Withheld,
+                    Some(parent_grant_id),
+                )
+                .await
+            }
+            Err(error) => error_redirect(
+                &context.config.issuer_url,
+                &redirect_uri,
+                request.state.as_deref(),
+                &error,
+            ),
+        }
     }
 
     /// Approve a step-up for `user_id`: the sign-in cookie `headers` carry

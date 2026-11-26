@@ -66,10 +66,11 @@ fn seconds_to_utc_midnight(now: Timestamp) -> i64 {
 }
 
 impl UniversalExecutor {
-    /// The refusal of a call under a ceiling whose grant spent its rows or
-    /// its raw rows today; `None` when the call may run, outside a ceiling,
-    /// and on a call carrying no tenant. A counter that cannot be read
-    /// refuses the call, as a quota that cannot be read does.
+    /// The refusal of a call under `ceiling` whose single-use grant was
+    /// consumed, or whose grant spent its total rows, or its rows or raw
+    /// rows today; `None` when the call may run, outside a ceiling, and on a
+    /// call carrying no tenant. A counter that cannot be read refuses the
+    /// call, as a quota that cannot be read does.
     pub(super) async fn row_budget_refusal(
         &self,
         tool_name: &str,
@@ -87,32 +88,62 @@ impl UniversalExecutor {
             );
             return Some(consumed(tool_name));
         }
+        if let Some(refusal) = self
+            .total_budget_refusal(tool_name, ceiling, &user, &tenant)
+            .await
+        {
+            return Some(refusal);
+        }
+        self.daily_budget_refusal(tool_name, ceiling, &user, &tenant)
+            .await
+    }
+
+    /// The refusal of a call under `ceiling` whose grant served every row it
+    /// may over its life; `None` for a grant with no total budget. A counter
+    /// that cannot be read refuses.
+    async fn total_budget_refusal(
+        &self,
+        tool_name: &str,
+        ceiling: &GrantCeiling,
+        user: &str,
+        tenant: &str,
+    ) -> Option<UniversalResponse> {
+        let limit = ceiling.budgets.total_rows?;
         let repo = self.resources.repos().usage_counters.as_ref();
-        let budgets = ceiling.budgets;
-        let rows = current_counter(repo, &tenant, &user, &rows_counter(ceiling)).await;
-        let raw_rows = current_counter(repo, &tenant, &user, &raw_rows_counter(ceiling)).await;
-        let total = match budgets.total_rows {
-            Some(_) => current_counter(repo, &tenant, &user, &total_rows_counter(ceiling)).await,
-            None => Ok(0),
-        };
-        let total_spent = match &total {
-            Ok(total) => spent(*total, budgets.total_rows),
-            Err(_) => true,
-        };
-        if total_spent {
-            if let Err(e) = &total {
+        let total = current_counter(repo, tenant, user, &total_rows_counter(ceiling)).await;
+        let spent_total = total.as_ref().map_or_else(
+            |e| {
                 warn!(
                     tool_name,
                     "a grant's total row budget could not be read; refusing: {e}"
                 );
-            }
+                true
+            },
+            |total| spent(*total, Some(limit)),
+        );
+        spent_total.then(|| {
             info!(
                 tool_name,
                 client_grant_id = %ceiling.client_grant_id,
                 "tool call refused: its consent grant's total row budget is spent"
             );
-            return Some(total_exhausted(tool_name));
-        }
+            total_exhausted(tool_name)
+        })
+    }
+
+    /// The refusal of a call under `ceiling` whose grant spent its rows or
+    /// raw rows today. A counter that cannot be read refuses.
+    async fn daily_budget_refusal(
+        &self,
+        tool_name: &str,
+        ceiling: &GrantCeiling,
+        user: &str,
+        tenant: &str,
+    ) -> Option<UniversalResponse> {
+        let repo = self.resources.repos().usage_counters.as_ref();
+        let budgets = ceiling.budgets;
+        let rows = current_counter(repo, tenant, user, &rows_counter(ceiling)).await;
+        let raw_rows = current_counter(repo, tenant, user, &raw_rows_counter(ceiling)).await;
         let day_spent = match (rows, raw_rows) {
             (Ok(rows), Ok(raw_rows)) => {
                 spent(rows, budgets.rows_per_day) || spent(raw_rows, budgets.raw_rows_per_day)
