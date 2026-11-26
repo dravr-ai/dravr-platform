@@ -219,30 +219,21 @@ impl OAuth2Routes {
         {
             // The screen read as rendered (the digest above); the child holds
             // the streams the athlete left ticked, under a digest of them.
-            let selected = match picker::ticked_details(&form, one_off).and_then(|selected| {
-                picker::selection_digest(&selected, &text, subject).map(|digest| (selected, digest))
-            }) {
-                Ok(selected) => selected,
-                Err(error) => {
-                    return error_redirect(
-                        &context.config.issuer_url,
-                        &redirect_uri,
-                        request.state.as_deref(),
-                        &error,
-                    )
+            let recorded = match picker::step_up_selection(&form, one_off, &text, subject) {
+                Ok((selected, review_digest)) => {
+                    let approval = StepUpApproval {
+                        client_id: &request.client_id,
+                        scope: &scope,
+                        details: &selected,
+                        review_digest,
+                        consent_locale: text.lang().to_owned(),
+                        zone: athlete_zone(user.timezone.as_deref()),
+                    };
+                    Self::approve_step_up(&context, &headers, approval, user_id, tenant_id.clone())
+                        .await
                 }
+                Err(error) => Err(error),
             };
-            let approval = StepUpApproval {
-                client_id: &request.client_id,
-                scope: &scope,
-                details: &selected.0,
-                review_digest: selected.1,
-                consent_locale: text.lang().to_owned(),
-                zone: athlete_zone(user.timezone.as_deref()),
-            };
-            let recorded =
-                Self::approve_step_up(&context, &headers, approval, user_id, tenant_id.clone())
-                    .await;
             return Self::step_up_answer(&context, recorded, request, user_id, tenant_id).await;
         }
 

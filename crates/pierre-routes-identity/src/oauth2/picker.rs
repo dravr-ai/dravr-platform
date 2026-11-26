@@ -561,6 +561,23 @@ pub(super) fn ticked_details(
     })
 }
 
+/// The one-off question the athlete approved, and the digest the child records.
+///
+/// [`ticked_details`], then [`selection_digest`] of what it returns.
+///
+/// # Errors
+/// As either refuses.
+pub(super) fn step_up_selection(
+    form: &HashMap<String, String>,
+    details: &ResolvedDetails,
+    text: &ConsentText<'_>,
+    subject: ConsentSubject<'_>,
+) -> Result<(ResolvedDetails, String), OAuth2Error> {
+    let selected = ticked_details(form, details)?;
+    let digest = selection_digest(&selected, text, subject)?;
+    Ok((selected, digest))
+}
+
 /// The review digest of `details`, narrowed by the athlete on the step-up
 /// screen, under the text that screen was rendered in: the digest the child
 /// records, so it covers the selection the athlete approved.
