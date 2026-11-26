@@ -162,7 +162,10 @@ describe('the week strip', () => {
     expect(screen.getByTestId('home-section-week')).toHaveTextContent(/^Week of September 14/);
 
     const sunday = screen.getByTestId('home-week-day-2026-09-20');
-    expect(sunday.props.accessibilityLabel).toBe(`Sunday, September 20 — Done: ${ACTIVITIES[0].name}`);
+    // The shared label says the minutes done with their unit (carnet#1840).
+    expect(sunday.props.accessibilityLabel).toBe(
+      `Sunday, September 20 — Done: ${ACTIVITIES[0].name} · ${Math.round(ACTIVITIES[0].duration_seconds / 60)} min`,
+    );
     expect(within(sunday).getByTestId('home-week-mark-done')).toBeTruthy();
 
     fireEvent.press(sunday);

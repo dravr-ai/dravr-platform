@@ -104,16 +104,28 @@ describe('HomeToday', () => {
     expect(screen.queryByTestId('home-today-uncovered')).toBeNull();
   });
 
-  it('says the plan does not cover a day it never reached, and offers no draft for it', () => {
+  it('says today holds nothing in the plan, once, with a link that drafts the request to fill the week (carnet#1840)', async () => {
     const onOpenChatDraft = vi.fn();
     // Saturday the 26th has no entry at all in the fixture's week.
     render(<HomeToday plan={homePlan()} calendar={calendarFor('2026-09-26')} onOpenChatDraft={onOpenChatDraft} />);
 
-    expect(screen.getByTestId('home-today-uncovered')).toHaveTextContent("Your plan doesn't cover this day.");
+    const uncovered = screen.getByTestId('home-today-uncovered');
+    expect(uncovered).toHaveTextContent('Your plan has nothing today.');
     expect(screen.queryByTestId('home-today-rest-0')).toBeNull();
     expect(screen.queryByTestId('home-today-session-0')).toBeNull();
     // Tomorrow (Sunday) is the long ride, as its own line.
     expect(within(screen.getByTestId('home-tomorrow')).getByRole('button', { name: 'Long ride · 180 min' })).toBeInTheDocument();
+
+    await userEvent.click(within(uncovered).getByRole('button', { name: 'Fill in my week' }));
+    expect(onOpenChatDraft).toHaveBeenCalledExactlyOnceWith('Fill in my week: my plan has nothing on some days.');
+  });
+
+  it('names today and tomorrow in one line when both are empty, with no tomorrow line repeating it', () => {
+    // The fixture's last week holds only the 28th, so neither the 29th nor the 30th has an entry.
+    render(<HomeToday plan={homePlan()} calendar={calendarFor('2026-09-29')} onOpenChatDraft={vi.fn()} />);
+
+    expect(screen.getByTestId('home-today-uncovered')).toHaveTextContent('Your plan has nothing today or tomorrow.');
+    expect(screen.queryByTestId('home-tomorrow')).toBeNull();
   });
 
   it('shows one card per entry today, in order, each drafting its own question and offering its own route', async () => {
@@ -161,7 +173,7 @@ describe('HomeToday', () => {
     render(<HomeToday plan={homePlan()} calendar={calendarFor('2026-09-28')} onOpenChatDraft={vi.fn()} />);
 
     const tomorrow = screen.getByTestId('home-tomorrow');
-    expect(tomorrow).toHaveTextContent("Your plan doesn't cover this day.");
+    expect(tomorrow).toHaveTextContent('Nothing planned');
     expect(within(tomorrow).queryByRole('button')).toBeNull();
   });
 });

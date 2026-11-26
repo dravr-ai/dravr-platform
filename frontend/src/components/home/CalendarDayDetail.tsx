@@ -7,7 +7,7 @@
 import { useTranslation } from '@pierre/i18n';
 import type { CalendarDay, HomeActivity } from '@pierre/shared-types';
 import { activityRowFigures, planDayDraft, sportLabel, useDistanceUnit } from '@pierre/ui-logic';
-import { PlanDateRows } from '../chat/WorkoutPlanCard';
+import { PlanDateList } from '../chat/WorkoutPlanCard';
 import { activityViewRoute } from '../activity/activityRoute';
 
 interface CalendarDayDetailProps {
@@ -54,8 +54,10 @@ function Part({ label }: { label: string }) {
 
 /**
  * The open day. Up to today it lists what was done; the plan's entries for
- * it follow whenever the plan has them — the plan card's rows, then one chat
- * draft per entry, in order — so a past day reads as planned against done.
+ * it follow whenever the plan has them — stacked, so a narrow panel never
+ * squeezes them into the card's table, each with its steps folded under
+ * their count and a short « Pourquoi cette séance ? » that drafts the full
+ * question in chat (carnet#1840) — so a past day reads as planned against done.
  * A day the plan never reached says so only from today on — before that,
  * what was done is the whole story.
  */
@@ -97,30 +99,26 @@ export function CalendarDayDetail({ day, today, id, onOpenChatDraft, onNavigate 
           {lookup.kind === 'uncovered' ? (
             <p className="py-1 text-sm text-on-surface-variant">{t('home.plan.notCovered')}</p>
           ) : (
-            <>
-              <table className="w-full text-sm">
-                <tbody>
-                  <PlanDateRows entries={lookup.days} />
-                </tbody>
-              </table>
-              {/* Each draft names its own entry, so the drafts follow the rows in their order. */}
-              <div className="mt-1 flex flex-col items-start gap-1">
-                {lookup.days.map((entry, position) => {
-                  const draft = planDayDraft(t, language, entry);
-                  return (
-                    <button
-                      key={`${entry.date}-${position}`}
-                      type="button"
-                      data-testid={`${id}-draft-${position}`}
-                      onClick={() => onOpenChatDraft(draft)}
-                      className="rounded py-1 text-left text-sm font-medium text-primary transition-colors hover:text-primary-hover focus-ring"
-                    >
-                      {draft}
-                    </button>
-                  );
-                })}
-              </div>
-            </>
+            <PlanDateList
+              entries={lookup.days}
+              action={(entry, place) => {
+                const draft = planDayDraft(t, language, entry);
+                return (
+                  // The link's words are short; the question it drafts in
+                  // chat is the full sentence naming the session. A rest day
+                  // keeps its own question as its words.
+                  <button
+                    type="button"
+                    data-testid={`${id}-draft-${place.position}`}
+                    aria-describedby={place.sessionId}
+                    onClick={() => onOpenChatDraft(draft)}
+                    className="rounded py-1 text-left text-sm font-medium text-primary transition-colors hover:text-primary-hover focus-ring touch-target"
+                  >
+                    {entry.rest ? draft : t('home.plan.whySession')}
+                  </button>
+                );
+              }}
+            />
           )}
         </div>
       )}

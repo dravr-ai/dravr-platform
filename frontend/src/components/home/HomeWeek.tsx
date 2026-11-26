@@ -41,14 +41,16 @@ const DAYS_PER_WEEK = 7;
 /**
  * The few characters the plan's day leaves in a cell: the minutes its
  * sessions add up to, else the first session's sport; a rest-only day is the
- * word (carnet#1716: a date may hold several sessions).
+ * word (carnet#1716: a date may hold several sessions). Minutes are the
+ * number alone, so a narrow cell never truncates them to « 8… », and the
+ * cell's label says them with their unit (carnet#1840).
  */
 function planHint(t: TFunction, lookup: PlanDayLookup | null): string {
   if (lookup === null) return '';
   if (lookup.kind === 'rest') return t('chat.restDay');
   if (lookup.kind === 'uncovered') return '—';
   const minutes = planDayMinutes(lookup);
-  if (minutes !== null) return `${minutes} min`;
+  if (minutes !== null) return String(minutes);
   const first = planSessionsOf(lookup)[0];
   return first !== undefined && typeof first.sport === 'string' ? sportLabel(t, first.sport) : '';
 }
@@ -71,7 +73,9 @@ function DayCell({
   const { t, language } = useTranslation();
   const isToday = date === today;
   const done = day !== null && day.activities.length > 0;
-  const hint = day === null || day.beforeHistory ? '' : done ? `${activityMinutes(day.activities)} min` : planHint(t, day.plan);
+  const hint = day === null || day.beforeHistory ? '' : done ? String(activityMinutes(day.activities)) : planHint(t, day.plan);
+  // A number is minutes, set in mono like every compared figure; a word (rest, a sport) stays in the body face.
+  const numeric = /^\d+$/.test(hint);
   return (
     <li className="min-w-0">
       <button
@@ -103,7 +107,7 @@ function DayCell({
           )}
         >
           {done && <Check aria-hidden="true" className="h-3 w-3 shrink-0 text-primary" />}
-          <span className="truncate">{hint}</span>
+          <span className={clsx('truncate', numeric && 'font-mono')}>{hint}</span>
         </span>
       </button>
     </li>

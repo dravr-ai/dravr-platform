@@ -1174,8 +1174,12 @@ test.describe('Athlete Home', () => {
 
     await page.getByTestId(`home-week-day-${TODAY}`).click();
     const detail = page.getByTestId('home-week-detail');
-    await expect(detail).toContainText('Warm-up · 15 min · Z1');
-    await detail.getByRole('button', { name: /^Walk me through my session on .+: Tempo run$/ }).click();
+    // The steps wait under their count until asked for (carnet#1840).
+    await expect(detail.getByText('Warm-up · 15 min · Z1')).toBeHidden();
+    await detail.getByRole('button', { name: '2 steps' }).click();
+    await expect(detail.getByText('Warm-up · 15 min · Z1')).toBeVisible();
+    // The link's words are short; the question it drafts names the session.
+    await detail.getByRole('button', { name: 'Why this session?' }).click();
     await expect(page.getByPlaceholder('Message Dravr...').first()).toHaveValue(
       /^Walk me through my session on .+: Tempo run$/,
     );
