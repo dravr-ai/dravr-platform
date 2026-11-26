@@ -1241,6 +1241,7 @@
     "deleteChatRow": "Diesen Chat löschen…",
     "deleteChatTitle": "Diesen Chat löschen?",
     "science_change": {
+      "fitness_score": "Ein Hinweis zu deinem Fitness-Score: Am 26. November habe ich geändert, wie er berechnet wird. Er liest deine Einheiten jetzt an deinen eigenen Herzfrequenzzonen (aerobe Arbeit 40 %, harte Arbeit 30 %) und daran, wie viele Einheiten du pro Woche unterbringst (30 %), und vergleicht den Zeitraum mit dem davor, statt eine Stufe anzugeben. Er braucht deine Ruheherzfrequenz und deine maximale Herzfrequenz. Dein Training hat sich nicht geändert, nur die Art, wie es bewertet wird.",
       "pace_zones": "Ein Hinweis zu deinen Pace-Zonen: Seit dem 23. November leite ich jede Zonengrenze aus Daniels' Sauerstoffkostenkurve ab. Dein lockerer Bereich zeigt jetzt etwa 15 bis 50 Sekunden pro Kilometer schneller als vorher, und dein Marathonbereich liegt um dein vorhergesagtes Marathontempo. Dein Laufen hat sich nicht geändert, nur die Art, wie die Zonen gezogen werden.",
       "training_load": "Ein Hinweis zu deinen Zahlen: Am 21. November habe ich geändert, wie die Trainingsbelastung berechnet wird. Radfahrten zählen jetzt nach normalisierter Leistung, Herzfrequenz-Einheiten nach deiner Herzfrequenzreserve und Läufe gemessen an deinem Schwellentempo. Deine Fitness (CTL) kann an diesem Tag nach oben oder unten gesprungen sein. Dein Training hat sich nicht geändert, nur die Art, wie es gezählt wird."
     }
@@ -1343,7 +1344,8 @@
       "verification": "Prüfung",
       "plan": "Sein Plan",
       "plan_thread": "Dein Planverlauf",
-      "membership": "Gruppe"
+      "membership": "Gruppe",
+      "wellness": "Wellness"
     },
     "reason": {
       "consentRevoked": "Teilt die Daten nicht mehr mit dir",
@@ -1359,7 +1361,9 @@
       "deepFatigueStreak": "Tiefe Ermüdung seit {{mornings}}",
       "planDraftWaiting": "Planentwurf zur Veröffentlichung bereit",
       "newMemberNoPlan": "Ist der Gruppe am {{date}} beigetreten, noch kein Plan",
-      "planEnded": "Plan endete am {{date}}, nichts ersetzt ihn"
+      "planEnded": "Plan endete am {{date}}, nichts ersetzt ihn",
+      "plannedSessionsMissed": "Keine passende Aktivität an {{count}} geplanten Tagen in Folge",
+      "plannedSessionsMissedOne": "Keine passende Aktivität am letzten geplanten Tag"
     },
     "reasonTitle": {
       "consentRevoked": "{{name}} teilt die Daten nicht mehr mit dir.",
@@ -1379,7 +1383,9 @@
       "deepFatigueStreak_ordinal_other": "{{name}} ist den {{count}}. Morgen in Folge tief ermüdet.",
       "planDraftWaiting": "Der mit dem Agenten erstellte Plan wartet auf deine Durchsicht; {{name}} sieht ihn noch nicht.",
       "newMemberNoPlan": "{{name}} ist der Gruppe am {{date}} beigetreten und hat noch keinen Plan.",
-      "planEnded": "Der Plan von {{name}} endete am {{date}}, und nichts ersetzt ihn."
+      "planEnded": "Der Plan von {{name}} endete am {{date}}, und nichts ersetzt ihn.",
+      "plannedSessionsMissed": "Keine Aktivität von {{name}} passt zu den Einheiten, die an den letzten {{count}} geplanten Tagen anstanden.",
+      "plannedSessionsMissedOne": "Keine Aktivität von {{name}} passt zu den Einheiten, die am letzten geplanten Tag anstanden."
     },
     "evidence": {
       "sharingStopped": "Freigabe am {{at}} beendet",
@@ -1403,7 +1409,10 @@
       "joinedGroup": "Ist {{group}} am {{date}} beigetreten",
       "historyTooShort": "Verlauf zu kurz, um die Form zu lesen",
       "planEnded": "Plan endete am {{date}}",
-      "planEndedAfterRace": "Plan endete am {{date}}, mit {{race}}"
+      "planEndedAfterRace": "Plan endete am {{date}}, mit {{race}}",
+      "plannedSessionsUnmatched": "{{missed}} der {{planned}} seit dem {{date}} geplanten Einheiten haben keine passende Aktivität",
+      "plannedSessionUnmatched": "Geplant am {{date}}: {{sport}}, keine passende Aktivität",
+      "wellnessNote": "Letzte Wellness-Notiz ({{date}}): „{{note}}“"
     },
     "roster": {
       "title": "Meine Athleten",
@@ -1488,6 +1497,8 @@
       "status_never": "Noch nicht gelaufen",
       "status_empty": "Um {{time}} gelaufen: nichts zu melden",
       "status_empty_left_out": "Um {{time}} gelaufen: nichts zu melden · {{count}} nicht enthalten",
+      "missed_unreadable": "verpasste Einheiten für {{count}} nicht geprüft: ein Kalender konnte nicht gelesen werden",
+      "missed_off": "verpasste Einheiten für {{count}} nicht geprüft: auf ihrer Seite ausgeschaltet",
       "status_posted": "Um {{time}} gesendet: {{count}} zu erledigen",
       "status_held": "Um {{time}} zurückgehalten",
       "status_paused": "Pausiert",
@@ -1508,7 +1519,8 @@
         "deepFatigueStreak": "Mehrere müde Morgen in Folge",
         "planDraftWaiting": "Ein Planentwurf wartet",
         "newMemberNoPlan": "Neues Mitglied ohne Plan",
-        "planEnded": "Plan beendet"
+        "planEnded": "Plan beendet",
+        "plannedSessionsMissed": "Verpasste geplante Einheiten"
       }
     }
   },
@@ -3195,6 +3207,10 @@
       "label": "Den KI-Tools, die {{coach}} mit Dravr verbindet, erlauben, dich in der Gruppenübersicht zu sehen",
       "hint": "Jedes KI-Tool wird von einem eigenen Unternehmen betrieben, etwa Anthropic bei Claude, das erhält, was das Tool liest, und es nach seinen eigenen Bedingungen außerhalb von Québec verarbeiten kann. {{coach}} wählt das Tool, nicht du. Wenn du das einschaltest, willigst du ausdrücklich ein, dass Dravr deinen Platz in der Gruppenübersicht, deinen Aktivitätsverlauf und ob du einen veröffentlichten Plan hast an dieses Unternehmen weitergibt. Daten, die Dravr von Diensten synchronisiert, die sie innerhalb von Dravr halten, werden nie gezeigt; Exportdateien, die du selbst importierst, können gezeigt werden. Lässt du das ausgeschaltet, hindert das die Tools von {{coach}} nicht daran, dich namentlich zu lesen, solange du dein Training mit deinem Coach teilst; schalte das aus, um sie zu stoppen. Du kannst das jederzeit ausschalten; was ein Tool bereits erhalten hat, kann nicht zurückgeholt werden."
     },
+    "missedSessionCheck": {
+      "label": "{{coach}} benachrichtigen, wenn geplante Einheiten verpasst werden",
+      "hint": "Wenn zu keiner der an aufeinanderfolgenden geplanten Tagen geplanten Einheiten eine passende Aktivität vorliegt, zeigen Zu erledigen und das Morgen-Briefing von {{coach}} das mit den Zahlen an. Dravr vergleicht nur, was geplant war, mit dem, was aufgezeichnet wurde; es rät nie, warum. Schalte das aus, und {{coach}} sieht nichts mehr über verpasste Einheiten."
+    },
     "seat": {
       "title": "Du bist noch nicht der Coach dieser Gruppe",
       "stripBody": "Um das Training deiner Athleten zu sehen und ihre Pläne zu erstellen, brauchst du Coach-Zugang. Das Dravr-Team schaltet ihn frei.",
@@ -4589,6 +4605,8 @@
     },
     "morning_brief": {
       "links": "In Zu erledigen öffnen:",
+      "missed_off": "Verpasste Einheiten für {0} nicht geprüft: auf ihrer Seite ausgeschaltet",
+      "missed_unreadable": "Verpasste Einheiten für {0} nicht geprüft: ein Kalender konnte nicht gelesen werden",
       "not_sharing": "{0} nicht enthalten: Teilen ausgeschaltet",
       "prompt": "Morgen-Briefing. Das sind die Athleten auf meiner Liste, die mich heute Morgen brauchen, aus meiner Liste Zu erledigen, einer pro Zeile mit dem, was sie markiert hat:\n{0}\nSchreib mir ein kurzes Morgen-Briefing nur aus diesen Zeilen: zuerst was heute ansteht, dann diese Woche, eine kurze Zeile pro Athlet in der gegebenen Reihenfolge, mit dem, was anzuschauen ist. Behalte die Zahlen und den Kontext der Zeilen bei; nie ein Prozentsatz, nie eine Vermutung über die Gesundheit oder das Befinden von jemandem. Füge keinen Athleten, keine Zahl und keinen Rat hinzu, den die Zeilen nicht enthalten, und nenne keine Links: Sie folgen deinem Text. Keine Überschriften, unter 120 Wörtern.",
       "unreadable": "{0} nicht enthalten: Ihre Daten konnten nicht gelesen werden"

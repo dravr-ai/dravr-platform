@@ -1241,6 +1241,7 @@
     "deleteChatRow": "Delete this chat…",
     "deleteChatTitle": "Delete this chat?",
     "science_change": {
+      "fitness_score": "A note on your fitness score: on 26 November I changed how it is built. It now reads your sessions against your own heart-rate zones (aerobic work 40%, hard work 30%) and how many sessions you fit into a week (30%), and it compares the period with the one before it instead of giving a level. It needs your resting and maximum heart rate. Your training didn't change, only the way it is scored.",
       "pace_zones": "A note on your pace zones: on 23 November I started cutting every zone edge from Daniels' oxygen-cost curve. Your easy range now reads about 15 to 50 seconds per kilometre faster than before, and your marathon range sits around your predicted marathon pace. Your running didn't change, only the way the zones are drawn.",
       "training_load": "A note on your numbers: on 21 November I changed how training load is scored. Rides now count by normalized power, heart-rate sessions by your heart-rate reserve, and runs against your threshold pace. Your fitness (CTL) may have stepped up or down on that date. Your training didn't change, only the way it is counted."
     }
@@ -1343,7 +1344,8 @@
       "verification": "Verification",
       "plan": "Their plan",
       "plan_thread": "Your plan thread",
-      "membership": "Group"
+      "membership": "Group",
+      "wellness": "Wellness"
     },
     "reason": {
       "consentRevoked": "No longer shares their data with you",
@@ -1359,7 +1361,9 @@
       "deepFatigueStreak": "Deep fatigue for {{mornings}}",
       "planDraftWaiting": "Plan draft ready to publish",
       "newMemberNoPlan": "Joined the group on {{date}}, no plan yet",
-      "planEnded": "Plan ended on {{date}}, nothing replaces it"
+      "planEnded": "Plan ended on {{date}}, nothing replaces it",
+      "plannedSessionsMissed": "No matching activity on {{count}} planned days in a row",
+      "plannedSessionsMissedOne": "No matching activity on the last planned day"
     },
     "reasonTitle": {
       "consentRevoked": "{{name}} stopped sharing their data with you.",
@@ -1379,7 +1383,9 @@
       "deepFatigueStreak_ordinal_other": "{{name}} is in deep fatigue for the {{count}}th morning in a row.",
       "planDraftWaiting": "The plan drafted with the agent is waiting for your review; {{name}} can’t see it yet.",
       "newMemberNoPlan": "{{name}} joined the group on {{date}} and has no plan yet.",
-      "planEnded": "{{name}}’s plan ended on {{date}} and nothing replaces it."
+      "planEnded": "{{name}}’s plan ended on {{date}} and nothing replaces it.",
+      "plannedSessionsMissed": "{{name}} has no activity matching the sessions planned on their last {{count}} planned days.",
+      "plannedSessionsMissedOne": "{{name}} has no activity matching the sessions planned on their last planned day."
     },
     "evidence": {
       "sharingStopped": "Sharing stopped on {{at}}",
@@ -1403,7 +1409,10 @@
       "joinedGroup": "Joined {{group}} on {{date}}",
       "historyTooShort": "History too short to read their form",
       "planEnded": "Plan ended on {{date}}",
-      "planEndedAfterRace": "Plan ended on {{date}}, with {{race}}"
+      "planEndedAfterRace": "Plan ended on {{date}}, with {{race}}",
+      "plannedSessionsUnmatched": "{{missed}} of the {{planned}} sessions planned since {{date}} have no matching activity",
+      "plannedSessionUnmatched": "Planned on {{date}}: {{sport}}, no matching activity",
+      "wellnessNote": "Last wellness note ({{date}}): “{{note}}”"
     },
     "roster": {
       "title": "My athletes",
@@ -1488,6 +1497,8 @@
       "status_never": "Hasn't run yet",
       "status_empty": "Ran at {{time}}: nothing to report",
       "status_empty_left_out": "Ran at {{time}}: nothing to report · {{count}} not included",
+      "missed_unreadable": "missed sessions not checked for {{count}}: a calendar couldn’t be read",
+      "missed_off": "missed sessions not checked for {{count}}: switched off on their side",
       "status_posted": "Sent at {{time}}: {{count}} to handle",
       "status_held": "Held back at {{time}}",
       "status_paused": "Paused",
@@ -1508,7 +1519,8 @@
         "deepFatigueStreak": "Several tired mornings in a row",
         "planDraftWaiting": "A plan draft waiting",
         "newMemberNoPlan": "New member without a plan",
-        "planEnded": "Plan ended"
+        "planEnded": "Plan ended",
+        "plannedSessionsMissed": "Missed planned sessions"
       }
     }
   },
@@ -3195,6 +3207,10 @@
       "label": "Let the AI tools {{coach}} connects to Dravr see you in the group overview",
       "hint": "Each AI tool is run by its own company, such as Anthropic for Claude, which receives what the tool reads and may process it outside Québec under its own terms. {{coach}} chooses the tool, not you. Turning this on is your express consent to Dravr sharing your place in the group overview, your activity history and whether you have a published plan with that company. Data Dravr syncs from services that keep it inside Dravr is never shown; export files you import yourself can be. Leaving this off does not stop {{coach}}'s tools reading you by name while you share your training with your coach; turn that off to stop them. You can turn this off at any time; what a tool already received cannot be taken back."
     },
+    "missedSessionCheck": {
+      "label": "Tell {{coach}} when planned sessions are missed",
+      "hint": "When none of the sessions planned on consecutive planned days has a matching activity, {{coach}}’s To handle and morning brief say so, with the counts. Dravr only compares what was planned with what was recorded; it never guesses why. Turn this off and {{coach}} sees nothing about missed sessions."
+    },
     "seat": {
       "title": "You're not this group's coach yet",
       "stripBody": "To see your athletes' training and build their plans, you need coach access. The Dravr team turns it on.",
@@ -4589,6 +4605,8 @@
     },
     "morning_brief": {
       "links": "Open in To handle:",
+      "missed_off": "Missed sessions not checked for {0}: switched off on their side",
+      "missed_unreadable": "Missed sessions not checked for {0}: a calendar couldn't be read",
       "not_sharing": "{0} not included: sharing off",
       "prompt": "Morning brief. These are the athletes on my roster who need me this morning, from my To handle queue, one per line with what flagged them:\n{0}\nWrite me a short morning brief from these lines only: today's items first, then this week's, one short line per athlete in the order given, saying what to look at. Keep the counts and context the lines carry; never a percentage, never a guess about anyone's health or how they feel. Add no athlete, figure or advice the lines don't carry, and list no links: they follow your text. No headings, under 120 words.",
       "unreadable": "{0} not included: their data couldn't be read"
