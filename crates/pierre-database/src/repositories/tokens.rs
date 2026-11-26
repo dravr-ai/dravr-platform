@@ -851,7 +851,8 @@ macro_rules! impl_oauth2_server_repository {
                 client_id: &str,
                 host_profile: Option<&str>,
             ) -> AppResult<()> {
-                self.write_client_host_profile(client_id, host_profile).await
+                self.write_client_host_profile(client_id, host_profile)
+                    .await
             }
 
             async fn client_host_profile(&self, client_id: &str) -> AppResult<Option<String>> {
