@@ -52,9 +52,10 @@
 //! tenants: they are system sweeps. Every event they write is keyed by the
 //! `(tenant_id, user_id, id)` of the row they read.
 
-/// Record a consent. The active partial-unique index keeps one live grant:
-/// the conflict target names that index, which both engines resolve. A
-/// re-consent to the same grant keeps its row and records the consent text
+/// Record a consent. The live-parent partial-unique index keeps one live
+/// grant: the conflict target names that index, which both engines resolve.
+/// A re-consent to the same grant keeps its row (and ends its step-up child)
+/// and records the consent text
 /// it was given under (and the standing policy that renewed it, if any), so
 /// a screen asked again because its text changed is not asked again on the
 /// next authorization. The details and expiry are written with the row and
@@ -575,6 +576,15 @@ macro_rules! impl_client_grant_writes {
                 let at = if stored.id == grant.id {
                     stored.granted_at
                 } else {
+                    // A re-consent in place ends the one-off question approved
+                    // under the consent it renews (plan revision 16, R-N1).
+                    Self::end_children_in(
+                        conn,
+                        $crate::repositories::tokens::grant_writes::REVOKE_LIVE_CHILD_GRANTS_SQL,
+                        [stored.id.as_str(), &grant.user_id, &grant.tenant_id],
+                        approval.actor,
+                    )
+                    .await?;
                     row.try_get::<Timestamp, _>("event_at").map_err(store_error)?
                 };
                 Self::record_grant_event_in(

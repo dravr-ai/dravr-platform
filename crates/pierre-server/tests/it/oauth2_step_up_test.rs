@@ -300,7 +300,7 @@ fn param(response: &AxumTestResponse, name: &str) -> String {
 }
 
 /// The athlete's live step-up children.
-async fn children(world: &World) -> Vec<ChildGrant> {
+pub(crate) async fn children(world: &World) -> Vec<ChildGrant> {
     world
         .resources
         .common
@@ -312,7 +312,7 @@ async fn children(world: &World) -> Vec<ChildGrant> {
 }
 
 /// The events of grant `id`, oldest first.
-async fn events(world: &World, id: &str) -> Vec<GrantEvent> {
+pub(crate) async fn events(world: &World, id: &str) -> Vec<GrantEvent> {
     let mut receipts = world
         .resources
         .common
@@ -342,13 +342,20 @@ async fn stepped_up() -> (World, Client, String, String) {
 }
 
 /// [`stepped_up`], with the code the step-up approval returned.
-async fn stepped_up_with_code() -> (World, Client, String, String, String) {
+pub(crate) async fn stepped_up_with_code() -> (World, Client, String, String, String) {
     stepped_up_under(&Value::Null).await
 }
 
 /// [`stepped_up_with_code`], the child's constraints narrowed to `budgets`.
-async fn stepped_up_under(budgets: &Value) -> (World, Client, String, String, String) {
-    let world = world().await;
+pub(crate) async fn stepped_up_under(budgets: &Value) -> (World, Client, String, String, String) {
+    stepped_up_in(world().await, budgets).await
+}
+
+/// [`stepped_up_under`] in `world`.
+pub(crate) async fn stepped_up_in(
+    world: World,
+    budgets: &Value,
+) -> (World, Client, String, String, String) {
     let client = register(&world).await;
     let parent = approve_parent(&world, &client).await;
     light_step_up(&world);
@@ -709,7 +716,7 @@ async fn a_step_up_under_a_plain_grant_is_refused() {
 // ============================================================================
 
 /// The athlete's lab result, filed three days ago.
-async fn file_a_lab(world: &World) {
+pub(crate) async fn file_a_lab(world: &World) {
     let repos = &world.resources.common.repos;
     let tenant = TenantId::from_uuid(world.tenant_id.parse().unwrap());
     let source = repos
@@ -762,7 +769,7 @@ async fn file_a_lab(world: &World) {
 }
 
 /// The athlete lets AI read their health records (`sensitive_t2`).
-async fn allow_health_records(world: &World) {
+pub(crate) async fn allow_health_records(world: &World) {
     grant_consent(
         &world.resources.common.repos,
         Uuid::parse_str(&world.tenant_id).unwrap(),
@@ -777,7 +784,12 @@ async fn allow_health_records(world: &World) {
 
 /// `get_health_records` of `kind` over `/mcp` under `bearer`, the request
 /// declaring a Host Profile of `tier` when one is given: the JSON-RPC body.
-async fn read_records(world: &World, bearer: &str, kind: &str, tier: Option<&str>) -> Value {
+pub(crate) async fn read_records(
+    world: &World,
+    bearer: &str,
+    kind: &str,
+    tier: Option<&str>,
+) -> Value {
     let capabilities = tier.map_or_else(
         || json!({}),
         |tier| {
@@ -860,12 +872,12 @@ async fn the_childs_lab_read_reaches_an_outside_client_once_and_nothing_else_doe
         [GrantEvent::StepUp, GrantEvent::Consume],
         "bug: the single-use read did not consume the child"
     );
-    let again = read_records(&world, &token, "labs", Some("T2"))
-        .await
-        .to_string();
+    // Consumed, the child no longer stands: the next lab read is challenged
+    // to step up again, never served.
+    let (status, challenge, again) = records_status(&world, &token, "labs").await;
     assert!(
-        !again.contains("ferritin"),
-        "bug: a consumed single-use child read again: {again}"
+        status == 403 && challenge.contains("insufficient_scope") && !again.contains("ferritin"),
+        "bug: a consumed single-use child read again: {status} {challenge} {again}"
     );
 }
 

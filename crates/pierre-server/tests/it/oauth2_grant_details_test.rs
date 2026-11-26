@@ -71,7 +71,21 @@ pub(crate) struct World {
 pub(crate) async fn world() -> World {
     common::init_server_config();
     common::init_test_http_clients();
-    let resources = common::create_test_server_resources().await.unwrap();
+    world_on(common::create_test_server_resources().await.unwrap()).await
+}
+
+/// [`world`] on a server built from `config`.
+pub(crate) async fn world_with(config: pierre_config::environment::ServerConfig) -> World {
+    common::init_server_config();
+    common::init_test_http_clients();
+    let resources = common::create_test_server_resources_with_config(config)
+        .await
+        .unwrap();
+    world_on(resources).await
+}
+
+/// An athlete with a web session on `resources`.
+async fn world_on(resources: Arc<ServerContext>) -> World {
     let email = format!("grant_details_{}@example.test", Uuid::new_v4());
     let (user, session) = common::create_test_tenant(&resources, &email)
         .await

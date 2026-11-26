@@ -386,6 +386,11 @@ impl fmt::Debug for RecordsRead<'_> {
 impl RecordsRead<'_> {
     /// The records of `kind` in `window` this read reaches.
     ///
+    /// What it serves is counted toward the grant's row budgets, under a
+    /// consent grant's ceiling ([`ai_scope::note_rows`]): each record,
+    /// self-report and glucose day a row, each timed glucose reading a raw
+    /// row, so a one-off question's `total_rows` is levied on what it read.
+    ///
     /// # Errors
     ///
     /// The store's error.
@@ -394,6 +399,14 @@ impl RecordsRead<'_> {
         kind: RecordKind,
         window: RecordWindow,
     ) -> AppResult<HealthRecordsPage> {
+        let page = self.page(kind, window).await?;
+        ai_scope::note_rows(page.records.len() + page.self_reports.len() + page.daily.len());
+        ai_scope::note_raw_rows(page.readings.len());
+        Ok(page)
+    }
+
+    /// [`Self::read`]'s page, uncounted.
+    async fn page(&self, kind: RecordKind, window: RecordWindow) -> AppResult<HealthRecordsPage> {
         let owner = (self.user_id, self.tenant);
         match kind {
             RecordKind::Labs | RecordKind::Clinical => Ok(HealthRecordsPage {
