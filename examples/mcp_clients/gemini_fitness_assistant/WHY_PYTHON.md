@@ -232,7 +232,6 @@ cargo build --release
 
 **Counter**:
 - Pierre's **clients** can be any language (that's the point of HTTP APIs!)
-- We already have 3 Rust examples (fitness_analyzer, agent_discovery, task_manager)
 - Showing Python proves Pierre's **language-agnostic design**
 
 ### "Python is slower than Rust"

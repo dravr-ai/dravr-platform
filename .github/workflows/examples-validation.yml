@@ -1,4 +1,4 @@
-# ABOUTME: GitHub Actions workflow for validating examples compile and pass tests
+# ABOUTME: Validates the Python MCP client example: it installs, compiles and imports
 # ABOUTME: Runs on push/PR to examples/, nightly, and manual trigger
 
 name: "CI: Examples Validation"
@@ -6,10 +6,8 @@ name: "CI: Examples Validation"
 on:
   push:
     branches: [ "main", "debug/**", "feature/**", "features/**", "fix/**", "claude/**", "copilot/**" ]
-    # The examples are standalone crates with their own lockfiles and no path
-    # dependency on the server, so a server change cannot break their build.
-    # The smoke test that runs one against the server lives in server-e2e.yml
-    # (nightly, or on a dispatch that asks for it), beside the server it uses.
+    # The example is a standalone Python client with no dependency on the
+    # server's code, so a server change cannot break it.
     paths:
       - 'examples/**'
       - '.github/workflows/examples-validation.yml'
@@ -38,52 +36,7 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  # embacle's copilot-sdk feature pulls github-copilot-sdk, whose build script
-  # downloads ~130 MB and embeds the Copilot CLI unless told not to; the runtime
-  # is a file COPILOT_RUNTIME_PATH names, never a payload in the binary.
-  COPILOT_SKIP_CLI_DOWNLOAD: "1"
-  CARGO_TERM_COLOR: always
-  CARGO_NET_GIT_FETCH_WITH_CLI: true
-
 jobs:
-  compile-rust-examples:
-    name: Compile Rust Examples
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20  # three cargo checks, ~1 min warm
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Configure git for private deps
-        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@1.100.0
-
-      - name: Cache example dependencies
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            examples/agents/*/target/
-          key: ${{ runner.os }}-examples-${{ hashFiles('examples/agents/*/Cargo.lock') }}
-
-      - name: Check agent_discovery compiles
-        working-directory: examples/agents/agent_discovery
-        run: cargo check --quiet
-
-      - name: Check task_manager compiles
-        working-directory: examples/agents/task_manager
-        run: cargo check --quiet
-
-      - name: Check fitness_analyzer compiles
-        working-directory: examples/agents/fitness_analyzer
-        run: cargo check --quiet
-
   validate-python-examples:
     name: Validate Python Examples
     runs-on: ubuntu-24.04
@@ -110,33 +63,3 @@ jobs:
         run: |
           cd examples/mcp_clients/gemini_fitness_assistant
           python3 -c "from gemini_fitness_assistant import PierreMCPClient, MCPTool; print('Imports OK')"
-
-  test-rust-examples:
-    name: Test Rust Examples
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20  # ~1 min warm
-    needs: compile-rust-examples
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Configure git for private deps
-        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@1.100.0
-
-      - name: Cache example dependencies
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            examples/agents/*/target/
-          key: ${{ runner.os }}-examples-${{ hashFiles('examples/agents/*/Cargo.lock') }}
-
-      - name: Run fitness_analyzer tests
-        working-directory: examples/agents/fitness_analyzer
-        run: cargo test --quiet
