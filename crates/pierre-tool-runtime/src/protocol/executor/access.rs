@@ -167,6 +167,7 @@ fn render_withheld(
         Withheld::Tier(tier) => Ok(grant_ceiling_refusal::tier(tool_name, tier)),
         Withheld::Stream => Ok(grant_ceiling_refusal::stream(tool_name)),
         Withheld::Window => Ok(grant_ceiling_refusal::window(tool_name)),
+        Withheld::NeverExternal => Ok(super::tier_gate::never_external(tool_name)),
         Withheld::SupportSession => {
             warn!(
                 tool_name = %tool_name,

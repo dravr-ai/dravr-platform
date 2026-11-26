@@ -61,10 +61,12 @@ use dravr_tronc::mcp::protocol::JsonRpcRequest;
 use dravr_tronc::mcp::server::McpServer;
 use dravr_tronc::mcp::tool::ToolContext;
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_mcp_server::mcp::host_seams::build_mcp_server;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::security::ToolReach;
+use pierre_tool_runtime::tool_access::{withheld, Caller, CallerRole, Withheld};
 use serde_json::{json, Value};
 
 const WRITE_ENV: &str = "MCP_SURFACE_FIXTURE_WRITE";
@@ -397,19 +399,35 @@ fn assert_admin_list(
         .map(|tool| tool["name"].as_str().unwrap())
         .collect();
     let registry = &resources.mcp.tool_registry;
+    // Over `/mcp` a tool every call of which reads T3 is never offered
+    // (`Withheld::NeverExternal`, carnet#1544), whoever asks.
+    let grant = OAuthScope::self_grant();
+    let outside_admin = Caller {
+        role: CallerRole {
+            admin: true,
+            coach: false,
+        },
+        grant: &grant,
+        transport: Some(Transport::McpHttp),
+        support_session: false,
+        ceiling: None,
+    };
     let mut every: Vec<&str> = registry
         .tool_names()
         .into_iter()
         .filter(|name| {
-            registry
-                .get(name)
-                .is_some_and(|tool| tool.reach() != ToolReach::AppOnly)
+            registry.get(name).is_some_and(|tool| {
+                tool.reach() != ToolReach::AppOnly
+                    && withheld(registry, name, tool.as_ref(), &outside_admin)
+                        != Some(Withheld::NeverExternal)
+            })
         })
         .collect();
     every.sort_unstable();
     assert_eq!(
         names, every,
-        "an admin with Admin access is listed every tool not kept to Dravr's own app"
+        "an admin with Admin access is listed every tool not kept to Dravr's own app, \
+         but those every call of which reads T3"
     );
     assert!(
         coach_by_name.keys().all(|name| names.contains(name)),

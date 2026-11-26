@@ -57,6 +57,10 @@
 //! ([`Withheld::Stream`]); and a tool aggregating the whole history is
 //! withheld under the grant's data window ([`Withheld::Window`]).
 //!
+//! Outside Dravr's own surfaces a tool every call of which reads T3 is
+//! withheld too ([`Withheld::NeverExternal`]): the tier gate would refuse
+//! each call, since T3 never goes to an outside client (carnet#1544).
+//!
 //! Listing keeps a tool when [`withheld`] answers `None`; the dispatch
 //! chokepoint refuses a call with the same answer. The role is read live on
 //! each listing and each call and kept nowhere: `/mcp` holds no session, and
@@ -177,7 +181,15 @@ pub enum Withheld {
     /// The tool aggregates the whole history, past the consent grant's data
     /// window.
     Window,
+    /// Every call of the tool reads T3, and the caller is outside Dravr's
+    /// own surfaces, where T3 never goes (JF 2026-11-25): the tier gate
+    /// would refuse each call, so the tool is not offered there.
+    NeverExternal,
 }
+
+/// The `error_code` of a call refused because it reads a tier never served
+/// to its caller: the tier gate's at dispatch, and [`Withheld::NeverExternal`]'s.
+pub const SENSITIVE_TIER_WITHHELD: &str = "sensitive_tier_withheld";
 
 /// The first reason `tool`, registered in `registry` as `name`, is withheld
 /// from `caller`, or `None` when it is offered and may be called. What the
@@ -281,6 +293,12 @@ fn decide(tool: Declared, caller: &Caller<'_>) -> Option<Withheld> {
         };
         if !lifted {
             return Some(Withheld::Transport);
+        }
+        if tool
+            .data
+            .is_some_and(|data| data.every_call_reads(Tier::T3))
+        {
+            return Some(Withheld::NeverExternal);
         }
     }
     match tool.audience {

@@ -461,12 +461,6 @@ export interface EstimateVo2maxParams {
 
 
 /**
- * Export the athlete's Endurance dossier — physiological profile (VO2max, FTP, threshold pace, fitness level, critical power, W′, critical speed, D′), HR + power zones, goals and nutrition slots; an empty slot is `null`. Critical power, W′, critical speed and D′ each carry `kind` (measured or estimated) and `origin`: quote an estimated value as an estimate attributed to its origin ('Vekta estimates your CP at 312 W'), never as a measurement. An FTP, threshold or max heart rate, or threshold pace named in `threshold_provenance` with its origin came from a provider: quote it as that provider's estimate ('intervals.icu has your FTP at 285 W'); one not named there is the athlete's own.
- */
-export interface ExportDossierParams {}
-
-
-/**
  * Export the Endurance 'intervals.json' shape for one activity, e.g. a tempo/threshold/VO2max workout — one row per lap with avg HR, normalized power, intensity factor and decoupling. An activity without laps returns one interval covering the whole session.
  */
 export interface ExportIntervalsParams {
@@ -1305,22 +1299,6 @@ export interface QueryActivitiesParams {
 
 
 /**
- * Retrieve the facts remembered about the user, most recently updated first. Use it to confirm what you already know before answering.
- */
-export interface RecallUserMemoryParams {
-
-  /** Return only facts attached to this agent. */
-  agent_id?: string;
-
-  /** Fact kind filter (preference | physiology | injury | goal | schedule | equipment | other). */
-  kind?: string;
-
-  /** Maximum facts to return (1–50, default 12). */
-  limit?: number;
-}
-
-
-/**
  * Choose the training flavour an athlete should run this season and lay the season out. Call it once /season and /calibrate have run, passing what the athlete answered — weekly hours and sessions at minimum; the profile and active plan fill in the rest. Returns the flavours they can run, ranked with reasons and evidence, the ones they cannot with the reason, the rule's confidence, and the season's phases laid backward from the goal. Present the verdict in your own voice, confirm the inputs it echoes, and save through save_training_plan with `verdict` and `inputs` exactly as returned, selected_by rule for the first-ranked flavour or coach/athlete plus the reason for any other. It writes nothing.
  */
 export interface RecommendPlanFlavourParams {
@@ -2152,7 +2130,6 @@ export const TOOL_NAMES = [
   "discover_routes",
   "estimate_lactate_thresholds",
   "estimate_vo2max",
-  "export_dossier",
   "export_intervals",
   "export_latest_snapshot",
   "export_routes",
@@ -2194,7 +2171,6 @@ export const TOOL_NAMES = [
   "prescribe_workout",
   "push_training_plan",
   "query_activities",
-  "recall_user_memory",
   "recommend_plan_flavour",
   "refresh_provider_data",
   "save_recipe",
@@ -2249,7 +2225,6 @@ export interface ToolParamsMap {
   "discover_routes": DiscoverRoutesParams;
   "estimate_lactate_thresholds": EstimateLactateThresholdsParams;
   "estimate_vo2max": EstimateVo2maxParams;
-  "export_dossier": ExportDossierParams;
   "export_intervals": ExportIntervalsParams;
   "export_latest_snapshot": ExportLatestSnapshotParams;
   "export_routes": ExportRoutesParams;
@@ -2291,7 +2266,6 @@ export interface ToolParamsMap {
   "prescribe_workout": PrescribeWorkoutParams;
   "push_training_plan": PushTrainingPlanParams;
   "query_activities": QueryActivitiesParams;
-  "recall_user_memory": RecallUserMemoryParams;
   "recommend_plan_flavour": RecommendPlanFlavourParams;
   "refresh_provider_data": RefreshProviderDataParams;
   "save_recipe": SaveRecipeParams;
