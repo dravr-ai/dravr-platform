@@ -67,6 +67,7 @@ import {
   cardStatus,
   connectConsentsFor,
   connectPlan,
+  intervalsKeyReplacesAuthorization,
   oauthFallbackTarget,
   noticeRequired,
   providerName,
@@ -89,7 +90,16 @@ import PreferredCalendarSettings from './settings/PreferredCalendarSettings';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { ownAppDevPortal } from '@pierre/domain-utils';
-import { alwaysAllowedClients, connectedAppPresetLabel, describeApiError, stepUpLines, followConnectPlan, MIN_PASSWORD_LENGTH, isPasswordLongEnough } from '@pierre/ui-logic';
+import {
+  alwaysAllowedClients,
+  connectedAppPresetLabel,
+  describeApiError,
+  stepUpLines,
+  followConnectPlan,
+  MIN_PASSWORD_LENGTH,
+  isPasswordLongEnough,
+  type IntervalsDialog,
+} from '@pierre/ui-logic';
 
 // Garmin's offered consents, asked before its connect: loaded on the first
 // connect that offers them, so the dialog stays out of the entry bundle.
@@ -197,6 +207,11 @@ export default function UserSettings({
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
   // The id goes to the API; the card's display name is what the user reads.
   const [providerToDisconnect, setProviderToDisconnect] = useState<{ id: string; name: string } | null>(null);
+  // One disconnect at a time: a slow DELETE left Confirm clickable, and one
+  // athlete's taps sent 23 of them in 26 s (carnet#1837). The ref refuses a
+  // second call before React re-renders; the state drives the dialog.
+  const disconnectInFlight = useRef(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [providerMessage, setProviderMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   // The account sign-in on screen: its target, whether the card still needs
   // its exposure notice accepted, whether it is the one-time history copy, and
@@ -224,9 +239,10 @@ export default function UserSettings({
   // The card whose offered consents (Garmin's AI use and workout transfer)
   // are on screen before its connect starts; Continue starts it either way.
   const [consentCard, setConsentCard] = useState<ProviderStatus | null>(null);
-  // The Intervals.icu dialog, and whether it leads with the authorization
-  // (`intervalsConnectPath` answered `'choose'`) or is the key form alone.
-  const [intervalsModal, setIntervalsModal] = useState<{ offersAuthorize: boolean } | null>(null);
+  // The Intervals.icu dialog: whether it leads with the authorization
+  // (`intervalsConnectPath` answered `'choose'`) or is the key form alone, and
+  // whether a key linked there replaces the athlete's authorization.
+  const [intervalsModal, setIntervalsModal] = useState<IntervalsDialog | null>(null);
 
   // Connected OAuth apps (external MCP clients) revoke-confirmation target
   const [appToRevoke, setAppToRevoke] = useState<OAuthGrant | null>(null);
@@ -494,8 +510,10 @@ export default function UserSettings({
       // Intervals.icu's dialog: a key-linked card (a coach's: only the key
       // reads the athletes they coach) reopens the key form, and a new link
       // offers the authorization first with the key form beside it. A card
-      // the athlete authorized goes straight back through `authorize`.
-      intervalsDialog: (offersAuthorize) => setIntervalsModal({ offersAuthorize }),
+      // the athlete authorized goes straight back through `authorize` while
+      // the server offers it, and through the key form, which says the key
+      // replaces the authorization, when it does not.
+      intervalsDialog: setIntervalsModal,
       authorize: (name) => {
         if (name === provider.provider) startOAuthConnect(provider, consents);
         else handleConnectProvider(name, false, consents);
@@ -613,6 +631,9 @@ export default function UserSettings({
 
   // Disconnect a fitness provider
   const handleDisconnectProvider = async (providerId: string, displayName: string) => {
+    if (disconnectInFlight.current) return;
+    disconnectInFlight.current = true;
+    setIsDisconnecting(true);
     try {
       setProviderMessage(null);
       // Intervals.icu has its own disconnect endpoint, which withdraws an
@@ -631,6 +652,9 @@ export default function UserSettings({
         type: 'error',
         text: describeApiError(error, { t, fallbackKey: 'settingsErr.disconnectFailed' }),
       });
+    } finally {
+      disconnectInFlight.current = false;
+      setIsDisconnecting(false);
     }
   };
 
@@ -860,7 +884,12 @@ export default function UserSettings({
                         if (target) setSignIn({ target, consentRequired: provider.consent_required, historyMode: true, fallback: null });
                       }}
                       onDisconnect={() => setProviderToDisconnect({ id: provider.provider, name: provider.display_name })}
-                      onLinkKey={() => setIntervalsModal({ offersAuthorize: false })}
+                      onLinkKey={() =>
+                        setIntervalsModal({
+                          offersAuthorize: false,
+                          replacesAuthorization: intervalsKeyReplacesAuthorization(provider),
+                        })
+                      }
                       onWithdrawAiConsent={() => handleWithdrawAiConsent(provider.provider, provider.display_name)}
                     />
                   ))}
@@ -1760,6 +1789,7 @@ Authorization: Bearer <your-token-here>`}
         message={t('app.confirmDisconnect', { provider: providerToDisconnect?.name ?? '' })}
         confirmLabel={t('app.disconnect')}
         variant="danger"
+        isLoading={isDisconnecting}
       />
 
       <ProviderNoticeDialog
@@ -1829,6 +1859,7 @@ Authorization: Bearer <your-token-here>`}
               }
             : undefined
         }
+        replacesAuthorization={intervalsModal?.replacesAuthorization ?? false}
         onConnected={() => {
           refetchProviders();
           setIntervalsModal(null);

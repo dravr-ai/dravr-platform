@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: One row of the unified conversation list — avatar, kind glyph, title, archived label, preview, time, count capsule
-// ABOUTME: Swipe right reveals Mark unread and swipe left reveals Delete; long-press hands the row to the host's menu
+// ABOUTME: Swipe right reveals Mark unread and swipe left reveals Delete; long-press hands the row to the host's menu; a coach's trifecta athlete row has neither
 
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
@@ -67,6 +67,13 @@ export interface ConversationRowProps {
   onLongPress: (row: ConversationRowModel) => void;
   onMarkUnread: (row: ConversationRowModel) => void;
   onDelete: (row: ConversationRowModel) => void;
+  /**
+   * The row is a coach's trifecta athlete — their room and the coach's plan
+   * thread on them as one place (carnet#1817) — and opens their workspace:
+   * a person's round avatar and the plan thread's clipboard, and no rename,
+   * mark-unread or delete, since it stands for two conversations.
+   */
+  opensWorkspace?: boolean;
 }
 
 /**
@@ -77,21 +84,35 @@ export interface ConversationRowProps {
  * preview, the relative time on the right, and one count capsule that takes
  * the `@` when that unread is a mention.
  *
+ * A coach's trifecta athlete is one person, so their row is a circle with
+ * the plan thread's clipboard, and it has no swipe actions or long-press
+ * menu (DESIGN.md "A coach's trifecta athlete in Groups").
+ *
  * The hairline sits on the text column, not the touchable, so the divider
  * is inset to the text and the avatars stand in an unbroken column.
  */
-export function ConversationRow({ row, seatLine = null, onPress, onLongPress, onMarkUnread, onDelete }: ConversationRowProps) {
+export function ConversationRow({
+  row,
+  seatLine = null,
+  onPress,
+  onLongPress,
+  onMarkUnread,
+  onDelete,
+  opensWorkspace = false,
+}: ConversationRowProps) {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
   const unread = row.unreadCount > 0;
   const mentioned = unread && previewMentionsSomeone(row.preview);
-  const glyph = KIND_GLYPH[row.kind];
+  // A trifecta athlete's row carries the plan thread's clipboard, since their
+  // plan is where it leads.
+  const glyph = opensWorkspace ? KIND_GLYPH.subject : KIND_GLYPH[row.kind];
   // Shape reaches no screen reader (WCAG 1.3.3), so the row's own label says
   // what kind of thread it is, in words, before the title.
   const namedTitle = glyph ? `${t(glyph.labelKey)}, ${row.title}` : row.title;
   const spokenTitle = row.archived ? `${namedTitle}, ${t('chat.archived')}` : namedTitle;
 
-  const leftActions: SwipeAction[] = [
+  const leftActions: SwipeAction[] = opensWorkspace ? [] : [
     {
       icon: 'mail',
       label: t('app.rowMarkUnread'),
@@ -100,7 +121,7 @@ export function ConversationRow({ row, seatLine = null, onPress, onLongPress, on
       onPress: () => onMarkUnread(row),
     },
   ];
-  const rightActions: SwipeAction[] = [
+  const rightActions: SwipeAction[] = opensWorkspace ? [] : [
     {
       icon: 'trash-2',
       label: t('common.delete'),
@@ -115,7 +136,7 @@ export function ConversationRow({ row, seatLine = null, onPress, onLongPress, on
       <TouchableOpacity
         className="flex-row items-center min-h-[72px] px-4 bg-background-primary"
         onPress={() => onPress(row)}
-        onLongPress={() => onLongPress(row)}
+        onLongPress={opensWorkspace ? undefined : () => onLongPress(row)}
         delayLongPress={300}
         accessibilityRole="button"
         accessibilityLabel={
@@ -129,7 +150,7 @@ export function ConversationRow({ row, seatLine = null, onPress, onLongPress, on
           initials={row.initials}
           slot={row.avatarSlot}
           size={48}
-          shape={row.kind === 'group' ? 'square' : 'circle'}
+          shape={row.kind === 'group' && !opensWorkspace ? 'square' : 'circle'}
           testID={`conversation-avatar-${row.id}`}
         />
 
@@ -150,7 +171,7 @@ export function ConversationRow({ row, seatLine = null, onPress, onLongPress, on
                 color={colors.text.tertiary}
                 style={{ marginRight: 6 }}
                 accessibilityLabel={t(glyph.labelKey)}
-                testID={`conversation-kind-${row.id}`}
+                testID={opensWorkspace ? `conversation-opens-workspace-${row.id}` : `conversation-kind-${row.id}`}
               />
             )}
             <Text

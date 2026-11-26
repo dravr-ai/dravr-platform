@@ -23,10 +23,10 @@ members = ["crates/*"]
 [workspace.dependencies]
 # Shared server/MCP foundation. From crates.io; every consumer moves in lockstep
 # because two tronc versions in the lockfile hard-fail the duplicate gate.
-dravr-tronc = "8.1.0"
+dravr-tronc = "8.2.0"
 
 # Sports science engine -- VDOT, TSS, TRIMP, FTP, VO2max, recovery, nutrition.
-dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.60.0" }
+dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.61.0" }
 
 # Messaging types and channel adapters.
 dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.15.0" }
@@ -34,21 +34,21 @@ dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.1
 # Activity history: kept originals, archive imports and the one FIT decoder.
 # Its dravr-cageux pin is a companion of this one (see its satellites.toml
 # stanza): the two move in one commit or Cargo.lock holds two.
-# carnet#1544/#1550: pinned to a rev of barrage's unreleased feature/owl-4b-presets
-# (it carries feature/owl-rekey-apple-main's re-key) until consolidation swaps it
-# to the next barrage tag.
-dravr-barrage = { git = "https://github.com/dravr-ai/dravr-barrage.git", rev = "4d8a2506258b2a84a9e6421bdd401ac22afdc8d2", default-features = false }
+# carnet#1544/#1550: pinned to a rev of barrage's unreleased feature/owl-finish-barrage
+# (feature/owl-4b-presets, which carries feature/owl-rekey-apple-main's re-key,
+# merged with v0.35.2) until consolidation swaps it to the next barrage tag.
+dravr-barrage = { git = "https://github.com/dravr-ai/dravr-barrage.git", rev = "8cd089daca43f2c7b5ed511aa2fc490a6ed89538", default-features = false }
 
 # Notification transport.
 dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", tag = "v0.12.0" }
 
 # Coach catalogue, locale strings and notify-event catalogue. Pinned by rev
 # rather than tag; contremaitre-bump.yml advances it.
-dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "d159c5731606c8968c1d06527025f1ff45da6261" }
+dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "c106223220ab2861ae0da6ae5038a62ff01f5dcb" }
 
 # Health provider sync. default-features off so each consumer's own
 # provider-* features select the backends.
-dravr-enforme = { version = "0.23.1", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.23.1", default-features = false }
+dravr-enforme = { version = "0.24.0", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.24.0", default-features = false }
 
 # Health and wellness domain models.
 dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.12.0" }
@@ -58,7 +58,7 @@ dravr-equilibre-sync = { package = "dravr-equilibre", git = "https://github.com/
 dravr-meteo = { git = "https://github.com/dravr-ai/dravr-meteo.git", tag = "v0.12.0" }
 
 # Chart geometry: resolves a persisted dravr-viz spec into a Scene.
-photograveur = { git = "https://github.com/dravr-ai/dravr-photograveur.git", tag = "v0.9.1" }
+photograveur = { git = "https://github.com/dravr-ai/dravr-photograveur.git", tag = "v0.9.3" }
 
 # Time-series storage backend.
 dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "v0.7.0" }

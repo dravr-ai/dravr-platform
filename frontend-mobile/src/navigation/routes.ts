@@ -102,6 +102,24 @@ export function coachAthleteHref(athleteId: string): CoachAthleteHref {
 }
 
 /**
+ * A coach's workspace on one roster athlete — the plan's dates to accept,
+ * refuse and edit, its history, the coach's plan thread and the athlete's
+ * room — pushed in the Home stack beside the athlete's detail (carnet#1818).
+ */
+export const COACH_WORKSPACE_ROUTE = '/(app)/(tabs)/(home)/athlete/[athleteId]/plan' as const;
+
+/** A navigation target for one roster athlete's workspace, as `router.push` takes it. */
+export interface CoachWorkspaceHref {
+  pathname: typeof COACH_WORKSPACE_ROUTE;
+  params: { athleteId: string };
+}
+
+/** The target that opens the workspace of the athlete `athleteId` on the coach's roster. */
+export function coachWorkspaceHref(athleteId: string): CoachWorkspaceHref {
+  return { pathname: COACH_WORKSPACE_ROUTE, params: { athleteId } };
+}
+
+/**
  * The human coach's review of the agent's group replies — each reply with its
  * claim verdicts, and the Flag and Correct actions — pushed in the Home stack
  * so Back returns to the screen the human coach came from (carnet#1304).

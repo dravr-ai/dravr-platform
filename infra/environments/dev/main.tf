@@ -424,8 +424,10 @@ module "backend" {
       #   incident corpus it gave 3 findings deferred against 6 with every
       #   tool loaded. A spent credit answers HTTP 400 invalid_request_error
       #   ("Your credit balance is too low"), not the 402 Anthropic
-      #   documents; embacle 0.47.1 maps that wording to RateLimit, so it
-      #   falls through like a quota. A credential that is dead under any
+      #   documents, and so does a reached Console spend limit ("You have
+      #   reached your specified API usage limits"); embacle 0.48.1 maps both
+      #   wordings to RateLimit, so the turn falls through to the next key
+      #   like a quota. A credential that is dead under any
       #   other wording is caught by the probe instead: a tier that cannot
       #   answer "ping" is benched and passed over
       #   (crates/pierre-llm/src/tier_bench.rs). Any quota answer fires
@@ -605,15 +607,13 @@ module "backend" {
       # exceeded" page.
       STRAVA_OAUTH_SEAT_CAP = tostring(var.strava_oauth_seat_cap)
 
-      # WhatsApp config held as plain environment values: the phone number ID
-      # of the account's WhatsApp number, never a Meta test number (those
-      # deliver only to the recipients on their allow-list), and the token
-      # Meta echoes when it verifies the webhook subscription.
+      # The phone number ID of the account's WhatsApp number, never a Meta
+      # test number: those deliver only to the recipients on their allow-list.
+      # The Facebook Page athletes message on Messenger, which every Messenger
+      # link opens. The webhook verify tokens are secrets, in the secret map
+      # below.
       META_WHATSAPP_PHONE_NUMBER_ID = var.meta_whatsapp_phone_number_id
-      META_WHATSAPP_VERIFY_TOKEN    = var.meta_whatsapp_verify_token
-
-      # Messenger's webhook verification token, held the same way.
-      META_MESSENGER_VERIFY_TOKEN = var.meta_messenger_verify_token
+      META_MESSENGER_PAGE_ID        = var.meta_messenger_page_id
 
       # Admin email for messaging channel seeding (resolves tenant on startup)
       ADMIN_EMAIL = var.admin_email
@@ -838,6 +838,8 @@ module "backend" {
     META_WHATSAPP_ACCESS_TOKEN       = module.secrets.secret_ids["meta_whatsapp_access_token"]
     META_MESSENGER_APP_SECRET        = module.secrets.secret_ids["meta_messenger_app_secret"]
     META_MESSENGER_PAGE_ACCESS_TOKEN = module.secrets.secret_ids["meta_messenger_page_access_token"]
+    META_WHATSAPP_VERIFY_TOKEN       = module.secrets.secret_ids["meta_whatsapp_verify_token"]
+    META_MESSENGER_VERIFY_TOKEN      = module.secrets.secret_ids["meta_messenger_verify_token"]
     DISCORD_BOT_TOKEN                = module.secrets.secret_ids["discord_bot_token"]
     DISCORD_PUBLIC_KEY               = module.secrets.secret_ids["discord_public_key"]
     DISCORD_APPLICATION_ID           = module.secrets.secret_ids["discord_application_id"]
@@ -1247,8 +1249,15 @@ module "sciotte" {
 
   secret_env_vars = local.sciotte_secret_env_vars
 
-  health_check_path           = "/health"
-  startup_probe_initial_delay = 5
+  # The server listens ~0.8 s after an instance starts, and a scaled-to-zero
+  # read service is cold-started inside requests that wait on it: a
+  # disconnect drops the session on every read service and waits for the
+  # slowest. A 5 s initial delay held one disconnect 5.4 s on 2026-11-26
+  # (carnet#1838); probing every second from 1 s keeps the same ~50 s budget.
+  health_check_path               = "/health"
+  startup_probe_initial_delay     = 1
+  startup_probe_period            = 1
+  startup_probe_failure_threshold = 50
 
   labels = merge(var.labels, { component = "sciotte" })
 

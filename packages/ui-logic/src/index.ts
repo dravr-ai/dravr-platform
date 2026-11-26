@@ -139,7 +139,13 @@ export {
 } from './archiveImport';
 
 export { cardAwaitingHistory, cardExportSource } from './cardHistory';
-export { connectAction, followConnectPlan, type ConnectAction, type ConnectHandlers } from './connectDispatch';
+export {
+  connectAction,
+  followConnectPlan,
+  type ConnectAction,
+  type ConnectHandlers,
+  type IntervalsDialog,
+} from './connectDispatch';
 export { coachAddDraft, coachMention } from './coachDraft';
 export { orderTeam, teamInOrder, type OrderedTeam } from './team';
 
@@ -190,11 +196,25 @@ export {
   type PlanHistoryWords,
   PLAN_WORKSPACE_KEYS,
   athleteRoomGroup,
+  canOpenWorkspace,
   planCalendarWeeks,
   planHistoryLine,
   roomConversationOf,
+  shownPlan,
   usablePlanThread,
 } from './planWorkspace';
+// The athlete workspace's two threads, the coach's answers to the draft and which state its plan and tabs are in, one definition both clients bind (carnet#1816, #1818)
+export {
+  type WorkspaceAnswers,
+  type WorkspaceGroupTab,
+  type WorkspacePlanRead,
+  type WorkspaceRoom,
+  type WorkspaceThreads,
+  createWorkspaceHooks,
+  workspaceAgentName,
+  workspaceGroupTab,
+  workspacePlanState,
+} from './workspaceHooks';
 // A coach's Groups list with one row per trifecta athlete, opening their workspace (carnet#1817)
 export { type AthleteWorkspaceFold, type GroupsListRow, foldAthleteRows } from './athleteRows';
 // A coach's day editor: the day's own session by hand, or a family build with its live preview, saved into the draft (carnet#1515, #1714)

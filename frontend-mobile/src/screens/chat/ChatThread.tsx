@@ -28,6 +28,7 @@ import {
 import {
   followConnectPlan,
   privateSendFailureText,
+  type IntervalsDialog,
   type PlanThreadDraft,
   type UsePrivateLaneResult,
 } from '@pierre/ui-logic';
@@ -55,6 +56,7 @@ import { MessageList, type MessageListPrivateLane } from './MessageList';
 import { UsageWarningBanner } from './UsageWarningBanner';
 import { VerdictSheet, type VerdictSource } from './VerdictSheet';
 import PlanThreadOpenDraft from './PlanThreadOpenDraft';
+import type { WorkspacePlanSurface } from './PlanChangeEntry';
 import SessionEditorSheet from './SessionEditorSheet';
 import type { SessionEditorTarget } from './WorkoutPlanCard';
 import { useChatVoiceInput } from './useChatVoiceInput';
@@ -131,6 +133,13 @@ export interface ChatThreadProps {
   privateLane?: { lane: UsePrivateLaneResult; agentName: string } | null;
   /** The host's one-time offer at the end of the transcript, in the agent's voice. */
   offer?: React.ReactNode;
+  /**
+   * The thread is a coach's plan thread drawn inside their athlete workspace,
+   * whose plan tab draws the plan: plan cards are one line leading there, and
+   * neither the open draft nor a card's day editor is drawn here. Absent in
+   * every other host.
+   */
+  planSurface?: WorkspacePlanSurface | null;
 }
 
 /** No plan thread, or its draft read still out. */
@@ -168,6 +177,7 @@ export function ChatThread({
   conversationTitle,
   privateLane = null,
   offer = null,
+  planSurface = null,
 }: ChatThreadProps) {
   const { t } = useTranslation();
   // The lane while it exists: the viewer is the group's coach and the room
@@ -193,10 +203,11 @@ export function ChatThread({
   // before the connect starts (Garmin's AI use and workout transfer,
   // carnet#1157 / carnet#1390).
   const [consentFor, setConsentFor] = useState<string | null>(null);
-  // The Intervals.icu sheet a reconnect opened, and whether it leads with the
+  // The Intervals.icu sheet a reconnect opened: whether it leads with the
   // authorization (`intervalsConnectPath` answered `'choose'`) or is the key
-  // form alone.
-  const [intervalsSheet, setIntervalsSheet] = useState<{ offersAuthorize: boolean } | null>(null);
+  // form alone, and whether a key linked there replaces the athlete's
+  // authorization.
+  const [intervalsSheet, setIntervalsSheet] = useState<IntervalsDialog | null>(null);
   // What the coach's day editor is open on — an entry to edit, or a date to
   // add a session to — or `null` while it is closed.
   const [editing, setEditing] = useState<SessionEditorTarget | null>(null);
@@ -462,7 +473,7 @@ export function ChatThread({
     // The consents the sheet returned travel with whichever step it takes.
     followConnectPlan(card, {
       signIn: (target) => openSignIn(target, card, false, true, consents),
-      intervalsDialog: (offersAuthorize) => setIntervalsSheet({ offersAuthorize }),
+      intervalsDialog: setIntervalsSheet,
       authorize,
       none: () => authorize(card.provider),
     });
@@ -582,12 +593,16 @@ export function ChatThread({
   // on every date with room (carnet#1515, #1714, #1716), on the condition the
   // open draft is drawn on: a plan thread whose
   // subject-plan read answered, which the server answers only for the
-  // thread's owner, about an athlete still sharing.
+  // thread's owner, about an athlete still sharing. In the athlete workspace
+  // the plan tab is where a day is edited and the draft is drawn.
   const buildsDays =
-    planSubjectName !== null && conversationId !== null && (planDraftRead.open !== null || planDraftRead.noDraft);
+    planSurface === null &&
+    planSubjectName !== null &&
+    conversationId !== null &&
+    (planDraftRead.open !== null || planDraftRead.noDraft);
   const onBuildPlanDay = buildsDays ? setEditing : undefined;
   const planDraft =
-    openDraft !== null && conversationId !== null ? (
+    planSurface === null && openDraft !== null && conversationId !== null ? (
       <PlanThreadOpenDraft conversationId={conversationId} open={openDraft} onBuildDay={onBuildPlanDay} />
     ) : null;
   // The empty plan thread's one-tap start while the coach holds no draft:
@@ -658,6 +673,7 @@ export function ChatThread({
         onReachStart={() => void messagesHook.loadEarlier()}
         privateLane={listLane}
         onBuildPlanDay={onBuildPlanDay}
+        planSurface={planSurface}
       />
 
       <UsageWarningBanner level={usageStatus.level} message={usageStatus.message} />
@@ -724,6 +740,7 @@ export function ChatThread({
               }
             : undefined
         }
+        replacesAuthorization={intervalsSheet?.replacesAuthorization ?? false}
         onConnected={() => {
           setIntervalsSheet(null);
           void providerStatus.refreshAfterLink();

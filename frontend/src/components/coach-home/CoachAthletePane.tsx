@@ -30,6 +30,7 @@ import {
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import {
+  canOpenWorkspace,
   civilDayNumber,
   civilShortDate,
   daysBetween,
@@ -337,7 +338,7 @@ export function CoachAthletePane({ athlete, entry, treatedReason, today, destina
   const primaryOpensRoom = primaryAction !== null && destinations.primaryIsGroupRoom(primaryAction);
   // The athlete's plan is worked through a group's coaching link, and not at
   // all once they stopped sharing with the coach.
-  const opensWorkspace = athlete.groups.length > 0 && athlete.status !== 'no_coach_consent';
+  const opensWorkspace = canOpenWorkspace(athlete);
   const hasPrimary = reason !== null && primaryAction !== null;
 
   return (

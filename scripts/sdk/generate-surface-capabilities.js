@@ -37,11 +37,15 @@ function fetchCatalogue() {
         headers: { Accept: 'application/json' }
       },
       (res) => {
-        let data = '';
+        // Decode once, after the last chunk: a chunk boundary inside a
+        // multi-byte character decodes to U+FFFD replacement characters when
+        // each chunk is decoded on its own.
+        const chunks = [];
         res.on('data', (chunk) => {
-          data += chunk;
+          chunks.push(chunk);
         });
         res.on('end', () => {
+          const data = Buffer.concat(chunks).toString('utf8');
           if (res.statusCode !== 200) {
             reject(new Error(`Server returned ${res.statusCode}: ${data}`));
             return;

@@ -159,6 +159,10 @@ pub mod routine_engine;
 #[cfg(feature = "client-messaging")]
 pub mod routine_waker;
 
+/// Queues the check that follows a refused provider sign-in (carnet#1837).
+#[cfg(all(feature = "protocol-rest", feature = "provider-sciotte"))]
+pub mod sign_in_follow_up;
+
 /// The coach's reaction to a workout a live sync just landed (carnet#1486).
 #[cfg(feature = "client-messaging")]
 pub mod activity_landed_post;

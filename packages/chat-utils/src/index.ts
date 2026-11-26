@@ -211,7 +211,7 @@ export type { DayLabel } from './message-time';
 
 // A group thread: the room's entries woven through the caller's own
 // conversation, with a placeholder where the author's consent withholds one.
-export { composeRoomThread, correctionAuthorLabel } from './room-thread';
+export { composeRoomThread, correctionAuthorLabel, readMarkerRowId } from './room-thread';
 export type { RoomMessage } from './room-thread';
 
 // A coach's private lane in a one-athlete room (carnet#1249): its words, which

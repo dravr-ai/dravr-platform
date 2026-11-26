@@ -49,6 +49,7 @@ use std::iter;
 use dravr_tronc::dates::Timestamp;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::oauth::providers::MIRROR_PAIRS;
+use pierre_core::errors::AppResult;
 use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
 
@@ -397,6 +398,46 @@ fn half(held: bool, connections: &[ProviderConnection], backend: &str) -> Half {
         Some(ConnectionStatus::Revoked) => Half::Revoked,
         Some(ConnectionStatus::Active) | None => Half::Live,
     }
+}
+
+/// The first of `backends` the athlete can read through at `now`, if any.
+///
+/// A backend counts when its half is live (`half`: a token row whose
+/// connection is not flagged `needs_reauth` or revoked) and, for a signed-in
+/// session row, its expiry is not past at `now`. An OAuth row's expiry is its
+/// access token's, which a refresh renews, so it is not read. Unlike the read
+/// plan, a session nobody has flagged yet does not count once it expired: the
+/// question is whether the athlete is connected now, not where to route.
+///
+/// # Errors
+///
+/// When the connections or a token row cannot be read.
+pub async fn first_readable_backend(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backends: &[String],
+    now: Timestamp,
+) -> AppResult<Option<String>> {
+    let connections = repos
+        .provider_connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await?;
+    for backend in backends {
+        let Some(token) = repos
+            .oauth_tokens
+            .get_token(user_id, tenant_id, backend)
+            .await?
+        else {
+            continue;
+        };
+        let expired_session = token.token_type == oauth_providers::TOKEN_TYPE_SESSION
+            && token.expires_at.is_some_and(|expires_at| expires_at <= now);
+        if half(true, &connections, backend) == Half::Live && !expired_session {
+            return Ok(Some(backend.clone()));
+        }
+    }
+    Ok(None)
 }
 
 /// Both halves of a pair whose grant serves beside its mirror, for one

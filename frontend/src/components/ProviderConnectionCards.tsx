@@ -18,6 +18,7 @@ import {
   connectConsentsFor,
   connectPlan,
   GARMIN_CONNECT_TILE_WEB_PATH,
+  intervalsKeyReplacesAuthorization,
   isGarminConnectCard,
   noticeRequired,
   oauthFallbackTarget,
@@ -28,7 +29,7 @@ import {
   QUERY_KEYS,
 } from '@pierre/shared-constants';
 import type { SciotteTarget } from '@pierre/shared-types';
-import { followConnectPlan } from '@pierre/ui-logic';
+import { followConnectPlan, type IntervalsDialog } from '@pierre/ui-logic';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { ownAppDevPortal } from '@pierre/domain-utils';
@@ -199,9 +200,10 @@ export default function ProviderConnectionCards({
   const [moreOpen, setMoreOpen] = useState(false);
   // The card whose grant came back refused: its row says so and its tap tries again.
   const [refusedCard, setRefusedCard] = useState<string | null>(null);
-  // The Intervals.icu dialog, and whether it leads with the authorization
-  // (`intervalsConnectPath` answered `'choose'`) or is the key form alone.
-  const [intervalsModal, setIntervalsModal] = useState<{ offersAuthorize: boolean } | null>(null);
+  // The Intervals.icu dialog: whether it leads with the authorization
+  // (`intervalsConnectPath` answered `'choose'`) or is the key form alone, and
+  // whether a key linked there replaces the athlete's authorization.
+  const [intervalsModal, setIntervalsModal] = useState<IntervalsDialog | null>(null);
   // The OAuth provider whose notice is on screen before its authorization
   // page opens (WHOOP, until the account accepts its owner authorization).
   const [noticeProvider, setNoticeProvider] = useState<string | null>(null);
@@ -378,7 +380,7 @@ export default function ProviderConnectionCards({
   const handleConnect = (provider: ProviderStatus) => {
     const status = cardStatus(provider);
     if (offersCoachKey(provider)) {
-      setIntervalsModal({ offersAuthorize: false });
+      setIntervalsModal({ offersAuthorize: false, replacesAuthorization: intervalsKeyReplacesAuthorization(provider) });
       return;
     }
     if (status === 'authorize_owed') {
@@ -419,8 +421,11 @@ export default function ProviderConnectionCards({
       // Intervals.icu's dialog for a new link or a key-linked card: the
       // authorization first while the server offers it, with the API-key form
       // one tap away; the key form alone otherwise, and always on a coach
-      // screen. An authorized card reconnects through `authorize`.
-      intervalsDialog: (offersAuthorize) => setIntervalsModal({ offersAuthorize: offersAuthorize && !coachKey }),
+      // screen. An authorized card reconnects through `authorize` while the
+      // server offers it, and through the key form, which says the key
+      // replaces the authorization, when it does not.
+      intervalsDialog: (dialog) =>
+        setIntervalsModal({ ...dialog, offersAuthorize: dialog.offersAuthorize && !coachKey }),
       // Non-OAuth providers (like synthetic) skip directly to chat.
       none: () => onSkip?.(),
     });
@@ -696,6 +701,7 @@ export default function ProviderConnectionCards({
               }
             : undefined
         }
+        replacesAuthorization={intervalsModal?.replacesAuthorization ?? false}
         onConnected={() => {
           refetch();
           // A pasted key connects in-process (no OAuth callback), so bust the

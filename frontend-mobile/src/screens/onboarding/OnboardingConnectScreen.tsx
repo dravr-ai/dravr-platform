@@ -76,6 +76,7 @@ import {
   followConnectPlan,
   importTombstoneFromReturn,
   refusalReason,
+  type IntervalsDialog,
 } from '@pierre/ui-logic';
 import { ownAppDevPortal } from '@pierre/domain-utils';
 
@@ -142,13 +143,11 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
   // The row whose connect came back refused, and why when the server named
   // it: it says so, and a tap on that line starts its connect again.
   const [refusedCard, setRefusedCard] = useState<RefusedConnect | null>(null);
-  // The Intervals.icu sheet for the row that opened it, and whether it leads
-  // with the authorization (`intervalsConnectPath` answered `'choose'`) or is
-  // the key form alone.
-  const [intervalsSheet, setIntervalsSheet] = useState<{
-    displayName: string;
-    offersAuthorize: boolean;
-  } | null>(null);
+  // The Intervals.icu sheet for the row that opened it: whether it leads with
+  // the authorization (`intervalsConnectPath` answered `'choose'`) or is the
+  // key form alone, and whether a key linked there replaces the athlete's
+  // authorization.
+  const [intervalsSheet, setIntervalsSheet] = useState<({ displayName: string } & IntervalsDialog) | null>(null);
   // A provider no app of the server's can authorize for this athlete
   // (`own_app_required`) asks for an app of their own first: the setup sheet
   // opens in place, so first-touch users never need to leave the onboarding
@@ -356,13 +355,13 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
     // their sign-in backends) go through the provider's authorization while
     // the server recommends it and sign in otherwise; COROS and TrainingPeaks
     // sign in, after their notice when they have one. Intervals.icu goes the
-    // way its card says: an authorized card back to the authorization, a
-    // key-linked card to the key form, and a new link to the sheet that leads
-    // with the authorization and keeps the coach's API-key form beside it.
+    // way its card says: an authorized card back to the authorization (to the
+    // key form, which says the key replaces it, when no client can authorize),
+    // a key-linked card to the key form, and a new link to the sheet that
+    // leads with the authorization and keeps the coach's API-key form beside it.
     followConnectPlan(provider, {
       signIn: (target) => openSignIn(target, provider, false, true, consents),
-      intervalsDialog: (offersAuthorize) =>
-        setIntervalsSheet({ displayName: provider.display_name, offersAuthorize }),
+      intervalsDialog: (dialog) => setIntervalsSheet({ displayName: provider.display_name, ...dialog }),
       authorize: (name) => {
         const devPortalUrl = ownAppDevPortal(provider.provider);
         if (provider.own_app_required && devPortalUrl) {
@@ -645,6 +644,7 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
               }
             : undefined
         }
+        replacesAuthorization={intervalsSheet?.replacesAuthorization ?? false}
         onConnected={() => {
           setIntervalsSheet(null);
           void finalizeConnection();

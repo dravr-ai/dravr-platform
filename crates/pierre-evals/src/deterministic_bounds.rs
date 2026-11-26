@@ -1,4 +1,4 @@
-// ABOUTME: The deterministic-bounds layer of the bullshit detector — hard-coded per-category physiological bounds
+// ABOUTME: The deterministic-bounds layer of the bullshit detector — per-category bounds from cageux's claim set
 // ABOUTME: Pure Rust, no LLM. Cheap first-pass sanity check on every claim.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -16,8 +16,16 @@
 //! These bounds are intentionally wide: they should catch only obvious
 //! nonsense ("HR max of 300 bpm", "take 500g of creatine per day"),
 //! leaving the evidence-retrieval layer to deal with the subtle cases.
+//! The numbers are cageux's
+//! [`generated_claim`](dravr_cageux::plausibility::generated_claim) set, the
+//! bounds a generated text may state before the claim is flagged.
 
 use crate::claim_extractor::ExtractedClaim;
+use dravr_cageux::nutrition_calculator::MAX_PLAUSIBLE_CARBOHYDRATE_G_PER_HOUR;
+use dravr_cageux::plausibility::generated_claim::{
+    CAFFEINE_MG_PER_KG, CARBOHYDRATE_G_PER_KG, CREATINE_G_PER_DAY, FLUID_L_PER_HOUR, MAX_HR_BPM,
+    PROTEIN_G_PER_KG, SLEEP_HOURS, VO2MAX_ML_KG_MIN, WEEKLY_VOLUME_KM,
+};
 use pierre_memory::ClaimCategory;
 
 /// A bound that was violated by a claim, with the reason that should be
@@ -187,9 +195,12 @@ fn check_physiological(lower: &str) -> Option<BoundViolation> {
     // HR max: humans 60–230 bpm, with 250+ biologically implausible.
     for kw in ["max heart rate", "hrmax", "hr max", "maximum heart rate"] {
         if let Some(v) = extract_number_near_lowercased(lower, kw) {
-            if !(60.0..=250.0).contains(&v) {
+            if !MAX_HR_BPM.in_range(v) {
                 return Some(BoundViolation {
-                    reason: format!("max heart rate of {v} bpm is outside 60-250 bpm"),
+                    reason: format!(
+                        "max heart rate of {v} bpm is outside {}-{} bpm",
+                        MAX_HR_BPM.min, MAX_HR_BPM.max
+                    ),
                 });
             }
         }
@@ -197,9 +208,12 @@ fn check_physiological(lower: &str) -> Option<BoundViolation> {
     // VO2max: 10 (sedentary elderly) to 95 (world-class XC skier).
     for kw in ["vo2max", "vo2 max"] {
         if let Some(v) = extract_number_near_lowercased(lower, kw) {
-            if !(10.0..=95.0).contains(&v) {
+            if !VO2MAX_ML_KG_MIN.in_range(v) {
                 return Some(BoundViolation {
-                    reason: format!("VO2max of {v} ml/kg/min is outside 10-95 range"),
+                    reason: format!(
+                        "VO2max of {v} ml/kg/min is outside {}-{} range",
+                        VO2MAX_ML_KG_MIN.min, VO2MAX_ML_KG_MIN.max
+                    ),
                 });
             }
         }
@@ -211,7 +225,7 @@ fn check_training(lower: &str) -> Option<BoundViolation> {
     // Weekly volume: single-week endurance running max ~250 km.
     for kw in ["km per week", "km/week", "weekly mileage"] {
         if let Some(v) = extract_number_near_lowercased(lower, kw) {
-            if v > 400.0 {
+            if !WEEKLY_VOLUME_KM.in_range(v) {
                 return Some(BoundViolation {
                     reason: format!("{v} km/week is beyond any documented training volume"),
                 });
@@ -257,14 +271,14 @@ fn check_nutrition(lower: &str) -> Option<BoundViolation> {
     // 10-12 g/kg/day, so a single 5 g/kg ceiling contradicted correct
     // carbohydrate-loading advice. Both ceilings stay wide enough to catch
     // only nonsense, per this layer's contract.
-    let (kg_limit, kg_range) = if CARB_TOKENS.iter().any(|t| lower.contains(t)) {
-        (15.0, "10-12 g/kg/day carbohydrate-loading")
+    let (kg_bounds, kg_range) = if CARB_TOKENS.iter().any(|t| lower.contains(t)) {
+        (CARBOHYDRATE_G_PER_KG, "10-12 g/kg/day carbohydrate-loading")
     } else {
-        (5.0, "0.8-3.0 g/kg protein")
+        (PROTEIN_G_PER_KG, "0.8-3.0 g/kg protein")
     };
     for kw in ["g per kg", "g/kg", "grams per kg"] {
         if let Some(v) = extract_number_near_lowercased(lower, kw) {
-            if v > kg_limit {
+            if !kg_bounds.in_range(v) {
                 return Some(BoundViolation {
                     reason: format!("{v} g/kg is far above the {kg_range} range"),
                 });
@@ -274,8 +288,9 @@ fn check_nutrition(lower: &str) -> Option<BoundViolation> {
     // Carbohydrate during exercise. Exogenous oxidation is capped by intestinal
     // transport, not by appetite: glucose alone saturates SGLT1 near 60 g/h and
     // a glucose-fructose mix reaches roughly 90 g/h, with trained field cases
-    // reported to 120 g/h. Anything past 150 g/h is not a target an athlete can
-    // absorb, so it is nonsense rather than an aggressive prescription.
+    // reported to 120 g/h. Anything past cageux's plausibility bound (150 g/h)
+    // is not a target an athlete can absorb, so it is nonsense rather than an
+    // aggressive prescription (carnet#1819).
     for kw in [
         "g per hour",
         "g/hour",
@@ -285,7 +300,7 @@ fn check_nutrition(lower: &str) -> Option<BoundViolation> {
         "g/heure",
     ] {
         if let Some(v) = extract_number_near_lowercased(lower, kw) {
-            if v > 150.0 {
+            if v > MAX_PLAUSIBLE_CARBOHYDRATE_G_PER_HOUR {
                 return Some(BoundViolation {
                     reason: format!(
                         "{v} g/hour is beyond any documented intake rate during exercise"
@@ -308,7 +323,7 @@ fn check_nutrition(lower: &str) -> Option<BoundViolation> {
             "l par heure",
         ] {
             if let Some(v) = extract_number_near_lowercased(lower, kw) {
-                if v > 4.0 {
+                if !FLUID_L_PER_HOUR.in_range(v) {
                     return Some(BoundViolation {
                         reason: format!("{v} L/hour hydration risks hyponatremia"),
                     });
@@ -323,9 +338,12 @@ fn check_recovery(lower: &str) -> Option<BoundViolation> {
     // Sleep: 4-12 hours typical, 0 or >16 implausible.
     for kw in ["hours of sleep", "hours sleep"] {
         if let Some(v) = extract_number_near_lowercased(lower, kw) {
-            if !(2.0..=16.0).contains(&v) {
+            if !SLEEP_HOURS.in_range(v) {
                 return Some(BoundViolation {
-                    reason: format!("{v} hours of sleep is outside 2-16 hour range"),
+                    reason: format!(
+                        "{v} hours of sleep is outside {}-{} hour range",
+                        SLEEP_HOURS.min, SLEEP_HOURS.max
+                    ),
                 });
             }
         }
@@ -338,7 +356,7 @@ fn check_supplement(lower: &str) -> Option<BoundViolation> {
     if lower.contains("creatine") {
         for kw in ["g per day", "g/day", "grams per day"] {
             if let Some(v) = extract_number_near_lowercased(lower, kw) {
-                if v > 50.0 {
+                if !CREATINE_G_PER_DAY.in_range(v) {
                     return Some(BoundViolation {
                         reason: format!("{v} g/day creatine is far above any protocol"),
                     });
@@ -350,7 +368,7 @@ fn check_supplement(lower: &str) -> Option<BoundViolation> {
     if lower.contains("caffeine") {
         for kw in ["mg per kg", "mg/kg"] {
             if let Some(v) = extract_number_near_lowercased(lower, kw) {
-                if v > 15.0 {
+                if !CAFFEINE_MG_PER_KG.in_range(v) {
                     return Some(BoundViolation {
                         reason: format!("{v} mg/kg caffeine is beyond safe ergogenic dose"),
                     });

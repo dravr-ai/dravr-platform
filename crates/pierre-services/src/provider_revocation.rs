@@ -531,9 +531,10 @@ async fn stored_session_id(
 ///
 /// Health rows have no retention pruning to fall back on, so a purge that
 /// fails is an error the disconnect reports rather than a warning it
-/// swallows. The token and connection rows are gone by then, and a retried
-/// disconnect runs the purge again: clearing a backend the user no longer
-/// holds still purges it. The purge records `reason` on its attestation row.
+/// swallows. The token row is gone by then but the connection row is not:
+/// [`clear_backend`] removes it only once the purge and every step after it
+/// succeeded, so a retried disconnect still finds the provider held and runs
+/// the purge again. The purge records `reason` on its attestation row.
 ///
 /// The Garmin API (`garmin`) shares its provider key for wellness with the
 /// connection using usr/pwd from Dravr, whose health sync stores Garmin's
@@ -763,8 +764,9 @@ fn revocation_outcome(
 /// one-directional resolve that cleared only half a coalesced pair looked
 /// exactly like a working disconnect from the outside.
 ///
-/// An empty result is the normal case, including for a repeat click: the
-/// second disconnect finds nothing left to survive.
+/// An empty result is the normal case. A repeat click never reaches this
+/// check: the chokepoint finds no backend of the pair held
+/// (`backend_held`) and clears nothing.
 pub async fn surviving_rows(
     data: &DataContext,
     user_id: Uuid,
@@ -801,6 +803,53 @@ pub async fn surviving_rows(
     survivors
 }
 
+/// Whether the user still holds `backend` in `tenant_id`: a token row or a
+/// connection row of any type (their own, or a delegated one).
+///
+/// [`clear_backend`] removes the connection row as its last write, so a
+/// backend with neither row has finished its clear, or was never held. The
+/// chokepoint clears a pair only while one of its backends is held, which is
+/// what makes a repeated disconnect a no-op instead of a second revocation,
+/// purge and `provider.disconnected` event.
+///
+/// A token row that exists but cannot be read counts as held, so a damaged
+/// row is still cleared rather than taken for an absent one.
+///
+/// # Errors
+/// Returns a database error when the connection rows cannot be read.
+pub(crate) async fn backend_held(
+    data: &DataContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+) -> AppResult<bool> {
+    match data
+        .repos()
+        .oauth_tokens
+        .get_token(user_id, tenant_id, backend)
+        .await
+    {
+        Ok(Some(_)) => return Ok(true),
+        Ok(None) => {}
+        Err(e) => {
+            warn!(
+                user_id = %user_id,
+                backend = %backend,
+                error = %e,
+                "Could not read the stored token row; counting the backend as held so its clear runs"
+            );
+            return Ok(true);
+        }
+    }
+    Ok(data
+        .repos()
+        .provider_connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await?
+        .iter()
+        .any(|c| c.provider == backend))
+}
+
 /// Withdraw every grant `provider` holds for `user_id` at the provider.
 ///
 /// Nothing is deleted here: this is the revocation of each backend of the
@@ -835,7 +884,7 @@ pub async fn withdraw_upstream(
 /// Withdraw one backend completely: revoke upstream, then delete its rows.
 ///
 /// A signed-in session is dropped from the session-read service instead of revoked.
-/// The token and connection rows go in lockstep, and every row the provider
+/// The token and connection rows both go, and every row the provider
 /// contributed is purged.
 ///
 /// The two row types are separate sources of truth (`oauth_tokens` drives
@@ -844,8 +893,22 @@ pub async fn withdraw_upstream(
 /// row shows "Connected" for a dead session and routes the next fetch to a
 /// backend with no token.
 ///
-/// Clearing a backend the user never held is a no-op, which is what makes
-/// clearing a whole coalesced pair safe.
+/// In order: revoke and drop the session (both spend the token row), delete
+/// the token row, purge the provider's data, end the roster grant and the
+/// delegated connections a coaching platform carried, then remove the
+/// connection row last. The surviving connection row is therefore the mark
+/// of a clear that did not finish: a failed purge or delegation step leaves
+/// it, so `backend_held` still reports the backend held and a retried
+/// disconnect runs every step again. The purge runs before the delegated
+/// connections end because ending a member's link removes their delegated
+/// connection row, which would otherwise take that mark away before the
+/// purge had succeeded.
+///
+/// Clearing a backend the user does not hold revokes nothing and purges the
+/// rows filed under its key, which is how the chokepoint clears the whole
+/// coalesced pair once one backend of it is held: a session-read connection
+/// files its wellness under the provider's own key (see
+/// [`sync_backend`](pierre_providers::backend_resolver::sync_backend)).
 ///
 /// Returns what the provider said about the grant. Upstream revocation never
 /// blocks local deletion; the outcome is how a caller learns the grant may
@@ -897,11 +960,9 @@ pub async fn clear_backend(
             .iter()
             .any(|c| c.provider == backend && c.account_role == Some(ProviderAccountRole::Coach));
 
-    data.repos()
-        .provider_connections
-        .remove_connection(user_id, tenant_id, backend)
-        .await
-        .map_err(|e| AppError::database(format!("Failed to remove provider connection: {e}")))?;
+    // Purge while the connection row (a member's delegated one included)
+    // still marks the clear unfinished, so a failure here is retried.
+    purge_provider_data(data, user_id, tenant_id, backend, reason.purge_reason()).await?;
 
     if was_coach {
         revoke_roster_for_coach_connection(data.repos(), user_id, tenant_id).await?;
@@ -911,7 +972,12 @@ pub async fn clear_backend(
         forget_coach_roster(data.cache(), user_id, tenant_id, backend).await;
     }
 
-    purge_provider_data(data, user_id, tenant_id, backend, reason.purge_reason()).await?;
+    // Last: removing the row is what says this backend's clear finished.
+    data.repos()
+        .provider_connections
+        .remove_connection(user_id, tenant_id, backend)
+        .await
+        .map_err(|e| AppError::database(format!("Failed to remove provider connection: {e}")))?;
     Ok(outcome)
 }
 

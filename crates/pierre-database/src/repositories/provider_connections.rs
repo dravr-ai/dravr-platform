@@ -479,6 +479,15 @@ macro_rules! impl_provider_connection_repository {
                 Ok(())
             }
 
+            async fn lock_clear(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                provider: &str,
+            ) -> AppResult<ProviderClearLock> {
+                self.hold_provider_clear(user_id, tenant_id, provider).await
+            }
+
             async fn remove_delegated_connection(
                 &self,
                 user_id: Uuid,

@@ -7,6 +7,7 @@
 //! Pure labelling helpers of the outcome evaluator, unit-tested without a DB
 //! or an LLM. The parent module re-exports them.
 
+use dravr_cageux::periodization::load_ratios;
 use pierre_memory::playbooks::OutcomeLabel;
 
 /// Adherence verdict from whether a matching activity landed in the window.
@@ -68,13 +69,26 @@ pub fn delta_label(
     }
 }
 
-/// Did a ramp rate stay within the safe ceiling? Inclusive at the ceiling.
+/// The highest EMA ATL/CTL a window reached, from its `(atl, ctl)` days, or
+/// `None` when no day has a ratio (cageux's
+/// [`atl_ctl_ratio`](load_ratios::atl_ctl_ratio): no chronic base, or no
+/// reading).
+#[must_use]
+pub fn peak_atl_ctl_ratio(days: impl IntoIterator<Item = (f64, f64)>) -> Option<f64> {
+    days.into_iter()
+        .filter_map(|(atl, ctl)| load_ratios::atl_ctl_ratio(atl, ctl))
+        .reduce(f64::max)
+}
+
+/// Did the window's peak EMA ATL/CTL stay within the ceiling? Inclusive at
+/// the ceiling.
 ///
 /// The ceiling arrives widened from the metric's `f32` (lossless), so the
-/// comparison is exact. The caller maps over the `Option<f64>` max ramp.
+/// comparison is exact. The caller maps over the `Option<f64>` peak from
+/// [`peak_atl_ctl_ratio`].
 #[must_use]
-pub fn ramp_within_label(max_ramp: f64, ceiling: f64) -> OutcomeLabel {
-    if max_ramp <= ceiling {
+pub fn ramp_within_label(peak_ratio: f64, ceiling: f64) -> OutcomeLabel {
+    if load_ratios::within_ramp_ceiling(peak_ratio, ceiling) {
         OutcomeLabel::Success
     } else {
         OutcomeLabel::Failure

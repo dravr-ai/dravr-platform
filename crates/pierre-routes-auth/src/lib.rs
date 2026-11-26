@@ -131,6 +131,8 @@ mod sciotte_hosted_templates;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_installer;
 #[cfg(feature = "provider-sciotte")]
+mod sciotte_login_step;
+#[cfg(feature = "provider-sciotte")]
 mod sciotte_prefetch;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_rejection;
@@ -142,6 +144,8 @@ mod sciotte_takeover;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_terms;
 mod short_link;
+#[cfg(feature = "provider-sciotte")]
+pub mod sign_in_follow_up;
 #[cfg(feature = "provider-sciotte")]
 mod sign_in_grant;
 mod signup_code;
@@ -281,6 +285,12 @@ pub struct AuthRoutesContext {
     /// Single-use nonce store for hosted-login link-token jti claims.
     #[cfg(feature = "provider-sciotte")]
     pub nonce_store: Arc<NonceStore<Cache>>,
+    /// Queues the check that follows a sign-in the provider refused
+    /// (carnet#1837): a Cloud Tasks task where turns run on Cloud Tasks, a
+    /// timer in the process elsewhere. `None` queues nothing; the refusal is
+    /// still logged and counted.
+    #[cfg(feature = "provider-sciotte")]
+    pub sign_in_follow_ups: Option<Arc<dyn sign_in_follow_up::SignInFollowUps>>,
 }
 
 impl fmt::Debug for AuthRoutesContext {
@@ -310,6 +320,8 @@ impl fmt::Debug for AuthRoutesContext {
         debug.field("offered_archive_sources", &self.offered_archive_sources);
         #[cfg(feature = "provider-sciotte")]
         debug.field("nonce_store", &self.nonce_store);
+        #[cfg(feature = "provider-sciotte")]
+        debug.field("sign_in_follow_ups", &self.sign_in_follow_ups);
         debug.finish_non_exhaustive()
     }
 }

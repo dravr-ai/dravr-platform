@@ -20,6 +20,7 @@ use crate::read_subject::{self, WellnessInput};
 #[cfg(feature = "client-notifications")]
 use crate::runtime::ToolRuntime;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
+use dravr_cageux::periodization::load_ratios;
 use dravr_cageux::sleep_analysis::SleepAnalyzer;
 use dravr_cageux::training_load::{TrainingLoadCalculator, TrainingLoadLevel, TssDataPoint};
 use dravr_tronc::dates::{Timestamp, Zone};
@@ -247,13 +248,13 @@ const fn taper_status(band: FormBand) -> &'static str {
     }
 }
 
-/// Periodization suggestions from the acute:chronic balance and the band of
+/// Periodization suggestions from cageux's EMA ATL/CTL rules and the band of
 /// the chronic load, `level`, which is cageux's band for `ctl`.
 fn periodization_suggestions(level: TrainingLoadLevel, atl: f64, ctl: f64) -> Vec<String> {
     let mut suggestions = Vec::new();
-    if atl > ctl * 1.5 {
+    if load_ratios::atl_ctl_spike(atl, ctl) {
         suggestions.push("Recent spike in training - allow adaptation time".to_owned());
-    } else if level != TrainingLoadLevel::Beginner && atl < ctl * 0.8 {
+    } else if load_ratios::atl_ctl_well_adapted(atl, ctl) {
         suggestions.push("Well adapted to current load - room to build gradually".to_owned());
     }
     match level {
@@ -550,11 +551,6 @@ pub(crate) fn handle_analyze_training_load(
     })
 }
 
-/// ATL threshold above which we trigger a training load alert notification.
-/// Fires when acute training load exceeds 1.5x chronic training load.
-#[cfg(feature = "client-notifications")]
-const TRAINING_LOAD_ALERT_ATL_RATIO: f64 = 1.5;
-
 /// Fire notification triggers based on training load analysis results.
 /// Checks ATL/CTL ratio for training load alerts and TSB for overtraining warnings.
 /// All triggers are fire-and-forget — failures are logged but never block the caller.
@@ -586,8 +582,9 @@ fn fire_training_load_notifications(
     let (atl, ctl) = (detail.load_metrics.atl, detail.load_metrics.ctl);
     let conversation_id = scoped_conversation_id();
 
-    // Trigger training load alert when ATL > RATIO * CTL
-    if ctl > 0.0 && atl > ctl * TRAINING_LOAD_ALERT_ATL_RATIO {
+    // Trigger training load alert when cageux reads the EMA ATL/CTL as a
+    // spike: ATL above `ATL_CTL_SPIKE_RATIO` (1.5) of a positive CTL.
+    if load_ratios::atl_ctl_spike(atl, ctl) {
         notification_triggers::trigger_training_load_alert(
             service,
             user_id,

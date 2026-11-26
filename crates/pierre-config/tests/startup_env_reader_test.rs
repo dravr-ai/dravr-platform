@@ -212,11 +212,12 @@ fn startup_captures_the_sciotte_service_and_admin_settings() {
 /// and by nothing else, an empty one names no channel, and Debug never prints
 /// one. Called from the one env-writing test.
 fn assert_channel_credentials_read_at_startup() {
-    const VARS: [(&str, &str); 6] = [
+    const VARS: [(&str, &str); 7] = [
         ("TELEGRAM_BOT_TOKEN", "1600:telegram-bot"),
         ("TELEGRAM_WEBHOOK_SECRET", "telegram-hook-1600"),
         ("META_MESSENGER_APP_SECRET", ""),
         ("META_MESSENGER_PAGE_ACCESS_TOKEN", "page-token-1600"),
+        ("META_MESSENGER_PAGE_ID", "101684000000439"),
         ("DISCORD_BOT_TOKEN", "discord-bot-1600"),
         ("DISCORD_APPLICATION_ID", "160016001600"),
     ];
@@ -241,6 +242,11 @@ fn assert_channel_credentials_read_at_startup() {
         secret(&read.messenger_page_access_token).as_deref(),
         Some("page-token-1600"),
         "bug: META_MESSENGER_PAGE_ACCESS_TOKEN was not read at startup"
+    );
+    assert_eq!(
+        read.messenger_page_id.as_deref(),
+        Some("101684000000439"),
+        "bug: META_MESSENGER_PAGE_ID was not read at startup"
     );
     assert!(
         read.messenger_app_secret.is_none(),

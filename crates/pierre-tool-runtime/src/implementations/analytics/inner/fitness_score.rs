@@ -1,31 +1,33 @@
-// ABOUTME: Handler for calculate_fitness_score tool using CTL/ATL/TSS methodology
-// ABOUTME: Computes composite fitness score from training load, consistency, and performance trend
+// ABOUTME: Handler for the calculate_fitness_score tool: dravr-cageux's fitness score over a window
+// ABOUTME: Aerobic fitness, strength endurance and consistency on the athlete's zones, trended against the window before
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use super::trends::trend_name;
 #[cfg(feature = "client-notifications")]
 use crate::context::scoped_conversation_id;
 #[cfg(feature = "client-notifications")]
 use crate::context::scoped_read_subject;
 use crate::implementations::analytics::output::{
     FitnessComponents, FitnessInterpretation, FitnessLoadMetrics, FitnessScoreDetail,
-    FitnessScoreResult, NoFitnessScore, ProvidersUsed, RecoveryAdjustment,
+    FitnessScoreResult, NoFitnessScore, ProvidersUsed,
 };
 use crate::implementations::stored_copy::{activities_or_stored, with_caveat, Reader, Served};
-use crate::implementations::stored_physiology::stored_athlete_inputs;
+use crate::implementations::stored_physiology::stored_profile;
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
-use crate::read_subject::{self, WellnessInput};
 #[cfg(feature = "client-notifications")]
 use crate::runtime::ToolRuntime;
-use dravr_cageux::config::intelligence::AlgorithmConfig;
+use dravr_cageux::config::intelligence::IntelligenceConfig;
+use dravr_cageux::performance_analyzer::AdvancedPerformanceAnalyzer;
 use dravr_cageux::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
-use dravr_cageux::sleep_analysis::SleepAnalyzer;
 use dravr_cageux::training_load::TrainingLoadCalculator;
-use dravr_tronc::dates::{Timestamp, Zone};
+use dravr_cageux::zones::HrZones;
+use dravr_tronc::dates::{Elapsed, Timestamp, Zone};
+use pierre_core::models::zones::{athlete_hr_zones, HrZonesUnavailable};
 use pierre_core::models::{Activity, FormReading};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_fitness_compute::AthleteInputs;
@@ -41,330 +43,155 @@ use std::pin::Pin;
 #[cfg(feature = "client-notifications")]
 use std::sync::Arc;
 use tracing::warn;
+#[cfg(feature = "client-notifications")]
 use uuid::Uuid;
 
-/// Information about recovery adjustment applied to fitness score
-struct RecoveryAdjustmentInfo {
-    /// Recovery quality score (0-100)
-    recovery_score: f64,
-    /// Adjustment factor applied to fitness score (0.9-1.1)
-    adjustment_factor: f64,
-    /// Provider name used for sleep data
-    provider_name: String,
-}
-
-/// Fetch sleep data and calculate recovery adjustment for fitness score
+/// Score fitness with dravr-cageux's [`AdvancedPerformanceAnalyzer`] over the
+/// `timeframe` window, with its trend against the window of equal length
+/// before it (carnet#1807).
 ///
-/// Fetches recent sleep data from the specified provider and calculates a recovery
-/// score that adjusts the fitness score based on current recovery status.
-///
-/// Recovery adjustment factors:
-/// - 90-100 (Excellent): +5% bonus (1.05)
-/// - 70-89 (Good): No adjustment (1.0)
-/// - 50-69 (Moderate): -5% penalty (0.95)
-/// - <50 (Poor): -10% penalty (0.90)
-async fn fetch_and_calculate_recovery_adjustment(
-    executor: &UniversalToolExecutor,
-    user_uuid: Uuid,
-    tenant_id: Option<&str>,
-    sleep_provider_name: &str,
-    analysis: &mut FitnessScoreResult,
-) -> Result<RecoveryAdjustmentInfo, String> {
-    use crate::protocol::sleep_helpers::latest_sleep_data;
-
-    // The most recent night that source synced
-    let (sleep_data, _sources) =
-        latest_sleep_data(executor, user_uuid, tenant_id, Some(sleep_provider_name), 1)
-            .await
-            .map_err(|e| e.error.unwrap_or_else(|| "Unknown error".to_owned()))?;
-
-    // Calculate sleep quality score using SleepAnalyzer
-    let cageux_config = executor.cageux_config();
-    let config = &cageux_config.sleep_recovery;
-    let sleep_quality = SleepAnalyzer::calculate_sleep_quality(&sleep_data, config)
-        .map_err(|e| format!("Sleep quality calculation failed: {e}"))?;
-
-    let recovery_score = sleep_quality.overall_score;
-
-    // Calculate adjustment factor based on recovery score
-    let adjustment_factor = if recovery_score >= 90.0 {
-        1.05 // Excellent recovery: +5%
-    } else if recovery_score >= 70.0 {
-        1.0 // Good recovery: no adjustment
-    } else if recovery_score >= 50.0 {
-        0.95 // Moderate recovery: -5%
-    } else {
-        0.90 // Poor recovery: -10%
-    };
-
-    // Apply the adjustment to whichever arm carries the score. Both do: the
-    // empty answers report a zero rather than omitting it, so a client
-    // charting the adjusted and unadjusted lines gets a point either way.
-    let (score, unadjusted) = match analysis {
-        FitnessScoreResult::Scored(detail) => (
-            &mut detail.fitness_score,
-            &mut detail.fitness_score_unadjusted,
-        ),
-        FitnessScoreResult::NoData(empty) => (
-            &mut empty.fitness_score,
-            &mut empty.fitness_score_unadjusted,
-        ),
-    };
-    // Safe: the score is 0-100 and the factor 0.9-1.05, so the product is in
-    // range for an i32 and the fraction is what `round` is for.
-    #[allow(clippy::cast_precision_loss)]
-    #[allow(clippy::cast_possible_truncation)]
-    let adjusted = (f64::from(*score) * adjustment_factor).round() as i32;
-    *unadjusted = Some(*score);
-    *score = adjusted;
-
-    Ok(RecoveryAdjustmentInfo {
-        recovery_score,
-        adjustment_factor,
-        provider_name: sleep_provider_name.to_owned(),
-    })
-}
-
-/// Calculate fitness metrics using the 3-component formula with `TrainingLoadCalculator`.
-///
-/// Each session's stress is scored against `athlete`, the thresholds saved
-/// with `set_physiology`, and the load is read as of the athlete's today in
-/// `zone`.
-pub fn calculate_fitness_metrics(
+/// The aerobic and strength-endurance components read the athlete's
+/// heart-rate zones, `hr_zones`; without them there is no score, and the
+/// answer says why rather than guessing one. The training load reported
+/// beside the score is read over the full history, each session scored
+/// against `athlete`'s saved thresholds, as of the athlete's today in `zone`.
+pub async fn calculate_fitness_metrics(
     activities: &[Activity],
     timeframe: &str,
     athlete: &AthleteInputs,
-    algorithm_config: &AlgorithmConfig,
+    hr_zones: Result<HrZones, HrZonesUnavailable>,
+    cageux_config: &IntelligenceConfig<true>,
     zone: &Zone,
     providers_used: ProvidersUsed,
 ) -> FitnessScoreResult {
-    use dravr_tronc::dates::{Elapsed, Timestamp};
-    use TrainingLoadCalculator;
-
-    if activities.is_empty() {
-        return FitnessScoreResult::NoData(NoFitnessScore {
-            timeframe: timeframe.to_owned(),
-            window_days: window_days_for(timeframe),
-            history_span_days: 0,
-            fitness_score: 0,
-            level: BEGINNER.to_owned(),
-            message: "No activities found for fitness calculation".to_owned(),
-            fitness_score_unadjusted: None,
-            recovery_adjustment: None,
-            providers_used,
-        });
-    }
-
-    // One chronological ordering, used by every component below.
-    //
-    // The provider returns newest-first — dravr-cageux's calculate_training_load
-    // documents that and rejects the ordering outright — and the two components
-    // that split by index read index order as time order. Sorting a clone for
-    // the EMA while handing the unsorted list to those two inverted them:
-    // an athlete getting faster produced a NEGATIVE improvement, which clamped
-    // to 0 and reached them as "the tool detects no progression" (registre#415).
-    let mut chronological = activities.to_vec();
-    chronological.sort_by_key(Activity::start_date);
+    use dravr_cageux::performance_analyzer::PerformanceAnalyzerTrait;
 
     let now = Timestamp::now();
     let window_days = window_days_for(timeframe);
+    // Providers return newest-first; the training load wants time order.
+    let mut chronological = activities.to_vec();
+    chronological.sort_by_key(Activity::start_date);
+    let activities_analyzed = window_days.map_or(chronological.len(), |days| {
+        let cutoff = now - Elapsed::days(i64::from(days));
+        chronological
+            .iter()
+            .filter(|a| a.start_date() >= cutoff)
+            .count()
+    });
+    let unscored = Unscored {
+        timeframe,
+        window_days,
+        history_span_days: history_span_days(&chronological, now),
+        activities_analyzed,
+        providers_used,
+    };
 
-    // The window scopes the two genuine aggregates — consistency and pace
-    // trend — and nothing else.
-    let scored: Vec<_> = window_days.map_or_else(
-        || chronological.clone(),
-        |days| {
-            let cutoff = now - Elapsed::days(i64::from(days));
-            chronological
-                .iter()
-                .filter(|a| a.start_date() >= cutoff)
-                .cloned()
-                .collect()
-        },
-    );
-
-    if scored.is_empty() {
-        return FitnessScoreResult::NoData(NoFitnessScore {
-            timeframe: timeframe.to_owned(),
-            window_days,
-            history_span_days: history_span_days(&chronological, now),
-            fitness_score: 0,
-            level: BEGINNER.to_owned(),
-            message: window_days.map_or_else(
-                || "No activities found in the fetched history".to_owned(),
-                |days| format!("No activities found in the last {days} days"),
-            ),
-            fitness_score_unadjusted: None,
-            recovery_adjustment: None,
-            providers_used,
-        });
+    if chronological.is_empty() {
+        return unscored.because("No activities found for fitness calculation".to_owned());
     }
+    if activities_analyzed == 0 {
+        return unscored.because(window_days.map_or_else(
+            || "No activities found in the fetched history".to_owned(),
+            |days| format!("No activities found in the last {days} days"),
+        ));
+    }
+    let zones = match hr_zones {
+        Ok(zones) => zones,
+        Err(missing) => {
+            return unscored.because(format!("No fitness score: {}", missing.reason()));
+        }
+    };
 
-    // Component 1: CTL (Chronic Training Load) - 40% weight.
-    //
-    // Computed over the FULL fetched history, never the scoring window. The EMA
-    // is seeded at the mean daily TSS of the span it is given and walked
-    // forward over it, so a truncated input reads its own opening days as the
-    // athlete's prior load: a 7-day input after a rest week reads a 42-day load
-    // of whatever those seven days averaged, not the base the athlete built.
-    // Chronic load is a point-in-time state, not a windowed aggregate;
-    // truncating its input does not narrow the answer, it misstates it
+    let analyzer = AdvancedPerformanceAnalyzer::new(cageux_config).with_hr_zones(zones);
+    let analyzer = match window_days {
+        Some(days) => analyzer.with_window_days(days),
+        None => analyzer.with_whole_history(),
+    };
+    let fitness = match analyzer.calculate_fitness_score(&chronological).await {
+        Ok(fitness) => fitness,
+        Err(e) => return unscored.because(format!("The fitness score could not be computed: {e}")),
+    };
+    // With the zones set, cageux gives every component.
+    let (Some(overall), Some(aerobic), Some(strength)) = (
+        fitness.overall_score,
+        fitness.aerobic_fitness,
+        fitness.strength_endurance,
+    ) else {
+        return unscored
+            .because("The fitness score could not be computed from the zones".to_owned());
+    };
+
+    // The training load beside the score, over the FULL fetched history: the
+    // EMA is seeded at the mean daily TSS of the span it is given, so a
+    // truncated input reads its own opening days as the athlete's prior load
     // (registre#415).
     let calculator =
-        TrainingLoadCalculator::as_of_today(algorithm_config.clone(), zone.clone(), now);
+        TrainingLoadCalculator::as_of_today(cageux_config.algorithms.clone(), zone.clone(), now);
     let training_load = athlete.training_load(calculator, &chronological).ok();
-
-    let ctl = training_load.as_ref().map_or(0.0, |l| l.ctl);
-    let atl = training_load.as_ref().map_or(0.0, |l| l.atl);
-    let tsb = training_load.as_ref().map_or(0.0, |l| l.tsb);
-
-    // CTL component: normalize to 0-100 scale (150 CTL = 100 score)
-    let ctl_score = (ctl / 150.0 * 100.0).min(100.0);
-
-    // Component 2: Consistency (% weeks with 3+ activities) - 30% weight
-    let consistency_score = calculate_consistency_score(&scored);
-
-    // Component 3: Performance trend (pace improvement) - 30% weight
-    let performance_score = calculate_performance_trend(&scored);
-
-    // Combine components with weights: 40% CTL, 30% consistency, 30% performance
-    let fitness_score =
-        ctl_score.mul_add(0.4, consistency_score.mul_add(0.3, performance_score * 0.3));
-
-    // Classify fitness level based on score
-    let fitness_level = classify_fitness_level(fitness_score);
-
-    // Determine trend (comparing first half vs second half)
-    let trend = calculate_trend(&scored);
-
-    #[allow(clippy::cast_possible_truncation)]
-    let fitness_score_int = fitness_score.round() as i32;
 
     FitnessScoreResult::Scored(Box::new(FitnessScoreDetail {
         timeframe: timeframe.to_owned(),
         window_days,
-        history_span_days: history_span_days(&chronological, now),
-        fitness_score: fitness_score_int,
-        level: fitness_level.to_owned(),
-        trend: trend.to_owned(),
+        history_span_days: unscored.history_span_days,
+        fitness_score: whole_points(overall),
+        previous_fitness_score: fitness.previous_overall_score.map(whole_points),
+        trend: fitness.trend.map(|trend| trend_name(trend).to_owned()),
         components: FitnessComponents {
-            ctl_score: ctl_score.round(),
-            consistency_score: consistency_score.round(),
-            performance_score: performance_score.round(),
+            aerobic_fitness: aerobic.round(),
+            strength_endurance: strength.round(),
+            consistency: fitness.consistency.round(),
         },
         metrics: FitnessLoadMetrics {
-            ctl: ctl.round(),
-            atl: atl.round(),
-            tsb: tsb.round(),
+            ctl: training_load.as_ref().map_or(0.0, |l| l.ctl).round(),
+            atl: training_load.as_ref().map_or(0.0, |l| l.atl).round(),
+            tsb: training_load.as_ref().map_or(0.0, |l| l.tsb).round(),
         },
-        activities_analyzed: scored.len(),
+        activities_analyzed,
         interpretation: FitnessInterpretation {
-            ctl: FormReading::ctl_definition(algorithm_config.params.training_load_ctl_days),
-            consistency: "Training frequency and regularity".to_owned(),
-            performance: "Pace/speed improvement over time".to_owned(),
+            aerobic_fitness: "Aerobic work: sessions above zone 1, by how far their heart rate \
+                              sat above it and for how long"
+                .to_owned(),
+            strength_endurance: "Hard work: sessions in zone 3 and above, by heart rate and \
+                                 duration"
+                .to_owned(),
+            consistency: "Sessions per week against a weekly target".to_owned(),
+            ctl: FormReading::ctl_definition(
+                cageux_config.algorithms.params.training_load_ctl_days,
+            ),
         },
-        fitness_score_unadjusted: None,
-        recovery_adjustment: None,
-        providers_used,
+        providers_used: unscored.providers_used,
     }))
 }
 
-/// Calculate consistency score: percentage of weeks with 3+ activities
-fn calculate_consistency_score(activities: &[Activity]) -> f64 {
-    use HashMap;
-
-    if activities.is_empty() {
-        return 0.0;
-    }
-
-    // Get the date range
-    let first_date = activities.iter().map(Activity::start_date).min();
-    let last_date = activities.iter().map(Activity::start_date).max();
-
-    let (Some(first), Some(last)) = (first_date, last_date) else {
-        return 0.0;
-    };
-
-    // Calculate total weeks spanned
-    let weeks_spanned = ((last - first).num_days() / 7).max(1);
-
-    // Group activities by week number (days since first / 7)
-    let mut activities_per_week: HashMap<i64, u32> = HashMap::new();
-
-    for activity in activities {
-        let days_since_first = (activity.start_date() - first).num_days();
-        let week_number = days_since_first / 7;
-        *activities_per_week.entry(week_number).or_insert(0) += 1;
-    }
-
-    // Count weeks with 3+ activities
-    let active_weeks = activities_per_week
-        .values()
-        .filter(|&&count| count >= 3)
-        .count();
-
-    // Calculate consistency score as percentage
-    #[allow(clippy::cast_precision_loss)]
-    let score = (active_weeks as f64 / weeks_spanned as f64) * 100.0;
-    score.min(100.0)
+/// What an answer without a score carries besides its reason.
+struct Unscored<'call> {
+    timeframe: &'call str,
+    window_days: Option<u32>,
+    history_span_days: u32,
+    activities_analyzed: usize,
+    providers_used: ProvidersUsed,
 }
 
-/// Calculate performance trend: improvement in average pace over time
-fn calculate_performance_trend(activities: &[Activity]) -> f64 {
-    let activities_with_pace: Vec<_> = activities
-        .iter()
-        .filter(|a| a.distance_meters().is_some() && a.duration_seconds() > 0)
-        .collect();
-
-    if activities_with_pace.len() < 4 {
-        return 50.0; // neutral score for insufficient data
+impl Unscored<'_> {
+    /// No score, and why.
+    fn because(self, message: String) -> FitnessScoreResult {
+        FitnessScoreResult::NoData(NoFitnessScore {
+            timeframe: self.timeframe.to_owned(),
+            window_days: self.window_days,
+            history_span_days: self.history_span_days,
+            message,
+            activities_analyzed: self.activities_analyzed,
+            providers_used: self.providers_used,
+        })
     }
+}
 
-    // Split into first and second half
-    let mid_point = activities_with_pace.len() / 2;
-    let first_half = &activities_with_pace[..mid_point];
-    let second_half = &activities_with_pace[mid_point..];
-
-    // Calculate average pace for each half (seconds per meter)
-    #[allow(clippy::cast_precision_loss)]
-    let first_avg_pace: f64 = first_half
-        .iter()
-        .map(|a| {
-            let distance = a.distance_meters().unwrap_or_else(|| {
-                warn!(
-                    activity_id = a.id(),
-                    "Activity missing distance_meters in pace calculation, using 1.0m fallback"
-                );
-                1.0
-            });
-            a.duration_seconds() as f64 / distance
-        })
-        .sum::<f64>()
-        / first_half.len() as f64;
-
-    #[allow(clippy::cast_precision_loss)]
-    let second_avg_pace: f64 = second_half
-        .iter()
-        .map(|a| {
-            let distance = a.distance_meters().unwrap_or_else(|| {
-                warn!(
-                    activity_id = a.id(),
-                    "Activity missing distance_meters in pace calculation, using 1.0m fallback"
-                );
-                1.0
-            });
-            a.duration_seconds() as f64 / distance
-        })
-        .sum::<f64>()
-        / second_half.len() as f64;
-
-    // Lower pace is better (faster), so improvement is first_pace - second_pace
-    let pace_improvement_pct = ((first_avg_pace - second_avg_pace) / first_avg_pace) * 100.0;
-
-    // Map improvement to 0-100 score
-    // -10% to +10% improvement maps to 0-100
-    let score = (pace_improvement_pct + 10.0) * 5.0;
-    score.clamp(0.0, 100.0)
+/// A 0-100 score rounded to whole points.
+fn whole_points(score: f64) -> i32 {
+    // Safe: cageux bounds the score to 0-100.
+    #[allow(clippy::cast_possible_truncation)]
+    let points = score.round() as i32;
+    points
 }
 
 /// Days the scoring window covers, or `None` for "every activity fetched".
@@ -381,7 +208,7 @@ const fn window_days_for(timeframe: &str) -> Option<u32> {
     }
 }
 
-/// How many days of history the CTL was actually computed from.
+/// How many days of history were fetched.
 ///
 /// Reported alongside the window so a reply states the period it analysed
 /// instead of inferring one from a smoothing constant that happened to sit
@@ -392,74 +219,10 @@ fn history_span_days(chronological: &[Activity], now: Timestamp) -> u32 {
     })
 }
 
-/// The level a zero score classifies to, named because the two empty answers
-/// report it without running the classifier.
-const BEGINNER: &str = "Beginner";
-
-/// Classify fitness level based on composite score (0-100)
-fn classify_fitness_level(score: f64) -> &'static str {
-    if score >= 80.0 {
-        "Excellent"
-    } else if score >= 60.0 {
-        "Good"
-    } else if score >= 40.0 {
-        "Moderate"
-    } else if score >= 20.0 {
-        "Developing"
-    } else {
-        BEGINNER
-    }
-}
-
-/// Calculate fitness trend by comparing recent vs older activities
-fn calculate_trend(activities: &[Activity]) -> &'static str {
-    if activities.len() < 4 {
-        return "stable";
-    }
-
-    let mid_point = activities.len() / 2;
-    let older_half = &activities[..mid_point];
-    let recent_half = &activities[mid_point..];
-
-    #[allow(clippy::cast_precision_loss)]
-    let older_avg_duration = older_half
-        .iter()
-        .map(Activity::duration_seconds)
-        .sum::<u64>() as f64
-        / older_half.len() as f64;
-
-    #[allow(clippy::cast_precision_loss)]
-    let recent_avg_duration = recent_half
-        .iter()
-        .map(Activity::duration_seconds)
-        .sum::<u64>() as f64
-        / recent_half.len() as f64;
-
-    let change_pct = ((recent_avg_duration - older_avg_duration) / older_avg_duration) * 100.0;
-
-    if change_pct > 15.0 {
-        "improving"
-    } else if change_pct < -15.0 {
-        "declining"
-    } else {
-        "stable"
-    }
-}
-
-/// Handle `calculate_fitness_score` tool - calculate overall fitness score
-///
-/// Supports cross-provider integration:
-/// - Use `provider` to specify where to fetch activity data (default: configured default provider)
-/// - Use `sleep_provider` to optionally fetch recovery data from a different provider
-///
-/// When `sleep_provider` is specified, recovery quality factors into the fitness score:
-/// - Excellent recovery (90-100): +5% fitness score bonus
-/// - Good recovery (70-89): No adjustment
-/// - Poor recovery (<70): -5% to -10% penalty
+/// Handle `calculate_fitness_score` tool - dravr-cageux's fitness score
 ///
 /// # Parameters
 /// - `provider` (optional): Activity provider (default: configured default)
-/// - `sleep_provider` (optional): Sleep/recovery provider for cross-provider analysis
 /// - `timeframe` (optional): `month` (default), `quarter`, `year`, or `all_time`
 pub(crate) fn handle_calculate_fitness_score(
     executor: &UniversalToolExecutor,
@@ -487,43 +250,21 @@ pub(crate) fn handle_calculate_fitness_score(
             .and_then(|v| v.as_str())
             .unwrap_or("month");
 
-        // Extract optional sleep_provider for cross-provider recovery analysis
-        let sleep_provider = request
-            .parameters
-            .get("sleep_provider")
-            .and_then(|v| v.as_str());
-        // A coach's read of a coached athlete reads their sleep and HRV only
-        // under their wellness grant, on any transport (carnet#1387).
-        if let Some(withheld) = sleep_provider.and_then(|_| read_subject::wellness_withheld()) {
-            return Ok(read_subject::wellness_refusal(
-                "calculate_fitness_score",
-                WellnessInput::Argument("sleep_provider"),
-                &withheld,
-            ));
-        }
-        // Under the grant, that read is on the athlete's record before it is
-        // made (carnet#1445).
-        if sleep_provider.is_some() {
-            read_subject::record_analytics_wellness_read(
-                executor.resources.repos(),
-                "calculate_fitness_score",
-            )
-            .await?;
-        }
-
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);
 
-        // The thresholds set_physiology saved, the ones every training-load
-        // surface scores sessions against.
-        let athlete =
-            stored_athlete_inputs(&executor.resources, request.tenant_id.as_deref(), user_uuid)
-                .await
-                .map_err(|e| {
-                    ProtocolError::InternalError(format!(
-                        "calculate_fitness_score: reading the saved thresholds failed: {e}"
-                    ))
-                })?;
+        // The saved physiology: its thresholds score the sessions for the
+        // training load, and its resting and maximum heart rates cut the
+        // zones the score reads.
+        let profile = stored_profile(&executor.resources, request.tenant_id.as_deref(), user_uuid)
+            .await
+            .map_err(|e| {
+                ProtocolError::InternalError(format!(
+                    "calculate_fitness_score: reading the saved physiology failed: {e}"
+                ))
+            })?;
+        let athlete = AthleteInputs::from_profile(profile.as_ref());
+        let hr_zones = athlete_hr_zones(profile.as_ref());
 
         match executor
             .auth_service
@@ -548,57 +289,19 @@ pub(crate) fn handle_calculate_fitness_score(
                         let (activities, _fragment_report) =
                             merge_duplicates(raw_activities, &DedupConfig::default());
 
-                        let mut analysis = calculate_fitness_metrics(
+                        let analysis = calculate_fitness_metrics(
                             &activities,
                             timeframe,
                             &athlete,
-                            &executor.cageux_config().algorithms,
+                            hr_zones,
+                            &executor.cageux_config(),
                             &athlete_zone(executor.resources.repos(), user_uuid).await,
                             ProvidersUsed {
                                 activity_provider: provider_name.clone(),
-                                sleep_provider: sleep_provider.map(str::to_owned),
+                                sleep_provider: None,
                             },
-                        );
-
-                        // If sleep_provider is specified, fetch recovery data and adjust score
-                        let recovery_info = if let Some(sleep_provider_name) = sleep_provider {
-                            match fetch_and_calculate_recovery_adjustment(
-                                executor,
-                                user_uuid,
-                                request.tenant_id.as_deref(),
-                                sleep_provider_name,
-                                &mut analysis,
-                            )
-                            .await
-                            {
-                                Ok(info) => Some(info),
-                                Err(err_msg) => {
-                                    warn!(
-                                        sleep_provider = sleep_provider_name,
-                                        error = %err_msg,
-                                        "Failed to fetch recovery data, proceeding without adjustment"
-                                    );
-                                    None
-                                }
-                            }
-                        } else {
-                            None
-                        };
-
-                        // Add recovery and provider info to response
-                        let adjustment = recovery_info.as_ref().map(|info| RecoveryAdjustment {
-                            recovery_score: info.recovery_score,
-                            adjustment_factor: info.adjustment_factor,
-                            sleep_provider: info.provider_name.clone(),
-                        });
-                        match &mut analysis {
-                            FitnessScoreResult::Scored(detail) => {
-                                detail.recovery_adjustment = adjustment;
-                            }
-                            FitnessScoreResult::NoData(empty) => {
-                                empty.recovery_adjustment = adjustment;
-                            }
-                        }
+                        )
+                        .await;
 
                         // Fire fitness improvement notification if trend is
                         // improving. It is the athlete's own: a coach's read of
@@ -627,18 +330,6 @@ pub(crate) fn handle_calculate_fitness_score(
                                     "activity_provider".to_owned(),
                                     serde_json::Value::String(provider_name),
                                 );
-                                if let Some(sp) = sleep_provider {
-                                    map.insert(
-                                        "sleep_provider".to_owned(),
-                                        serde_json::Value::String(sp.to_owned()),
-                                    );
-                                }
-                                if recovery_info.is_some() {
-                                    map.insert(
-                                        "recovery_factored".to_owned(),
-                                        serde_json::Value::Bool(true),
-                                    );
-                                }
                                 map
                             }),
                         };
@@ -689,10 +380,10 @@ fn fire_fitness_improvement_notification(
     let FitnessScoreResult::Scored(detail) = analysis else {
         return;
     };
-    let (trend, score) = (detail.trend.as_str(), detail.fitness_score);
+    let (trend, score) = (detail.trend.as_deref(), detail.fitness_score);
 
     // Only trigger when fitness trend is improving and score is meaningful
-    if trend == "improving" && score > 0 {
+    if trend == Some("improving") && score > 0 {
         notification_triggers::trigger_fitness_improvement(
             service,
             user_id,

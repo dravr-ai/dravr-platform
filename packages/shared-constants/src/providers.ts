@@ -500,3 +500,16 @@ export function intervalsConnectPath(card: IntervalsConnectCard): IntervalsConne
   if (card.connected && card.connection_type === 'oauth') return 'authorize';
   return 'choose';
 }
+
+/**
+ * Whether a key linked over `card` (the `intervals_icu` card) replaces the
+ * athlete's authorization: the server overwrites the authorized link and
+ * revokes its grant at Intervals.icu, so the key form says so before the
+ * athlete submits it. A new link, a key-linked card and a card read through a
+ * group coach's account replace none.
+ */
+export function intervalsKeyReplacesAuthorization(
+  card: Pick<IntervalsConnectCard, 'connected' | 'connection_type'>,
+): boolean {
+  return card.connected && card.connection_type === 'oauth';
+}

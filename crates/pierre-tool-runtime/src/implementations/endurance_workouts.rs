@@ -163,6 +163,37 @@ fn slugify(name: &str) -> String {
     slug.trim_end_matches('_').to_owned()
 }
 
+/// The `session` argument a call carries, read into the inline shape.
+///
+/// # Errors
+///
+/// Returns an invalid-input error naming what does not match the schema.
+fn parse_session(raw: &Value) -> AppResult<SessionPayload> {
+    serde_json::from_value(raw.clone()).map_err(|e| {
+        AppError::invalid_input(format!(
+            "`session` does not match the schema: {e}. Every step needs label, \
+             duration_seconds and target_zone; sport and intensity_distribution are \
+             lowercase enums."
+        ))
+    })
+}
+
+/// A session the caller designed in a call's `session` argument, as a
+/// template of `user_id`'s own, held to the inline bounds and never stored:
+/// what `save_workout_to_library` keeps from a session designed in the call.
+///
+/// # Errors
+///
+/// Returns an invalid-input error for a session that does not match the
+/// schema or falls outside the inline bounds.
+pub(super) fn designed_session_template(
+    tenant_id: TenantId,
+    user_id: Uuid,
+    raw: &Value,
+) -> AppResult<WorkoutTemplate> {
+    inline_template(tenant_id, user_id, parse_session(raw)?)
+}
+
 /// An inline session as the user-authored template [`keep_session`] stores.
 ///
 /// The slug is unique per (`tenant_id`, `user_id`), so an existing row's id is
@@ -170,6 +201,31 @@ fn slugify(name: &str) -> String {
 /// index on the second prescription of the same session.
 async fn authored_template(
     context: &ToolExecutionContext,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    session: SessionPayload,
+) -> AppResult<WorkoutTemplate> {
+    let mut template = inline_template(tenant_id, user_id, session)?;
+    if let Some(existing) = context
+        .resources
+        .repos()
+        .workout_templates
+        .get_user_workout_template(tenant_id, user_id, &template.slug)
+        .await?
+    {
+        template.id = existing.id;
+    }
+    Ok(template)
+}
+
+/// An inline session as a template of `user_id`'s own under a fresh id, held
+/// to the inline bounds, its slug built from its name.
+///
+/// # Errors
+///
+/// Returns an invalid-input error for a session outside the bounds, or a
+/// name with no letters or digits to build the slug from.
+fn inline_template(
     tenant_id: TenantId,
     user_id: Uuid,
     session: SessionPayload,
@@ -182,11 +238,6 @@ async fn authored_template(
             session.name
         )));
     }
-    let repos = context.resources.repos();
-    let existing = repos
-        .workout_templates
-        .get_user_workout_template(tenant_id, user_id, &slug)
-        .await?;
     // An inline session's readiness floor follows from its intensity
     // distribution, and so does its purpose unless the agent named one. It is
     // the agent's own judgement with no citation behind it.
@@ -194,7 +245,7 @@ async fn authored_template(
         WorkoutTemplate::inline_defaults(session.intensity_distribution);
     let purpose = session.purpose.unwrap_or(default_purpose);
     Ok(WorkoutTemplate {
-        id: existing.map_or_else(Uuid::new_v4, |t| t.id),
+        id: Uuid::new_v4(),
         tenant_id: Some(tenant_id.as_uuid()),
         user_id: Some(user_id),
         slug,
@@ -304,18 +355,9 @@ async fn resolve_template(
         (None, None) => Err(AppError::invalid_input(
             "provide template_slug (a stored template) or session (a structured session you authored)",
         )),
-        (None, Some(raw)) => {
-            let session: SessionPayload = serde_json::from_value(raw.clone()).map_err(|e| {
-                AppError::invalid_input(format!(
-                    "`session` does not match the schema: {e}. Every step needs label, \
-                     duration_seconds and target_zone; sport and intensity_distribution are \
-                     lowercase enums."
-                ))
-            })?;
-            authored_template(context, tenant_id, user_id, session)
-                .await
-                .map(as_written)
-        }
+        (None, Some(raw)) => authored_template(context, tenant_id, user_id, parse_session(raw)?)
+            .await
+            .map(as_written),
         (Some(slug), None) => {
             let agent = writer.agent_id.as_deref();
             let catalogue =

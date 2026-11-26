@@ -23,11 +23,17 @@
 //!   training load cannot disagree. `ctl` and `atl` are the
 //!   day's end-of-day values; `tsb` and `form_ctl` come from the end of the day
 //!   before (the Coggan/TrainingPeaks form convention cageux applies).
-//! - `acwr` — Gabbett 7d / 28d ratio. `None` until 28+ days of data.
-//! - `monotony` — Foster (mean weekly daily-load / std dev). `None` until
-//!   7+ days of non-zero load.
+//! - `acwr` — Gabbett acute:chronic ratio. `None` until the chronic window
+//!   of load history.
+//! - `monotony` — Foster (mean weekly daily-load / std dev). `None` until a
+//!   week of load history, and for a week without load or without spread.
 //! - `strain` — Foster (weekly sum × monotony). `None` when monotony is `None`.
-//! - `ramp_rate` — `CTL_today - CTL_7_days_ago`. `None` until 7+ days of CTL.
+//! - `ramp_rate` — CTL today minus CTL a lookback ago. `None` until a
+//!   lookback of load history.
+//!
+//! The four derived metrics and their windows are cageux's
+//! ([`load_metrics`]): each day reads them off the load and CTL series
+//! ending on it.
 //!
 //! Missing inputs propagate as `None` per the Endurance
 //! deterministic-output rule: never substitute zero for "insufficient
@@ -41,6 +47,7 @@ use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::constants::limits::MAX_TIMEFRAME_DAYS;
 use dravr_cageux::error::IntelligenceResult;
 use dravr_cageux::models::activity::Activity;
+use dravr_cageux::periodization::load_metrics::{self, RAMP_RATE_LOOKBACK_DAYS};
 use dravr_cageux::training_load::{TrainingLoad, TrainingLoadCalculator};
 use dravr_tronc::dates::{CivilDate, Elapsed};
 use pierre_core::civil_time::resolve_zone;
@@ -50,14 +57,6 @@ use pierre_core::models::{DailyTrainingState, UserPhysiologicalProfile};
 pub const CTL_WINDOW_DAYS: i64 = 42;
 /// Default acute window (Coggan).
 pub const ATL_WINDOW_DAYS: i64 = 7;
-/// ACWR acute window (Gabbett).
-pub const ACWR_ACUTE_DAYS: i64 = 7;
-/// ACWR chronic window (Gabbett).
-pub const ACWR_CHRONIC_DAYS: i64 = 28;
-/// Monotony / strain weekly window (Foster).
-pub const FOSTER_WINDOW_DAYS: i64 = 7;
-/// Ramp-rate lookback in days.
-pub const RAMP_RATE_LOOKBACK_DAYS: i64 = 7;
 /// Maximum backfill window in days — bounded to keep compute cost predictable.
 pub const MAX_BACKFILL_DAYS: i64 = 365;
 
@@ -258,10 +257,11 @@ pub fn compute_training_history(
 
     let load = load_series(&algorithm, &daily_tss, from, to)?;
 
-    // Track the index of the first day with non-zero load so derived
-    // metrics (ACWR, monotony, strain, ramp_rate) only fire once we have
-    // enough *real* history. Warm-up zeros must not be counted.
-    let first_load_idx = daily_load.iter().position(|(_, l)| *l > f64::EPSILON);
+    // cageux counts the history a derived metric needs (ACWR, monotony,
+    // strain, ramp_rate) from the first day carrying load, so the warm-up
+    // zeros in front of it are not counted.
+    let loads: Vec<f64> = daily_load.iter().map(|(_, l)| *l).collect();
+    let ctl: Vec<f64> = load.iter().map(|day| day.ctl).collect();
 
     let span_usize = usize::try_from(span_days).unwrap_or(0).saturating_add(1);
     let mut out: Vec<DailyTrainingState> = Vec::with_capacity(span_usize);
@@ -270,25 +270,24 @@ pub fn compute_training_history(
             continue;
         }
         // `load` starts RAMP_RATE_LOOKBACK_DAYS before `from`.
-        let series_idx = usize::try_from((*date - from).num_days() + RAMP_RATE_LOOKBACK_DAYS)
-            .unwrap_or(usize::MAX);
+        let series_idx =
+            usize::try_from((*date - from).num_days() + i64::from(RAMP_RATE_LOOKBACK_DAYS))
+                .unwrap_or(usize::MAX);
         let Some(today) = load.get(series_idx) else {
             continue;
         };
-        let days_of_history =
-            first_load_idx.map_or(0, |first| idx.saturating_sub(first).saturating_add(1));
-        let acwr = compute_acwr(&daily_load, idx, days_of_history);
-        let (monotony, strain) = compute_monotony_strain(&daily_load, idx, days_of_history);
-        let ramp_rate = compute_ramp_rate(&load, series_idx, days_of_history);
+        let loads_to_date = &loads[..=idx];
+        let foster = load_metrics::foster_week(loads_to_date);
+        let ramp_rate = load_metrics::ramp_rate(&ctl[..=series_idx], loads_to_date);
         out.push(DailyTrainingState {
             date: *date,
             ctl: today.ctl,
             atl: today.atl,
             tsb: today.tsb,
             form_ctl: today.form_ctl,
-            acwr,
-            monotony,
-            strain,
+            acwr: load_metrics::acwr(loads_to_date),
+            monotony: foster.map(|week| week.monotony),
+            strain: foster.map(|week| week.strain),
             ramp_rate,
             daily_load: *day_load,
         });
@@ -318,87 +317,13 @@ fn load_series(
     from: CivilDate,
     to: CivilDate,
 ) -> IntelligenceResult<Vec<DailyTrainingLoad>> {
-    let lookback_from = from - Elapsed::days(RAMP_RATE_LOOKBACK_DAYS);
+    let lookback_days = i64::from(RAMP_RATE_LOOKBACK_DAYS);
+    let lookback_from = from - Elapsed::days(lookback_days);
     let lookback_as_of = to
         .min(lookback_from + Elapsed::days(i64::from(MAX_TIMEFRAME_DAYS)))
         .max(from - Elapsed::days(1));
     let mut series = algorithm.daily_series(daily_tss, lookback_from, lookback_as_of)?;
-    series.truncate(usize::try_from(RAMP_RATE_LOOKBACK_DAYS).unwrap_or(7));
+    series.truncate(usize::try_from(RAMP_RATE_LOOKBACK_DAYS).unwrap_or(usize::MAX));
     series.extend(algorithm.daily_series(daily_tss, from, to)?);
     Ok(series)
-}
-
-#[allow(clippy::cast_precision_loss)]
-fn compute_acwr(
-    daily_load: &[(CivilDate, f64)],
-    idx: usize,
-    days_of_history: usize,
-) -> Option<f64> {
-    let acute_days = usize::try_from(ACWR_ACUTE_DAYS).unwrap_or(7);
-    let chronic_days = usize::try_from(ACWR_CHRONIC_DAYS).unwrap_or(28);
-    if days_of_history < chronic_days || idx + 1 < chronic_days {
-        return None;
-    }
-    let acute_start = idx + 1 - acute_days;
-    let chronic_start = idx + 1 - chronic_days;
-    let acute_sum: f64 = daily_load[acute_start..=idx].iter().map(|(_, l)| *l).sum();
-    let chronic_sum: f64 = daily_load[chronic_start..=idx]
-        .iter()
-        .map(|(_, l)| *l)
-        .sum();
-    let acute_avg = acute_sum / ACWR_ACUTE_DAYS as f64;
-    let chronic_avg = chronic_sum / ACWR_CHRONIC_DAYS as f64;
-    if chronic_avg <= f64::EPSILON {
-        None
-    } else {
-        Some(acute_avg / chronic_avg)
-    }
-}
-
-#[allow(clippy::cast_precision_loss)]
-fn compute_monotony_strain(
-    daily_load: &[(CivilDate, f64)],
-    idx: usize,
-    days_of_history: usize,
-) -> (Option<f64>, Option<f64>) {
-    let window = usize::try_from(FOSTER_WINDOW_DAYS).unwrap_or(7);
-    if days_of_history < window || idx + 1 < window {
-        return (None, None);
-    }
-    let start = idx + 1 - window;
-    let loads: Vec<f64> = daily_load[start..=idx].iter().map(|(_, l)| *l).collect();
-    let weekly_sum: f64 = loads.iter().sum();
-    if weekly_sum <= f64::EPSILON {
-        return (None, None);
-    }
-    let mean = weekly_sum / loads.len() as f64;
-    let variance = loads
-        .iter()
-        .map(|l| {
-            let d = *l - mean;
-            d * d
-        })
-        .sum::<f64>()
-        / loads.len() as f64;
-    let std_dev = variance.sqrt();
-    if std_dev <= f64::EPSILON {
-        return (None, None);
-    }
-    let monotony = mean / std_dev;
-    let strain = weekly_sum * monotony;
-    (Some(monotony), Some(strain))
-}
-
-fn compute_ramp_rate(
-    load: &[DailyTrainingLoad],
-    series_idx: usize,
-    days_of_history: usize,
-) -> Option<f64> {
-    let lookback = usize::try_from(RAMP_RATE_LOOKBACK_DAYS).unwrap_or(7);
-    if days_of_history < lookback {
-        return None;
-    }
-    let today = load.get(series_idx)?.ctl;
-    let prior = load.get(series_idx.checked_sub(lookback)?)?.ctl;
-    Some(today - prior)
 }

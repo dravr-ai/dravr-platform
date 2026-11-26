@@ -1241,6 +1241,7 @@
     "deleteChatRow": "Eliminar este chat…",
     "deleteChatTitle": "¿Eliminar este chat?",
     "science_change": {
+      "fitness_score": "Una nota sobre tu puntuación de forma: el 26 de noviembre cambié la forma de calcularla. Ahora lee tus sesiones según tus propias zonas de frecuencia cardíaca (trabajo aeróbico 40 %, trabajo intenso 30 %) y cuántas sesiones haces en una semana (30 %), y compara el periodo con el anterior en lugar de darte un nivel. Necesita tu frecuencia cardíaca en reposo y tu frecuencia cardíaca máxima. Tu entrenamiento no cambió, solo la forma de puntuarlo.",
       "pace_zones": "Una nota sobre tus zonas de ritmo: desde el 23 de noviembre trazo cada límite de zona a partir de la curva de coste de oxígeno de Daniels. Tu rango fácil aparece ahora entre 15 y 50 segundos por kilómetro más rápido que antes, y tu rango de maratón se sitúa en torno a tu ritmo de maratón previsto. Tu forma de correr no cambió, solo la forma de trazar las zonas.",
       "training_load": "Una nota sobre tus cifras: el 21 de noviembre cambié la forma de calcular la carga de entrenamiento. Las salidas en bici cuentan ahora según la potencia normalizada, las sesiones con pulsómetro según tu reserva de frecuencia cardíaca y las carreras frente a tu ritmo umbral. Tu forma de fondo (CTL) puede haber subido o bajado de golpe en esa fecha. Tu entrenamiento no cambió, solo la forma de contarlo."
     }
@@ -1343,7 +1344,8 @@
       "verification": "Verificación",
       "plan": "Su plan",
       "plan_thread": "Tu hilo del plan",
-      "membership": "Grupo"
+      "membership": "Grupo",
+      "wellness": "Bienestar"
     },
     "reason": {
       "consentRevoked": "Ya no comparte sus datos contigo",
@@ -1359,7 +1361,9 @@
       "deepFatigueStreak": "Fatiga profunda desde hace {{mornings}}",
       "planDraftWaiting": "Borrador de plan listo para publicar",
       "newMemberNoPlan": "Se unió al grupo el {{date}}, todavía sin plan",
-      "planEnded": "Plan terminado el {{date}}, nada lo reemplaza"
+      "planEnded": "Plan terminado el {{date}}, nada lo reemplaza",
+      "plannedSessionsMissed": "Ninguna actividad coincidente en {{count}} días planificados seguidos",
+      "plannedSessionsMissedOne": "Ninguna actividad coincidente el último día planificado"
     },
     "reasonTitle": {
       "consentRevoked": "{{name}} dejó de compartir sus datos contigo.",
@@ -1379,7 +1383,9 @@
       "deepFatigueStreak_ordinal_other": "{{name}} está en fatiga profunda por {{count}}.ª mañana consecutiva.",
       "planDraftWaiting": "El plan preparado con el agente espera tu revisión; {{name}} todavía no lo ve.",
       "newMemberNoPlan": "{{name}} se unió al grupo el {{date}} y todavía no tiene plan.",
-      "planEnded": "El plan de {{name}} terminó el {{date}} y nada lo reemplaza."
+      "planEnded": "El plan de {{name}} terminó el {{date}} y nada lo reemplaza.",
+      "plannedSessionsMissed": "Ninguna actividad de {{name}} coincide con las sesiones planificadas en sus últimos {{count}} días planificados.",
+      "plannedSessionsMissedOne": "Ninguna actividad de {{name}} coincide con las sesiones planificadas en su último día planificado."
     },
     "evidence": {
       "sharingStopped": "Dejó de compartir el {{at}}",
@@ -1403,7 +1409,10 @@
       "joinedGroup": "Se unió a {{group}} el {{date}}",
       "historyTooShort": "Historial demasiado corto para leer su forma",
       "planEnded": "Plan terminado el {{date}}",
-      "planEndedAfterRace": "Plan terminado el {{date}}, con {{race}}"
+      "planEndedAfterRace": "Plan terminado el {{date}}, con {{race}}",
+      "plannedSessionsUnmatched": "{{missed}} de las {{planned}} sesiones planificadas desde el {{date}} no tienen actividad coincidente",
+      "plannedSessionUnmatched": "Planificado el {{date}}: {{sport}}, sin actividad coincidente",
+      "wellnessNote": "Última nota de bienestar ({{date}}): «{{note}}»"
     },
     "roster": {
       "title": "Mis atletas",
@@ -1488,6 +1497,8 @@
       "status_never": "Aún no se ha enviado",
       "status_empty": "Revisado a las {{time}}: nada que reportar",
       "status_empty_left_out": "Revisado a las {{time}}: nada que reportar · {{count}} sin incluir",
+      "missed_unreadable": "sesiones no realizadas sin revisar para {{count}}: no se pudo leer un calendario",
+      "missed_off": "sesiones no realizadas sin revisar para {{count}}: desactivado por su parte",
       "status_posted": "Enviado a las {{time}}: {{count}} por atender",
       "status_held": "Retenido a las {{time}}",
       "status_paused": "En pausa",
@@ -1508,7 +1519,8 @@
         "deepFatigueStreak": "Varias mañanas cansadas seguidas",
         "planDraftWaiting": "Un borrador de plan pendiente",
         "newMemberNoPlan": "Nuevo miembro sin plan",
-        "planEnded": "Plan terminado"
+        "planEnded": "Plan terminado",
+        "plannedSessionsMissed": "Sesiones planificadas no realizadas"
       }
     }
   },
@@ -2716,6 +2728,12 @@
       "tomorrow": "Mañana",
       "phaseWeek": "{{phase}} · semana {{week}}",
       "notCovered": "Tu plan no cubre este día.",
+      "notCoveredToday": "Tu plan no tiene nada para hoy.",
+      "notCoveredBoth": "Tu plan no tiene nada para hoy ni para mañana.",
+      "nothingPlanned": "Nada previsto",
+      "fillWeekCta": "Completar mi semana",
+      "fillWeekDraft": "Completa mi semana: mi plan no tiene nada algunos días.",
+      "whySession": "¿Por qué esta sesión?",
       "emptyTitle": "Aún no tienes un plan de entrenamiento",
       "emptyBody": "Cuéntale a tu agente tu carrera objetivo y planificará tu temporada semana a semana.",
       "buildCta": "Crear mi plan",
@@ -2868,6 +2886,8 @@
       "nextMonth": "Mes siguiente",
       "noPlan": "Aún no tienes plan: aquí solo aparece lo que has hecho.",
       "historyStart": "Tus actividades guardadas empiezan el {{date}}; los días anteriores no se conservan.",
+      "stepsOne": "{{count}} paso",
+      "stepsN": "{{count}} pasos",
       "notKept": "Este día es anterior a tus actividades guardadas.",
       "loadFailed": "No se pudieron cargar estos días.",
       "noActivity": "Ninguna actividad este día.",
@@ -3194,6 +3214,10 @@
     "assistantOptIn": {
       "label": "Permitir que las herramientas de IA que {{coach}} conecta a Dravr te vean en el resumen del grupo",
       "hint": "Cada herramienta de IA la opera su propia empresa, como Anthropic en el caso de Claude, que recibe lo que la herramienta lee y puede tratarlo fuera de Quebec según sus propias condiciones. {{coach}} elige la herramienta, no tú. Activar esto es tu consentimiento expreso para que Dravr comparta con esa empresa tu lugar en el resumen del grupo, tu historial de actividades y si tienes un plan publicado. Los datos que Dravr sincroniza desde servicios que los mantienen dentro de Dravr nunca se muestran; los archivos de exportación que importas tú mismo sí pueden mostrarse. Dejar esto desactivado no impide que las herramientas de {{coach}} te lean por tu nombre mientras compartas tu entrenamiento con tu entrenador; desactiva eso para impedirlo. Puedes desactivar esto en cualquier momento; lo que una herramienta ya recibió no se puede recuperar."
+    },
+    "missedSessionCheck": {
+      "label": "Avisar a {{coach}} cuando no se realicen sesiones planificadas",
+      "hint": "Cuando ninguna de las sesiones planificadas en días planificados consecutivos tiene una actividad coincidente, Por atender y el resumen de la mañana de {{coach}} lo indican, con las cifras. Dravr solo compara lo planificado con lo registrado; nunca adivina por qué. Desactívalo y {{coach}} no verá nada sobre sesiones no realizadas."
     },
     "seat": {
       "title": "Todavía no eres el coach de este grupo",
@@ -4589,6 +4613,8 @@
     },
     "morning_brief": {
       "links": "Abrir en Por atender:",
+      "missed_off": "Sesiones no realizadas sin revisar para {0}: desactivado por su parte",
+      "missed_unreadable": "Sesiones no realizadas sin revisar para {0}: no se pudo leer un calendario",
       "not_sharing": "{0} sin incluir: no comparten datos",
       "prompt": "Resumen de la mañana. Estos son los atletas de mi lista que me necesitan esta mañana, sacados de mi lista Por atender, uno por línea con lo que los señaló:\n{0}\nEscríbeme un resumen de la mañana breve solo a partir de estas líneas: primero lo de hoy y luego lo de esta semana, una línea corta por atleta en el orden dado, diciendo qué mirar. Conserva las cifras y el contexto que traen las líneas; nunca un porcentaje, nunca una suposición sobre la salud de nadie o sobre cómo se siente. No añadas ningún atleta, cifra ni consejo que las líneas no traigan, y no pongas enlaces: van después de tu texto. Sin títulos, menos de 120 palabras.",
       "unreadable": "{0} sin incluir: no se pudieron leer sus datos"
@@ -5298,6 +5324,7 @@
     "intervalsAuthorizeHint": "Inicias sesión en Intervals.icu y autorizas a Dravr allí: no hay ninguna clave que copiar.",
     "intervalsCoachKeyAction": "¿Entrenas a atletas? Conéctate con tu clave de API",
     "intervalsCoachKeyHelp": "Usa tu propio ID de atleta y tu propia clave de API, no los de tu atleta. La cuenta de Intervals.icu debe usar el correo con el que te registraste en Dravr, y tu atleta debe darte acceso allí.",
+    "intervalsKeyReplacesAuthorization": "Vincular una clave sustituye la autorización que diste a Dravr en Intervals.icu, y Dravr la revoca.",
     "notificationsBellUnreadOne": "Notificaciones, {{count}} sin leer",
     "notificationsBellUnreadN": "Notificaciones, {{count}} sin leer",
     "modePickerTitle": "¿Cómo quieres usar Dravr?",

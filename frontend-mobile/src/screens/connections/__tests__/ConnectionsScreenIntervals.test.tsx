@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The Connections pane's Intervals.icu row — the authorization while the server offers it, the key form otherwise
-// ABOUTME: Pins that a key-linked row reconnects through the key form and an authorized row straight through the authorization
+// ABOUTME: Pins that a key-linked row reconnects through the key form and an authorized row straight through the authorization, and when the key form replaces it
 
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
@@ -33,18 +33,32 @@ jest.mock('../../../services/api', () => ({
   },
 }));
 jest.mock('../../../components/SciotteLoginModal', () => ({ SciotteLoginModal: () => null }));
-// The Intervals.icu sheet, reduced to which path it opened on and the
-// control that starts the authorization when it was handed one.
+// The Intervals.icu sheet, reduced to which path it opened on, the control
+// that starts the authorization when it was handed one, and whether it was
+// told a key linked there replaces the athlete's authorization.
 jest.mock('../../../components/IntervalsIcuLinkModal', () => {
   const React = require('react');
   const { Text } = require('react-native');
   return {
-    IntervalsIcuLinkModal: ({ visible, onAuthorize }: { visible: boolean; onAuthorize?: () => void }) =>
+    IntervalsIcuLinkModal: ({
+      visible,
+      onAuthorize,
+      replacesAuthorization,
+    }: {
+      visible: boolean;
+      onAuthorize?: () => void;
+      replacesAuthorization: boolean;
+    }) =>
       visible
         ? React.createElement(
-            Text,
-            { onPress: onAuthorize, testID: 'intervals-sheet' },
-            onAuthorize ? 'intervals-sheet:authorize' : 'intervals-sheet:key',
+            React.Fragment,
+            null,
+            React.createElement(
+              Text,
+              { onPress: onAuthorize, testID: 'intervals-sheet' },
+              onAuthorize ? 'intervals-sheet:authorize' : 'intervals-sheet:key',
+            ),
+            replacesAuthorization ? React.createElement(Text, null, 'intervals-sheet:replaces-authorization') : null,
           )
         : null,
   };
@@ -159,6 +173,50 @@ describe('ConnectionsScreen — Intervals.icu', () => {
 
     expect(await screen.findByText('intervals-sheet:key')).toBeTruthy();
     expect(initMobileOAuth).not.toHaveBeenCalled();
+  });
+
+  // carnet#1828: the key replaces the authorization, which the server then
+  // revokes at Intervals.icu, so the sheet is told to say so.
+  it('tells the key form it replaces the authorization when opened from an authorized row', async () => {
+    getProvidersStatus.mockResolvedValue({
+      providers: [intervalsCard({ connected: true, connection_type: 'oauth' })],
+    });
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
+
+    fireEvent.press(await screen.findByTestId('provider-link-key-intervals_icu'));
+
+    expect(await screen.findByText('intervals-sheet:replaces-authorization')).toBeTruthy();
+  });
+
+  it('tells the key form it replaces the authorization when an authorized row reconnects through it', async () => {
+    getProvidersStatus.mockResolvedValue({
+      providers: [
+        intervalsCard({ connected: true, needs_reauth: true, connection_type: 'oauth', own_app_required: true }),
+      ],
+    });
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
+
+    fireEvent.press(await screen.findByTestId('provider-action-intervals_icu'));
+
+    expect(await screen.findByText('intervals-sheet:key')).toBeTruthy();
+    expect(screen.getByText('intervals-sheet:replaces-authorization')).toBeTruthy();
+  });
+
+  it('tells it nothing replaced for a new link or a key-linked reconnect', async () => {
+    getProvidersStatus.mockResolvedValue({ providers: [intervalsCard()] });
+    const first = render(<ConnectionsScreen />, { wrapper: queryWrapper() });
+    fireEvent.press(await screen.findByTestId('provider-action-intervals_icu'));
+    expect(await screen.findByText('intervals-sheet:authorize')).toBeTruthy();
+    expect(screen.queryByText('intervals-sheet:replaces-authorization')).toBeNull();
+    first.unmount();
+
+    getProvidersStatus.mockResolvedValue({
+      providers: [intervalsCard({ connected: true, needs_reauth: true, connection_type: 'manual' })],
+    });
+    render(<ConnectionsScreen />, { wrapper: queryWrapper() });
+    fireEvent.press(await screen.findByTestId('provider-action-intervals_icu'));
+    expect(await screen.findByText('intervals-sheet:key')).toBeTruthy();
+    expect(screen.queryByText('intervals-sheet:replaces-authorization')).toBeNull();
   });
 
   it('shows no key action on a key-linked row', async () => {

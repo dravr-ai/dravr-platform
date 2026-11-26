@@ -36,12 +36,12 @@
 
 use std::sync::Arc;
 
+use dravr_cageux::periodization::load_metrics::{ACWR_ACUTE_DAYS, ACWR_CHRONIC_DAYS};
 use dravr_cageux::training_load::{FormBand, TrainingLoad, TrainingLoadCalculator};
 use dravr_tronc::dates::{CivilDate, Elapsed};
 use pierre_core::constants::oauth_providers::GarminContribution;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{DailyTrainingState, TenantId};
-use pierre_fitness_compute::{ACWR_ACUTE_DAYS, ACWR_CHRONIC_DAYS};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::training_history_compute::{
     compute_and_persist_history, default_window, read_history_from_cache, TrainingHistoryComputed,
@@ -102,9 +102,9 @@ pub struct LoadRatio {
     /// `chronic_days`. A magnitude, not a verdict.
     pub ratio: f64,
     /// Days in the recent window.
-    pub acute_days: i64,
+    pub acute_days: u32,
     /// Days in the baseline window.
-    pub chronic_days: i64,
+    pub chronic_days: u32,
 }
 
 /// The athlete's training status on `today`, their civil date.

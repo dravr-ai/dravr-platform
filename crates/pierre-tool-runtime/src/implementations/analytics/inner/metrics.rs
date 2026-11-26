@@ -143,9 +143,14 @@ fn determine_max_heart_rate(
     let age = user_age.or_else(|| profile.and_then(|p| p.age).map(u32::from))?;
     let sex = profile.and_then(|p| p.sex).map(PhysiologicalSex::as_str);
     let bpm = algorithm.estimate(age, sex).ok()?;
+    // Named by the formula cageux applied for this sex, not the selection:
+    // under Gulati an athlete saved as male is given Tanaka's (carnet#1812).
     Some(MaxHeartRate {
         bpm,
-        source: format!("estimated_from_age_{age}_{}", algorithm.name()),
+        source: format!(
+            "estimated_from_age_{age}_{}",
+            algorithm.applied_for(sex).name()
+        ),
     })
 }
 
@@ -524,6 +529,10 @@ mod tests {
             "bug: a woman is not read on Gulati's equation: {}",
             hers.bpm
         );
+        assert_eq!(
+            hers.source, "estimated_from_age_40_gulati",
+            "bug: a woman's estimate is not labelled with Gulati's equation"
+        );
 
         let mut man = profile(Some(50), None);
         man.sex = Some(PhysiologicalSex::Male);
@@ -534,6 +543,11 @@ mod tests {
             (his.bpm - 180.0).abs() < 1e-9,
             "bug: a man is read on Gulati's women's equation: {}",
             his.bpm
+        );
+        // Labelled with the formula he was given, not the one selected.
+        assert_eq!(
+            his.source, "estimated_from_age_40_tanaka",
+            "bug: a man's estimate is labelled with the selected Gulati, not the Tanaka he was given"
         );
         Ok(())
     }

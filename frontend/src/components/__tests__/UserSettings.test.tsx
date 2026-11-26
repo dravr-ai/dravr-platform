@@ -1320,6 +1320,59 @@ describe('UserSettings Component', () => {
       expect(screen.queryByTestId('own-app-setup')).not.toBeInTheDocument();
       expect(screen.queryByTestId('intervals-authorize')).not.toBeInTheDocument();
     });
+
+    // carnet#1828: a key linked over an authorization replaces it, and the
+    // server revokes the grant at Intervals.icu, so the key form says so
+    // first, and says it only then.
+    const REPLACES =
+      'Linking a key replaces the authorization you gave Dravr on Intervals.icu, and Dravr revokes it.';
+
+    it('says the key replaces the authorization when the key form opens from an authorized card', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [intervalsCard({ connected: true, connection_type: 'oauth' })],
+      });
+      const user = userEvent.setup();
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      await user.click(await screen.findByTestId('provider-link-key-intervals_icu'));
+
+      expect(await screen.findByLabelText('Athlete ID')).toBeInTheDocument();
+      expect(screen.getByRole('note')).toHaveTextContent(REPLACES);
+    });
+
+    it('says it when an authorized card with no client reconnects through the key form', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [
+          intervalsCard({ connected: true, needs_reauth: true, connection_type: 'oauth', own_app_required: true }),
+        ],
+      });
+      await openConnect();
+
+      expect(await screen.findByLabelText('Athlete ID')).toBeInTheDocument();
+      expect(screen.getByText(REPLACES)).toBeInTheDocument();
+    });
+
+    it('says nothing of an authorization on a key-linked reconnect', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [intervalsCard({ connected: true, needs_reauth: true, connection_type: 'manual' })],
+      });
+      await openConnect();
+
+      expect(await screen.findByLabelText('Athlete ID')).toBeInTheDocument();
+      expect(screen.queryByTestId('intervals-key-replaces-authorization')).not.toBeInTheDocument();
+    });
+
+    it('says nothing of an authorization on a new link, through the choice to its key form', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [intervalsCard()] });
+      const user = await openConnect();
+
+      await user.click(await screen.findByTestId('intervals-use-api-key'));
+
+      expect(await screen.findByLabelText('Athlete ID')).toBeInTheDocument();
+      expect(screen.queryByTestId('intervals-key-replaces-authorization')).not.toBeInTheDocument();
+    });
   });
 
   describe('Data Providers — Strava OAuth-first with sign-in fallback', () => {
@@ -2287,6 +2340,52 @@ describe('UserSettings Component', () => {
       await waitFor(() => expect(disconnectProvider).toHaveBeenCalledWith('sciotte_garmin'));
       expect(await screen.findByText(i18n.t('app.providerDisconnected', { provider: 'Garmin' }))).toBeInTheDocument();
       expect(screen.queryByText(/sciotte_garmin/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Data Providers — one disconnect at a time', () => {
+    // carnet#1837: a 26 s DELETE left Confirm clickable and one athlete's taps
+    // sent 23 disconnects in 26 s.
+    it('sends one disconnect however many times Confirm is clicked while it runs', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [
+          {
+            provider: 'sciotte_garmin',
+            display_name: 'Garmin',
+            requires_oauth: false,
+            connected: true,
+            needs_reauth: false,
+            capabilities: ['activities'],
+            consent_required: false,
+          },
+        ],
+      });
+      let finish: () => void = () => {};
+      disconnectProvider.mockImplementationOnce(
+        () => new Promise<void>((resolve) => { finish = resolve; }),
+      );
+      const user = userEvent.setup();
+
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      await user.click(await screen.findByTestId('provider-disconnect-sciotte_garmin'));
+      const dialog = await screen.findByRole('dialog');
+      const confirm = within(dialog).getByRole('button', { name: 'Disconnect' });
+      for (let i = 0; i < 5; i += 1) {
+        await user.click(confirm);
+      }
+
+      expect(disconnectProvider).toHaveBeenCalledTimes(1);
+      expect(confirm).toBeDisabled();
+      expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeDisabled();
+
+      await act(async () => {
+        finish();
+      });
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(disconnectProvider).toHaveBeenCalledTimes(1);
     });
   });
 

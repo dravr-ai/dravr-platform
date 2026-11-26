@@ -19,8 +19,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use dravr_cageux::config::intelligence::AlgorithmConfig;
+use dravr_cageux::config::intelligence::{AlgorithmConfig, IntelligenceConfig};
 use dravr_cageux::training_load::TrainingLoadCalculator;
+use dravr_cageux::zones::HrZones;
 use dravr_tronc::dates::Elapsed;
 use dravr_tronc::dates::{Timestamp, Zone};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
@@ -121,8 +122,8 @@ fn analyze_training_load_reads_the_athletes_today() {
     );
 }
 
-#[test]
-fn calculate_fitness_score_reads_the_athletes_today() {
+#[tokio::test]
+async fn calculate_fitness_score_reads_the_athletes_today() {
     let now = Timestamp::now();
     let zone = zone_off_the_utc_day(now);
     let activities = building_block(now, &zone);
@@ -130,10 +131,13 @@ fn calculate_fitness_score_reads_the_athletes_today() {
         &activities,
         "all_time",
         &AthleteInputs::default(),
-        &AlgorithmConfig::default(),
+        Ok(HrZones::for_athlete(None, 50, 190).expect("zones for 50/190")),
+        &IntelligenceConfig::default(),
         &zone,
         providers(),
-    ) else {
+    )
+    .await
+    else {
         panic!("ninety rides score");
     };
     let local = reading(&activities, &zone, now);

@@ -1241,6 +1241,7 @@
     "deleteChatRow": "Supprimer cette discussion…",
     "deleteChatTitle": "Supprimer cette discussion ?",
     "science_change": {
+      "fitness_score": "Une précision sur ton score de forme : le 26 novembre, j'ai changé la façon de le calculer. Il lit maintenant tes séances selon tes propres zones de fréquence cardiaque (travail aérobie 40 %, travail intense 30 %) et le nombre de séances que tu places dans une semaine (30 %), et il compare la période avec la précédente au lieu de donner un niveau. Il a besoin de ta fréquence cardiaque au repos et de ta fréquence cardiaque maximale. Ton entraînement n'a pas changé, seulement la façon de le noter.",
       "pace_zones": "Une précision sur tes zones d'allure : depuis le 23 novembre, je trace chaque limite de zone à partir de la courbe de coût en oxygène de Daniels. Ta plage d'allure facile paraît maintenant de 15 à 50 secondes par kilomètre plus rapide qu'avant, et ta plage marathon se situe autour de ton allure marathon prédite. Ta course n'a pas changé, seulement la façon de tracer les zones.",
       "training_load": "Une précision sur tes chiffres : le 21 novembre, j'ai changé la façon de calculer la charge d'entraînement. Les sorties à vélo comptent maintenant selon la puissance normalisée, les séances au cardio selon ta réserve de fréquence cardiaque, et les courses par rapport à ton allure seuil. Ta forme de fond (CTL) a pu monter ou baisser d'un coup à cette date. Ton entraînement n'a pas changé, seulement la façon de le compter."
     }
@@ -1343,7 +1344,8 @@
       "verification": "Vérification",
       "plan": "Son plan",
       "plan_thread": "Ton fil de plan",
-      "membership": "Groupe"
+      "membership": "Groupe",
+      "wellness": "Bien-être"
     },
     "reason": {
       "consentRevoked": "Ne partage plus ses données avec toi",
@@ -1359,7 +1361,9 @@
       "deepFatigueStreak": "Fatigue profonde depuis {{mornings}}",
       "planDraftWaiting": "Brouillon de plan prêt à publier",
       "newMemberNoPlan": "A rejoint le groupe le {{date}}, pas encore de plan",
-      "planEnded": "Plan terminé le {{date}}, rien ne le remplace"
+      "planEnded": "Plan terminé le {{date}}, rien ne le remplace",
+      "plannedSessionsMissed": "Aucune activité correspondante sur {{count}} jours planifiés de suite",
+      "plannedSessionsMissedOne": "Aucune activité correspondante le dernier jour planifié"
     },
     "reasonTitle": {
       "consentRevoked": "{{name}} a coupé le partage de ses données avec toi.",
@@ -1379,7 +1383,9 @@
       "deepFatigueStreak_ordinal_other": "{{name}} est en fatigue profonde pour le {{count}}e matin de suite.",
       "planDraftWaiting": "Le plan préparé avec l’agent attend ta relecture ; {{name}} ne le voit pas encore.",
       "newMemberNoPlan": "{{name}} a rejoint le groupe le {{date}} et n’a pas encore de plan.",
-      "planEnded": "Le plan de {{name}} s’est terminé le {{date}} et rien ne le remplace."
+      "planEnded": "Le plan de {{name}} s’est terminé le {{date}} et rien ne le remplace.",
+      "plannedSessionsMissed": "Aucune activité de {{name}} ne correspond aux séances planifiées sur ses {{count}} derniers jours planifiés.",
+      "plannedSessionsMissedOne": "Aucune activité de {{name}} ne correspond aux séances planifiées sur son dernier jour planifié."
     },
     "evidence": {
       "sharingStopped": "Partage coupé le {{at}}",
@@ -1403,7 +1409,10 @@
       "joinedGroup": "A rejoint {{group}} le {{date}}",
       "historyTooShort": "Historique trop court pour lire sa forme",
       "planEnded": "Plan terminé le {{date}}",
-      "planEndedAfterRace": "Plan terminé le {{date}}, avec {{race}}"
+      "planEndedAfterRace": "Plan terminé le {{date}}, avec {{race}}",
+      "plannedSessionsUnmatched": "{{missed}} des {{planned}} séances planifiées depuis le {{date}} n’ont aucune activité correspondante",
+      "plannedSessionUnmatched": "Prévu le {{date}} : {{sport}}, aucune activité correspondante",
+      "wellnessNote": "Dernière note de bien-être ({{date}}) : « {{note}} »"
     },
     "roster": {
       "title": "Mes athlètes",
@@ -1488,6 +1497,8 @@
       "status_never": "Pas encore passé",
       "status_empty": "Passé à {{time}} : rien à signaler",
       "status_empty_left_out": "Passé à {{time}} : rien à signaler · {{count}} non inclus",
+      "missed_unreadable": "séances manquées non vérifiées pour {{count}} : un calendrier n’a pas pu être lu",
+      "missed_off": "séances manquées non vérifiées pour {{count}} : désactivé de leur côté",
       "status_posted": "Envoyé à {{time}} : {{count}} à traiter",
       "status_held": "Retenu à {{time}}",
       "status_paused": "En pause",
@@ -1508,7 +1519,8 @@
         "deepFatigueStreak": "Plusieurs matins fatigués de suite",
         "planDraftWaiting": "Un brouillon de plan en attente",
         "newMemberNoPlan": "Nouveau membre sans plan",
-        "planEnded": "Plan terminé"
+        "planEnded": "Plan terminé",
+        "plannedSessionsMissed": "Séances planifiées manquées"
       }
     }
   },
@@ -2716,6 +2728,12 @@
       "tomorrow": "Demain",
       "phaseWeek": "{{phase}} · semaine {{week}}",
       "notCovered": "Ton plan ne couvre pas ce jour.",
+      "notCoveredToday": "Ton plan ne prévoit rien aujourd'hui.",
+      "notCoveredBoth": "Ton plan ne prévoit rien aujourd'hui ni demain.",
+      "nothingPlanned": "Rien de prévu",
+      "fillWeekCta": "Compléter ma semaine",
+      "fillWeekDraft": "Complète ma semaine : mon plan ne prévoit rien certains jours.",
+      "whySession": "Pourquoi cette séance ?",
       "emptyTitle": "Pas encore de plan d’entraînement",
       "emptyBody": "Parle à ton agent de ta course objectif : il construira ta saison, semaine après semaine.",
       "buildCta": "Construire mon plan",
@@ -2867,7 +2885,9 @@
       "previousMonth": "Mois précédent",
       "nextMonth": "Mois suivant",
       "noPlan": "Pas encore de plan : seules tes activités s'affichent ici.",
-      "historyStart": "Vos activités conservées commencent le {{date}} ; les jours précédents ne sont pas gardés.",
+      "historyStart": "Tes activités conservées commencent le {{date}} ; les jours précédents ne sont pas gardés.",
+      "stepsOne": "{{count}} étape",
+      "stepsN": "{{count}} étapes",
       "notKept": "Ce jour est plus ancien que tes activités conservées.",
       "loadFailed": "Ces jours n'ont pas pu être chargés.",
       "noActivity": "Aucune activité ce jour-là.",
@@ -3194,6 +3214,10 @@
     "assistantOptIn": {
       "label": "Permettre aux outils d’IA que {{coach}} connecte à Dravr de te voir dans l’aperçu du groupe",
       "hint": "Chaque outil d’IA est exploité par sa propre entreprise, comme Anthropic pour Claude, qui reçoit ce que l’outil lit et peut le traiter à l’extérieur du Québec selon ses propres conditions. C’est {{coach}} qui choisit l’outil, pas toi. Activer ceci constitue ton consentement exprès à ce que Dravr communique à cette entreprise ta place dans l’aperçu du groupe, ton historique d’activités et le fait que tu aies ou non un plan publié. Les données que Dravr synchronise depuis des services qui les gardent à l’intérieur de Dravr ne sont jamais montrées ; les fichiers d’export que tu importes toi-même peuvent l’être. Laisser ceci désactivé n’empêche pas les outils de {{coach}} de te lire nominativement tant que tu partages ton entraînement avec ton coach ; désactive ce partage pour les en empêcher. Tu peux désactiver ceci à tout moment ; ce qu’un outil a déjà reçu ne peut pas être repris."
+    },
+    "missedSessionCheck": {
+      "label": "Prévenir {{coach}} quand des séances planifiées sont manquées",
+      "hint": "Quand aucune des séances planifiées sur des jours planifiés consécutifs n’a d’activité correspondante, À traiter et le brief du matin de {{coach}} le signalent, avec les chiffres. Dravr compare seulement ce qui était prévu à ce qui a été enregistré ; il ne devine jamais pourquoi. Désactive-le et {{coach}} ne voit plus rien des séances manquées."
     },
     "seat": {
       "title": "Tu n'es pas encore le coach de ce groupe",
@@ -4589,6 +4613,8 @@
     },
     "morning_brief": {
       "links": "Ouvrir dans À traiter :",
+      "missed_off": "Séances manquées non vérifiées pour {0} : désactivé de leur côté",
+      "missed_unreadable": "Séances manquées non vérifiées pour {0} : un calendrier n’a pas pu être lu",
       "not_sharing": "{0} non inclus : partage désactivé",
       "prompt": "Brief du matin. Voici les athlètes de ma liste qui ont besoin de moi ce matin, tirés de ma file À traiter, un par ligne avec ce qui les a signalés :\n{0}\nÉcris-moi un court brief du matin à partir de ces lignes seulement : d’abord ce qui est pour aujourd’hui, puis pour cette semaine, une courte ligne par athlète dans l’ordre donné, en disant quoi regarder. Garde les chiffres et le contexte que portent les lignes ; jamais de pourcentage, jamais de supposition sur la santé de quelqu’un ou sur comment il se sent. N’ajoute aucun athlète, chiffre ou conseil que les lignes ne portent pas, et ne mets aucun lien : ils suivent ton texte. Pas de titres, moins de 120 mots.",
       "unreadable": "{0} non inclus : leurs données n’ont pas pu être lues"
@@ -5298,6 +5324,7 @@
     "intervalsAuthorizeHint": "Tu te connectes sur Intervals.icu et tu y autorises Dravr — aucune clé à copier.",
     "intervalsCoachKeyAction": "Tu entraînes des athlètes ? Connecte-toi avec ta clé API",
     "intervalsCoachKeyHelp": "Utilise ton propre identifiant athlète et ta propre clé API, pas ceux de ton athlète. Le compte Intervals.icu doit avoir le courriel de ton inscription à Dravr, et ton athlète doit te donner accès là-bas.",
+    "intervalsKeyReplacesAuthorization": "Relier une clé remplace l’autorisation que tu as donnée à Dravr sur Intervals.icu, et Dravr la révoque.",
     "notificationsBellUnreadOne": "Notifications, {{count}} non lue",
     "notificationsBellUnreadN": "Notifications, {{count}} non lues",
     "modePickerTitle": "Comment veux-tu utiliser Dravr ?",

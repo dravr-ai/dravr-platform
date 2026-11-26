@@ -52,9 +52,9 @@ use pierre_core::admin::models::{
 use pierre_core::constants::provider_capture::BASELINE_CAPTURE_VERSION;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::{
-    ActivityBuilder, CachedRowKey, DataSource, DeviceType, SportType, StoredHealthMetrics,
-    StoredRecoveryMetrics, StoredSleepSession, Tenant, TenantId, TimeSeriesData, User,
-    UserOAuthToken, UserStatus,
+    ActivityBuilder, CachedRowKey, ConnectionType, DataSource, DeviceType, SportType,
+    StoredHealthMetrics, StoredRecoveryMetrics, StoredSleepSession, Tenant, TenantId,
+    TimeSeriesData, User, UserOAuthToken, UserStatus,
 };
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
@@ -954,6 +954,19 @@ async fn a_wellness_purge_takes_only_that_scopes_wellness() {
     assert_eq!(rest.total(), activity_rows, "{:?}", rest.rows_removed);
 }
 
+/// Register the athlete's WHOOP connection row: a disconnect clears only a
+/// provider the athlete still holds (carnet#1838), and the connection row is
+/// what a connect writes.
+async fn connect_whoop(world: &World) {
+    let (athlete, tenant) = world.athlete;
+    world
+        .repos()
+        .provider_connections
+        .register_connection(athlete, tenant, "whoop", &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+}
+
 #[tokio::test]
 async fn disconnecting_whoop_deletes_that_athletes_whoop_rows_through_the_chokepoint() {
     let world = world().await;
@@ -964,8 +977,10 @@ async fn disconnecting_whoop_deletes_that_athletes_whoop_rows_through_the_chokep
         Arc::new((*world.resources.common.config).clone()),
     );
 
-    // No WHOOP token is stored, so the revocation step has no grant to spend
-    // and sends nothing upstream; the purge is what is under test.
+    // The athlete holds WHOOP by its connection row alone: no token is
+    // stored, so the revocation step has no grant to spend and sends nothing
+    // upstream; the purge is what is under test.
+    connect_whoop(&world).await;
     service
         .disconnect_provider(
             athlete,
@@ -1514,6 +1529,7 @@ async fn every_purge_leaves_an_attestation_row_the_admin_can_read() {
         world.resources.data(),
         Arc::new((*world.resources.common.config).clone()),
     );
+    connect_whoop(&world).await;
     service
         .disconnect_provider(
             athlete,

@@ -13,6 +13,7 @@ use pierre_core::models::{
 use uuid::Uuid;
 
 use crate::backends::postgres::PostgresDatabase;
+use crate::clear_lock::{self, ProviderClearLock};
 use crate::repositories::provider_connections::{
     connection_from_row, impl_provider_connection_repository, reauth_mark,
     CLAIM_REAUTH_NOTIFICATION_SQL, CLAIM_REAUTH_RETRY_SQL, CLAIM_SYNC_FAILURE_NOTIFICATION_SQL,
@@ -28,3 +29,37 @@ use crate::repositories::provider_connections::{
 use crate::repositories::ProviderConnectionRepository;
 
 impl_provider_connection_repository!(PostgresDatabase);
+
+/// Take the transaction-scoped advisory lock of a clear key.
+///
+/// The key is hashed by the server (`hashtextextended`), so every instance
+/// and every build derives the same lock id from it.
+const PROVIDER_CLEAR_ADVISORY_LOCK_SQL: &str =
+    "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))";
+
+impl PostgresDatabase {
+    /// The provider clear lock on PostgreSQL, shared by every instance.
+    ///
+    /// This instance's waiters queue in process, then the holder takes the
+    /// advisory lock on a transaction left open until the lock drops.
+    async fn hold_provider_clear(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<ProviderClearLock> {
+        let key = clear_lock::clear_key(user_id, tenant_id, provider);
+        let local = clear_lock::hold_local(&key).await;
+        let mut remote = self.pool().begin().await.map_err(|e| {
+            AppError::database(format!("Failed to open the provider clear lock: {e}"))
+        })?;
+        sqlx::query(PROVIDER_CLEAR_ADVISORY_LOCK_SQL)
+            .bind(&key)
+            .execute(&mut *remote)
+            .await
+            .map_err(|e| {
+                AppError::database(format!("Failed to take the provider clear lock: {e}"))
+            })?;
+        Ok(ProviderClearLock::with_remote(local, remote))
+    }
+}

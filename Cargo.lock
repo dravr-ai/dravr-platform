@@ -1454,8 +1454,8 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-barrage"
-version = "0.35.0"
-source = "git+https://github.com/dravr-ai/dravr-barrage.git?rev=4d8a2506258b2a84a9e6421bdd401ac22afdc8d2#4d8a2506258b2a84a9e6421bdd401ac22afdc8d2"
+version = "0.35.2"
+source = "git+https://github.com/dravr-ai/dravr-barrage.git?rev=8cd089daca43f2c7b5ed511aa2fc490a6ed89538#8cd089daca43f2c7b5ed511aa2fc490a6ed89538"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1500,8 +1500,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.60.0"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.60.0#f4954eda0eb34d9d15e320088056d0b01f919267"
+version = "0.61.0"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.61.0#6850a51505fc73b32f4cd4c19505d77090be8c22"
 dependencies = [
  "async-trait",
  "dravr-tronc",
@@ -1564,15 +1564,16 @@ dependencies = [
 [[package]]
 name = "dravr-contremaitre"
 version = "0.1.0"
-source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=d159c5731606c8968c1d06527025f1ff45da6261#d159c5731606c8968c1d06527025f1ff45da6261"
+source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=c106223220ab2861ae0da6ae5038a62ff01f5dcb#c106223220ab2861ae0da6ae5038a62ff01f5dcb"
 
 [[package]]
 name = "dravr-enforme"
-version = "0.23.1"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.23.1#247939a4a47737773d2bf426a95f942eeca37873"
+version = "0.24.0"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.24.0#26e8f272c02b891671c51b3d4ee0a87af1e25706"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
+ "dravr-cageux",
  "dravr-equilibre",
  "dravr-sciotte",
  "dravr-tronc",
@@ -1668,9 +1669,9 @@ dependencies = [
 
 [[package]]
 name = "dravr-tronc"
-version = "8.1.0"
+version = "8.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa3f0ad8d9c390c816c289a553c9034124674dca0185a08d59a5d6abd63b21c1"
+checksum = "eef97018f79cd687ed008c14ea568cd6a6dd89710ef2d5ede94310128984a3cb"
 dependencies = [
  "async-trait",
  "axum",
@@ -1825,9 +1826,9 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.48.0"
+version = "0.48.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0554803356a65f6d541af3097399ce366ccfeb816450e7ecfcea2a6ad0135673"
+checksum = "f61c66e41cc84e916646e8b4469113bb9f416ff2b130aef1184d86be71edaa21"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
@@ -1848,9 +1849,9 @@ dependencies = [
 
 [[package]]
 name = "embacle-tool-host"
-version = "0.48.0"
+version = "0.48.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa0c2dd6d384b73cdca62d55d5000af7854e0b9e08c8b445be629a67de171b1e"
+checksum = "9772852f21ac6ac422498db430988f20f724403ec6e458a4e46034d4ba60ee37"
 dependencies = [
  "async-trait",
  "axum",
@@ -3863,8 +3864,8 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "photograveur"
-version = "0.9.1"
-source = "git+https://github.com/dravr-ai/dravr-photograveur.git?tag=v0.9.1#e27cc8be4d46e9a98ebd71c9293ab2566d51fde4"
+version = "0.9.3"
+source = "git+https://github.com/dravr-ai/dravr-photograveur.git?tag=v0.9.3#4e7c74566498e952004d2b3ec4cc9c3fbd7855fa"
 dependencies = [
  "dravr-tronc",
  "serde",
@@ -4229,6 +4230,7 @@ name = "pierre-evals"
 version = "0.3.0"
 dependencies = [
  "async-trait",
+ "dravr-cageux",
  "dravr-contremaitre",
  "dravr-tronc",
  "futures-util",
@@ -5284,7 +5286,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.3",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -5322,7 +5324,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "tracing",
  "windows-sys 0.61.2",
 ]

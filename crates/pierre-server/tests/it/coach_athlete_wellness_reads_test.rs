@@ -982,14 +982,11 @@ async fn the_athletes_resting_heart_rate_and_weight_reach_the_coach_only_under_t
         ATHLETE_WELLNESS.weight_kg,
         "bug: the nutrition mode scales from the athlete's weight: {advice}"
     );
-    for (tool, params) in [
-        ("analyze_training_load", json!({ "provider": UPLOAD })),
-        ("calculate_fitness_score", json!({ "provider": UPLOAD })),
-    ] {
-        let mut with_sleep = params;
-        with_sleep["sleep_provider"] = json!(INTERVALS_ICU);
-        ok(f.in_thread(tool, with_sleep).await, tool);
-    }
+    let with_sleep = json!({ "provider": UPLOAD, "sleep_provider": INTERVALS_ICU });
+    ok(
+        f.in_thread("analyze_training_load", with_sleep).await,
+        "analyze_training_load",
+    );
 }
 
 /// The heart-rate zones are training (Phil, 2026-11-06): the athlete's saved

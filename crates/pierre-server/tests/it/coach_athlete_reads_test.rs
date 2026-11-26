@@ -1330,27 +1330,27 @@ async fn the_athletes_ai_consents_decide_a_thread_read_never_the_coachs() {
 #[tokio::test]
 async fn a_read_of_the_athletes_training_never_reads_their_sleep() {
     let f = fixture().await;
-    for tool in ["analyze_training_load", "calculate_fitness_score"] {
-        let refused = f
-            .in_thread(
-                tool,
-                json!({ "provider": UPLOAD, "sleep_provider": "whoop" }),
-            )
-            .await;
-        assert_eq!(
-            refused_reason(&refused),
-            "wellness_grant_needed",
-            "{tool}: sleep_provider reads the athlete's wellness, which they have not shared"
-        );
-        assert!(
-            refused.error.as_deref().is_some_and(|e| {
-                e.contains("Leave `sleep_provider` out")
-                    && e.contains("Mira Subject has not shared their wellness")
-            }),
-            "{tool}: {:?}",
-            refused.error
-        );
-    }
+    // calculate_fitness_score reads no sleep (carnet#1807): the training read
+    // that takes a `sleep_provider` is analyze_training_load.
+    let refused = f
+        .in_thread(
+            "analyze_training_load",
+            json!({ "provider": UPLOAD, "sleep_provider": "whoop" }),
+        )
+        .await;
+    assert_eq!(
+        refused_reason(&refused),
+        "wellness_grant_needed",
+        "sleep_provider reads the athlete's wellness, which they have not shared"
+    );
+    assert!(
+        refused.error.as_deref().is_some_and(|e| {
+            e.contains("Leave `sleep_provider` out")
+                && e.contains("Mira Subject has not shared their wellness")
+        }),
+        "{:?}",
+        refused.error
+    );
 }
 
 #[tokio::test]

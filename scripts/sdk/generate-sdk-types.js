@@ -35,11 +35,18 @@ function httpRequest({ method, requestPath, headers = {}, body }) {
     const req = http.request(
       { hostname: 'localhost', port: SERVER_PORT, path: requestPath, method, headers },
       (res) => {
-        let data = '';
+        // Decode once, after the last chunk: a chunk boundary can fall inside
+        // a multi-byte character, and decoding each chunk on its own turns
+        // that character into U+FFFD replacement characters (an em dash in a
+        // tool description reached tools.ts as "��" once a response's length
+        // moved it there).
+        const chunks = [];
         res.on('data', (chunk) => {
-          data += chunk;
+          chunks.push(chunk);
         });
-        res.on('end', () => resolve({ statusCode: res.statusCode, body: data }));
+        res.on('end', () =>
+          resolve({ statusCode: res.statusCode, body: Buffer.concat(chunks).toString('utf8') })
+        );
       }
     );
 

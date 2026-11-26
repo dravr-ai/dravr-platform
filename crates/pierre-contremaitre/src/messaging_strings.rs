@@ -963,6 +963,10 @@ pub const KEY_SCIENCE_CHANGE_TRAINING_LOAD: &str = "chat.science_change.training
 /// reply whose tools show the athlete's running pace zones (carnet#1718).
 /// No format placeholders.
 pub const KEY_SCIENCE_CHANGE_PACE_ZONES: &str = "chat.science_change.pace_zones";
+/// Key: the note on the 2026-11-26 fitness-score change, appended once to the
+/// next reply whose tools show the athlete's fitness score (carnet#1807).
+/// No format placeholders.
+pub const KEY_SCIENCE_CHANGE_FITNESS_SCORE: &str = "chat.science_change.fitness_score";
 
 // ── memory fact sentences ──────────────────────────────────────────────────
 // One key per `PredicateCode`; `{0}` is the athlete's own words (the object).

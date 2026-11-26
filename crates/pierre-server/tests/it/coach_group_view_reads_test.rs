@@ -311,10 +311,6 @@ async fn a_training_tool_that_reads_wellness_records_both_rows_only_under_the_gr
     let nutrition = json!({ "provider": UPLOAD, "recommendation_type": "nutrition" });
     let reads_wellness = [
         ("analyze_training_load", with_sleep("analyze_training_load")),
-        (
-            "calculate_fitness_score",
-            with_sleep("calculate_fitness_score"),
-        ),
         ("generate_recommendations", nutrition),
         (
             "estimate_vo2max",

@@ -582,13 +582,8 @@ variable "meta_whatsapp_phone_number_id" {
   type        = string
 }
 
-variable "meta_whatsapp_verify_token" {
-  description = "Token Meta echoes when it verifies the WhatsApp webhook subscription (META_WHATSAPP_VERIFY_TOKEN). Set in the private var-file."
-  type        = string
-}
-
-variable "meta_messenger_verify_token" {
-  description = "Token Meta echoes when it verifies the Messenger webhook subscription (META_MESSENGER_VERIFY_TOKEN). Set in the private var-file."
+variable "meta_messenger_page_id" {
+  description = "ID of the Facebook Page athletes message on Messenger (META_MESSENGER_PAGE_ID); every Messenger link opens m.me/<this id>. Set in the private var-file."
   type        = string
 }
 

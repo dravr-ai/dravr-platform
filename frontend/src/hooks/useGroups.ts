@@ -8,7 +8,7 @@ import { createCoachGroupSetupHook, createGroupHooks, type GroupFreshness } from
 import { chatApi, groupsApi } from '../services/api';
 
 /** The web client's freshness for the group reads the two clients set differently. */
-const WEB_GROUP_FRESHNESS: GroupFreshness = {
+export const WEB_GROUP_FRESHNESS: GroupFreshness = {
   detail: 30_000,
   members: 30_000,
   stats: 60_000,

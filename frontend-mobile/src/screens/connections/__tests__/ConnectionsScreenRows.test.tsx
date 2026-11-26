@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { ActionSheetIOS, Alert, Platform } from 'react-native';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import { ConnectionsScreen } from '../ConnectionsScreen';
@@ -218,6 +218,41 @@ describe('ConnectionsScreen rows', () => {
     expect(title).toContain('WHOOP');
     expect(message).toContain('WHOOP');
     expect(buttons.map((b) => b.text)).toEqual(['Cancel', 'Disconnect']);
+  });
+
+  // carnet#1837: a 26 s DELETE left the action pressable, and one athlete's
+  // taps sent 23 disconnects in 26 s.
+  it('a disconnect in flight refuses a second one and draws its row as in progress', async () => {
+    (Platform as { OS: string }).OS = 'ios';
+    let finish: () => void = () => {};
+    (oauthApi.disconnectProvider as jest.Mock).mockImplementationOnce(
+      () => new Promise<void>((resolve) => { finish = resolve; }),
+    );
+    await renderWith([connectedWhoop]);
+
+    fireEvent.press(screen.getByTestId('provider-action-whoop'));
+    const buttons = (Alert.alert as jest.Mock).mock.calls[0][2] as Array<{ text: string; onPress?: () => void }>;
+    const confirm = buttons.find((b) => b.text === 'Disconnect');
+    act(() => {
+      confirm?.onPress?.();
+    });
+
+    // The row's action is a busy spinner, and its menu no longer opens.
+    await waitFor(() => expect(screen.getByTestId('provider-action-whoop').props.accessibilityState).toMatchObject({ busy: true, disabled: true }));
+    expect(screen.queryByText('Disconnect')).toBeNull();
+    fireEvent(screen.getByTestId('provider-row-whoop'), 'longPress');
+    expect(ActionSheetIOS.showActionSheetWithOptions).not.toHaveBeenCalled();
+    // A confirm already on screen, pressed again, sends nothing more.
+    act(() => {
+      confirm?.onPress?.();
+    });
+    expect(oauthApi.disconnectProvider).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finish();
+    });
+    await waitFor(() => expect(screen.getByTestId('provider-action-whoop').props.children).toBe('Disconnect'));
+    expect(oauthApi.disconnectProvider).toHaveBeenCalledTimes(1);
   });
 
   it('a long-press on a connected row presents the platform menu under the provider name', async () => {

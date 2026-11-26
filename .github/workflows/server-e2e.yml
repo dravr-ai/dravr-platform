@@ -1,11 +1,10 @@
-# ABOUTME: Every lane that drives a running server, from one thin-release build: Playwright integration and e2e-real, MCP compliance, the SDK suite and its type-drift check, the examples smoke.
-# ABOUTME: Each lane runs on its own path filter; a dispatch runs every push lane, the nightly cron runs MCP compliance and the examples smoke.
+# ABOUTME: Every lane that drives a running server, from one thin-release build: Playwright integration and e2e-real, MCP compliance, the SDK suite and its type-drift check.
+# ABOUTME: Each lane runs on its own path filter; a dispatch runs every push lane, the nightly cron runs MCP compliance.
 name: "CI: Server E2E"
 
-# These lanes were four workflows until carnet#1115 — integration-tests.yml,
-# mcp-compliance.yml, sdk-tests.yml and examples-validation.yml's smoke job —
-# and between them they built the server five times a push: a thin release
-# twice, a debug build twice and one more release in the nightly smoke. One
+# These lanes were separate workflows until carnet#1115 — integration-tests.yml,
+# mcp-compliance.yml and sdk-tests.yml — and between them they built the server
+# several times a push. One
 # job builds it here and the lanes download it. The SDK lanes ran a debug
 # build before, so debug assertions are off there now; that was accepted.
 #
@@ -26,6 +25,10 @@ on:
       - 'sdk/**'
       - 'packages/mcp-types/**'
       - 'packages/eslint-config-pierre/testing/**'
+      # The SDK generators (the SDK Types job runs generate-sdk-types.js) and
+      # the first-party sign-in the SDK lanes mint their tokens with.
+      - 'scripts/sdk/**'
+      - 'scripts/auth/**'
       - 'scripts/ci/ensure-mcp-compliance.sh'
       - '.github/workflows/server-e2e.yml'
       # The binary reuse every server build goes through (carnet#1258).
@@ -43,26 +46,24 @@ on:
       - 'sdk/**'
       - 'packages/mcp-types/**'
       - 'packages/eslint-config-pierre/testing/**'
+      # The SDK generators (the SDK Types job runs generate-sdk-types.js) and
+      # the first-party sign-in the SDK lanes mint their tokens with.
+      - 'scripts/sdk/**'
+      - 'scripts/auth/**'
       - 'scripts/ci/ensure-mcp-compliance.sh'
       - '.github/workflows/server-e2e.yml'
       # The binary reuse every server build goes through (carnet#1258).
       - '.github/actions/prebuilt-server/**'
       - 'scripts/ci/server-build-key.sh'
       - 'scripts/ci/proven-on-branch.sh'
-  # Nightly on main: MCP compliance and the examples smoke, the two lanes that
-  # had a cron of their own. It saves no cache: the build restores the one
+  # Nightly on main: MCP compliance, the lane that had a cron of its own. It saves no cache: the build restores the one
   # mobile-e2e-android.yml writes (carnet#1114).
   schedule:
     - cron: '30 4 * * *'
   # The satellite and tronc bump gates dispatch this workflow for every bump
   # (satellites.toml [gates], tronc-bump.yml), so a dispatch runs every push
-  # lane; the examples smoke builds two more crates and runs only when asked.
+  # lane.
   workflow_dispatch:
-    inputs:
-      examples-smoke:
-        description: Also run the examples smoke test against the server
-        type: boolean
-        default: false
 
 concurrency:
   # One run going and one waiting, per lane and per ref (JF, 2026-11-19). A
@@ -103,7 +104,6 @@ jobs:
       playwright: ${{ steps.decide.outputs.playwright }}
       mcp: ${{ steps.decide.outputs.mcp }}
       sdk: ${{ steps.decide.outputs.sdk }}
-      examples: ${{ steps.decide.outputs.examples }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -145,6 +145,8 @@ jobs:
             sdk:
               - 'sdk/**'
               - 'packages/mcp-types/**'
+              - 'scripts/sdk/**'
+              - 'scripts/auth/**'
               - 'packages/eslint-config-pierre/testing/**'
               - 'crates/**'
               - 'migrations/**'
@@ -190,15 +192,14 @@ jobs:
           PLAYWRIGHT: ${{ steps.filter.outputs.playwright }}
           MCP: ${{ steps.filter.outputs.mcp }}
           SDK: ${{ steps.filter.outputs.sdk }}
-          EXAMPLES_INPUT: ${{ inputs.examples-smoke }}
         run: |
           case "$EVENT_NAME" in
             push|pull_request)
-              playwright="$PLAYWRIGHT"; mcp="$MCP"; sdk="$SDK"; examples=false ;;
+              playwright="$PLAYWRIGHT"; mcp="$MCP"; sdk="$SDK" ;;
             workflow_dispatch)
-              playwright=true; mcp=true; sdk=true; examples="${EXAMPLES_INPUT:-false}" ;;
+              playwright=true; mcp=true; sdk=true ;;
             schedule)
-              playwright=false; mcp=true; sdk=false; examples=true ;;
+              playwright=false; mcp=true; sdk=false ;;
             *)
               echo "::error::no lane plan for event '$EVENT_NAME'"
               exit 1 ;;
@@ -214,14 +215,13 @@ jobs:
             sdk=false; echo "::notice title=Lane proven on a branch::the SDK suite passed on a branch run of this tree"
           fi
           build=false
-          for lane in "$playwright" "$mcp" "$sdk" "$examples"; do
+          for lane in "$playwright" "$mcp" "$sdk"; do
             [ "$lane" = true ] && build=true
           done
           {
             echo "playwright=${playwright:-false}"
             echo "mcp=${mcp:-false}"
             echo "sdk=${sdk:-false}"
-            echo "examples=${examples:-false}"
             echo "build=$build"
           } | tee -a "$GITHUB_OUTPUT"
 
@@ -875,105 +875,3 @@ jobs:
           path: sdk/test-results/
           retention-days: 1
           if-no-files-found: ignore
-
-  # The examples are standalone crates with their own lockfiles; this runs one
-  # of them against the server. Nightly, or on a dispatch that asks for it.
-  # examples-validation.yml still compiles and tests the examples on every
-  # examples/ push.
-  examples-smoke:
-    name: Integration Smoke Test (examples)
-    runs-on: ubuntu-24.04
-    needs: [changes, build-server]
-    if: needs.changes.outputs.examples == 'true'
-    timeout-minutes: 30  # two example release builds and the smoke
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Configure git for private deps
-        run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@1.100.0
-
-      - name: Download the server and CLI
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ needs.build-server.outputs.artifact }}
-          path: target/release
-
-      # An artifact does not keep the executable bit.
-      - name: Mark the binaries executable
-        run: chmod +x target/release/pierre-mcp-server target/release/pierre-cli
-
-      - name: Build example binaries
-        run: |
-          cd examples/agents/agent_discovery && cargo build --release
-          cd ../task_manager && cargo build --release
-
-      - name: Start Pierre server
-        run: |
-          DATABASE_URL="sqlite::memory:" \
-          PIERRE_MASTER_ENCRYPTION_KEY="rEFe91l6lqLahoyl9OSzum9dKa40VvV5RYj8bHGNTeo=" \
-          STRAVA_CLIENT_ID="test_ci" \
-          STRAVA_CLIENT_SECRET="test_ci" \
-          STRAVA_REDIRECT_URI="http://localhost:8080/callback" \
-          ./target/release/pierre-mcp-server &
-          echo "Waiting for server startup..."
-          for i in 1 2 3 4 5; do
-            echo "Health check attempt $i/5..."
-            if curl -sf http://localhost:8081/health > /dev/null 2>&1; then
-              echo "Server is healthy!"
-              break
-            fi
-            if [ "$i" -eq 5 ]; then
-              echo "Server failed to start after 5 attempts"
-              exit 1
-            fi
-            sleep 5
-          done
-
-      - name: Run agent_discovery against live server
-        run: |
-          cd examples/agents/agent_discovery
-
-          # Read the example's exit status. GitHub's shell is `bash -e` WITHOUT
-          # pipefail, so the previous `… | tee output.log` reported *tee's*
-          # status and threw the binary's away. The grep that followed then
-          # accepted "Agent Discovery Demo" — a substring of the example's own
-          # FAILURE line, `❌ Agent Discovery Demo Failed: {e}` (main.rs:320) —
-          # so an example that connected to nothing and returned Err still
-          # passed this step. Same defect as the lockbud gate (carnet#399).
-          timeout 30 ./target/release/agent-discovery-example > output.log 2>&1 || {
-            status=$?
-            if [ "$status" -eq 124 ]; then
-              echo "::error::agent_discovery did not finish within 30s — killed by timeout:"
-            else
-              echo "::error::agent_discovery exited ${status}:"
-            fi
-            cat output.log
-            exit 1
-          }
-
-          # Assert the markers only the SUCCESS path can write, so a green step
-          # means the demo ran — not merely that it printed something. The first
-          # proves it reached the server and parsed the agent card
-          # (main.rs:133); the second that the negotiation ran to completion
-          # (main.rs:315), and unlike the old fallback it is not a substring of
-          # the failure line.
-          for marker in \
-            "Successfully fetched agent card" \
-            "Agent Discovery Demo Completed Successfully"
-          do
-            if ! grep -qF "$marker" output.log; then
-              echo "::error::agent_discovery exited 0 but never printed: ${marker}"
-              cat output.log
-              exit 1
-            fi
-          done
-          echo "agent_discovery smoke test passed"
-
-      - name: Cleanup
-        if: always()
-        run: pkill pierre-mcp-server || true

@@ -20,7 +20,6 @@ void french.init({
   lng: 'fr',
   resources: { fr: { translation: fr } },
   initAsync: false,
-  showSupportNotice: false,
   interpolation: { escapeValue: false },
 });
 

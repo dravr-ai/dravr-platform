@@ -10,10 +10,20 @@ import { clsx } from 'clsx';
 import { useTranslation, type TFunction } from '@pierre/i18n';
 import type { CoachRosterAthlete, DraftState, PlanSubject, WorkoutPlan } from '@pierre/shared-types';
 import { PLAN_DRAFT_KEYS, PLAN_THREAD_KEYS, countKey, prePublishChecks } from '@pierre/chat-utils';
-import { PLAN_WORKSPACE_KEYS, formatCivilDate, openThreadRefusalText, planCalendarWeeks } from '@pierre/ui-logic';
+import {
+  PLAN_WORKSPACE_KEYS,
+  formatCivilDate,
+  openThreadRefusalText,
+  planCalendarWeeks,
+  shownPlan,
+  workspaceAgentName,
+  workspaceGroupTab,
+  workspacePlanState,
+} from '@pierre/ui-logic';
 import { useAuth } from '../../../hooks/useAuth';
 import { useIsDesktop, useIsMobile } from '../../../hooks/useBreakpoint';
 import { usePlanDraftCard, useSubjectPlan } from '../../../hooks/useCoachPlan';
+import { useWorkspaceAnswers, useWorkspaceThreads } from '../../../hooks/useAthleteWorkspace';
 import { Button, EmptyState, IconButton, Sheet } from '../../ui';
 import { PlanDraftActions } from '../../chat/PlanDraftControls';
 import type { SessionEditorOpening } from '../../chat/SessionEditorSheet';
@@ -25,9 +35,7 @@ import { coachHomeRoute } from '../coachHomeRoute';
 import type { CoachDestinations } from '../useCoachDestinations';
 import { PrePublishCheck } from './PrePublishCheck';
 import { WorkspaceCalendar } from './WorkspaceCalendar';
-import { WorkspacePanel, WorkspacePanelOpeners, type WorkspaceGroupTab, type WorkspaceTab } from './WorkspacePanel';
-import { useWorkspaceAnswers } from './useWorkspaceAnswers';
-import { useWorkspaceThreads } from './useWorkspaceThreads';
+import { WorkspacePanel, WorkspacePanelOpeners, type WorkspaceTab } from './WorkspacePanel';
 
 // The editor loads when a coach first opens it, never before first paint, as
 // on the plan card: it is a coach-only sheet.
@@ -145,17 +153,19 @@ export default function AthleteWorkspace({ athlete, onNavigate, destinations }: 
   const isMobile = useIsMobile();
   const threads = useWorkspaceThreads(athlete);
   const { planThreadId } = threads;
-  const { read, isLoading, isError, refetch } = useSubjectPlan(planThreadId, planThreadId !== null);
-  const subject = read?.status === 'ok' ? read.plan : null;
+  const plan = useSubjectPlan(planThreadId, planThreadId !== null);
+  const subject = plan.read?.status === 'ok' ? plan.read.plan : null;
   const name = subject?.athlete.display_name.trim() || athlete.name;
+  // Which state the plan is in is decided once, for both clients; this only draws it.
+  const planState = workspacePlanState(athlete, threads, plan);
+  const planShown = planState.kind === 'plan' ? planState.shown : null;
 
-  const shown = subject ? (subject.draft ?? subject.live) : null;
   // Which dates are proposed is the server's to say, by the rule a publish
   // announces them with: it names none when no draft is open.
   const proposed = useMemo(() => subject?.proposed_dates ?? [], [subject]);
   const weeks = useMemo(
-    () => (shown && subject ? planCalendarWeeks(shown, proposed, subject.today) : []),
-    [shown, subject, proposed],
+    () => (planShown && subject ? planCalendarWeeks(planShown, proposed, subject.today) : []),
+    [planShown, subject, proposed],
   );
   const checks = useMemo(
     () => (subject?.draft ? prePublishChecks(subject.draft, subject.today) : []),
@@ -202,74 +212,85 @@ export default function AthleteWorkspace({ athlete, onNavigate, destinations }: 
     openTab('dravr');
   };
 
-  const agentName = threads.planGroup?.agent_title?.trim() || t('shell.brandName');
-  let groupTab: WorkspaceGroupTab | null = null;
-  if (threads.room !== null) groupTab = { kind: 'room', room: threads.room };
-  else if (threads.groupsFailed) groupTab = { kind: 'failed', retry: threads.retryGroups };
-  else if (threads.roomKnown && athlete.groups.length > 0) groupTab = { kind: 'noRoom' };
+  const agentName = workspaceAgentName(threads.planGroup, t('shell.brandName'));
+  const groupTab = workspaceGroupTab(threads, athlete);
 
-  const goal = shown?.goal_race ?? null;
+  // The header names the goal of the plan last read — the draft's when one is
+  // open — whatever the calendar draws, so a failed re-read keeps it.
+  const goal = (subject === null ? null : shownPlan(subject))?.goal_race ?? null;
 
-  let calendar: React.ReactNode;
-  if (athlete.groups.length === 0) {
-    calendar = <EmptyState data-testid="workspace-thread-failed">{t(PLAN_THREAD_KEYS.openError)}</EmptyState>;
-  } else if (threads.planError !== null) {
-    calendar = (
-      <EmptyState action={{ label: t('common.retry'), onClick: threads.retryPlanThread }} data-testid="workspace-thread-failed">
-        {openThreadRefusalText(threads.planError, name, t)}
-      </EmptyState>
-    );
-  } else if (planThreadId === null && threads.groupsFailed) {
-    calendar = (
-      <EmptyState action={{ label: t('common.retry'), onClick: threads.retryGroups }} data-testid="workspace-thread-failed">
-        {t(PLAN_THREAD_KEYS.openError)}
-      </EmptyState>
-    );
-  } else if (planThreadId === null || isLoading) {
-    calendar = (
-      <div className="flex justify-center py-12" role="status" aria-label={t('common.loading')}>
-        <div className="pierre-spinner" />
-      </div>
-    );
-  } else if (read?.status === 'consentRevoked') {
-    calendar = <EmptyState data-testid="workspace-consent-revoked">{t(PLAN_DRAFT_KEYS.consentRevoked, { name })}</EmptyState>;
-  } else if (isError || subject === null) {
-    calendar = (
-      <EmptyState action={{ label: t('common.retry'), onClick: () => void refetch() }} data-testid="workspace-plan-failed">
-        {t(PLAN_WORKSPACE_KEYS.loadFailed, { name })}
-      </EmptyState>
-    );
-  } else if (shown === null) {
-    calendar = (
-      <EmptyState
-        action={{ label: t(PLAN_THREAD_KEYS.starterLabel, { name }), onClick: draftPlan, 'data-testid': 'workspace-draft-plan' }}
-        data-testid="workspace-no-plan"
-      >
-        {t(PLAN_WORKSPACE_KEYS.noPlan, { name })}
-      </EmptyState>
-    );
-  } else {
-    calendar = (
-      <div className="flex flex-col gap-5">
-        <PrePublishCheck
-          items={checks}
-          athleteName={name}
-          onKeep={answers.keep}
-          keeping={answers.keeping}
-          onReview={(item) => setEditing({ day: item.day, entries: item.entries, mode: 'edit' })}
-          onCleared={() => calendarRef.current?.focus()}
-        />
-        <SeasonBand plan={shown} />
-        <WorkspaceCalendar
-          weeks={weeks}
-          isAccepted={answers.isAccepted}
-          onAccept={answers.accept}
-          onRefuse={answers.refuse}
-          refusing={answers.refusing}
-          onEdit={setEditing}
-        />
-      </div>
-    );
+  // Every state draws: a state the switch misses leaves this unassigned and fails the build.
+  let calendar: React.JSX.Element;
+  switch (planState.kind) {
+    case 'noGroup':
+      calendar = <EmptyState data-testid="workspace-thread-failed">{t(PLAN_THREAD_KEYS.openError)}</EmptyState>;
+      break;
+    case 'threadFailed':
+      calendar = (
+        <EmptyState action={{ label: t('common.retry'), onClick: planState.retry }} data-testid="workspace-thread-failed">
+          {openThreadRefusalText(planState.error, name, t)}
+        </EmptyState>
+      );
+      break;
+    case 'groupsFailed':
+      calendar = (
+        <EmptyState action={{ label: t('common.retry'), onClick: planState.retry }} data-testid="workspace-thread-failed">
+          {t(PLAN_THREAD_KEYS.openError)}
+        </EmptyState>
+      );
+      break;
+    case 'loading':
+      calendar = (
+        <div className="flex justify-center py-12" role="status" aria-label={t('common.loading')}>
+          <div className="pierre-spinner" />
+        </div>
+      );
+      break;
+    case 'consentRevoked':
+      calendar = <EmptyState data-testid="workspace-consent-revoked">{t(PLAN_DRAFT_KEYS.consentRevoked, { name })}</EmptyState>;
+      break;
+    case 'loadFailed':
+      calendar = (
+        <EmptyState action={{ label: t('common.retry'), onClick: planState.retry }} data-testid="workspace-plan-failed">
+          {t(PLAN_WORKSPACE_KEYS.loadFailed, { name })}
+        </EmptyState>
+      );
+      break;
+    case 'noPlan':
+      calendar = (
+        <EmptyState
+          action={{ label: t(PLAN_THREAD_KEYS.starterLabel, { name }), onClick: draftPlan, 'data-testid': 'workspace-draft-plan' }}
+          data-testid="workspace-no-plan"
+        >
+          {t(PLAN_WORKSPACE_KEYS.noPlan, { name })}
+        </EmptyState>
+      );
+      break;
+    case 'plan':
+      calendar = (
+        <div className="flex flex-col gap-5">
+          <PrePublishCheck
+            items={checks}
+            athleteName={name}
+            onKeep={(item) => answers.setCall(item.day, item.position, true)}
+            keeping={answers.callSaving}
+            onReview={(item) => setEditing({ day: item.day, entries: item.entries, mode: 'edit' })}
+            onCleared={() => calendarRef.current?.focus()}
+          />
+          <SeasonBand plan={planState.shown} />
+          <WorkspaceCalendar
+            weeks={weeks}
+            isAccepted={answers.isAccepted}
+            onAccept={answers.accept}
+            onRefuse={answers.refuse}
+            refusing={answers.refusing}
+            onEdit={setEditing}
+            onWithdrawCall={(day, position) => answers.setCall(day, position, false)}
+            callSaving={answers.callSaving}
+          />
+        </div>
+      );
+      break;
   }
 
   const panel = (

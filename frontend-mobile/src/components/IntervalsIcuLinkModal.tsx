@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Intervals.icu link sheet for mobile — the authorization when offered, and the athlete id + API key form
+// ABOUTME: Intervals.icu link sheet for mobile — the authorization when offered, and the athlete id + API key form, which says when a key replaces the authorization
 // ABOUTME: The key form is the coach's path (only a key reads coached athletes); the server validates the pair live before storing
 
 import React, { useState, useEffect } from 'react';
@@ -17,7 +17,7 @@ import { useThemeColors } from '../constants/theme';
 import { oauthApi, userApi } from '../services/api';
 import { ProviderGlyph } from './ProviderGlyph';
 import { PROVIDER_BRAND } from '@pierre/shared-constants';
-import { Button, Input, Sheet } from './ui';
+import { ALERT_TONE, Button, Input, Sheet } from './ui';
 import { useTranslation } from '@pierre/i18n';
 
 interface IntervalsIcuLinkModalProps {
@@ -32,12 +32,24 @@ interface IntervalsIcuLinkModalProps {
    * under, or a key-linked row reconnecting.
    */
   onAuthorize?: () => void;
+  /**
+   * The row is linked by the athlete's authorization, which a key linked
+   * here replaces and the server revokes at Intervals.icu: the key form says
+   * so before it is submitted (`intervalsKeyReplacesAuthorization`).
+   */
+  replacesAuthorization: boolean;
 }
 
 /** What the sheet shows: the choice of the two paths, or the key form. */
 type LinkView = 'choose' | 'key';
 
-export function IntervalsIcuLinkModal({ visible, onClose, onConnected, onAuthorize }: IntervalsIcuLinkModalProps) {
+export function IntervalsIcuLinkModal({
+  visible,
+  onClose,
+  onConnected,
+  onAuthorize,
+  replacesAuthorization,
+}: IntervalsIcuLinkModalProps) {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
   const [athleteId, setAthleteId] = useState('');
@@ -179,6 +191,16 @@ export function IntervalsIcuLinkModal({ visible, onClose, onConnected, onAuthori
               >
                 {t('common.back')}
               </Text>
+            )}
+            {replacesAuthorization && (
+              <View
+                className={`mb-3 rounded-xl border ${ALERT_TONE.warning.edge} ${ALERT_TONE.warning.fill} p-3`}
+                testID="intervals-key-replaces-authorization"
+              >
+                <Text className={`text-sm ${ALERT_TONE.warning.ink}`}>
+                  {t('shell.intervalsKeyReplacesAuthorization')}
+                </Text>
+              </View>
             )}
             <Text className="text-sm text-text-secondary mb-2">
               {t('shell.intervalsCredentialsHelp')}

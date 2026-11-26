@@ -94,7 +94,7 @@ export function PrePublishCheck({ items, athleteName, onKeep, keeping, onReview,
                 aria-describedby={`${headingId}-line-${index} ${hintId}`}
                 onClick={() => keep(item, index)}
                 data-testid={`workspace-check-keep-${item.day.date}-${item.position}`}
-                className="rounded text-primary transition-colors hover:text-primary-hover aria-disabled:cursor-not-allowed aria-disabled:opacity-50 focus-ring touch-target"
+                className="min-h-8 rounded text-primary transition-colors hover:text-primary-hover aria-disabled:cursor-not-allowed aria-disabled:opacity-50 focus-ring touch-target"
               >
                 {t(COACH_CALL_KEYS.action)}
               </button>
@@ -104,7 +104,7 @@ export function PrePublishCheck({ items, athleteName, onKeep, keeping, onReview,
                 aria-describedby={`${headingId}-line-${index}`}
                 onClick={() => onReview(item)}
                 data-testid={`workspace-check-review-${item.day.date}-${item.position}`}
-                className="rounded text-primary transition-colors hover:text-primary-hover focus-ring touch-target"
+                className="min-h-8 rounded text-primary transition-colors hover:text-primary-hover focus-ring touch-target"
               >
                 {t(PLAN_WORKSPACE_KEYS.review)}
               </button>

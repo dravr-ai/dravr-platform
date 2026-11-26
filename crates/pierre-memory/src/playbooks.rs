@@ -256,9 +256,9 @@ pub enum OutcomeMetric {
         /// Observation window in days.
         window_days: u8,
     },
-    /// Did the load ramp rate stay under a safe ceiling (injury-avoidance)?
+    /// Did the window's peak EMA ATL/CTL stay at or under the ceiling?
     RampRateWithin {
-        /// Maximum acceptable ramp rate.
+        /// Highest EMA ATL/CTL that still reads as within.
         ceiling: f32,
     },
     /// Did training consistency (sessions/week) hold or improve?

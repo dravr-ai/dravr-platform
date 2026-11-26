@@ -5,7 +5,15 @@
 // ABOUTME: A plan date is a calendar day never shifted by the device timezone; an activity start is an instant in the device's zone, unless date-only: then it is the day it names
 
 import type { CalendarDay, HomeActivity, PlanDay, PlanDayLookup, PlanPhase } from '@pierre/shared-types';
-import { addCivilDays, instantMs, mondayOf, phaseWeekOn, planDayDistanceMeters, planSessionsOf } from '@pierre/shared-types';
+import {
+  activityMinutes,
+  addCivilDays,
+  instantMs,
+  mondayOf,
+  phaseWeekOn,
+  planDayDistanceMeters,
+  planSessionsOf,
+} from '@pierre/shared-types';
 import { activitySportLabelKey, sportHasRoutes, weekMinutesSeconds } from '@pierre/shared-constants';
 import { formatDuration, type VolumeMetric } from '@pierre/domain-utils';
 import { formatElevation, formatSpokenDistance, type DistanceUnit } from '@pierre/chat-utils';
@@ -361,7 +369,10 @@ export function calendarDayLabel(t: Translate, named: string, day: CalendarDay |
   if (day === null) return named;
   if (day.beforeHistory) return `${named} — ${t('home.calendar.notKept')}`;
   const parts = [
-    day.activities.length > 0 ? `${t('home.calendar.done')}: ${day.activities.map((a) => a.name).join(', ')}` : null,
+    // The cell shows only the minutes done; the label carries their unit.
+    day.activities.length > 0
+      ? `${t('home.calendar.done')}: ${day.activities.map((a) => a.name).join(', ')} · ${activityMinutes(day.activities)} min`
+      : null,
     planWords(t, day.plan, day.date < today),
   ].filter((part): part is string => part !== null);
   return parts.length === 0 ? named : `${named} — ${parts.join(' — ')}`;

@@ -24,6 +24,7 @@ use pierre_core::transport::TransportPolicy;
 use std::sync::{Arc, LazyLock};
 
 use async_trait::async_trait;
+use dravr_cageux::periodization::load_ratios::ATL_CTL_RAMP_CEILING;
 use dravr_tronc::dates::Elapsed;
 use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::registry::PromptRegistry;
@@ -52,16 +53,6 @@ const MIN_REPLY_LEN: usize = 40;
 /// Clamp range for the model-provided observation window, in days.
 const MIN_WINDOW_DAYS: u8 = 1;
 const MAX_WINDOW_DAYS: u8 = 30;
-
-/// Default acute:chronic ceiling for a `ramp_rate_within` outcome metric when
-/// the model does not (and cannot) specify one.
-///
-/// 1.3 is not borrowed from the retired injury-prediction literature: because
-/// form is the previous day's CTL minus ATL, an acute:chronic ratio of 1.3 at
-/// the end of a day is exactly where the next day's form crosses -30% of that
-/// CTL — the edge of `FormBand::DeepFatigue`. The ceiling names the same band
-/// boundary every other surface bands on, in ratio form.
-const DEFAULT_RAMP_CEILING: f32 = 1.3;
 
 /// Global semaphore bounding concurrent captures.
 static CAPTURE_PERMITS: LazyLock<Arc<Semaphore>> =
@@ -289,9 +280,16 @@ fn metric_from_raw(kind: &str, window_days: u8, sport: Option<String>) -> Outcom
         "hrv_delta" => OutcomeMetric::HrvDelta { window_days },
         "tsb_delta" => OutcomeMetric::TsbDelta { window_days },
         "consistency" => OutcomeMetric::Consistency { window_days },
-        "ramp_rate_within" => OutcomeMetric::RampRateWithin {
-            ceiling: DEFAULT_RAMP_CEILING,
-        },
+        "ramp_rate_within" => {
+            // The model does not (and cannot) name a ceiling, so the metric
+            // takes cageux's `ATL_CTL_RAMP_CEILING`, the `FormBand::DeepFatigue`
+            // boundary in ratio form (its doc derives it). The metric stores
+            // the ceiling as `f32`, so the cast narrows it to the nearest
+            // `f32`, the same value an `f32` literal of it holds.
+            #[allow(clippy::cast_possible_truncation)]
+            let ceiling = ATL_CTL_RAMP_CEILING as f32;
+            OutcomeMetric::RampRateWithin { ceiling }
+        }
         _ => OutcomeMetric::ActivityCompleted { window_days, sport },
     }
 }

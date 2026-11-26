@@ -151,7 +151,7 @@ export interface AnalyzeWeatherImpactParams {
 
 
 /**
- * Calculate a fitness score (0-100): chronic training load 40% (sessions scored against the FTP and threshold heart rate saved with set_physiology, as analyze_training_load does), consistency 30% (share of weeks with 3+ activities) and pace improvement 30%, over the `timeframe` period.
+ * Calculate a fitness score (0-100) over the `timeframe` window: aerobic fitness 40% and strength endurance 30%, both read on the heart-rate zones from the resting and maximum heart rate saved with set_physiology, and consistency 30% (sessions per week), with its trend against the window of equal length before. No score without those two heart rates.
  */
 export interface CalculateFitnessScoreParams {
 
@@ -164,10 +164,7 @@ export interface CalculateFitnessScoreParams {
   /** Provider or `upload`; default is their best source. */
   provider?: string;
 
-  /** Sleep provider (e.g., 'whoop'): last night's sleep adjusts the score, from +5% (excellent recovery) to -10% (poor). */
-  sleep_provider?: string;
-
-  /** Period scored for consistency and pace: 'month' (30 days, the default), 'quarter' (90), 'year' (365) or 'all_time'. Set it to the period the athlete named; the default cannot answer a question about three months or a season. Chronic training load always uses the full history. */
+  /** Window scored: 'month' (30 days, the default), 'quarter' (90), 'year' (365) or 'all_time'. Set it to the period the athlete named; the default cannot answer a question about three months or a season. The trend compares it with the window of equal length before it; 'all_time' has none. */
   timeframe?: string;
 }
 
@@ -1679,18 +1676,24 @@ export interface SaveTrainingPlanParams {
 
 
 /**
- * Save one plan session as a template in the caller's own Intervals.icu workout library: a coach's own, whoever's plan it is. Fuelling is left out; saving it again writes nothing.
+ * Save one session as a template in the caller's own Intervals.icu workout library (a coach's own, whoever's plan): a plan session by date, a prescription_id, or a session you design, no plan needed. Fuelling is left out; saving it again writes nothing.
  */
 export interface SaveWorkoutToLibraryParams {
 
-  /** Session date, YYYY-MM-DD. */
-  date: string;
+  /** Plan session date, YYYY-MM-DD. */
+  date?: string;
 
   /** Library folder; default Dravr. */
   folder?: string;
 
-  /** Nth session that day; default 1. */
-  session?: number;
+  /** Nth plan session that day; default 1. */
+  nth?: number;
+
+  /** Id of a workout prescribe_workout prescribed. */
+  prescription_id?: string;
+
+  /** A session you design, in prescribe_workout's session shape: name, sport, intensity_distribution, structure (steps: label, duration_seconds, target_zone, repeat). */
+  session?: Record<string, any>;
 }
 
 

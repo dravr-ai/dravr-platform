@@ -72,6 +72,7 @@ import SceneView from './SceneView';
 import WorkoutPlanCard, { type SessionEditorTarget } from './WorkoutPlanCard';
 import EnvelopeNotice from './EnvelopeNotice';
 import PlanDraftControls from './PlanDraftControls';
+import PlanChangeEntry, { type WorkspacePlanSurface } from './PlanChangeEntry';
 import { MARKDOWN_RULES, TABLE_CELL_MIN_WIDTH } from './markdownRules';
 import { useTranslation } from '@pierre/i18n';
 
@@ -531,6 +532,12 @@ interface MessageListProps {
    * offers the editor.
    */
   onBuildPlanDay?: (target: SessionEditorTarget) => void;
+  /**
+   * The thread is drawn in a coach's athlete workspace, whose plan tab draws
+   * the plan: each plan card is one line leading there. Absent in every
+   * other thread, where a card is drawn whole.
+   */
+  planSurface?: WorkspacePlanSurface | null;
 }
 
 export function MessageList({
@@ -569,6 +576,7 @@ export function MessageList({
   onReachStart,
   privateLane,
   onBuildPlanDay,
+  planSurface = null,
 }: MessageListProps) {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
@@ -665,6 +673,18 @@ export function MessageList({
       case 'workout_plan': {
         const plan = parseWorkoutPlan(JSON.stringify(block.plan));
         if (!plan) return null;
+        // In the athlete workspace the card is one line: the plan tab draws
+        // the plan, and publishing lives there.
+        if (planSurface !== null) {
+          return (
+            <PlanChangeEntry
+              key={key}
+              conversationId={context.planConversationId}
+              draft={planCardDraft(block)?.draft ?? null}
+              onShowCalendar={planSurface.onShowCalendar}
+            />
+          );
+        }
         // A coach's draft for the thread's athlete carries its controls on
         // the card; the controls decide for themselves who may see them. On
         // a private row the thread is the coach's work thread, whose draft

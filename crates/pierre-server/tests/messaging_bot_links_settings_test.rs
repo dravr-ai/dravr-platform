@@ -42,6 +42,7 @@ mod bot_links_settings {
     use pierre_routes_auth::AuthRoutes;
     use secrecy::SecretString;
     use serde_json::{json, Value};
+    use serial_test::serial;
     use sha2::{Digest, Sha256};
     use std::env;
     use std::sync::Arc;
@@ -238,7 +239,12 @@ mod bot_links_settings {
     /// personal tenant, links Telegram through the bot's in-chat OTP, and then
     /// Settings shows it, offers the bot's channels, issues a `WhatsApp` code the
     /// bot redeems, and unlinks.
+    ///
+    /// Serial: it writes `ADMIN_EMAIL`, which the seed reads, and so does the
+    /// Messenger test below; run side by side, one test's removal can land
+    /// between the other's write and its seed.
     #[tokio::test]
+    #[serial]
     async fn bot_made_links_are_listed_offered_linkable_and_unlinkable() {
         let resources = resources_with_email(graph_api_stand_in().await).await;
         let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
@@ -720,6 +726,85 @@ mod bot_links_settings {
                 .as_str()
                 .is_some_and(|m| m.contains("No telegram bot is available")),
             "the refusal names the channel: {body}"
+        );
+    }
+
+    /// A deployment that names its Messenger page offers Messenger to a
+    /// personal tenant, and the link Settings issues opens that page with the
+    /// code as `ref`, stored under the bot's tenant for the bot to redeem
+    /// (carnet#1684). The seeded config is the only place the link reads the
+    /// page from, so a seed that drops `META_MESSENGER_PAGE_ID` leaves
+    /// Messenger unoffered and every Messenger link refused.
+    ///
+    /// Serial for the `ADMIN_EMAIL` write it shares with the test above.
+    #[tokio::test]
+    #[serial]
+    async fn a_messenger_link_opens_the_page_the_deployment_names() {
+        const MESSENGER_PAGE_ID: &str = "101684000000439";
+        let resources = create_test_server_resources().await.unwrap();
+        let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
+
+        let (admin, _admin_token) = create_test_tenant(&resources, ADMIN_EMAIL).await.unwrap();
+        let bot_tenant = first_tenant(&resources, admin.id).await;
+
+        let channels = ChannelCredentials {
+            messenger_app_secret: Some(SecretString::from("ms_platform_secret_439")),
+            messenger_page_access_token: Some(SecretString::from("ms_page_token_439")),
+            messenger_page_id: Some(MESSENGER_PAGE_ID.to_owned()),
+            ..ChannelCredentials::default()
+        };
+        env::set_var("ADMIN_EMAIL", ADMIN_EMAIL);
+        seed_from_config(
+            &resources.common.repos,
+            &channels,
+            &resources.common.config.webhooks,
+        )
+        .await;
+        env::remove_var("ADMIN_EMAIL");
+
+        let (athlete_id, athlete_token, _) =
+            register_athlete(&resources, "messenger-athlete-1684@example.com").await;
+
+        let available = available_channels(
+            &get_json(
+                &resources,
+                "/api/messaging/channels/available",
+                &athlete_token,
+            )
+            .await,
+        );
+        assert_eq!(
+            available,
+            vec!["messenger".to_owned()],
+            "bug: a seeded Messenger page was not offered to a personal tenant"
+        );
+
+        let resp = AxumTestRequest::post("/api/messaging/link/init/messenger")
+            .header("authorization", &athlete_token)
+            .send(MessagingRoutes::routes(Arc::clone(&resources)))
+            .await;
+        assert_eq!(
+            resp.status_code(),
+            StatusCode::OK,
+            "bug: link init refused a Messenger channel that names its page"
+        );
+        let init: Value = resp.json();
+        let code = init["code"].as_str().expect("deep-link code").to_owned();
+        assert_eq!(
+            init["linking_url"],
+            format!("https://m.me/{MESSENGER_PAGE_ID}?ref={code}"),
+            "bug: the Messenger link does not open the seeded page with the code as ref"
+        );
+        let pending = db.get_link_state(&code).await.unwrap().unwrap();
+        assert_eq!(
+            pending["tenant_id"],
+            bot_tenant.to_string(),
+            "bug: the code is not under the bot's tenant, so the bot cannot redeem it"
+        );
+        assert_eq!(
+            pending["user_id"],
+            athlete_id.to_string(),
+            "bug: the pending link does not name the athlete who asked for it"
         );
     }
 }

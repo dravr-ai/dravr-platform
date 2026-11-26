@@ -11,14 +11,18 @@ use secrecy::SecretString;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
+use async_trait::async_trait;
 use base64::prelude::{Engine as _, BASE64_STANDARD};
 use dravr_tronc::dates::{Elapsed, Timestamp};
+use futures_util::future;
 use pierre_auth::oauth2_client::OAuth2Config;
 use pierre_config::environment::ProviderEndpointOverride;
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserOAuthToken,
     UserStatus,
 };
+use pierre_database::repositories::{ProviderDataPurge, ProviderPurge, PurgeReason};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_auth::OAuthService;
 use pierre_services::provider_revocation::{
@@ -31,6 +35,8 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::spawn_blocking;
 use tokio::time::timeout;
 use uuid::Uuid;
+
+use crate::helpers::notify_capture::{capture_notify, named};
 
 use crate::common::{
     create_test_server_resources, create_test_server_resources_with_config, set_provider_endpoints,
@@ -1059,6 +1065,11 @@ async fn disconnect_by_sciotte_clears_a_native_strava_grant() {
 /// a guard that mistook "nothing was there" for "nothing was deleted" would
 /// turn every second click, and every disconnect of an unconnected provider,
 /// into a 500.
+///
+/// A repeat is also a no-op in effect, not only in outcome (carnet#1838): one
+/// athlete's 23 presses each re-ran the purge of both backends and counted
+/// `provider.disconnected` again. The first disconnect purges each backend of
+/// the pair once and emits once; nothing after it purges or emits.
 #[tokio::test]
 async fn repeat_disconnect_and_unconnected_provider_still_succeed() {
     let strava_upstream = ScriptedUpstream::serve(vec![OK_200.to_owned()]).await;
@@ -1073,6 +1084,8 @@ async fn repeat_disconnect_and_unconnected_provider_still_succeed() {
         Timestamp::now() + Elapsed::days(30),
     )
     .await;
+    let since = Timestamp::now() - Elapsed::minutes(1);
+    let (events, _guard) = capture_notify();
 
     // First click clears the grant.
     service
@@ -1085,6 +1098,20 @@ async fn repeat_disconnect_and_unconnected_provider_still_succeed() {
         .await
         .expect("first disconnect succeeds");
     assert_locally_disconnected(&resources, user_id, tenant_id, "strava").await;
+    assert_purge_counts(
+        &resources,
+        user_id,
+        tenant_id,
+        since,
+        1,
+        "the first disconnect",
+    )
+    .await;
+    assert_eq!(
+        named(&events, "provider.disconnected").len(),
+        1,
+        "the first disconnect emits once"
+    );
 
     // Second click has nothing left to delete — still a success, not a 500.
     service
@@ -1118,6 +1145,310 @@ async fn repeat_disconnect_and_unconnected_provider_still_succeed() {
         )
         .await
         .expect("disconnecting a never-connected provider is a no-op");
+
+    assert_purge_counts(&resources, user_id, tenant_id, since, 1, "the repeats").await;
+    assert!(
+        resources
+            .common
+            .repos
+            .provider_data
+            .purge_reasons_since(user_id, &tenant_id, "whoop", since)
+            .await
+            .unwrap()
+            .is_empty(),
+        "a never-connected provider is not purged"
+    );
+    assert_eq!(
+        named(&events, "provider.disconnected").len(),
+        1,
+        "only the disconnect that cleared something counts"
+    );
+}
+
+/// A disconnect whose purge fails is an error, and its retry must purge again
+/// (the contract on `purge_provider_data`). The connection row is removed only
+/// after the purge succeeded, so it survives the failure and marks the pair
+/// as still held: the retry is not mistaken for a repeat of a finished clear.
+#[tokio::test]
+async fn a_failed_purge_leaves_the_connection_row_and_the_retry_purges() {
+    let strava_upstream = ScriptedUpstream::serve(vec![OK_200.to_owned(), OK_200.to_owned()]).await;
+    let resources = strava_revoking_at(format!("{}/oauth/revoke", strava_upstream.base_url)).await;
+    let (user_id, tenant_id) = seed_connected(
+        &resources,
+        "strava",
+        "strava-access-do-not-log",
+        Some("strava-refresh-do-not-log"),
+        Timestamp::now() + Elapsed::days(30),
+    )
+    .await;
+    let since = Timestamp::now() - Elapsed::minutes(1);
+    let (events, _guard) = capture_notify();
+
+    let failing = OAuthService::new(
+        resources
+            .data()
+            .with_provider_purge(Arc::new(PurgeFailingFor {
+                inner: Arc::clone(&resources.common.provider_purge),
+                provider: "strava",
+            })),
+        Arc::clone(&resources.common.config),
+    );
+    failing
+        .disconnect_provider(
+            user_id,
+            "strava",
+            Some(tenant_id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
+        .await
+        .expect_err("a failed purge is the disconnect's error");
+
+    let repos = &resources.common.repos;
+    assert!(
+        repos
+            .oauth_tokens
+            .get_token(user_id, tenant_id, "strava")
+            .await
+            .unwrap()
+            .is_none(),
+        "the token row went before the purge"
+    );
+    let connections = repos
+        .provider_connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await
+        .unwrap();
+    assert!(
+        connections.iter().any(|c| c.provider == "strava"),
+        "the connection row outlives a failed purge, got {connections:?}"
+    );
+    assert!(
+        repos
+            .provider_data
+            .purge_reasons_since(user_id, &tenant_id, "strava", since)
+            .await
+            .unwrap()
+            .is_empty(),
+        "the failed purge attests nothing"
+    );
+    assert!(
+        named(&events, "provider.disconnected").is_empty(),
+        "a failed disconnect emits nothing"
+    );
+
+    oauth_service(&resources)
+        .disconnect_provider(
+            user_id,
+            "strava",
+            Some(tenant_id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
+        .await
+        .expect("the retry succeeds");
+
+    assert_locally_disconnected(&resources, user_id, tenant_id, "strava").await;
+    assert_eq!(
+        repos
+            .provider_data
+            .purge_reasons_since(user_id, &tenant_id, "strava", since)
+            .await
+            .unwrap(),
+        vec!["athlete_disconnect".to_owned()],
+        "the retry purges the provider"
+    );
+    assert_eq!(
+        named(&events, "provider.disconnected").len(),
+        1,
+        "the retry that cleared the provider emits once"
+    );
+}
+
+/// The backend of a pair the athlete does not hold is cleared first, for the
+/// rows filed under its key. Should its purge fail, the held backend has not
+/// been touched yet: its token and connection rows still mark the pair held,
+/// so the retry clears the whole pair rather than finding nothing to do.
+#[tokio::test]
+async fn a_failed_purge_of_the_unheld_backend_leaves_the_held_one_for_the_retry() {
+    let strava_upstream = ScriptedUpstream::serve(vec![OK_200.to_owned()]).await;
+    let resources = strava_revoking_at(format!("{}/oauth/revoke", strava_upstream.base_url)).await;
+    let (user_id, tenant_id) = seed_connected(
+        &resources,
+        "strava",
+        "strava-access-do-not-log",
+        Some("strava-refresh-do-not-log"),
+        Timestamp::now() + Elapsed::days(30),
+    )
+    .await;
+    let since = Timestamp::now() - Elapsed::minutes(1);
+    let (events, _guard) = capture_notify();
+
+    let failing = OAuthService::new(
+        resources
+            .data()
+            .with_provider_purge(Arc::new(PurgeFailingFor {
+                inner: Arc::clone(&resources.common.provider_purge),
+                provider: "sciotte",
+            })),
+        Arc::clone(&resources.common.config),
+    );
+    failing
+        .disconnect_provider(
+            user_id,
+            "strava",
+            Some(tenant_id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
+        .await
+        .expect_err("a failed purge is the disconnect's error");
+
+    let repos = &resources.common.repos;
+    assert!(
+        repos
+            .oauth_tokens
+            .get_token(user_id, tenant_id, "strava")
+            .await
+            .unwrap()
+            .is_some(),
+        "the held backend is cleared after the unheld one, so its token stands"
+    );
+    let connections = repos
+        .provider_connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await
+        .unwrap();
+    assert!(
+        connections.iter().any(|c| c.provider == "strava"),
+        "the held backend's connection row stands, got {connections:?}"
+    );
+    assert_purge_counts(&resources, user_id, tenant_id, since, 0, "the failure").await;
+    assert!(
+        named(&events, "provider.disconnected").is_empty(),
+        "a failed disconnect emits nothing"
+    );
+
+    oauth_service(&resources)
+        .disconnect_provider(
+            user_id,
+            "strava",
+            Some(tenant_id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
+        .await
+        .expect("the retry succeeds");
+
+    assert_locally_disconnected(&resources, user_id, tenant_id, "strava").await;
+    assert_purge_counts(&resources, user_id, tenant_id, since, 1, "the retry").await;
+    assert_eq!(
+        named(&events, "provider.disconnected").len(),
+        1,
+        "the retry that cleared the pair emits once"
+    );
+}
+
+/// Each backend of the Strava pair was purged exactly `expected` times since
+/// `since`, read from the purge attestation rows.
+async fn assert_purge_counts(
+    resources: &ServerContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    since: Timestamp,
+    expected: usize,
+    after: &str,
+) {
+    for backend in ["strava", "sciotte"] {
+        let purges = resources
+            .common
+            .repos
+            .provider_data
+            .purge_reasons_since(user_id, &tenant_id, backend, since)
+            .await
+            .unwrap();
+        assert_eq!(
+            purges.len(),
+            expected,
+            "{backend} purges after {after}: {purges:?}"
+        );
+    }
+}
+
+/// The server's purge, failing every user purge of `provider` before it
+/// deletes anything: the failure a disconnect must report and survive.
+#[derive(Debug)]
+struct PurgeFailingFor {
+    inner: Arc<dyn ProviderPurge>,
+    provider: &'static str,
+}
+
+#[async_trait]
+impl ProviderPurge for PurgeFailingFor {
+    async fn purge_user_provider_data(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        reason: PurgeReason,
+    ) -> AppResult<ProviderDataPurge> {
+        if provider == self.provider {
+            return Err(AppError::database("injected purge failure"));
+        }
+        self.inner
+            .purge_user_provider_data(user_id, tenant_id, provider, reason)
+            .await
+    }
+
+    async fn purge_user_provider_wellness(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        reason: PurgeReason,
+    ) -> AppResult<ProviderDataPurge> {
+        self.inner
+            .purge_user_provider_wellness(user_id, tenant_id, provider, reason)
+            .await
+    }
+
+    async fn purge_user_provider_activities(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        reason: PurgeReason,
+    ) -> AppResult<ProviderDataPurge> {
+        self.inner
+            .purge_user_provider_activities(user_id, tenant_id, provider, reason)
+            .await
+    }
+
+    async fn purge_user_provider_source_wellness(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        source: &str,
+        reason: PurgeReason,
+    ) -> AppResult<ProviderDataPurge> {
+        self.inner
+            .purge_user_provider_source_wellness(user_id, tenant_id, provider, source, reason)
+            .await
+    }
+
+    async fn purge_user_provider_source_data(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        source: &str,
+        reason: PurgeReason,
+    ) -> AppResult<ProviderDataPurge> {
+        self.inner
+            .purge_user_provider_source_data(user_id, tenant_id, provider, source, reason)
+            .await
+    }
+
+    async fn purge_provider_data(&self, provider: &str) -> AppResult<ProviderDataPurge> {
+        self.inner.purge_provider_data(provider).await
+    }
 }
 
 /// Wahoo (carnet#34): a disconnect `DELETE`s the athlete's permissions with
@@ -1163,4 +1494,64 @@ async fn disconnect_wahoo_deletes_the_athletes_permissions() {
         "Wahoo deauthorizes with the athlete's own access token"
     );
     assert_locally_disconnected(&resources, user_id, tenant_id, "wahoo").await;
+}
+
+/// Disconnects of one held pair arriving at the same moment must not both
+/// clear it (carnet#1838). Each reads the pair held before any clears, so
+/// without the clear lock every one of them revoked, purged both backends and
+/// counted `provider.disconnected`. Serialised, the first clears and emits,
+/// and the others wait, find nothing held and succeed as no-ops.
+#[tokio::test]
+async fn concurrent_disconnects_of_one_pair_clear_and_emit_once() {
+    const CONCURRENT: usize = 5;
+    // One answer per request, so a run without the lock fails on its counts
+    // rather than on a refused connection.
+    let strava_upstream = ScriptedUpstream::serve(vec![OK_200.to_owned(); CONCURRENT]).await;
+    let resources = strava_revoking_at(format!("{}/oauth/revoke", strava_upstream.base_url)).await;
+    let service = oauth_service(&resources);
+    let (user_id, tenant_id) = seed_connected(
+        &resources,
+        "strava",
+        "strava-access-do-not-log",
+        Some("strava-refresh-do-not-log"),
+        Timestamp::now() + Elapsed::days(30),
+    )
+    .await;
+    let since = Timestamp::now() - Elapsed::minutes(1);
+    let (events, _guard) = capture_notify();
+
+    // Both halves of the coalesced card, so the card id and the backend id
+    // are proven to share one lock.
+    let results = future::join_all((0..CONCURRENT).map(|i| {
+        let provider = if i % 2 == 0 { "strava" } else { "sciotte" };
+        service.disconnect_provider(
+            user_id,
+            provider,
+            Some(tenant_id.as_uuid()),
+            DisconnectReason::Athlete,
+        )
+    }))
+    .await;
+
+    for (i, result) in results.iter().enumerate() {
+        assert!(
+            result.is_ok(),
+            "concurrent disconnect {i} fails instead of finding nothing held: {result:?}"
+        );
+    }
+    assert_locally_disconnected(&resources, user_id, tenant_id, "strava").await;
+    assert_purge_counts(
+        &resources,
+        user_id,
+        tenant_id,
+        since,
+        1,
+        "concurrent disconnects",
+    )
+    .await;
+    assert_eq!(
+        named(&events, "provider.disconnected").len(),
+        1,
+        "concurrent disconnects count one provider.disconnected"
+    );
 }

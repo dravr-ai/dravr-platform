@@ -4,7 +4,9 @@
 // ABOUTME: Renders the workout_plan block — the saved plan's season and fortnight — as the thread's one hairline card.
 // ABOUTME: Reads the projection the platform built from the rows save_training_plan wrote; the agent's prose never feeds it.
 
-import { useId, type ReactNode } from 'react';
+import { useId, useState, type ReactNode } from 'react';
+import { ChevronDown } from 'lucide-react';
+import { clsx } from 'clsx';
 import { useTranslation } from '@pierre/i18n';
 import type { TFunction } from '@pierre/i18n';
 import {
@@ -15,7 +17,7 @@ import {
   outsideEvidenceLabel,
   stepDuration,
 } from '@pierre/chat-utils';
-import { countKey, PLAN_HARD_PER_WEEK_KEYS, PLAN_MORE_WEEKS_KEYS } from '@pierre/shared-constants';
+import { countKey, PLAN_DAY_STEPS_KEYS, PLAN_HARD_PER_WEEK_KEYS, PLAN_MORE_WEEKS_KEYS } from '@pierre/shared-constants';
 import {
   civilDayMonth,
   dayIsUncheckedEdit,
@@ -36,7 +38,10 @@ import type {
 
 /** Where one entry sits on the card, for the action drawn under it. */
 export interface PlanEntryPlace {
-  /** The id of the date's cell, on the date's first row, for the action to be described by. */
+  /**
+   * The id of the date's cell, on the date's first row, for the action to be
+   * described by; the stacked list has no date cell and gives the entry's own title.
+   */
   dateId: string;
   /** The id of the entry's own title (or its rest word), telling a date's entries apart. */
   sessionId: string;
@@ -184,11 +189,11 @@ function Season({ plan }: { plan: WorkoutPlan }) {
  * its first row spanning the others. A row's keys and test ids carry its
  * place among the date's entries, which is its position (carnet#1716).
  *
- * The card lays a week out as a table, and the Home page's day detail draws
- * the same rows in a table of their own, so a date reads the same in both
- * places. `action` is drawn last in each entry's session cell.
+ * The card lays a week out as a table; the Home page's day detail stacks the
+ * same entries through `PlanDateList`, both drawing an entry's words with
+ * `EntryBody`. `action` is drawn last in each entry's session cell.
  */
-export function PlanDateRows({ entries, action }: { entries: readonly PlanDay[]; action?: PlanDayAction }) {
+function PlanDateRows({ entries, action }: { entries: readonly PlanDay[]; action?: PlanDayAction }) {
   const dateId = useId();
   return (
     <>
@@ -224,24 +229,6 @@ function DayRow({
   const { t, language } = useTranslation();
   const sessionId = useId();
   const { dateId, entries, position } = place;
-  const meta = [day.duration_min !== undefined ? `${day.duration_min} min` : null, day.intensity].filter(
-    (part): part is string => typeof part === 'string' && part.length > 0,
-  );
-  const steps = day.steps ?? [];
-  const outside = outsideEvidenceLabel(day, t);
-  const countsAs = countsAsLine(day, t);
-  // An added session is the coach's own from the start: "Added" says more than "Edited".
-  const mark = day.added ? (
-    <Badge variant="neutral" className="ml-2" data-testid="plan-day-added">
-      {t(SESSION_EDITOR_KEYS.added)}
-    </Badge>
-  ) : (
-    day.edited && (
-      <Badge variant="neutral" className="ml-2" data-testid="plan-day-edited">
-        {t(SESSION_EDITOR_KEYS.edited)}
-      </Badge>
-    )
-  );
   return (
     <tr className="border-b ghost-border-faint align-top last:border-0" data-testid={`plan-day-${day.date}-${position}`}>
       {/* The date once, on its first entry, spanning the rest: the later
@@ -261,80 +248,184 @@ function DayRow({
         {day.rest ? null : sportLabel(t, day.sport)}
       </td>
       <td className="w-full py-1.5">
-        {day.rest ? (
-          <>
-            <span id={sessionId} className="text-on-surface-variant">
-              {t('chat.restDay')}
+        <EntryBody day={day} sessionId={sessionId} />
+        {action && <div className="mt-1">{action(day, { dateId, sessionId, entries, position })}</div>}
+      </td>
+    </tr>
+  );
+}
+
+/**
+ * A session's steps folded under their count, for a column too narrow to run
+ * them inline: the button opens the list one step a line (carnet#1840).
+ */
+function FoldedSteps({ steps }: { steps: readonly PlanStep[] }) {
+  const { t, language } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const listId = useId();
+  return (
+    <div className="mt-0.5 text-xs text-on-surface-variant">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={listId}
+        onClick={() => setOpen((shown) => !shown)}
+        data-testid="plan-day-steps-toggle"
+        className="inline-flex items-center gap-1 rounded font-medium text-on-surface transition-colors hover:text-primary focus-ring touch-target"
+      >
+        {t(countKey(steps.length, language, PLAN_DAY_STEPS_KEYS), { count: steps.length })}
+        <ChevronDown aria-hidden="true" className={clsx('h-3.5 w-3.5 transition-transform motion-reduce:transition-none', open && 'rotate-180')} />
+      </button>
+      <div id={listId} hidden={!open}>
+        <PlanStepList steps={steps} className="mt-1 space-y-0.5" />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * What a date's entry says, wherever it is laid out: the session — its text,
+ * duration and intensity, the marks it carries — then its steps, template and
+ * fuel; a rest entry is the one word. `foldSteps` folds the steps under their
+ * count, for the stacked list.
+ */
+function EntryBody({ day, sessionId, foldSteps = false }: { day: PlanDay; sessionId: string; foldSteps?: boolean }) {
+  const { t } = useTranslation();
+  const meta = [day.duration_min !== undefined ? `${day.duration_min} min` : null, day.intensity].filter(
+    (part): part is string => typeof part === 'string' && part.length > 0,
+  );
+  const steps = day.steps ?? [];
+  const outside = outsideEvidenceLabel(day, t);
+  const countsAs = countsAsLine(day, t);
+  // An added session is the coach's own from the start: "Added" says more than "Edited".
+  const mark = day.added ? (
+    <Badge variant="neutral" className="ml-2" data-testid="plan-day-added">
+      {t(SESSION_EDITOR_KEYS.added)}
+    </Badge>
+  ) : (
+    day.edited && (
+      <Badge variant="neutral" className="ml-2" data-testid="plan-day-edited">
+        {t(SESSION_EDITOR_KEYS.edited)}
+      </Badge>
+    )
+  );
+  return (
+    <>
+      {day.rest ? (
+        <>
+          <span id={sessionId} className="text-on-surface-variant">
+            {t('chat.restDay')}
+          </span>
+          {mark}
+        </>
+      ) : (
+        <>
+          <span id={sessionId} className="font-medium text-on-surface">
+            {day.workout}
+          </span>
+          {meta.length > 0 && (
+            <span className="text-on-surface-variant">
+              {' · '}
+              {meta.join(' · ')}
             </span>
-            {mark}
-          </>
+          )}
+          {mark}
+          {outside && (
+            <Badge variant="warning" className="ml-2">
+              {outside}
+            </Badge>
+          )}
+          {day.evidence && <EvidenceChip evidence={day.evidence} />}
+          {day.coach_call && (
+            <Badge variant="neutral" className="ml-2" data-testid="plan-day-coach-call">
+              {t(COACH_CALL_KEYS.badge)}
+            </Badge>
+          )}
+          {countsAs && (
+            <div className="mt-0.5 text-xs text-on-surface-variant" data-testid="plan-day-counts-as">
+              {countsAs}
+            </div>
+          )}
+          {dayIsUncheckedEdit(day) && (
+            <div className="mt-0.5 text-xs text-on-surface-variant" data-testid="plan-day-unchecked">
+              {t(SESSION_EDITOR_KEYS.unchecked)}
+            </div>
+          )}
+        </>
+      )}
+      {steps.length > 0 &&
+        (foldSteps ? (
+          <FoldedSteps steps={steps} />
         ) : (
-          <>
-            <span id={sessionId} className="font-medium text-on-surface">
-              {day.workout}
-            </span>
-            {meta.length > 0 && (
-              <span className="text-on-surface-variant">
-                {' · '}
-                {meta.join(' · ')}
-              </span>
-            )}
-            {mark}
-            {outside && (
-              <Badge variant="warning" className="ml-2">
-                {outside}
-              </Badge>
-            )}
-            {day.evidence && <EvidenceChip evidence={day.evidence} />}
-            {day.coach_call && (
-              <Badge variant="neutral" className="ml-2" data-testid="plan-day-coach-call">
-                {t(COACH_CALL_KEYS.badge)}
-              </Badge>
-            )}
-            {countsAs && (
-              <div className="mt-0.5 text-xs text-on-surface-variant" data-testid="plan-day-counts-as">
-                {countsAs}
-              </div>
-            )}
-            {dayIsUncheckedEdit(day) && (
-              <div className="mt-0.5 text-xs text-on-surface-variant" data-testid="plan-day-unchecked">
-                {t(SESSION_EDITOR_KEYS.unchecked)}
-              </div>
-            )}
-          </>
-        )}
-        {steps.length > 0 && (
           <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-on-surface-variant">
             <span className="font-medium text-on-surface">{t('plan.card.steps')}</span>
             <PlanStepList steps={steps} className="contents" />
           </div>
-        )}
-        {day.template_slug && (
-          <div className="mt-0.5 text-xs text-on-surface-variant">
-            {t('plan.card.template')} <span className="font-mono text-on-surface">{day.template_slug}</span>
-            {day.template_source && (
-              <>
-                {' · '}
-                {t(`plan.card.source.${day.template_source}`, { defaultValue: day.template_source })}
-              </>
-            )}
-          </div>
-        )}
-        {day.fueling && (
-          <div className="mt-0.5 text-xs text-on-surface-variant">
-            <span className="font-medium text-on-surface">{t('chat.fuelLabel')}</span>{' '}
-            {fuelParts(day.fueling, t).join(' · ')}
-          </div>
-        )}
-        {day.fueling_withheld && (
-          <div className="mt-0.5 text-xs text-on-surface-variant">
-            <span className="font-medium text-on-surface">{t('chat.fuelLabel')}</span>{' '}
-            {t('chat.fuelWithheld')}
-          </div>
-        )}
-        {action && <div className="mt-1">{action(day, { dateId, sessionId, entries, position })}</div>}
-      </td>
-    </tr>
+        ))}
+      {day.template_slug && (
+        <div className="mt-0.5 text-xs text-on-surface-variant">
+          {t('plan.card.template')} <span className="font-mono text-on-surface">{day.template_slug}</span>
+          {day.template_source && (
+            <>
+              {' · '}
+              {t(`plan.card.source.${day.template_source}`, { defaultValue: day.template_source })}
+            </>
+          )}
+        </div>
+      )}
+      {day.fueling && (
+        <div className="mt-0.5 text-xs text-on-surface-variant">
+          <span className="font-medium text-on-surface">{t('chat.fuelLabel')}</span>{' '}
+          {fuelParts(day.fueling, t).join(' · ')}
+        </div>
+      )}
+      {day.fueling_withheld && (
+        <div className="mt-0.5 text-xs text-on-surface-variant">
+          <span className="font-medium text-on-surface">{t('chat.fuelLabel')}</span>{' '}
+          {t('chat.fuelWithheld')}
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * One date's entries stacked, for a column too narrow for the card's table:
+ * the Home page's day detail, where the selected cell already says the date.
+ * Each entry is its sport over the same words the card's row carries, its
+ * steps folded under their count, then `action` (carnet#1840). With no date
+ * cell, an action is described by the entry's own title.
+ */
+export function PlanDateList({ entries, action }: { entries: readonly PlanDay[]; action?: PlanDayAction }) {
+  return (
+    <ul className="m-0 list-none p-0">
+      {entries.map((day, position) => (
+        <DayItem key={`${day.date}-${position}`} day={day} entries={entries} position={position} action={action} />
+      ))}
+    </ul>
+  );
+}
+
+/** One entry of the stacked list: its sport, its words, its action. */
+function DayItem({
+  day,
+  entries,
+  position,
+  action,
+}: {
+  day: PlanDay;
+  entries: readonly PlanDay[];
+  position: number;
+  action?: PlanDayAction;
+}) {
+  const { t } = useTranslation();
+  const sessionId = useId();
+  return (
+    <li className="border-b ghost-border-faint py-1.5 text-sm last:border-0" data-testid={`plan-day-${day.date}-${position}`}>
+      {!day.rest && <span className="block text-xs text-on-surface-variant">{sportLabel(t, day.sport)}</span>}
+      <EntryBody day={day} sessionId={sessionId} foldSteps />
+      {action && <div className="mt-1">{action(day, { dateId: sessionId, sessionId, entries, position })}</div>}
+    </li>
   );
 }
 

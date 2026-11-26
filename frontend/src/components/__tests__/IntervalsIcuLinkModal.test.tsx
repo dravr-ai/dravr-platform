@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 //
 // ABOUTME: Unit tests for IntervalsIcuLinkModal — the authorization when offered, athlete id + API key entry and link submission
-// ABOUTME: Covers closed render, the eye inside the key field, the authorize-first choice and the coach's key path, successful link, and error display
+// ABOUTME: Covers closed render, the eye inside the key field, the authorize-first choice and the coach's key path and what it replaces, successful link, and error display
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -23,9 +23,14 @@ import { providersApi, userApi } from '../../services/api';
 const mockOnClose = vi.fn();
 const mockOnConnected = vi.fn();
 
-function renderModal(isOpen = true) {
+function renderModal(isOpen = true, replacesAuthorization = false) {
   return render(
-    <IntervalsIcuLinkModal isOpen={isOpen} onClose={mockOnClose} onConnected={mockOnConnected} />
+    <IntervalsIcuLinkModal
+      isOpen={isOpen}
+      onClose={mockOnClose}
+      onConnected={mockOnConnected}
+      replacesAuthorization={replacesAuthorization}
+    />
   );
 }
 
@@ -127,6 +132,7 @@ describe('IntervalsIcuLinkModal — the authorization offered', () => {
         onClose={mockOnClose}
         onConnected={mockOnConnected}
         onAuthorize={onAuthorize}
+        replacesAuthorization={false}
       />
     );
   }
@@ -224,5 +230,49 @@ describe('IntervalsIcuLinkModal — the authorization offered', () => {
     await waitFor(() => expect(providersApi.linkIntervalsIcu).toHaveBeenCalledTimes(2));
     expect(providersApi.linkIntervalsIcu).toHaveBeenLastCalledWith({ athlete_id: 'i123456', api_key: 'secret-key' });
     await waitFor(() => expect(mockOnConnected).toHaveBeenCalled(), { timeout: 2500 });
+  });
+});
+
+// carnet#1828: a key linked over an authorized link replaces it, and the
+// server revokes the grant at Intervals.icu, so the form says so first.
+describe('IntervalsIcuLinkModal — a key over an authorization', () => {
+  const REPLACES =
+    'Linking a key replaces the authorization you gave Dravr on Intervals.icu, and Dravr revokes it.';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('says in the key form that a key replaces the authorization and revokes it', () => {
+    renderModal(true, true);
+
+    const note = screen.getByRole('note');
+    expect(note).toHaveTextContent(REPLACES);
+    expect(note.closest('form')).toContainElement(screen.getByRole('button', { name: 'Connect' }));
+  });
+
+  it('says nothing of an authorization when the key replaces none', () => {
+    renderModal(true, false);
+
+    expect(screen.getByLabelText('Athlete ID')).toBeInTheDocument();
+    expect(screen.queryByTestId('intervals-key-replaces-authorization')).not.toBeInTheDocument();
+  });
+
+  it('says nothing of one on a new link, through the choice or its key form', async () => {
+    const user = userEvent.setup();
+    render(
+      <IntervalsIcuLinkModal
+        isOpen
+        onClose={mockOnClose}
+        onConnected={mockOnConnected}
+        onAuthorize={vi.fn()}
+        replacesAuthorization={false}
+      />
+    );
+
+    expect(screen.queryByTestId('intervals-key-replaces-authorization')).not.toBeInTheDocument();
+    await user.click(screen.getByTestId('intervals-use-api-key'));
+    expect(screen.getByLabelText('Athlete ID')).toBeInTheDocument();
+    expect(screen.queryByTestId('intervals-key-replaces-authorization')).not.toBeInTheDocument();
   });
 });

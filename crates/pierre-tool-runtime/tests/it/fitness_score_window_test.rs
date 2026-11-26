@@ -1,38 +1,29 @@
-// ABOUTME: An athlete getting faster must not score 0 for performance, and CTL must not shrink with the window
-// ABOUTME: Pins the two halves of registre#415 — the inverted trend split and the truncated EMA input
+// ABOUTME: calculate_fitness_score is the engine's score over a window, trended against the window before
+// ABOUTME: No score without heart-rate zones; CTL beside it reads the full history (registre#415, carnet#1807)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! `calculate_fitness_score` answered an athlete with two wrong numbers at once.
+//! `calculate_fitness_score` is dravr-cageux's fitness score (carnet#1807):
+//! aerobic fitness and strength endurance read on the athlete's heart-rate
+//! zones, and consistency, over the `timeframe` window, with its trend against
+//! the window of equal length before it. Without zones there is no score,
+//! never a guessed one.
 //!
-//! **"le volet performance est à 0."** `calculate_performance_trend` splits the
-//! activity list at its midpoint and computes
-//! `(first_half_pace − second_half_pace) / first_half_pace`, which is only an
-//! improvement if the first half is the *older* one. The provider returns
-//! newest-first — dravr-cageux documents this and rejects the ordering outright
-//! — so the halves were reversed: an athlete getting faster produced a negative
-//! improvement, `(neg + 10.0) * 5.0` went below zero, and `clamp` reported 0.
-//! The handler sorted a *clone* for the EMA and passed the unsorted list to the
-//! two components that split by index.
-//!
-//! **"charge chronique … 66."** The EMA is seeded at zero and walked forward
-//! over whatever span it is given, so scoping its input to the 30-day scoring
-//! window left a 42-day average at roughly three-quarters of steady state. CTL
-//! is a point-in-time state, not a windowed aggregate; the window now scopes
-//! only the two genuine aggregates.
-//!
-//! Both tests fail against the previous implementation — the first with a
-//! performance component of exactly 0, the second with a CTL that shrinks as
-//! the window narrows.
+//! The training load reported beside the score keeps registre#415's fix: the
+//! EMA is seeded at the mean daily TSS of the span it is given, so scoping its
+//! input to the scoring window left a 42-day average at roughly three-quarters
+//! of steady state. CTL reads the full fetched history whatever the window.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
 use std::cmp::Reverse;
 
-use dravr_cageux::config::intelligence::AlgorithmConfig;
+use dravr_cageux::config::intelligence::IntelligenceConfig;
+use dravr_cageux::zones::HrZones;
 use dravr_tronc::dates::{Elapsed, Timestamp, Zone};
+use pierre_core::models::zones::HrZonesUnavailable;
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_fitness_compute::AthleteInputs;
 use pierre_tool_runtime::implementations::analytics::calculate_fitness_metrics;
@@ -72,53 +63,132 @@ fn newest_first(mut activities: Vec<Activity>) -> Vec<Activity> {
     activities
 }
 
-/// An athlete whose pace improves steadily must not be reported as making no
-/// progress. This is the athlete-visible half of registre#415.
-#[test]
-fn an_improving_athlete_does_not_score_zero_for_performance() {
-    // 3600s -> 3000s over 60 days: unmistakably getting faster.
-    let activities = newest_first(
-        (0..20)
-            .map(|i| {
-                let days_ago = 60 - i * 3;
-                let seconds = 3000 + u64::try_from(days_ago).unwrap_or(0) * 10;
-                run(days_ago, seconds)
-            })
-            .collect(),
-    );
+/// The athlete's zones: resting 50 bpm, maximum 190 bpm.
+fn zones() -> HrZones {
+    HrZones::for_athlete(None, 50, 190).expect("zones for 50/190")
+}
+
+/// A run `days_ago` lasting `minutes` at an average of `heart_rate` bpm.
+fn session(days_ago: i64, minutes: u64, heart_rate: u32) -> Activity {
+    ActivityBuilder::new(
+        format!("session-{days_ago}"),
+        format!("session {days_ago}d ago"),
+        SportType::Run,
+        Timestamp::now() - Elapsed::days(days_ago),
+        minutes * 60,
+        "test".to_owned(),
+    )
+    .distance_meters(10_000.0)
+    .average_heart_rate(heart_rate)
+    .build()
+}
+
+/// No resting or maximum heart rate saved: no zones, so no score, and the
+/// answer says what is missing rather than guessing a number.
+#[tokio::test]
+async fn without_heart_rate_zones_there_is_no_score() {
+    let activities = newest_first((0..10).map(|i| run(25 - i * 2, 3600)).collect());
 
     let result = calculate_fitness_metrics(
         &activities,
-        "quarter",
+        "month",
         &AthleteInputs::default(),
-        &AlgorithmConfig::default(),
+        Err(HrZonesUnavailable::NoProfile),
+        &IntelligenceConfig::default(),
         &Zone::utc(),
         providers(),
+    )
+    .await;
+
+    let FitnessScoreResult::NoData(empty) = result else {
+        panic!("bug: a score was guessed without heart-rate zones: {result:?}");
+    };
+    assert!(
+        empty.message.contains("resting and maximum heart rate"),
+        "the answer must name what is missing: {}",
+        empty.message
     );
+}
+
+/// The trend compares the month scored with the month before it: an athlete
+/// who trained more, and harder, this month reads as improving.
+#[tokio::test]
+async fn the_trend_compares_the_window_with_the_one_before() {
+    // The month before: two easy sessions. This month: twelve steady ones.
+    let before = (0..2).map(|i| session(40 + i * 7, 40, 125));
+    let this_month = (0..12).map(|i| session(1 + i * 2, 60, 160));
+    let activities = newest_first(before.chain(this_month).collect());
+
+    let result = calculate_fitness_metrics(
+        &activities,
+        "month",
+        &AthleteInputs::default(),
+        Ok(zones()),
+        &IntelligenceConfig::default(),
+        &Zone::utc(),
+        providers(),
+    )
+    .await;
 
     let FitnessScoreResult::Scored(detail) = result else {
-        panic!("20 activities must produce a score, got {result:?}");
+        panic!("a month of sessions on known zones must score, got {result:?}");
     };
-
+    let previous = detail
+        .previous_fitness_score
+        .expect("the month before held sessions, so it has a score");
     assert!(
-        detail.components.performance_score > 50.0,
-        "an athlete improving from 3600s to 3000s per 10km must score above the \
-         neutral 50, got {} — a score of 0 is the reversed-halves bug",
-        detail.components.performance_score
+        detail.fitness_score > previous,
+        "this month ({}) must score above the month before ({previous})",
+        detail.fitness_score
     );
-    assert!(
-        detail.components.performance_score > 0.0,
-        "performance scored 0, which is what the inverted split produced"
+    assert_eq!(
+        detail.trend.as_deref(),
+        Some("improving"),
+        "bug: a month scoring above the month before does not read as improving"
+    );
+    assert_eq!(detail.activities_analyzed, 12, "only this month is scored");
+}
+
+/// The whole history has no window before it, so it carries no trend.
+#[tokio::test]
+async fn all_time_has_no_trend() {
+    let activities = newest_first((0..12).map(|i| session(1 + i * 5, 60, 160)).collect());
+
+    let result = calculate_fitness_metrics(
+        &activities,
+        "all_time",
+        &AthleteInputs::default(),
+        Ok(zones()),
+        &IntelligenceConfig::default(),
+        &Zone::utc(),
+        providers(),
+    )
+    .await;
+
+    let FitnessScoreResult::Scored(detail) = result else {
+        panic!("expected a score, got {result:?}");
+    };
+    assert_eq!(
+        detail.window_days, None,
+        "bug: all_time is scoped to a window"
+    );
+    assert_eq!(
+        detail.previous_fitness_score, None,
+        "bug: all_time has no window before it, yet carries a previous score"
+    );
+    assert_eq!(
+        detail.trend, None,
+        "bug: all_time has no window before it, yet carries a trend"
     );
 }
 
 /// Narrowing the scoring window must not shrink chronic training load. CTL is a
 /// current-state number computed from the full fetched history.
-#[test]
-fn the_scoring_window_does_not_truncate_chronic_load() {
+#[tokio::test]
+async fn the_scoring_window_does_not_truncate_chronic_load() {
     // 120 days of steady training — long enough for a 42-day EMA to converge.
     let activities = newest_first((0..40).map(|i| run(120 - i * 3, 3600)).collect());
-    let config = AlgorithmConfig::default();
+    let config = IntelligenceConfig::default();
 
     // A run is scored against the athlete's own threshold pace: without one
     // (and no heart-rate thresholds or session RPE) it carries no stress.
@@ -130,18 +200,22 @@ fn the_scoring_window_does_not_truncate_chronic_load() {
         &activities,
         "all_time",
         &athlete,
+        Ok(zones()),
         &config,
         &Zone::utc(),
         providers(),
-    );
+    )
+    .await;
     let narrow = calculate_fitness_metrics(
         &activities,
         "month",
         &athlete,
+        Ok(zones()),
         &config,
         &Zone::utc(),
         providers(),
-    );
+    )
+    .await;
 
     let (FitnessScoreResult::Scored(wide), FitnessScoreResult::Scored(narrow)) = (wide, narrow)
     else {
@@ -162,7 +236,7 @@ fn the_scoring_window_does_not_truncate_chronic_load() {
         narrow.metrics.ctl
     );
 
-    // The window does scope the aggregates, and the payload says which.
+    // The window scopes the score, and the payload says which.
     assert_eq!(narrow.window_days, Some(30));
     assert_eq!(wide.window_days, None, "all_time scopes nothing");
     assert!(
@@ -174,20 +248,22 @@ fn the_scoring_window_does_not_truncate_chronic_load() {
 
 /// The payload names chronic load from the configured window, so nothing has to
 /// infer a period from a smoothing constant that happens to sit nearby.
-#[test]
-fn the_ctl_sentence_comes_from_config_not_a_hardcoded_42() {
+#[tokio::test]
+async fn the_ctl_sentence_comes_from_config_not_a_hardcoded_42() {
     let activities = newest_first((0..12).map(|i| run(90 - i * 5, 3600)).collect());
-    let mut config = AlgorithmConfig::default();
-    config.params.training_load_ctl_days = 28;
+    let mut config = IntelligenceConfig::default();
+    config.algorithms.params.training_load_ctl_days = 28;
 
     let result = calculate_fitness_metrics(
         &activities,
         "quarter",
         &AthleteInputs::default(),
+        Ok(zones()),
         &config,
         &Zone::utc(),
         providers(),
-    );
+    )
+    .await;
     let FitnessScoreResult::Scored(detail) = result else {
         panic!("expected a score");
     };

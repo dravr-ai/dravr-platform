@@ -12,6 +12,7 @@ use pierre_core::models::{
 };
 use uuid::Uuid;
 
+use crate::clear_lock::{self, ProviderClearLock};
 use crate::database::Database;
 use crate::repositories::provider_connections::{
     connection_from_row, impl_provider_connection_repository, reauth_mark,
@@ -28,3 +29,18 @@ use crate::repositories::provider_connections::{
 use crate::repositories::ProviderConnectionRepository;
 
 impl_provider_connection_repository!(Database);
+
+impl Database {
+    /// The provider clear lock on `SQLite`: one process serves the database,
+    /// so the in-process layer is the whole lock.
+    async fn hold_provider_clear(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<ProviderClearLock> {
+        let local =
+            clear_lock::hold_local(&clear_lock::clear_key(user_id, tenant_id, provider)).await;
+        Ok(ProviderClearLock::local(local))
+    }
+}

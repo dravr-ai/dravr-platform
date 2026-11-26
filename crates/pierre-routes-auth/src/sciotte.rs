@@ -41,8 +41,9 @@ use crate::sciotte_caller::{authenticate, emit_provider_linked_webhook, LinkCont
 use crate::sciotte_cancel::{
     login_cancelled_refusal, refuse_cancelled_attempt, refuse_cancelled_outcome, StepAttempt,
 };
+pub(crate) use crate::sciotte_login_step::LoginStep;
 use crate::sciotte_prefetch::spawn_activity_prefetch;
-use crate::sciotte_rejection::log_sign_in_rejected;
+use crate::sciotte_rejection::{log_sign_in_succeeded, sign_in_refused};
 use crate::sciotte_session_reuse::{stored_session_use, StoredSessionUse};
 use crate::sciotte_takeover::takeover_required;
 use crate::sign_in_grant::{connected_response, replace_dead_grant};
@@ -501,40 +502,6 @@ pub(crate) fn warm_from_session(
     drop(prefetch);
 }
 
-/// Which step of a sign-in produced the outcome being answered.
-#[derive(Clone, Copy)]
-pub(crate) enum LoginStep<'a> {
-    /// The credential login, which starts a flow.
-    Login {
-        /// Backend provider name the login targets
-        provider: &'a str,
-        /// The window's attempt, when it named one: the only kind of login
-        /// that asks for a takeover, since closing the takeover cancels it.
-        attempt: Option<&'a StepAttempt>,
-        /// How the athlete signed in: the provider's form, Google or Apple
-        method: LoginMethod,
-        /// The account the athlete typed at the provider, for the ops log
-        /// only, and only ever masked there
-        account: &'a str,
-    },
-    /// A 2FA pick or a code, continuing the flow the platform holds.
-    Continuation {
-        /// Backend provider name the held flow was started for
-        provider: &'a str,
-        /// The held flow this continuation named to the service
-        flow_id: &'a str,
-    },
-}
-
-impl LoginStep<'_> {
-    /// Backend provider name the step belongs to.
-    const fn provider(&self) -> &str {
-        match self {
-            Self::Login { provider, .. } | Self::Continuation { provider, .. } => provider,
-        }
-    }
-}
-
 /// Keep the flow a code step names.
 ///
 /// A refused code leaves the service's browser parked under the same id, on
@@ -596,6 +563,7 @@ pub(crate) async fn remote_login_to_response(
                 provider: &provider,
                 user_id,
                 tenant_id,
+                attempt_id: step.attempt_id(),
             };
             let stored = store_signed_in(signed_in, remote, resources, link_context).await;
             // Signed in at the provider, then not kept: the athlete is still
@@ -643,7 +611,15 @@ pub(crate) async fn remote_login_to_response(
         }
         LoginOutcome::Failed { reason } => {
             forget_remote_flow(&resources.cache, tenant_id, user_id).await;
-            log_sign_in_rejected(step, user_id, &reason);
+            let follow_ups = resources.sign_in_follow_ups.as_ref();
+            sign_in_refused(
+                &resources.cache,
+                follow_ups,
+                step,
+                (user_id, tenant_id),
+                &reason,
+            )
+            .await;
             report_credential_failed(user_id, tenant_id, provider, SignInFailure::TurnedDown);
             Ok(Json(serde_json::json!({"status": "failed", "error": reason})).into_response())
         }
@@ -665,6 +641,7 @@ struct SignedIn<'a> {
     provider: &'a str,
     user_id: Uuid,
     tenant_id: Uuid,
+    attempt_id: &'a str,
 }
 
 /// Export the session the service authenticated, store it, and post back to
@@ -685,10 +662,18 @@ async fn store_signed_in(
         provider,
         user_id,
         tenant_id,
+        attempt_id,
     } = signed_in;
     forget_remote_flow(&resources.cache, tenant_id, user_id).await;
     let provider_name = SciotteTarget::from_target_param(provider).provider_name();
-    info!(user_id = %user_id, provider = %provider_name, "Session sign-in successful (remote service)");
+    log_sign_in_succeeded(
+        &resources.cache,
+        user_id,
+        tenant_id,
+        provider_name,
+        attempt_id,
+    )
+    .await;
     let session = remote
         .export_session(session_id)
         .await
@@ -1107,6 +1092,7 @@ pub(crate) async fn handle_sciotte_select_2fa(
         tenant_id,
         LoginStep::Continuation {
             provider: &provider,
+            attempt: attempt.as_ref(),
             flow_id: &flow_id,
         },
         link_context.as_ref(),
@@ -1168,6 +1154,7 @@ pub(crate) async fn handle_sciotte_submit_otp(
         tenant_id,
         LoginStep::Continuation {
             provider: &provider,
+            attempt: attempt.as_ref(),
             flow_id: &flow_id,
         },
         link_context.as_ref(),

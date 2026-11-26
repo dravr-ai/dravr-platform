@@ -2284,7 +2284,7 @@
     },
     {
       "name": "calculate_fitness_score",
-      "description": "Calculate a fitness score (0-100): chronic training load 40% (sessions scored against the FTP and threshold heart rate saved with set_physiology, as analyze_training_load does), consistency 30% (share of weeks with 3+ activities) and pace improvement 30%, over the `timeframe` period.",
+      "description": "Calculate a fitness score (0-100) over the `timeframe` window: aerobic fitness 40% and strength endurance 30%, both read on the heart-rate zones from the resting and maximum heart rate saved with set_physiology, and consistency 30% (sessions per week), with its trend against the window of equal length before. No score without those two heart rates.",
       "inputSchema": {
         "properties": {
           "athlete": {
@@ -2299,12 +2299,8 @@
             "description": "Provider or `upload`; default is their best source.",
             "type": "string"
           },
-          "sleep_provider": {
-            "description": "Sleep provider (e.g., 'whoop'): last night's sleep adjusts the score, from +5% (excellent recovery) to -10% (poor).",
-            "type": "string"
-          },
           "timeframe": {
-            "description": "Period scored for consistency and pace: 'month' (30 days, the default), 'quarter' (90), 'year' (365) or 'all_time'. Set it to the period the athlete named; the default cannot answer a question about three months or a season. Chronic training load always uses the full history.",
+            "description": "Window scored: 'month' (30 days, the default), 'quarter' (90), 'year' (365) or 'all_time'. Set it to the period the athlete named; the default cannot answer a question about three months or a season. The trend compares it with the window of equal length before it; 'all_time' has none.",
             "type": "string"
           }
         },
@@ -2315,32 +2311,36 @@
           "FitnessComponents": {
             "description": "The three components of a fitness score, each 0 to 100 and rounded.",
             "properties": {
-              "consistency_score": {
-                "description": "Share of weeks with three or more sessions. Weighted 30%.",
+              "aerobic_fitness": {
+                "description": "Sessions above zone 1, by how far their average heart rate sat above\nthe athlete's zone 1 ceiling and for how long. Weighted 40%.",
                 "format": "double",
                 "type": "number"
               },
-              "ctl_score": {
-                "description": "Chronic training load, normalised. Weighted 40%.",
+              "consistency": {
+                "description": "Sessions per week in the window against a weekly target. Weighted 30%.",
                 "format": "double",
                 "type": "number"
               },
-              "performance_score": {
-                "description": "Pace improvement across the window. Weighted 30%.",
+              "strength_endurance": {
+                "description": "Sessions in zone 3 and above, by average heart rate and duration.\nWeighted 30%.",
                 "format": "double",
                 "type": "number"
               }
             },
             "required": [
-              "ctl_score",
-              "consistency_score",
-              "performance_score"
+              "aerobic_fitness",
+              "strength_endurance",
+              "consistency"
             ],
             "type": "object"
           },
           "FitnessInterpretation": {
-            "description": "Plain-language definitions of the three components.",
+            "description": "Plain-language definitions of the score's components and of the training\nload beside it.",
             "properties": {
+              "aerobic_fitness": {
+                "description": "What the aerobic fitness component measures.",
+                "type": "string"
+              },
               "consistency": {
                 "description": "What the consistency component measures.",
                 "type": "string"
@@ -2349,20 +2349,21 @@
                 "description": "What CTL measures.",
                 "type": "string"
               },
-              "performance": {
-                "description": "What the performance component measures.",
+              "strength_endurance": {
+                "description": "What the strength endurance component measures.",
                 "type": "string"
               }
             },
             "required": [
-              "ctl",
+              "aerobic_fitness",
+              "strength_endurance",
               "consistency",
-              "performance"
+              "ctl"
             ],
             "type": "object"
           },
           "FitnessLoadMetrics": {
-            "description": "The training-load numbers behind the CTL component, rounded.",
+            "description": "The training load beside the score, rounded.",
             "properties": {
               "atl": {
                 "description": "Acute training load — recent fatigue.",
@@ -2401,61 +2402,49 @@
                 "description": "The three weighted parts of the score."
               },
               "fitness_score": {
-                "description": "The score, 0 to 100, rounded to a whole number.",
+                "description": "The score, 0 to 100, rounded: aerobic fitness 40%, strength endurance\n30% and consistency 30%.",
                 "format": "int32",
                 "type": "integer"
               },
-              "fitness_score_unadjusted": {
-                "description": "The score before the recovery adjustment, present only when one ran.\nBoth numbers ship so a client can show what sleep cost or bought.",
-                "format": "int32",
-                "type": [
-                  "integer",
-                  "null"
-                ]
-              },
               "history_span_days": {
-                "description": "Days of history the chronic training load was computed from — always the\nfull fetched span, never the window. Stated so a reply names the period\nit analysed instead of inferring one (registre#415).",
+                "description": "Days of history fetched. The training load reads all of it, and the\ntrend needs a window's worth before the scored one.",
                 "format": "uint32",
                 "minimum": 0,
                 "type": "integer"
               },
               "interpretation": {
                 "$ref": "#/$defs/FitnessInterpretation",
-                "description": "What each component means, so the number is readable without docs."
-              },
-              "level": {
-                "description": "Beginner, Intermediate, Advanced, Elite or Very High.",
-                "type": "string"
+                "description": "What each part means, so the number is readable without docs."
               },
               "metrics": {
                 "$ref": "#/$defs/FitnessLoadMetrics",
-                "description": "The training-load numbers the CTL component came from."
+                "description": "The athlete's training load today, beside the score: the score does not\nread it."
+              },
+              "previous_fitness_score": {
+                "description": "The score computed the same way over the window of equal length before\nthis one, rounded; `null` when that window held no activity, and for\n`all_time`.",
+                "format": "int32",
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "providers_used": {
                 "$ref": "#/$defs/ProvidersUsed",
                 "description": "Which providers the answer was built from."
-              },
-              "recovery_adjustment": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/RecoveryAdjustment"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "description": "The sleep-derived adjustment, present only when a sleep provider was\nnamed and answered."
               },
               "timeframe": {
                 "description": "The window requested, echoed back.",
                 "type": "string"
               },
               "trend": {
-                "description": "Whether the score is rising, flat or falling across the window.",
-                "type": "string"
+                "description": "`improving` or `declining` when the score moved more than 5 points from\nthe previous window's, `stable` otherwise; `null` without a previous\nscore.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "window_days": {
-                "description": "Days the score's consistency and pace components cover, or `null` when\nevery fetched activity was scored.",
+                "description": "Days the score covers, or `null` when every fetched activity is\nscored.",
                 "format": "uint32",
                 "minimum": 0,
                 "type": [
@@ -2469,7 +2458,7 @@
               "history_span_days",
               "timeframe",
               "fitness_score",
-              "level",
+              "previous_fitness_score",
               "trend",
               "components",
               "metrics",
@@ -2483,66 +2472,44 @@
             "anyOf": [
               {
                 "$ref": "#/$defs/FitnessScoreDetail",
-                "description": "A score, and the three components behind it."
+                "description": "A score, its three components and its trend."
               },
               {
                 "$ref": "#/$defs/NoFitnessScore",
-                "description": "No activities in the window, so no score."
+                "description": "No score: nothing in the window, or no heart-rate zones to read the\nsessions against."
               }
             ],
-            "description": "What `calculate_fitness_score` answers with."
+            "description": "What `calculate_fitness_score` answers with: dravr-cageux's fitness score\n(carnet#1807)."
           },
           "NoFitnessScore": {
-            "description": "The answer when there is nothing in the window to score.",
+            "description": "The answer when there is no score to give. The score is absent rather\nthan guessed.",
             "properties": {
-              "fitness_score": {
-                "description": "Always zero: reported rather than omitted so a client charting the\nscore over time has a point rather than a gap.",
-                "format": "int32",
+              "activities_analyzed": {
+                "description": "How many activities were in the window.",
+                "format": "uint",
+                "minimum": 0,
                 "type": "integer"
               },
-              "fitness_score_unadjusted": {
-                "description": "The score before the recovery adjustment, present only when one ran.\nZero either way here, and reported for the same reason `fitness_score`\nis: a client charting both lines wants a point, not a gap.",
-                "format": "int32",
-                "type": [
-                  "integer",
-                  "null"
-                ]
-              },
               "history_span_days": {
-                "description": "Days of history the chronic training load was computed from — always the\nfull fetched span, never the window. Stated so a reply names the period\nit analysed instead of inferring one (registre#415).",
+                "description": "Days of history fetched.",
                 "format": "uint32",
                 "minimum": 0,
                 "type": "integer"
               },
-              "level": {
-                "description": "Always `Beginner`, the level a zero score classifies to.",
-                "type": "string"
-              },
               "message": {
-                "description": "Which of the two empty cases this is — no activities at all, or none\ninside the window.",
+                "description": "Why there is no score: no activities, none inside the window, or no\nheart-rate zones because a resting or maximum heart rate is not saved.",
                 "type": "string"
               },
               "providers_used": {
                 "$ref": "#/$defs/ProvidersUsed",
                 "description": "Which providers the answer was built from."
               },
-              "recovery_adjustment": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/RecoveryAdjustment"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "description": "The sleep-derived adjustment, present only when a sleep provider was\nnamed and answered."
-              },
               "timeframe": {
                 "description": "The window requested, echoed back.",
                 "type": "string"
               },
               "window_days": {
-                "description": "Days the score's consistency and pace components cover, or `null` when\nevery fetched activity was scored.",
+                "description": "Days the score covers, or `null` when every fetched activity is\nscored.",
                 "format": "uint32",
                 "minimum": 0,
                 "type": [
@@ -2555,9 +2522,8 @@
               "window_days",
               "history_span_days",
               "timeframe",
-              "fitness_score",
-              "level",
               "message",
+              "activities_analyzed",
               "providers_used"
             ],
             "type": "object"
@@ -2579,31 +2545,6 @@
             },
             "required": [
               "activity_provider",
-              "sleep_provider"
-            ],
-            "type": "object"
-          },
-          "RecoveryAdjustment": {
-            "description": "What a night's sleep did to the score.",
-            "properties": {
-              "adjustment_factor": {
-                "description": "The multiplier applied: 1.05 above 90, 1.0 above 70, 0.95 above 50,\n0.90 below that.",
-                "format": "double",
-                "type": "number"
-              },
-              "recovery_score": {
-                "description": "The sleep quality score the adjustment was derived from, 0 to 100.",
-                "format": "double",
-                "type": "number"
-              },
-              "sleep_provider": {
-                "description": "The sleep provider that supplied the night.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "recovery_score",
-              "adjustment_factor",
               "sleep_provider"
             ],
             "type": "object"
@@ -2727,7 +2668,7 @@
       },
       "_meta": {
         "ai.dravr.vault/tool": {
-          "def_hash": "sha256:fc91fb611c34150b9bf1dd95e9f706697aacc76244c910a054e5cc02791f2175"
+          "def_hash": "sha256:4a6d565bfee87a4d19925af3c9f98e7e0be67e9f00fc8593c00ca0c0b4063322"
         }
       }
     },
@@ -32221,25 +32162,30 @@
     },
     {
       "name": "save_workout_to_library",
-      "description": "Save one plan session as a template in the caller's own Intervals.icu workout library: a coach's own, whoever's plan it is. Fuelling is left out; saving it again writes nothing.",
+      "description": "Save one session as a template in the caller's own Intervals.icu workout library (a coach's own, whoever's plan): a plan session by date, a prescription_id, or a session you design, no plan needed. Fuelling is left out; saving it again writes nothing.",
       "inputSchema": {
         "properties": {
           "date": {
-            "description": "Session date, YYYY-MM-DD.",
+            "description": "Plan session date, YYYY-MM-DD.",
             "type": "string"
           },
           "folder": {
             "description": "Library folder; default Dravr.",
             "type": "string"
           },
-          "session": {
-            "description": "Nth session that day; default 1.",
+          "nth": {
+            "description": "Nth plan session that day; default 1.",
             "type": "integer"
+          },
+          "prescription_id": {
+            "description": "Id of a workout prescribe_workout prescribed.",
+            "type": "string"
+          },
+          "session": {
+            "description": "A session you design, in prescribe_workout's session shape: name, sport, intensity_distribution, structure (steps: label, duration_seconds, target_zone, repeat).",
+            "type": "object"
           }
         },
-        "required": [
-          "date"
-        ],
         "type": "object"
       },
       "outputSchema": {
@@ -32252,15 +32198,18 @@
                 "type": "boolean"
               },
               "athlete": {
-                "description": "The coached athlete whose plan it came from; absent for the caller's\nown plan.",
+                "description": "The coached athlete whose plan or calendar it came from; absent for\nthe caller's own, and for a session designed in the call.",
                 "type": [
                   "string",
                   "null"
                 ]
               },
               "date": {
-                "description": "The plan date the session was taken from.",
-                "type": "string"
+                "description": "The date of the plan session or prescription it was taken from;\nabsent for a session designed in the call.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "folder": {
                 "description": "The library folder holding it.",
@@ -32271,7 +32220,7 @@
                 "type": "boolean"
               },
               "name": {
-                "description": "The template's name: the plan session's title.",
+                "description": "The template's name: the session's title.",
                 "type": "string"
               },
               "provider": {
@@ -32289,8 +32238,7 @@
               "folder_created",
               "already_saved",
               "workout_id",
-              "name",
-              "date"
+              "name"
             ],
             "type": "object"
           },
@@ -32339,7 +32287,7 @@
             "type": "object"
           }
         ],
-        "description": "What a save did: where the template is, and which plan session it is.",
+        "description": "What a save did: where the template is, and which session it is.",
         "title": "SavedLibraryWorkout",
         "type": "object"
       },
@@ -32352,7 +32300,7 @@
       },
       "_meta": {
         "ai.dravr.vault/tool": {
-          "def_hash": "sha256:293eeecce49eab3d87a46ec184a4e13d441590276f64735017c98d3c8cc29754"
+          "def_hash": "sha256:77f63727394b4fac4810fcb647c9f8e01dc5d168fcc549f7066e2a4a85092f63"
         }
       }
     },

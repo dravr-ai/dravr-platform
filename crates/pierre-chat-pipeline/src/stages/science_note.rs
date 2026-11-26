@@ -34,7 +34,8 @@ use std::sync::Arc;
 
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_contremaitre::messaging_strings::{
-    KEY_SCIENCE_CHANGE_PACE_ZONES, KEY_SCIENCE_CHANGE_TRAINING_LOAD,
+    KEY_SCIENCE_CHANGE_FITNESS_SCORE, KEY_SCIENCE_CHANGE_PACE_ZONES,
+    KEY_SCIENCE_CHANGE_TRAINING_LOAD,
 };
 use pierre_core::errors::AppResult;
 use pierre_core::models::{ConversationSubject, ConversationTurnId, PostPurpose, TenantId};
@@ -102,6 +103,15 @@ const SCIENCE_CHANGES: &[ScienceChange] = &[
         key: KEY_SCIENCE_CHANGE_PACE_ZONES,
         effective_epoch_seconds: 1_795_467_237,
         topic_tools: &["calculate_personalized_zones"],
+    },
+    // The fitness score read on the athlete's heart-rate zones and sessions
+    // per week, trended against the window before (cageux 0.60, carnet#1807),
+    // on main at 2026-11-26T15:17:23Z.
+    ScienceChange {
+        id: "fitness_score_2026_11",
+        key: KEY_SCIENCE_CHANGE_FITNESS_SCORE,
+        effective_epoch_seconds: 1_795_706_243,
+        topic_tools: &["calculate_fitness_score"],
     },
 ];
 
@@ -406,6 +416,10 @@ mod tests {
         change("pace_zones_2026_11")
     }
 
+    fn fitness_score() -> &'static ScienceChange {
+        change("fitness_score_2026_11")
+    }
+
     fn called(tools: &[&str]) -> Vec<String> {
         tools.iter().map(|tool| (*tool).to_owned()).collect()
     }
@@ -447,6 +461,11 @@ mod tests {
             ["training_load_2026_11", "pace_zones_2026_11"],
             "each change once, in table order, whatever the call order"
         );
+        assert_eq!(
+            ids(&due_on(&called(&["calculate_fitness_score"]))),
+            ["training_load_2026_11", "fitness_score_2026_11"],
+            "the fitness score shows the athlete's CTL beside a score the fitness change moved"
+        );
     }
 
     #[test]
@@ -487,6 +506,15 @@ mod tests {
             saw_old_numbers(zones, at("2026-11-22T12:00:00Z"))
                 && !saw_old_numbers(load, at("2026-11-22T12:00:00Z")),
             "an account created between the two changes saw only the old pace zones"
+        );
+        let fitness = fitness_score();
+        assert!(
+            saw_old_numbers(fitness, at("2026-11-26T15:17:22Z")),
+            "an account created a second before the fitness change saw its old score"
+        );
+        assert!(
+            !saw_old_numbers(fitness, at("2026-11-26T15:17:23Z")),
+            "an account created as the fitness change landed only ever saw the new score"
         );
     }
 

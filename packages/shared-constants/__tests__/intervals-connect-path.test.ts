@@ -2,10 +2,14 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Proves how an Intervals.icu card connects: the authorization only while the server offers it
-// ABOUTME: And that a card linked by API key (a coach's) always reconnects through the key form
+// ABOUTME: And that a card linked by API key (a coach's) always reconnects through the key form, which replaces only an authorization
 
 import { describe, it, expect } from 'vitest';
-import { intervalsConnectPath, type IntervalsConnectCard } from '../src/providers';
+import {
+  intervalsConnectPath,
+  intervalsKeyReplacesAuthorization,
+  type IntervalsConnectCard,
+} from '../src/providers';
 
 const card = (overrides: Partial<IntervalsConnectCard>): IntervalsConnectCard => ({
   requires_oauth: true,
@@ -36,5 +40,20 @@ describe('intervalsConnectPath', () => {
     expect(
       intervalsConnectPath(card({ connected: true, connection_type: 'oauth', own_app_required: true })),
     ).toBe('key');
+  });
+});
+
+describe('intervalsKeyReplacesAuthorization', () => {
+  it('holds for an authorized card, with or without a client to authorize under', () => {
+    expect(intervalsKeyReplacesAuthorization(card({ connected: true, connection_type: 'oauth' }))).toBe(true);
+    expect(
+      intervalsKeyReplacesAuthorization(card({ connected: true, connection_type: 'oauth', own_app_required: true })),
+    ).toBe(true);
+  });
+
+  it("does not hold for a new link, a key-linked card or a card read through a group coach's account", () => {
+    expect(intervalsKeyReplacesAuthorization(card({}))).toBe(false);
+    expect(intervalsKeyReplacesAuthorization(card({ connected: true, connection_type: 'manual' }))).toBe(false);
+    expect(intervalsKeyReplacesAuthorization(card({ connected: true, connection_type: 'delegated' }))).toBe(false);
   });
 });
