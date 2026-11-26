@@ -238,10 +238,15 @@ const ATHLETE: CoachRosterAthlete = { user_id: LEA.user_id, name: LEA.display_na
 
 function renderWorkspace(athlete: CoachRosterAthlete = ATHLETE) {
   mockApi.getRoster.mockResolvedValue({ ...ROSTER, athletes: [athlete] });
-  // No cache outlives a test: a mutation's default five-minute collection
-  // timer would keep the runner alive after the last one.
+  // A mutation's default five-minute collection timer would keep the runner
+  // alive after the last test, so mutations are collected at once. Queries
+  // are never collected (Infinity schedules no timer), closer to the app's
+  // minutes: a query collected the moment it has no observer can drop a page
+  // still loading, and the history's next page twice failed to land on a
+  // loaded CI worker with queries collected at once. Each test has its own
+  // client, so no cache outlives it.
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false, gcTime: 0 } },
+    defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false, gcTime: 0 } },
   });
   return render(
     <QueryClientProvider client={client}>
