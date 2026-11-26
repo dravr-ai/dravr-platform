@@ -276,8 +276,9 @@ impl PierreAuthHook {
         missing_scope(granted, capabilities)
     }
 
-    /// The step-up scope a `tools/call` in `request` is challenged with: a
-    /// call under a consent grant's ceiling that the ceiling refuses and a
+    /// The step-up scope a `tools/call` in `request` is challenged with.
+    ///
+    /// A call under a consent grant's ceiling that the ceiling refuses and a
     /// one-off question would open ([`tool_access::step_up_cure`]), while the
     /// step-up screen is worded, from a client that can complete a step-up
     /// (its metadata document declares a Host Profile T2, which every

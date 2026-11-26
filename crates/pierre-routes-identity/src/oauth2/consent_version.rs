@@ -74,8 +74,9 @@ const DIGESTED_ACCOUNT: &str = "athlete@example.invalid";
 const DIGESTED_LOOPBACK_REDIRECT: &str = "http://127.0.0.1/callback";
 const DIGESTED_REDIRECT: &str = "https://client.invalid/callback";
 
-/// The text version the screen for `details` is digested under, given the
-/// consent `version`: that version, and for a step-up request
+/// The text version the screen for `details` is digested under.
+///
+/// Given the consent `version`: that version, and for a step-up request
 /// ([`Preset::requires_step_up`](pierre_auth::oauth2_server::authorization_details::Preset::requires_step_up))
 /// the step-up screen's own lines besides ([`STEP_UP_SCREEN_KEYS`]), which
 /// only that screen shows. So a step-up wording change is a new review digest

@@ -65,15 +65,17 @@ const HOST_PROFILE_MISSING: &str =
 pub(super) const STEP_UP_SIGN_IN_STALE: &str =
     "approving health records needs a sign-in on Dravr within the last five minutes";
 
-/// The hosts Dravr has assessed for Host Profile T2 (owl §6.2, basis
-/// `assessed`): a client id and the tier it was assessed at. None is listed:
-/// who assesses a host and signs its entry is ChefFamille's open question
+/// The hosts Dravr has assessed for Host Profile T2 (owl §6.2, `assessed`).
+///
+/// Each is a client id and the tier it was assessed at. None is listed:
+/// who assesses a host and signs its entry is JF's open question
 /// (carnet#1544), and until an entry is listed every step-up stands on the
 /// host's own metadata declaration (`declared_cimd`).
 const ASSESSED_HOSTS: &[(&str, &str)] = &[];
 
-/// The Host Profile a step-up of `client_id` stands on, and its tier: Dravr's
-/// assessment when `assessed` lists the client at T2, else the T2 its
+/// The Host Profile a step-up of `client_id` stands on, and its tier.
+///
+/// Dravr's assessment when `assessed` lists the client at T2, else the T2 its
 /// metadata document `declared`; `None` when neither reaches T2.
 fn host_basis(
     assessed: &[(&str, &str)],

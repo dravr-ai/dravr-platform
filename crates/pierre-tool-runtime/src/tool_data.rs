@@ -17,9 +17,10 @@ use serde_json::Value;
 
 use crate::read_subject::DataClass;
 
-/// The streams one call reads when an argument picks part of what a tool
-/// declares: each case names the argument's value and the streams a call
-/// naming it reads, a subset of the declaration.
+/// The streams one call reads when an argument picks part of what a tool declares.
+///
+/// Each case names the argument's value and the streams a call naming it
+/// reads, a subset of the declaration.
 ///
 /// A call naming no case, or a value no case lists, reads every declared
 /// stream, so a gate never asks less of a call than it may read.
@@ -126,10 +127,11 @@ impl ToolData {
         self
     }
 
-    /// This tool, one of whose calls reads only the streams the case its
-    /// `argument` names lists (`get_health_records`' `kind`): a `labs` read
-    /// reads labs, never the T3 streams beside them (carnet#1544 slice 4b).
-    /// Every case lists a subset of the declared streams.
+    /// This tool, a call of which reads only the streams its `argument`'s case lists.
+    ///
+    /// `get_health_records`' `kind`: a `labs` read reads labs, never the T3
+    /// streams beside them (carnet#1544 slice 4b). Every case lists a subset
+    /// of the declared streams.
     #[must_use]
     pub const fn with_streams_by(
         mut self,

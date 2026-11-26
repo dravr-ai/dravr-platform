@@ -26,9 +26,10 @@ impl OAuth2AuthorizationServer {
         }
     }
 
-    /// The `authorization_details` a step-up scope asks for, read from the
-    /// first source a preset on `resource` reads; `None` for a request
-    /// naming no step-up scope.
+    /// The `authorization_details` a step-up scope asks for.
+    ///
+    /// Read from the first source a preset on `resource` reads; `None` for a
+    /// request naming no step-up scope.
     ///
     /// # Errors
     /// `invalid_request` for a request naming both a step-up scope and its

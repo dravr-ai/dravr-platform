@@ -111,9 +111,10 @@ impl UniversalExecutor {
             .await
     }
 
-    /// The refusal of a call under step-up child `ceiling` past its own
-    /// requests an hour (a one-off question's 30, owl §3.1); `None` under a
-    /// parent, whose hour the auth middleware meters on the token's grant.
+    /// The refusal of a call under step-up child `ceiling` past its requests an hour.
+    ///
+    /// A one-off question's 30 (owl §3.1); `None` under a parent, whose hour
+    /// the auth middleware meters on the token's grant.
     ///
     /// The call is counted before it is admitted, in one increment, so two
     /// calls arriving together cannot both take the last request. The hour
@@ -256,10 +257,11 @@ impl UniversalExecutor {
         output
     }
 
-    /// Consume `ceiling`'s single-use grant for the call about to read under
-    /// it, past every gate (owl §3.1: consumed by the first call that reads
-    /// data under it): the refusal when it is not this call's to read,
-    /// `None` when the call may read, and for every other grant.
+    /// Consume `ceiling`'s single-use grant for the call about to read under it.
+    ///
+    /// Past every gate (owl §3.1: consumed by the first call that reads data
+    /// under it): the refusal when it is not this call's to read, `None` when
+    /// the call may read, and for every other grant.
     ///
     /// The one statement that ends the grant decides, so of two calls
     /// arriving together exactly one reads; the other, and every later one,

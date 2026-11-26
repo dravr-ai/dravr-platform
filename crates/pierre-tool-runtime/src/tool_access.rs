@@ -192,9 +192,11 @@ pub fn withheld(
     decide(declared(tool, registry.tool_data(name).copied()), caller)
 }
 
-/// [`withheld`] for one call with `args`: what it reads is the declaration
-/// narrowed to the streams its arguments pick, so a `labs` read of
-/// `get_health_records` is asked about labs alone (carnet#1544 slice 4b).
+/// [`withheld`] for one call with `args`.
+///
+/// What it reads is the declaration narrowed to the streams its arguments
+/// pick, so a `labs` read of `get_health_records` is asked about labs alone
+/// (carnet#1544 slice 4b).
 #[must_use]
 pub(crate) fn withheld_call(
     registry: &ToolRegistry,
@@ -206,9 +208,10 @@ pub(crate) fn withheld_call(
     decide(declared(tool, registry.call_data(name, args)), caller)
 }
 
-/// The streams a step-up would open for a call to `name` with `args`, which
-/// the consent grant `grant` was minted under with `ceiling` refuses on its
-/// tier or its streams (owl §7.6): `None` when the call is not so refused,
+/// The streams a step-up would open for a call to `name` with `args`.
+///
+/// The call is one the consent grant `grant` was minted under with `ceiling`
+/// refuses on its tier or its streams (owl §7.6): `None` when it is not so refused,
 /// or a step-up cannot cure it (a T3 or raw stream, one a one-off question
 /// never picks).
 ///
