@@ -37,8 +37,9 @@ function httpRequest({ method, requestPath, headers = {}, body }) {
       (res) => {
         // Decode once, after the last chunk: a chunk boundary can fall inside
         // a multi-byte character, and decoding each chunk on its own turns
-        // that character into two U+FFFD (an em dash in a tool description
-        // reached tools.ts as "��" once a response's length moved it there).
+        // that character into U+FFFD replacement characters (an em dash in a
+        // tool description reached tools.ts as "��" once a response's length
+        // moved it there).
         const chunks = [];
         res.on('data', (chunk) => {
           chunks.push(chunk);
