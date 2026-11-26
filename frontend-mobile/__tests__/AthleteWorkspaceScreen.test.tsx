@@ -236,44 +236,13 @@ const room = {
 
 const ATHLETE: CoachRosterAthlete = { user_id: LEA.user_id, name: LEA.display_name, groups: [GROUP], status: 'shared', attention: [] };
 
-// P6DIAG: temporary — the query client of the last render, read by the history test's diagnostic.
-let diagClient: QueryClient | null = null;
-
-/** P6DIAG: one line of the history query's state, for the CI log. */
-function diagHistory(label: string): void {
-  const queries = diagClient?.getQueryCache().findAll({ queryKey: ['chat', 'subject-plan'] }) ?? [];
-  const lines = queries.map((query) => {
-    const data = query.state.data as { pages?: { events: unknown[] }[]; pageParams?: unknown[] } | undefined;
-    return JSON.stringify({
-      key: query.queryKey,
-      status: query.state.status,
-      fetchStatus: query.state.fetchStatus,
-      observers: query.getObserversCount(),
-      pages: data?.pages?.map((page) => page.events.length),
-      pageParams: data?.pageParams,
-      error: query.state.error instanceof Error ? query.state.error.message : query.state.error,
-      dataUpdatedAt: query.state.dataUpdatedAt,
-    });
-  });
-  const calls = mockApi.getSubjectPlanHistory.mock.calls.map((call) => JSON.stringify(call));
-  const events = screen.queryAllByTestId('workspace-history-event').length;
-  const more = screen.queryByTestId('workspace-history-more') !== null;
-  process.stdout.write(`P6DIAG ${label} rows=${events} more=${more} calls=${calls.join(' | ')}\nP6DIAG ${label} queries=${lines.join(' || ')}\n`);
-}
-
 function renderWorkspace(athlete: CoachRosterAthlete = ATHLETE) {
   mockApi.getRoster.mockResolvedValue({ ...ROSTER, athletes: [athlete] });
-  // A mutation's default five-minute collection timer would keep the runner
-  // alive after the last test, so mutations are collected at once. Queries
-  // are never collected (Infinity schedules no timer), closer to the app's
-  // minutes: a query collected the moment it has no observer can drop a page
-  // still loading, and the history's next page twice failed to land on a
-  // loaded CI worker with queries collected at once. Each test has its own
-  // client, so no cache outlives it.
+  // No cache outlives a test: a mutation's default five-minute collection
+  // timer would keep the runner alive after the last one.
   const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false, gcTime: 0 } },
+    defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false, gcTime: 0 } },
   });
-  diagClient = client;
   return render(
     <QueryClientProvider client={client}>
       <AthleteWorkspaceScreen />
@@ -315,10 +284,6 @@ beforeEach(() => {
   mockApi.openAthleteThread.mockResolvedValue(planThread);
   mockApi.openGroupRoom.mockResolvedValue(room);
 });
-
-
-/** The history paging test's budget: three waits of up to five seconds each. */
-const HISTORY_PAGING_TIMEOUT_MS = 20_000;
 
 describe('the tabs', () => {
   it('names the athlete in the header and opens on the plan, beside History, the agent and the group', async () => {
@@ -620,9 +585,6 @@ describe('the history', () => {
     expect(mockApi.getSubjectPlanHistory).toHaveBeenCalledWith(PLAN_ID, { limit: 50 });
   });
 
-  // A full page and the next: 101 lines rendered with the locale's date
-  // formatters, which a loaded CI worker can take past jest's default five
-  // seconds for the whole test (three waits of up to five each below).
   it('reads the older changes a page at a time, before the oldest shown, until a page comes back short', async () => {
     const full: PlanChangeEvent[] = Array.from({ length: 50 }, (_, index) => ({
       kind: 'day_edit',
@@ -638,32 +600,25 @@ describe('the history', () => {
     renderWorkspace();
     await screen.findByTestId('workspace-calendar');
 
-    // Fifty lines, each worded with the locale's date formatters: a render
-    // that large can outlast the default second on a loaded worker, so every
-    // wait below allows five.
     fireEvent.press(screen.getByTestId('workspace-tabs-history'));
-    await waitFor(() => expect(screen.getAllByTestId('workspace-history-event')).toHaveLength(50), { timeout: 5000 });
+    expect(await screen.findAllByTestId('workspace-history-event')).toHaveLength(50);
 
     await act(async () => {
       fireEvent.press(screen.getByTestId('workspace-history-more'));
     });
 
-    diagHistory('after-press');
-    await waitFor(
-      () => expect(mockApi.getSubjectPlanHistory).toHaveBeenLastCalledWith(PLAN_ID, { before: oldest, limit: 50 }),
-      { timeout: 5000 },
-    );
-    diagHistory('after-call');
-    for (const wait of [200, 1000, 3000]) {
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, wait));
-      });
-      diagHistory(`after-${wait}ms`);
-    }
-    await waitFor(() => expect(screen.getAllByTestId('workspace-history-event')).toHaveLength(51), { timeout: 5000 });
+    await waitFor(() => expect(mockApi.getSubjectPlanHistory).toHaveBeenLastCalledWith(PLAN_ID, { before: oldest, limit: 50 }));
+    // The page is in the cache as soon as the read answers; React Query tells
+    // the screen on a timer tick, which a loaded CI worker ran outside every
+    // act() scope, leaving the screen a page behind the cache. One tick inside
+    // act() lets that notification through.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await waitFor(() => expect(screen.getAllByTestId('workspace-history-event')).toHaveLength(51));
     expect(screen.getAllByTestId('workspace-history-event')[50]).toHaveTextContent('Oct 30YouPlan published · Wed, Nov 25');
     expect(screen.queryByTestId('workspace-history-more')).toBeNull();
-  }, HISTORY_PAGING_TIMEOUT_MS);
+  });
 
   it('says when nothing is recorded yet', async () => {
     mockApi.getSubjectPlanHistory.mockResolvedValue({ events: [] });
