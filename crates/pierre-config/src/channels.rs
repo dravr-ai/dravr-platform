@@ -52,6 +52,9 @@ pub struct ChannelCredentials {
     /// seeded with, and the one the persistent menu is published to.
     #[serde(skip)]
     pub messenger_page_access_token: Option<SecretString>,
+    /// `META_MESSENGER_PAGE_ID`: the Facebook Page athletes message, as the
+    /// variable states it — the `m.me/{page}` a Messenger link opens.
+    pub messenger_page_id: Option<String>,
     /// `META_MESSENGER_VERIFY_TOKEN`: what Meta's subscription handshake
     /// presents back; `None` when blank.
     #[serde(skip)]
@@ -81,6 +84,7 @@ impl ChannelCredentials {
                 .map(SecretString::from),
             messenger_app_secret: named("META_MESSENGER_APP_SECRET"),
             messenger_page_access_token: named("META_MESSENGER_PAGE_ACCESS_TOKEN"),
+            messenger_page_id: env::var("META_MESSENGER_PAGE_ID").ok(),
             messenger_verify_token: configured_secret("META_MESSENGER_VERIFY_TOKEN")
                 .map(SecretString::from),
             discord_bot_token: named("DISCORD_BOT_TOKEN"),

@@ -582,6 +582,11 @@ variable "meta_whatsapp_phone_number_id" {
   type        = string
 }
 
+variable "meta_messenger_page_id" {
+  description = "ID of the Facebook Page athletes message on Messenger (META_MESSENGER_PAGE_ID); every Messenger link opens m.me/<this id>. Set in the private var-file."
+  type        = string
+}
+
 variable "backend_sciotte_iam" {
   description = "Enforce Cloud Run IAM on the session-read service (allow_unauthenticated=false + run.invoker for the app SA). Flip to true only after both the session-read service and the API are deployed with identity-token auth — before that, Cloud Run would reject an API that is still sending the old shared bearer."
   type        = bool

@@ -222,7 +222,7 @@ async fn seed_messenger(
         api_secret: None,
         webhook_secret: Some(app_secret),
         verify_token,
-        account_id: None,
+        account_id: channels.messenger_page_id.as_deref(),
         phone_number: None,
         bot_token: None,
         is_active: true,

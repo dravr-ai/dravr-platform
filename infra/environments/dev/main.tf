@@ -607,8 +607,11 @@ module "backend" {
 
       # The phone number ID of the account's WhatsApp number, never a Meta
       # test number: those deliver only to the recipients on their allow-list.
-      # The webhook verify tokens are secrets, in the secret map below.
+      # The Facebook Page athletes message on Messenger, which every Messenger
+      # link opens. The webhook verify tokens are secrets, in the secret map
+      # below.
       META_WHATSAPP_PHONE_NUMBER_ID = var.meta_whatsapp_phone_number_id
+      META_MESSENGER_PAGE_ID        = var.meta_messenger_page_id
 
       # Admin email for messaging channel seeding (resolves tenant on startup)
       ADMIN_EMAIL = var.admin_email

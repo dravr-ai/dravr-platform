@@ -44,6 +44,7 @@ llm_chain = "example_provider=example-model,example_provider#2=example-model"
 
 strava_oauth_seat_cap         = 1
 meta_whatsapp_phone_number_id = "000000000000000"
+meta_messenger_page_id        = "000000000000000"
 
 # RFC 5737 documentation ranges, not real ones.
 marketplace_egress_cidrs = ["198.51.100.0/24", "203.0.113.0/24"]
