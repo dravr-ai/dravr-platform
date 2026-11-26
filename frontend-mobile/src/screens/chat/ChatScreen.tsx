@@ -9,6 +9,7 @@ import {
   View,
   Text,
   TextInput,
+  TouchableOpacity,
   Alert,
   AppState,
   type AppStateStatus,
@@ -30,12 +31,12 @@ import {
   providerStatusLine,
 } from '@pierre/shared-constants';
 import type { TurnSendOptions } from '@pierre/shared-types';
-import { useComposerDraft, writeComposerDraft } from '@pierre/ui-logic';
+import { PLAN_WORKSPACE_KEYS, useComposerDraft, writeComposerDraft } from '@pierre/ui-logic';
 
 import { ChatHeaderTitle, threadTitle } from './ChatHeaderTitle';
 import { ChatPlusFlows } from './ChatPlusFlows';
 import { useChatPlusActions } from './useChatPlusActions';
-import { CHAT_LIST_ROUTE, NEW_CONVERSATION_ID, threadHref } from '../../navigation/routes';
+import { CHAT_LIST_ROUTE, NEW_CONVERSATION_ID, coachWorkspaceHref, threadHref } from '../../navigation/routes';
 import { ChatThread } from './ChatThread';
 import { ConversationInfoSheet } from './ConversationInfoSheet';
 import { ReconnectBanner } from '../../components/ReconnectBanner';
@@ -137,6 +138,12 @@ export function ChatScreen() {
   const usageStatus = useUsageStatus();
   // A coach's plan thread on an athlete: its empty state is theirs, not the athlete's.
   const planSubject = threadSubtitle(conversations.currentConversation);
+  // The athlete the server names on the open room or plan thread to the
+  // room's coach (carnet#1817). Only a coach with roster access has the Home
+  // the workspace sits in, the same reader the Chat list folds the athlete's
+  // row for; the header leads there when a link or a notification opened the
+  // thread itself.
+  const workspaceAthlete = user?.manages_roster === true ? (conversations.currentConversation?.solo_athlete ?? null) : null;
   // Its draft read: the open draft the thread draws, or the start it offers.
   const planDraftRead = usePlanThreadDraft(conversations.currentConversation?.id ?? null, planSubject?.kind === 'subject');
   // The starters the empty thread offers, read while it is the thread on
@@ -462,6 +469,17 @@ export function ChatScreen() {
             ),
             headerRight: () => (
               <HeaderActions>
+                {workspaceAthlete !== null ? (
+                  <TouchableOpacity
+                    className="h-10 justify-center px-2"
+                    onPress={() => router.push(coachWorkspaceHref(workspaceAthlete.user_id))}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityRole="button"
+                    testID="thread-open-workspace"
+                  >
+                    <Text className="text-sm font-medium text-primary">{t(PLAN_WORKSPACE_KEYS.open)}</Text>
+                  </TouchableOpacity>
+                ) : null}
                 <AppearanceToggleButton size={20} color={colors.text.secondary} />
                 <NotificationBellButton size={20} color={colors.text.secondary} />
               </HeaderActions>

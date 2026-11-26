@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The chat tab's landing screen — every conversation the athlete takes part in, one flat Telegram-shaped list
-// ABOUTME: A row opens its thread; the header "+" starts a chat or a group chat; the native search, swipe and long-press act on rows
+// ABOUTME: A row opens its thread — a coach's trifecta athlete row, their workspace; the header "+" starts a chat or a group chat; the native search, swipe and long-press act on rows
 
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
@@ -23,7 +23,7 @@ import { ALERT_TONE, BADGE_TONE, BrandLockup, EmptyState, PromptDialog } from '.
 import { AppearanceToggleButton } from '../../components/ui/AppearanceToggleButton';
 import { HeaderActions } from '../../components/ui/HeaderActions';
 import { NotificationBellButton } from '../../components/notifications/NotificationBellButton';
-import { HOME_ROUTE, threadHref } from '../../navigation/routes';
+import { HOME_ROUTE, coachWorkspaceHref, threadHref } from '../../navigation/routes';
 import { ChatPlusFlows } from '../chat/ChatPlusFlows';
 import { NewChatButton } from '../chat/NewChatButton';
 import { presentMenu } from '../../utils/presentMenu';
@@ -33,7 +33,7 @@ import { useConversationList } from './useConversationList';
 import { useGroupSeatLines } from '../../hooks/coachAccessHooks';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTranslation } from '@pierre/i18n';
-import { describeApiError } from '@pierre/ui-logic';
+import { describeApiError, foldAthleteRows, type GroupsListRow } from '@pierre/ui-logic';
 
 export function ConversationsScreen() {
   const { t } = useTranslation();
@@ -78,13 +78,27 @@ export function ConversationsScreen() {
     }, [refetch]),
   );
 
-  const visibleRows = useMemo(() => filterRows(list.rows, searchQuery), [list.rows, searchQuery]);
-  // A room the viewer owns says where their coach seat stands while it moves (carnet#1521).
   const { user } = useAuth();
+  // A coach with a roster reads each trifecta athlete — their room and the
+  // plan thread on them — as one row that opens their workspace (carnet#1817);
+  // the server names the athlete on those rows to the room's coach alone, so
+  // every other reader's list is one row per conversation.
+  const folds = user?.manages_roster === true;
+  const listRows = useMemo<GroupsListRow[]>(
+    () => (folds ? foldAthleteRows(list.rows, list.conversations) : list.rows.map((row) => ({ ...row, workspace: null }))),
+    [folds, list.rows, list.conversations],
+  );
+  const visibleRows = useMemo(() => filterRows(listRows, searchQuery), [listRows, searchQuery]);
+  // A room the viewer owns says where their coach seat stands while it moves (carnet#1521).
   const seatLines = useGroupSeatLines(visibleRows, user);
 
   const openThread = useCallback(
-    (row: ConversationRowModel) => {
+    (row: GroupsListRow) => {
+      // The workspace reads both threads, each marked read as it is shown.
+      if (row.workspace !== null) {
+        router.push(coachWorkspaceHref(row.workspace.athleteId));
+        return;
+      }
       router.push(threadHref(row.id));
       // Opening a thread reads it. The marker only moves when the row has
       // something unread — advancing it is monotonic server-side anyway.
@@ -173,20 +187,21 @@ export function ConversationsScreen() {
   }, []);
 
   const renderRow = useCallback(
-    ({ item }: { item: ConversationRowModel }) => (
+    ({ item }: { item: GroupsListRow }) => (
       <ConversationRow
         row={item}
         seatLine={seatLines.get(item.id) ?? null}
-        onPress={openThread}
+        onPress={() => openThread(item)}
         onLongPress={openActionMenu}
         onMarkUnread={markUnread}
         onDelete={confirmDelete}
+        opensWorkspace={item.workspace !== null}
       />
     ),
     [openThread, openActionMenu, markUnread, confirmDelete, seatLines],
   );
 
-  const keyExtractor = useCallback((item: ConversationRowModel) => item.id, []);
+  const keyExtractor = useCallback((item: GroupsListRow) => item.id, []);
 
   const errorMessage = actionError ?? (list.isError ? describeApiError(list.error, { t, fallbackKey: 'app.failedLoadConversations' }) : null);
 
