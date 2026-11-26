@@ -128,15 +128,19 @@ impl Desk {
         athlete
     }
 
-    /// Reconcile now, then deliver the brief's wakes over the next day: one
-    /// slot, whatever the hour. A 24-hour window holds exactly one daily
-    /// slot; 25 hours held two whenever the run started in the hour before
-    /// the slot (06:00-07:00 UTC), and the suite failed then on every lane.
+    /// Reconcile now, then deliver the brief's wakes up to one daily slot:
+    /// the first slot reconcile queues lies after `now - window` (a slot
+    /// still inside its delivery window is delivered late) and at most a day
+    /// minus the window ahead, and the slot after it a day later, so running
+    /// to `now + 24h - window` delivers exactly one, whatever the hour. A
+    /// 25-hour run delivered two whenever it started from an hour before
+    /// the slot to the end of its window, and the suite failed then.
     /// Returns what the brief's deliveries did.
     async fn next_morning(&self) -> Vec<WakeOutcome> {
         let now = Timestamp::now();
+        let one_slot = Elapsed::hours(24) - RoutineKind::MorningBrief.window();
         self.fx
-            .run(now, now + Elapsed::hours(24))
+            .run(now, now + one_slot)
             .await
             .into_iter()
             .filter(|(wake, _)| matches!(wake, Wake::Routine { .. }))
