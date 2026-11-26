@@ -17,8 +17,10 @@
 //! The approval records a **child** of the client's live parent grant
 //! ([`ChildGrant`]): the most recent live, non-child grant the athlete gave
 //! the client in the tenant, whatever its scope. None: refused, "step-up
-//! needs a live grant". The code is minted naming the parent, so the
-//! client's token keeps the parent's reach plus the child's.
+//! needs a live grant"; a plain parent, which no ceiling governs, and a
+//! request asking a scope the parent does not hold are refused too. The
+//! code is minted naming the parent, so the client's token keeps the
+//! parent's reach plus the child's.
 //!
 //! The Host Profile basis is the client's CIMD declaration
 //! (`mcp_host_profile`, `declared_cimd`): a client declaring no T2 host,
@@ -48,6 +50,13 @@ use super::{OAuth2Context, OAuth2Routes};
 /// The refusal of a step-up whose client holds no live grant to step up.
 pub(super) const STEP_UP_NEEDS_A_GRANT: &str = "step-up needs a live grant";
 
+/// The refusal of a step-up under a plain grant, which no ceiling governs.
+const STEP_UP_NEEDS_A_PRESET: &str =
+    "step-up needs a live grant to a preset such as training_coach; connect again choosing one";
+
+/// The refusal of a step-up asking a scope the live grant does not hold.
+const STEP_UP_WIDER_SCOPE: &str = "a step-up asks for no scope beyond the live grant's";
+
 /// The refusal of a step-up whose host declares no Host Profile T2.
 const HOST_PROFILE_MISSING: &str =
     "this application declares no Host Profile T2, so it is never given health records";
@@ -65,6 +74,8 @@ pub(super) fn asks_step_up(details: Option<&ResolvedDetails>) -> bool {
 pub(super) struct StepUpApproval<'a> {
     /// The client approved
     pub(super) client_id: &'a str,
+    /// The scope the code carries: never wider than the parent's
+    pub(super) scope: &'a str,
     /// The one-off details approved
     pub(super) details: &'a ResolvedDetails,
     /// The review digest the approval was given under
@@ -142,6 +153,7 @@ impl OAuth2Routes {
     ) -> Result<String, OAuth2Error> {
         let StepUpApproval {
             client_id,
+            scope,
             details,
             review_digest,
             consent_locale,
@@ -166,6 +178,17 @@ impl OAuth2Routes {
             .filter(|grant| grant.client_id == client_id && grant.is_live_at(now))
             .max_by_key(|grant| grant.granted_at)
             .ok_or_else(|| OAuth2Error::access_denied(STEP_UP_NEEDS_A_GRANT))?;
+        // A plain grant runs under no ceiling, so a child of it would open
+        // nothing: a step-up stands on a preset grant.
+        if parent.authorization_details.is_none() {
+            return Err(OAuth2Error::access_denied(STEP_UP_NEEDS_A_PRESET));
+        }
+        // The code carries the request's scope, and its tokens name the
+        // parent: a step-up never widens the parent's scope.
+        let held: Vec<&str> = parent.scope.split_whitespace().collect();
+        if !scope.split_whitespace().all(|asked| held.contains(&asked)) {
+            return Err(OAuth2Error::access_denied(STEP_UP_WIDER_SCOPE));
+        }
         let host_tier = context
             .oauth2_server
             .client_host_profile(client_id)

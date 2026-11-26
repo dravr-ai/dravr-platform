@@ -165,7 +165,7 @@ pub(crate) const LIST_EXPIRED_UNENDED_CLIENT_GRANTS_SQL: &str = r"
             )
             ";
 
-/// Un-revoked grants, live or past their expiry, with no `issue` event,
+/// Un-revoked parent grants, live or past their expiry, with no `issue` event,
 /// oldest first, at most `$1`: the grants given before receipts were, which
 /// the baseline gives an `issue`. A grant the expire pass already ended
 /// before the baseline reached it holds an `expire` and no `issue`, and is
@@ -174,7 +174,7 @@ pub(crate) const LIST_UNRECEIPTED_LIVE_CLIENT_GRANTS_SQL: &str = r"
             SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
                    consent_version, consent_locale, authorization_details, expires_at
             FROM oauth_client_grants g
-            WHERE g.revoked_at IS NULL
+            WHERE g.revoked_at IS NULL AND g.parent_grant_id IS NULL
               AND NOT EXISTS (
                 SELECT 1 FROM oauth_grant_events e
                 WHERE e.tenant_id = g.tenant_id AND e.user_id = g.user_id
@@ -259,10 +259,12 @@ pub(crate) const INSERT_GRANT_EVENT_SQL: &str = r"
             ON CONFLICT DO NOTHING
             ";
 
-/// The latest `issue` event of grant `$3`, held by `$2` in `$1`.
+/// The latest `issue` event of grant `$3`, held by `$2` in `$1`: a step-up
+/// child's is its `step_up`.
 pub(crate) const LATEST_ISSUE_RECEIPT_SQL: &str = r"
             SELECT id FROM oauth_grant_events
-            WHERE tenant_id = $1 AND user_id = $2 AND client_grant_id = $3 AND event = 'issue'
+            WHERE tenant_id = $1 AND user_id = $2 AND client_grant_id = $3
+              AND event IN ('issue', 'step_up')
             ORDER BY at DESC, id DESC
             LIMIT 1
             ";

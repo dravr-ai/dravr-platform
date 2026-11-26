@@ -304,8 +304,15 @@ mod tests {
 
     use super::*;
 
+    use crate::ai_scope::under_grant;
     use crate::ai_scope::{ai_read, filter_activities, serve_over, tallied};
     use crate::provider_terms::WHOOP;
+    use dravr_tronc::dates::Zone;
+    use pierre_auth::oauth2_server::authorization_details::{
+        parse_authorization_details, preset_defaults, resolve, Preset, ResolvedDetails,
+    };
+    use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
+    use pierre_core::models::{HostProfileBasis, StepUpTerms, OWNER_VERIFIED_ACR};
 
     /// A sensitive read as a refusing reader asks it: [`tier_readable`],
     /// tallied once when refused, and answered as the read refusal a
@@ -814,6 +821,90 @@ mod tests {
             outer,
             Some(BTreeSet::from(["oura".to_owned(), "whoop".to_owned()])),
             "the outer call's result carries both reads, so it withholds what either withheld"
+        );
+    }
+
+    /// The ceiling of a training-coach parent with a one-off child holding
+    /// `labs.summary` at T2, stepped up `owner_verified` by a host declaring
+    /// T2 at consent, for a call whose own claim declares `request_tier`.
+    fn labs_child(request_tier: Option<Tier>) -> GrantCeiling {
+        const MCP: &str = "https://mcp.example.test/mcp";
+        let approved =
+            |details: &ResolvedDetails| details.freeze(Timestamp::now(), &Zone::utc()).unwrap().0;
+        let parent = GrantCeiling::of_details(
+            "parent",
+            &approved(&preset_defaults(Preset::TrainingCoach, MCP)),
+            &Zone::utc(),
+        )
+        .unwrap();
+        let raw = serde_json::json!([
+            {"type": "https://pdpp.dev/data-access", "source": {"id": MCP},
+             "selection_preset": "one_off_question", "streams": [{"name": "labs.summary"}]},
+            {"type": "https://dravr.ai/pdpp/health-profile/v0/health-constraints",
+             "applies_to": 0, "critical": true, "max_tier": "T2"},
+        ]);
+        let one_off = resolve(
+            &parse_authorization_details(&raw.to_string()).unwrap(),
+            &[MCP],
+        )
+        .unwrap();
+        let child = GrantCeiling::of_details("child", &approved(&one_off), &Zone::utc()).unwrap();
+        parent
+            .with_child(
+                child,
+                StepUpTerms {
+                    parent_grant_id: "parent".to_owned(),
+                    auth_time: Timestamp::now(),
+                    acr: OWNER_VERIFIED_ACR.to_owned(),
+                    host_profile_basis: HostProfileBasis::DeclaredCimd,
+                    host_profile_tier: "T2".to_owned(),
+                },
+            )
+            .with_request_host_tier(request_tier)
+            .for_streams(&[Stream::Labs])
+    }
+
+    /// Over MCP, under `ceiling` and consents `withheld`: whether labs (T2,
+    /// named and unnamed) and notes (T3) are readable.
+    async fn outside_reads(
+        ceiling: GrantCeiling,
+        withheld: BTreeSet<String>,
+    ) -> (bool, bool, bool) {
+        under_grant(
+            Some(ceiling),
+            serve_over(
+                Transport::McpHttp,
+                with_ai_consent(
+                    withheld,
+                    ai_read(async {
+                        (
+                            tier_readable_in(Tier::T2, Stream::Labs),
+                            tier_readable(Tier::T2),
+                            tier_readable_in(Tier::T3, Stream::RestrictedNotes),
+                        )
+                    }),
+                ),
+            ),
+        )
+        .await
+        .0
+    }
+
+    #[tokio::test]
+    async fn an_opened_child_reads_its_t2_stream_outside_only_under_sensitive_t2() {
+        let (labs, unnamed, notes) =
+            outside_reads(labs_child(Some(Tier::T2)), BTreeSet::new()).await;
+        assert!(labs, "bug: an opened child's labs stayed shut");
+        assert!(!unnamed, "bug: a T2 read naming no stream opened outside");
+        assert!(!notes, "bug: T3 reached an outside client");
+
+        let (labs, _, _) = outside_reads(labs_child(Some(Tier::T2)), t2_withheld()).await;
+        assert!(!labs, "bug: labs opened without the athlete's sensitive_t2");
+
+        let (labs, _, _) = outside_reads(labs_child(None), BTreeSet::new()).await;
+        assert!(
+            !labs,
+            "bug: labs opened on a call declaring no Host Profile"
         );
     }
 }

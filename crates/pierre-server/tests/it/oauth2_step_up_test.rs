@@ -550,3 +550,26 @@ async fn a_single_use_child_is_consumed_once_with_one_terminal_receipt() {
         "bug: a consumed child stayed live"
     );
 }
+
+#[tokio::test]
+async fn a_step_up_under_a_plain_grant_is_refused() {
+    let world = world().await;
+    let client = register(&world).await;
+    let plain = approve_with(&world, &client, &[], None).await;
+    assert_eq!(plain.status(), 303, "{}", plain.body_text());
+    light_step_up(&world);
+    declare_t2_host(&world, &client).await;
+    let digest = step_up_digest(&world, &client).await;
+    let refused = approve_one_off(&world, &client, &hosted_sign_in(&world), &digest).await;
+    assert_eq!(
+        param(&refused, "error"),
+        "access_denied",
+        "bug: a child of a plain grant, which no ceiling governs, was stored"
+    );
+    assert!(
+        param(&refused, "error_description").contains("preset"),
+        "bug: {:?}",
+        refused.header("location")
+    );
+    assert!(children(&world).await.is_empty(), "bug: a child was stored");
+}

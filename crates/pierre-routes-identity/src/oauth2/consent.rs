@@ -219,6 +219,7 @@ impl OAuth2Routes {
         {
             let approval = StepUpApproval {
                 client_id: &request.client_id,
+                scope: &scope,
                 details: one_off,
                 review_digest,
                 consent_locale: text.lang().to_owned(),
