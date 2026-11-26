@@ -216,6 +216,11 @@ export default function UserSettings({
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
   // The id goes to the API; the card's display name is what the user reads.
   const [providerToDisconnect, setProviderToDisconnect] = useState<{ id: string; name: string } | null>(null);
+  // One disconnect at a time: a slow DELETE left Confirm clickable, and one
+  // athlete's taps sent 23 of them in 26 s (carnet#1837). The ref refuses a
+  // second call before React re-renders; the state drives the dialog.
+  const disconnectInFlight = useRef(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [providerMessage, setProviderMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   // The account sign-in on screen: its target, whether the card still needs
   // its exposure notice accepted, whether it is the one-time history copy, and
@@ -632,6 +637,9 @@ export default function UserSettings({
 
   // Disconnect a fitness provider
   const handleDisconnectProvider = async (providerId: string, displayName: string) => {
+    if (disconnectInFlight.current) return;
+    disconnectInFlight.current = true;
+    setIsDisconnecting(true);
     try {
       setProviderMessage(null);
       // Intervals.icu has its own disconnect endpoint, which withdraws an
@@ -650,6 +658,9 @@ export default function UserSettings({
         type: 'error',
         text: describeApiError(error, { t, fallbackKey: 'settingsErr.disconnectFailed' }),
       });
+    } finally {
+      disconnectInFlight.current = false;
+      setIsDisconnecting(false);
     }
   };
 
@@ -1738,6 +1749,7 @@ Authorization: Bearer <your-token-here>`}
         message={t('app.confirmDisconnect', { provider: providerToDisconnect?.name ?? '' })}
         confirmLabel={t('app.disconnect')}
         variant="danger"
+        isLoading={isDisconnecting}
       />
 
       <ProviderNoticeDialog

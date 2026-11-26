@@ -2101,6 +2101,52 @@ describe('UserSettings Component', () => {
     });
   });
 
+  describe('Data Providers — one disconnect at a time', () => {
+    // carnet#1837: a 26 s DELETE left Confirm clickable and one athlete's taps
+    // sent 23 disconnects in 26 s.
+    it('sends one disconnect however many times Confirm is clicked while it runs', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [
+          {
+            provider: 'sciotte_garmin',
+            display_name: 'Garmin',
+            requires_oauth: false,
+            connected: true,
+            needs_reauth: false,
+            capabilities: ['activities'],
+            consent_required: false,
+          },
+        ],
+      });
+      let finish: () => void = () => {};
+      disconnectProvider.mockImplementationOnce(
+        () => new Promise<void>((resolve) => { finish = resolve; }),
+      );
+      const user = userEvent.setup();
+
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      await user.click(await screen.findByTestId('provider-disconnect-sciotte_garmin'));
+      const dialog = await screen.findByRole('dialog');
+      const confirm = within(dialog).getByRole('button', { name: 'Disconnect' });
+      for (let i = 0; i < 5; i += 1) {
+        await user.click(confirm);
+      }
+
+      expect(disconnectProvider).toHaveBeenCalledTimes(1);
+      expect(confirm).toBeDisabled();
+      expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeDisabled();
+
+      await act(async () => {
+        finish();
+      });
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(disconnectProvider).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('API Tokens Tab', () => {
     it('should switch to tokens tab', async () => {
       const user = userEvent.setup();

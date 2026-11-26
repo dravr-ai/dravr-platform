@@ -355,6 +355,7 @@ impl Relay {
             caller.tenant_id,
             LoginStep::Continuation {
                 provider: &self.provider,
+                attempt: Some(&caller.attempt),
                 flow_id: &self.flow_id,
             },
             caller.link.as_ref(),

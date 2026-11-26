@@ -57,6 +57,8 @@ use tracing::info;
 
 #[cfg(feature = "protocol-rest")]
 use crate::services::archive_import::ops::OFFERED_SOURCES;
+#[cfg(all(feature = "protocol-rest", feature = "provider-sciotte"))]
+use crate::services::sign_in_follow_up::sign_in_follow_ups;
 
 /// Centralized resource container for dependency injection.
 ///
@@ -263,6 +265,12 @@ impl ServerContext {
             group_service: None,
             #[cfg(feature = "provider-sciotte")]
             nonce_store: self.auth.nonce_store.clone(),
+            #[cfg(feature = "provider-sciotte")]
+            sign_in_follow_ups: Some(sign_in_follow_ups(
+                &self.common.turn_runner,
+                &self.common.cache,
+                &self.common.repos,
+            )),
         }
     }
 

@@ -1,7 +1,7 @@
 // ABOUTME: The Connections pane — one row per fitness data provider, its brand glyph, one status word and one ink action, then the connected-apps section
 // ABOUTME: Runs each row's connect plan (authorization, sign-in, Intervals.icu), the history sign-in and the disconnect confirm; a long-press opens the menu
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -93,6 +93,12 @@ export function ConnectionsScreen() {
   } = useProviderCards({ enabled: isAuthenticated, refetchOnMount: 'always' });
   const error = loadError ? describeApiError(loadError, { t, fallbackKey: 'app.failedLoadConnections' }) : null;
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
+  // The provider whose disconnect is in flight. One at a time: a slow DELETE
+  // left the action pressable, and one athlete's taps sent 23 disconnects in
+  // 26 s (carnet#1837). The ref refuses a second press before React
+  // re-renders; the state draws the row as in progress.
+  const disconnectInFlight = useRef(false);
+  const [disconnectingProvider, setDisconnectingProvider] = useState<string | null>(null);
   // The provider sign-in window: the account, the notice its row owes, and
   // whether it copies the history of a row already connected.
   const signIn = useSignInModal();
@@ -283,6 +289,7 @@ export function ConnectionsScreen() {
   };
 
   const handleDisconnect = async (providerId: string, providerName: string) => {
+    if (disconnectInFlight.current) return;
     Alert.alert(
       t('app.disconnectProvider', { provider: providerName }),
       t('app.confirmDisconnect', { provider: providerName }),
@@ -292,6 +299,9 @@ export function ConnectionsScreen() {
           text: t('app.disconnect'),
           style: 'destructive',
           onPress: async () => {
+            if (disconnectInFlight.current) return;
+            disconnectInFlight.current = true;
+            setDisconnectingProvider(providerId);
             try {
               if (providerId === 'intervals_icu') {
                 await oauthApi.disconnectIntervalsIcu();
@@ -303,6 +313,9 @@ export function ConnectionsScreen() {
             } catch (error) {
               console.error('Failed to disconnect provider:', error);
               Alert.alert(t('common.error'), t('app.failedDisconnect', { provider: providerName }));
+            } finally {
+              disconnectInFlight.current = false;
+              setDisconnectingProvider(null);
             }
           },
         },
@@ -410,14 +423,21 @@ export function ConnectionsScreen() {
     const needsReauth = status === 'reconnect';
     const owesAuthorization = status === 'authorize_owed';
     const isConnecting = connectingProvider === id;
+    const isDisconnecting = disconnectingProvider === id;
     const canConnect = provider.requires_oauth || id.startsWith('sciotte') || id === 'intervals_icu';
-    const hasMenu = isConnected && canConnect;
+    // No menu while this row's disconnect runs: its rows would start another.
+    const hasMenu = isConnected && canConnect && !isDisconnecting;
 
     // The row's one action as an ink word; the spinner takes its place while
-    // the connect flow this row started is in flight.
+    // the connect or disconnect this row started is in flight.
     const action = (label: string, onPress: () => void, hint?: string) =>
-      isConnecting ? (
-        <ActivityIndicator size="small" color={colors.tokens.primary} testID={`provider-action-${id}`} />
+      isConnecting || isDisconnecting ? (
+        <ActivityIndicator
+          size="small"
+          color={colors.tokens.primary}
+          accessibilityState={{ busy: true, disabled: true }}
+          testID={`provider-action-${id}`}
+        />
       ) : (
         <Text
           className="text-md font-medium text-primary"

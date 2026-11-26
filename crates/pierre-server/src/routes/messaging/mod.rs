@@ -51,9 +51,32 @@ use std::sync::Arc;
 
 use crate::mcp::resources::ServerContext;
 use crate::routes::routines;
+#[cfg(all(feature = "protocol-rest", feature = "provider-sciotte"))]
+use crate::routes::sign_in_follow_up;
 use axum::Extension;
 use pierre_core::errors::AppError;
 use pierre_services::channel_adapters::ChannelAdapterFactory;
+
+/// Mount the refused sign-in's follow-up (carnet#1837).
+///
+/// Cloud Tasks delivers it ten minutes after a provider refused a sign-in,
+/// where turns run on Cloud Tasks.
+///
+/// The path is `sign_in_follow_up::FOLLOW_UP_PATH`, spelled out: the route
+/// scan reads only literal paths.
+#[cfg(all(feature = "protocol-rest", feature = "provider-sciotte"))]
+fn mount_sign_in_follow_up(router: Router<Arc<ServerContext>>) -> Router<Arc<ServerContext>> {
+    router.route(
+        "/internal/sign-in/follow-up",
+        post(sign_in_follow_up::deliver),
+    )
+}
+
+/// A build without session sign-ins refuses none, so it mounts no follow-up.
+#[cfg(not(all(feature = "protocol-rest", feature = "provider-sciotte")))]
+fn mount_sign_in_follow_up(router: Router<Arc<ServerContext>>) -> Router<Arc<ServerContext>> {
+    router
+}
 
 /// Messaging gateway routes handler
 #[derive(Debug)]
@@ -88,14 +111,15 @@ impl MessagingRoutes {
         // So does the routine engine's wake (ADR-036): where turns run
         // in-process, the process is its own waker.
         let router = if resources.common.turn_runner.cloud_tasks().is_some() {
-            router
+            let router = router
                 .route(
                     "/internal/turns/{turn_id}/run",
                     post(internal_turns::run_turn),
                 )
                 // `routine_waker::WAKE_PATH`, spelled out: the route scan
                 // reads only literal paths.
-                .route("/internal/routines/wake", post(routines::wake))
+                .route("/internal/routines/wake", post(routines::wake));
+            mount_sign_in_follow_up(router)
         } else {
             router
         };

@@ -118,6 +118,14 @@ pub mod messaging;
 /// The routine engine's wake and admin reconcile (ADR-036)
 #[cfg(feature = "client-messaging")]
 pub mod routines;
+/// The follow-up Cloud Tasks delivers ten minutes after a refused provider
+/// sign-in (carnet#1837)
+#[cfg(all(
+    feature = "client-messaging",
+    feature = "protocol-rest",
+    feature = "provider-sciotte"
+))]
+pub mod sign_in_follow_up;
 
 /// GitHub webhook handler for the contremaitre source repository (push events).
 pub mod contremaitre_webhook;

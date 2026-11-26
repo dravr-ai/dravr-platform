@@ -347,6 +347,18 @@ pub enum CacheResource {
         /// The attempt id the window minted, letters, digits and hyphens.
         attempt_id: String,
     },
+    /// The provider refusals one athlete's sign-ins met in the current
+    /// window, a [`CacheProvider::count_in_window`] counter keyed under the
+    /// user-facing provider (`garmin` for both of its backends). Shared so
+    /// every pod counts into one window. TTL is the window the caller counts
+    /// in, so `recommended_ttl` returns 0 for it.
+    SignInRefusals,
+    /// The last provider refusal of one athlete's sign-in, keyed under the
+    /// user-facing provider: when it happened and what the ops log said of
+    /// it, masked. The follow-up queued for that refusal reads it to know it
+    /// is still the latest. TTL is caller-specified, so `recommended_ttl`
+    /// returns 0 for it.
+    SignInLastRefusal,
     /// The drawable line of a route found by route discovery or composed from
     /// such routes, addressed by its `route_ref` (24 h TTL). Shared rather than
     /// process-local because the line is stored by the tool call that found
@@ -375,9 +387,11 @@ impl CacheResource {
             Self::ProviderRoster => Duration::from_secs(TTL_PROVIDER_ROSTER_SECS),
             Self::DiscoveredRoute { .. } => Duration::from_secs(TTL_DISCOVERED_ROUTE_SECS),
             Self::LastKnownAthleteProfile => Duration::from_secs(TTL_LAST_KNOWN_SECS),
-            Self::SciotteLoginFlow | Self::SciotteLoginCancel { .. } | Self::Custom(_) => {
-                Duration::ZERO
-            }
+            Self::SciotteLoginFlow
+            | Self::SciotteLoginCancel { .. }
+            | Self::SignInRefusals
+            | Self::SignInLastRefusal
+            | Self::Custom(_) => Duration::ZERO,
         }
     }
 }
@@ -408,6 +422,8 @@ impl fmt::Display for CacheResource {
             Self::SciotteLoginCancel { attempt_id } => {
                 write!(f, "sciotte_login_cancel:{attempt_id}")
             }
+            Self::SignInRefusals => write!(f, "sign_in_refusals"),
+            Self::SignInLastRefusal => write!(f, "sign_in_last_refusal"),
             Self::DiscoveredRoute { route_ref } => write!(f, "discovered_route:{route_ref}"),
             Self::LastKnownAthleteProfile => write!(f, "last_known_athlete_profile"),
             Self::Custom(ref key) => write!(f, "custom:{key}"),
