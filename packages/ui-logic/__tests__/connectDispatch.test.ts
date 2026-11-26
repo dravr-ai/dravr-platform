@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Pins the step a provider card's connect takes on every surface, Intervals.icu's three paths above all
-// ABOUTME: An authorized Intervals.icu card goes straight to its authorization; only a key or a new link opens the dialog
+// ABOUTME: An authorized Intervals.icu card goes straight to its authorization; only a key or a new link opens the dialog, which says what a key replaces
 
 import { describe, expect, it, vi } from 'vitest';
 import type { ConnectPlanCard } from '@pierre/shared-constants';
@@ -27,10 +27,29 @@ const handlers = (): Required<ConnectHandlers> => ({
 describe('connectAction for Intervals.icu', () => {
   it("opens the key form alone on path 'key'", () => {
     const keyLinked = card({ connected: true, connection_type: 'manual' });
-    expect(connectAction(keyLinked)).toEqual({ kind: 'intervals_dialog', offersAuthorize: false });
+    expect(connectAction(keyLinked)).toEqual({
+      kind: 'intervals_dialog',
+      dialog: { offersAuthorize: false, replacesAuthorization: false },
+    });
     expect(connectAction(card({ own_app_required: true }))).toEqual({
       kind: 'intervals_dialog',
-      offersAuthorize: false,
+      dialog: { offersAuthorize: false, replacesAuthorization: false },
+    });
+  });
+
+  it('says the key form replaces an authorization only over an authorized card', () => {
+    // With no client to authorize under, an authorized card reconnects
+    // through the key form, and the key it links replaces the authorization.
+    const authorizedNoClient = card({ connected: true, connection_type: 'oauth', own_app_required: true });
+    expect(connectAction(authorizedNoClient)).toEqual({
+      kind: 'intervals_dialog',
+      dialog: { offersAuthorize: false, replacesAuthorization: true },
+    });
+    // A card read through a group coach's account has no authorization of
+    // the athlete's own to replace.
+    expect(connectAction(card({ connected: true, connection_type: 'delegated' }))).toEqual({
+      kind: 'intervals_dialog',
+      dialog: { offersAuthorize: true, replacesAuthorization: false },
     });
   });
 
@@ -40,7 +59,10 @@ describe('connectAction for Intervals.icu', () => {
   });
 
   it("opens the dialog led by the authorization on path 'choose'", () => {
-    expect(connectAction(card({}))).toEqual({ kind: 'intervals_dialog', offersAuthorize: true });
+    expect(connectAction(card({}))).toEqual({
+      kind: 'intervals_dialog',
+      dialog: { offersAuthorize: true, replacesAuthorization: false },
+    });
   });
 });
 
@@ -74,12 +96,12 @@ describe('followConnectPlan', () => {
 
     const choose = handlers();
     followConnectPlan(card({}), choose);
-    expect(choose.intervalsDialog).toHaveBeenCalledExactlyOnceWith(true);
+    expect(choose.intervalsDialog).toHaveBeenCalledExactlyOnceWith({ offersAuthorize: true, replacesAuthorization: false });
     expect(choose.authorize).not.toHaveBeenCalled();
 
     const key = handlers();
     followConnectPlan(card({ connected: true, connection_type: 'manual' }), key);
-    expect(key.intervalsDialog).toHaveBeenCalledExactlyOnceWith(false);
+    expect(key.intervalsDialog).toHaveBeenCalledExactlyOnceWith({ offersAuthorize: false, replacesAuthorization: false });
 
     const signIn = handlers();
     followConnectPlan(card({ provider: 'sciotte_garmin', recommended_backend: 'mirror' }), signIn);

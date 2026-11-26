@@ -67,6 +67,7 @@ import {
   cardStatus,
   connectConsentsFor,
   connectPlan,
+  intervalsKeyReplacesAuthorization,
   oauthFallbackTarget,
   noticeRequired,
   providerName,
@@ -86,7 +87,13 @@ import PreferredCalendarSettings from './settings/PreferredCalendarSettings';
 import IntervalsIcuLinkModal from './IntervalsIcuLinkModal';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { ownAppDevPortal } from '@pierre/domain-utils';
-import { describeApiError, followConnectPlan, MIN_PASSWORD_LENGTH, isPasswordLongEnough } from '@pierre/ui-logic';
+import {
+  describeApiError,
+  followConnectPlan,
+  MIN_PASSWORD_LENGTH,
+  isPasswordLongEnough,
+  type IntervalsDialog,
+} from '@pierre/ui-logic';
 
 // Garmin's offered consents, asked before its connect: loaded on the first
 // connect that offers them, so the dialog stays out of the entry bundle.
@@ -236,9 +243,10 @@ export default function UserSettings({
   // The card whose offered consents (Garmin's AI use and workout transfer)
   // are on screen before its connect starts; Continue starts it either way.
   const [consentCard, setConsentCard] = useState<ProviderStatus | null>(null);
-  // The Intervals.icu dialog, and whether it leads with the authorization
-  // (`intervalsConnectPath` answered `'choose'`) or is the key form alone.
-  const [intervalsModal, setIntervalsModal] = useState<{ offersAuthorize: boolean } | null>(null);
+  // The Intervals.icu dialog: whether it leads with the authorization
+  // (`intervalsConnectPath` answered `'choose'`) or is the key form alone, and
+  // whether a key linked there replaces the athlete's authorization.
+  const [intervalsModal, setIntervalsModal] = useState<IntervalsDialog | null>(null);
 
   // Connected OAuth apps (external MCP clients) revoke-confirmation target
   const [appToRevoke, setAppToRevoke] = useState<OAuthGrant | null>(null);
@@ -503,8 +511,10 @@ export default function UserSettings({
       // Intervals.icu's dialog: a key-linked card (a coach's: only the key
       // reads the athletes they coach) reopens the key form, and a new link
       // offers the authorization first with the key form beside it. A card
-      // the athlete authorized goes straight back through `authorize`.
-      intervalsDialog: (offersAuthorize) => setIntervalsModal({ offersAuthorize }),
+      // the athlete authorized goes straight back through `authorize` while
+      // the server offers it, and through the key form, which says the key
+      // replaces the authorization, when it does not.
+      intervalsDialog: setIntervalsModal,
       authorize: (name) => {
         if (name === provider.provider) startOAuthConnect(provider, consents);
         else handleConnectProvider(name, false, consents);
@@ -869,7 +879,12 @@ export default function UserSettings({
                         if (target) setSignIn({ target, consentRequired: provider.consent_required, historyMode: true, fallback: null });
                       }}
                       onDisconnect={() => setProviderToDisconnect({ id: provider.provider, name: provider.display_name })}
-                      onLinkKey={() => setIntervalsModal({ offersAuthorize: false })}
+                      onLinkKey={() =>
+                        setIntervalsModal({
+                          offersAuthorize: false,
+                          replacesAuthorization: intervalsKeyReplacesAuthorization(provider),
+                        })
+                      }
                       onWithdrawAiConsent={() => handleWithdrawAiConsent(provider.provider, provider.display_name)}
                     />
                   ))}
@@ -1792,6 +1807,7 @@ Authorization: Bearer <your-token-here>`}
               }
             : undefined
         }
+        replacesAuthorization={intervalsModal?.replacesAuthorization ?? false}
         onConnected={() => {
           refetchProviders();
           setIntervalsModal(null);

@@ -139,7 +139,13 @@ export {
 } from './archiveImport';
 
 export { cardAwaitingHistory, cardExportSource } from './cardHistory';
-export { connectAction, followConnectPlan, type ConnectAction, type ConnectHandlers } from './connectDispatch';
+export {
+  connectAction,
+  followConnectPlan,
+  type ConnectAction,
+  type ConnectHandlers,
+  type IntervalsDialog,
+} from './connectDispatch';
 export { coachAddDraft, coachMention } from './coachDraft';
 export { orderTeam, teamInOrder, type OrderedTeam } from './team';
 

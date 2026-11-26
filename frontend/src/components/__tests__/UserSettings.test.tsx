@@ -1078,6 +1078,59 @@ describe('UserSettings Component', () => {
       expect(screen.queryByTestId('own-app-setup')).not.toBeInTheDocument();
       expect(screen.queryByTestId('intervals-authorize')).not.toBeInTheDocument();
     });
+
+    // carnet#1828: a key linked over an authorization replaces it, and the
+    // server revokes the grant at Intervals.icu, so the key form says so
+    // first, and says it only then.
+    const REPLACES =
+      'Linking a key replaces the authorization you gave Dravr on Intervals.icu, and Dravr revokes it.';
+
+    it('says the key replaces the authorization when the key form opens from an authorized card', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [intervalsCard({ connected: true, connection_type: 'oauth' })],
+      });
+      const user = userEvent.setup();
+      await act(async () => {
+        renderUserSettings({ initialTab: 'connections', hideTabNav: true });
+      });
+
+      await user.click(await screen.findByTestId('provider-link-key-intervals_icu'));
+
+      expect(await screen.findByLabelText('Athlete ID')).toBeInTheDocument();
+      expect(screen.getByRole('note')).toHaveTextContent(REPLACES);
+    });
+
+    it('says it when an authorized card with no client reconnects through the key form', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [
+          intervalsCard({ connected: true, needs_reauth: true, connection_type: 'oauth', own_app_required: true }),
+        ],
+      });
+      await openConnect();
+
+      expect(await screen.findByLabelText('Athlete ID')).toBeInTheDocument();
+      expect(screen.getByText(REPLACES)).toBeInTheDocument();
+    });
+
+    it('says nothing of an authorization on a key-linked reconnect', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [intervalsCard({ connected: true, needs_reauth: true, connection_type: 'manual' })],
+      });
+      await openConnect();
+
+      expect(await screen.findByLabelText('Athlete ID')).toBeInTheDocument();
+      expect(screen.queryByTestId('intervals-key-replaces-authorization')).not.toBeInTheDocument();
+    });
+
+    it('says nothing of an authorization on a new link, through the choice to its key form', async () => {
+      getProvidersStatus.mockResolvedValue({ providers: [intervalsCard()] });
+      const user = await openConnect();
+
+      await user.click(await screen.findByTestId('intervals-use-api-key'));
+
+      expect(await screen.findByLabelText('Athlete ID')).toBeInTheDocument();
+      expect(screen.queryByTestId('intervals-key-replaces-authorization')).not.toBeInTheDocument();
+    });
   });
 
   describe('Data Providers — Strava OAuth-first with sign-in fallback', () => {

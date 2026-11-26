@@ -1,5 +1,5 @@
 // ABOUTME: Unit tests for the mobile IntervalsIcuLinkModal — the authorization when offered, and athlete id + API key link submission
-// ABOUTME: Covers the authorize-first choice and the coach's key path, trimmed payload + onConnected on success, and errors
+// ABOUTME: Covers the authorize-first choice, the coach's key path and what it replaces, trimmed payload + onConnected on success, and errors
 
 import React from 'react';
 import { render, waitFor, fireEvent } from '@testing-library/react-native';
@@ -22,7 +22,7 @@ describe('IntervalsIcuLinkModal', () => {
 
   it('says where Intervals.icu shows the athlete id and API key, as one catalogue sentence', () => {
     const { getByText } = render(
-      <IntervalsIcuLinkModal visible onClose={jest.fn()} onConnected={jest.fn()} />
+      <IntervalsIcuLinkModal visible replacesAuthorization={false} onClose={jest.fn()} onConnected={jest.fn()} />
     );
     // The whole instruction is one key the hosted connect form reads too; it
     // names the section Intervals.icu's Settings page actually shows.
@@ -41,7 +41,7 @@ describe('IntervalsIcuLinkModal', () => {
     });
     const onConnected = jest.fn();
     const { getByTestId, getByText } = render(
-      <IntervalsIcuLinkModal visible onClose={jest.fn()} onConnected={onConnected} />
+      <IntervalsIcuLinkModal visible replacesAuthorization={false} onClose={jest.fn()} onConnected={onConnected} />
     );
 
     fireEvent.changeText(getByTestId('intervals-athlete-id'), '  i123456  ');
@@ -67,7 +67,7 @@ describe('IntervalsIcuLinkModal', () => {
     });
     const onConnected = jest.fn();
     const { getByTestId } = render(
-      <IntervalsIcuLinkModal visible onClose={jest.fn()} onConnected={onConnected} />
+      <IntervalsIcuLinkModal visible replacesAuthorization={false} onClose={jest.fn()} onConnected={onConnected} />
     );
 
     fireEvent.changeText(getByTestId('intervals-athlete-id'), 'i123456');
@@ -91,7 +91,7 @@ describe('IntervalsIcuLinkModal — the authorization offered', () => {
   it('leads with the authorization, and starting it links nothing itself', () => {
     const onAuthorize = jest.fn();
     const { getByTestId, queryByTestId } = render(
-      <IntervalsIcuLinkModal visible onClose={jest.fn()} onConnected={jest.fn()} onAuthorize={onAuthorize} />
+      <IntervalsIcuLinkModal visible replacesAuthorization={false} onClose={jest.fn()} onConnected={jest.fn()} onAuthorize={onAuthorize} />
     );
 
     expect(getByTestId('intervals-authorize-choice')).toBeTruthy();
@@ -111,7 +111,7 @@ describe('IntervalsIcuLinkModal — the authorization offered', () => {
     });
     const onAuthorize = jest.fn();
     const { getByTestId, queryByTestId } = render(
-      <IntervalsIcuLinkModal visible onClose={jest.fn()} onConnected={jest.fn()} onAuthorize={onAuthorize} />
+      <IntervalsIcuLinkModal visible replacesAuthorization={false} onClose={jest.fn()} onConnected={jest.fn()} onAuthorize={onAuthorize} />
     );
 
     fireEvent.press(getByTestId('intervals-use-api-key'));
@@ -132,7 +132,7 @@ describe('IntervalsIcuLinkModal — the authorization offered', () => {
 
   it('offers no way back to an authorization it was not given', () => {
     const { getByTestId, queryByTestId } = render(
-      <IntervalsIcuLinkModal visible onClose={jest.fn()} onConnected={jest.fn()} />
+      <IntervalsIcuLinkModal visible replacesAuthorization={false} onClose={jest.fn()} onConnected={jest.fn()} />
     );
 
     expect(getByTestId('intervals-athlete-id')).toBeTruthy();
@@ -165,7 +165,7 @@ describe('IntervalsIcuLinkModal — the authorization offered', () => {
       });
     (userApi.clearImportTombstone as jest.Mock).mockResolvedValue({ cleared: [], user_status: 'active' });
     const { getByTestId, getByText, findByText } = render(
-      <IntervalsIcuLinkModal visible onClose={jest.fn()} onConnected={jest.fn()} />
+      <IntervalsIcuLinkModal visible replacesAuthorization={false} onClose={jest.fn()} onConnected={jest.fn()} />
     );
 
     fireEvent.changeText(getByTestId('intervals-athlete-id'), 'i123456');
@@ -184,5 +184,49 @@ describe('IntervalsIcuLinkModal — the authorization offered', () => {
     expect(userApi.clearImportTombstone).toHaveBeenCalledWith('tomb-9');
     expect(oauthApi.linkIntervalsIcu).toHaveBeenCalledTimes(2);
     expect(oauthApi.linkIntervalsIcu).toHaveBeenLastCalledWith({ athlete_id: 'i123456', api_key: 'secret-key' });
+  });
+});
+
+// carnet#1828: a key linked over an authorized link replaces it, and the
+// server revokes the grant at Intervals.icu, so the form says so first.
+describe('IntervalsIcuLinkModal — a key over an authorization', () => {
+  const REPLACES =
+    'Linking a key replaces the authorization you gave Dravr on Intervals.icu, and Dravr revokes it.';
+
+  it('says that a key linked there replaces the authorization and revokes it', () => {
+    const { getByTestId, getByText } = render(
+      <IntervalsIcuLinkModal visible replacesAuthorization onClose={jest.fn()} onConnected={jest.fn()} />
+    );
+
+    expect(getByText(REPLACES)).toBeTruthy();
+    expect(getByTestId('intervals-key-replaces-authorization')).toBeTruthy();
+    expect(getByTestId('intervals-submit')).toBeTruthy();
+  });
+
+  it('says nothing of an authorization when the key replaces none', () => {
+    const { getByTestId, queryByTestId } = render(
+      <IntervalsIcuLinkModal visible replacesAuthorization={false} onClose={jest.fn()} onConnected={jest.fn()} />
+    );
+
+    expect(getByTestId('intervals-athlete-id')).toBeTruthy();
+    expect(queryByTestId('intervals-key-replaces-authorization')).toBeNull();
+  });
+
+  it('says nothing of one on a new link, through the choice or its key form', () => {
+    const { getByTestId, queryByTestId } = render(
+      <IntervalsIcuLinkModal
+        visible
+        replacesAuthorization={false}
+        onClose={jest.fn()}
+        onConnected={jest.fn()}
+        onAuthorize={jest.fn()}
+      />
+    );
+
+    expect(getByTestId('intervals-authorize-choice')).toBeTruthy();
+    expect(queryByTestId('intervals-key-replaces-authorization')).toBeNull();
+    fireEvent.press(getByTestId('intervals-use-api-key'));
+    expect(getByTestId('intervals-athlete-id')).toBeTruthy();
+    expect(queryByTestId('intervals-key-replaces-authorization')).toBeNull();
   });
 });

@@ -47,6 +47,7 @@ import {
   connectPlan,
   credentialFallbackOnRefusal,
   delegationRefusalKey,
+  intervalsKeyReplacesAuthorization,
   noticeRequired,
   refusalReloadsCards,
   refusalReturnsToCard,
@@ -72,6 +73,7 @@ import {
   followConnectPlan,
   importTombstoneFromReturn,
   refusalReason,
+  type IntervalsDialog,
 } from '@pierre/ui-logic';
 import { ownAppDevPortal } from '@pierre/domain-utils';
 
@@ -97,13 +99,11 @@ export function ConnectionsScreen() {
   // The row whose connect came back refused, and why when the server named
   // it: it says so, and a tap on that line starts its connect again.
   const [refusedCard, setRefusedCard] = useState<RefusedConnect | null>(null);
-  // The Intervals.icu sheet for the row that opened it, and whether it leads
-  // with the authorization (`intervalsConnectPath` answered `'choose'`) or is
-  // the key form alone.
-  const [intervalsSheet, setIntervalsSheet] = useState<{
-    displayName: string;
-    offersAuthorize: boolean;
-  } | null>(null);
+  // The Intervals.icu sheet for the row that opened it: whether it leads with
+  // the authorization (`intervalsConnectPath` answered `'choose'`) or is the
+  // key form alone, and whether a key linked there replaces the athlete's
+  // authorization.
+  const [intervalsSheet, setIntervalsSheet] = useState<({ displayName: string } & IntervalsDialog) | null>(null);
   const [showCredentials, setShowCredentials] = useState(false);
   // A provider no app of the server's can authorize for this athlete
   // (`own_app_required`) asks for an app of their own first: the
@@ -385,8 +385,7 @@ export function ConnectionsScreen() {
   const continueConnect = (provider: ExtendedProviderStatus, tosConsent: boolean, consents?: readonly string[]) => {
     followConnectPlan(provider, {
       signIn: (target) => signIn.open(target, provider, false, true, consents),
-      intervalsDialog: (offersAuthorize) =>
-        setIntervalsSheet({ displayName: provider.display_name, offersAuthorize }),
+      intervalsDialog: (dialog) => setIntervalsSheet({ displayName: provider.display_name, ...dialog }),
       authorize: (name) => {
         const devPortalUrl = ownAppDevPortal(provider.provider);
         if (provider.own_app_required && devPortalUrl) {
@@ -590,7 +589,13 @@ export function ConnectionsScreen() {
               // disconnect first (carnet#1820).
               <Text
                 className="text-sm font-medium text-primary self-start"
-                onPress={() => setIntervalsSheet({ displayName: provider.display_name, offersAuthorize: false })}
+                onPress={() =>
+                  setIntervalsSheet({
+                    displayName: provider.display_name,
+                    offersAuthorize: false,
+                    replacesAuthorization: intervalsKeyReplacesAuthorization(provider),
+                  })
+                }
                 accessibilityRole="button"
                 testID={`provider-link-key-${id}`}
               >
@@ -714,6 +719,7 @@ export function ConnectionsScreen() {
               }
             : undefined
         }
+        replacesAuthorization={intervalsSheet?.replacesAuthorization ?? false}
         onConnected={() => {
           void loadConnectionStatus();
           setIntervalsSheet(null);

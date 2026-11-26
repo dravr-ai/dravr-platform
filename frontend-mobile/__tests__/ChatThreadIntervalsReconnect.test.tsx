@@ -26,7 +26,8 @@ jest.mock('../src/screens/chat/useChatVoiceInput', () => ({ useChatVoiceInput: (
 jest.mock('../src/components/ProviderNotice', () => ({ ProviderNoticeSheet: () => null }));
 jest.mock('../src/components/OAuthCredentialsSection', () => ({ OAuthCredentialsSection: () => null }));
 // The Intervals.icu sheet, reduced to which path it opened on, the control
-// that starts the authorization when it was handed one, and a finished link.
+// that starts the authorization when it was handed one, a finished link, and
+// whether it was told a key linked there replaces the athlete's authorization.
 jest.mock('../src/components/IntervalsIcuLinkModal', () => {
   const React = require('react');
   const { Text } = require('react-native');
@@ -35,10 +36,12 @@ jest.mock('../src/components/IntervalsIcuLinkModal', () => {
       visible,
       onAuthorize,
       onConnected,
+      replacesAuthorization,
     }: {
       visible: boolean;
       onAuthorize?: () => void;
       onConnected: () => void;
+      replacesAuthorization: boolean;
     }) =>
       visible
         ? React.createElement(
@@ -50,6 +53,7 @@ jest.mock('../src/components/IntervalsIcuLinkModal', () => {
               onAuthorize ? 'intervals-sheet:authorize' : 'intervals-sheet:key',
             ),
             React.createElement(Text, { onPress: onConnected }, 'intervals-linked'),
+            replacesAuthorization ? React.createElement(Text, null, 'intervals-sheet:replaces-authorization') : null,
           )
         : null,
   };
@@ -123,6 +127,8 @@ describe('ChatThread — reconnecting Intervals.icu', () => {
     fireEvent.press(screen.getByText('reply:reconnect-intervals'));
 
     expect(screen.getByText('intervals-sheet:key')).toBeTruthy();
+    // A key-linked card has no authorization for the key to replace.
+    expect(screen.queryByText('intervals-sheet:replaces-authorization')).toBeNull();
     expect(status.handleConnectProvider).not.toHaveBeenCalled();
     expect(status.setNeedsCredentialsProvider).not.toHaveBeenCalled();
   });
@@ -156,6 +162,8 @@ describe('ChatThread — reconnecting Intervals.icu', () => {
     fireEvent.press(screen.getByText('reply:reconnect-intervals'));
 
     expect(screen.getByText('intervals-sheet:key')).toBeTruthy();
+    // The key it links replaces the athlete's authorization (carnet#1828).
+    expect(screen.getByText('intervals-sheet:replaces-authorization')).toBeTruthy();
     expect(status.setNeedsCredentialsProvider).not.toHaveBeenCalled();
     expect(status.handleConnectProvider).not.toHaveBeenCalled();
   });

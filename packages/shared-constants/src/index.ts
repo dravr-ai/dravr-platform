@@ -209,6 +209,7 @@ export {
   cardHistoryState,
   connectConsentsFor,
   intervalsConnectPath,
+  intervalsKeyReplacesAuthorization,
   loginIdentifierField,
   noticeRequired,
   providerScopeLabelKey,

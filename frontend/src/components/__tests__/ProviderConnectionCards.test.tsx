@@ -80,11 +80,24 @@ vi.mock('../SciotteLoginModal', () => ({
     ) : null,
 }));
 // The Intervals.icu dialog, reduced to whether it was handed the
-// authorization and the control that starts it.
+// authorization, the control that starts it, and whether it was told a key
+// linked there replaces the athlete's authorization.
 vi.mock('../IntervalsIcuLinkModal', () => ({
-  default: ({ isOpen, onAuthorize }: { isOpen: boolean; onAuthorize?: () => void }) =>
+  default: ({
+    isOpen,
+    onAuthorize,
+    replacesAuthorization,
+  }: {
+    isOpen: boolean;
+    onAuthorize?: () => void;
+    replacesAuthorization: boolean;
+  }) =>
     isOpen ? (
-      <div data-testid="intervals-modal" data-offers-authorize={String(onAuthorize !== undefined)}>
+      <div
+        data-testid="intervals-modal"
+        data-offers-authorize={String(onAuthorize !== undefined)}
+        data-replaces-authorization={String(replacesAuthorization)}
+      >
         {onAuthorize && (
           <button type="button" onClick={onAuthorize}>
             intervals-authorize
@@ -795,6 +808,7 @@ describe('ProviderConnectionCards — Intervals.icu', () => {
     await user.click(await screen.findByLabelText('Connect to Intervals.icu'));
 
     expect(await screen.findByTestId('intervals-modal')).toHaveAttribute('data-offers-authorize', 'true');
+    expect(screen.getByTestId('intervals-modal')).toHaveAttribute('data-replaces-authorization', 'false');
     expect(assign).not.toHaveBeenCalled();
 
     await user.click(screen.getByText('intervals-authorize'));
@@ -839,7 +853,23 @@ describe('ProviderConnectionCards — Intervals.icu', () => {
     await user.click(await screen.findByText(i18n.t('app.reconnect')));
 
     expect(await screen.findByTestId('intervals-modal')).toHaveAttribute('data-offers-authorize', 'false');
+    expect(screen.getByTestId('intervals-modal')).toHaveAttribute('data-replaces-authorization', 'false');
     expect(assign).not.toHaveBeenCalled();
+  });
+
+  // carnet#1828: a key linked over an authorization replaces it, and the
+  // server revokes the grant at Intervals.icu, so the key form says so.
+  it('tells the key form it replaces the authorization when an authorized card reconnects through it', async () => {
+    getProvidersStatus.mockResolvedValue({
+      providers: [{ ...intervalsCard(true), connected: true, connection_type: 'oauth', needs_reauth: true }],
+    });
+    const user = userEvent.setup();
+    renderCards();
+
+    await user.click(await screen.findByText(i18n.t('app.reconnect')));
+
+    expect(await screen.findByTestId('intervals-modal')).toHaveAttribute('data-offers-authorize', 'false');
+    expect(screen.getByTestId('intervals-modal')).toHaveAttribute('data-replaces-authorization', 'true');
   });
 
   // carnet#1820: a coach's Intervals.icu key reads their athletes and an
@@ -853,6 +883,7 @@ describe('ProviderConnectionCards — Intervals.icu', () => {
     await user.click(await screen.findByLabelText('Connect to Intervals.icu'));
 
     expect(await screen.findByTestId('intervals-modal')).toHaveAttribute('data-offers-authorize', 'false');
+    expect(screen.getByTestId('intervals-modal')).toHaveAttribute('data-replaces-authorization', 'false');
     expect(assign).not.toHaveBeenCalled();
   });
 
@@ -866,6 +897,8 @@ describe('ProviderConnectionCards — Intervals.icu', () => {
     await user.click(await screen.findByText(i18n.t('shell.intervalsCoachKeyAction')));
 
     expect(await screen.findByTestId('intervals-modal')).toHaveAttribute('data-offers-authorize', 'false');
+    // The key replaces the coach's authorization (carnet#1828).
+    expect(screen.getByTestId('intervals-modal')).toHaveAttribute('data-replaces-authorization', 'true');
     expect(assign).not.toHaveBeenCalled();
   });
 

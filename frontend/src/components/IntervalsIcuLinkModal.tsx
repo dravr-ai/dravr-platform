@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Link modal for the Intervals.icu provider — the authorization when offered, and the athlete id + API key form
+// ABOUTME: Link modal for the Intervals.icu provider — the authorization when offered, and the athlete id + API key form, which says when a key replaces the authorization
 // ABOUTME: The key form is the coach's path (only a key reads coached athletes); the server validates the pair live before storing
 
 import { useEffect, useId, useState } from 'react';
@@ -26,6 +26,12 @@ interface IntervalsIcuLinkModalProps {
    * under, or a key-linked card reconnecting.
    */
   onAuthorize?: () => void;
+  /**
+   * The card is linked by the athlete's authorization, which a key linked
+   * here replaces and the server revokes at Intervals.icu: the key form says
+   * so before it is submitted (`intervalsKeyReplacesAuthorization`).
+   */
+  replacesAuthorization: boolean;
 }
 
 /** What the modal shows: the choice of the two paths, or the key form. */
@@ -38,6 +44,7 @@ export default function IntervalsIcuLinkModal({
   onClose,
   onConnected,
   onAuthorize,
+  replacesAuthorization,
 }: IntervalsIcuLinkModalProps) {
   const { t } = useTranslation();
   const online = useOnlineStatus();
@@ -199,6 +206,15 @@ export default function IntervalsIcuLinkModal({
                 >
                   {t('common.back')}
                 </button>
+              )}
+              {replacesAuthorization && (
+                <p
+                  role="note"
+                  className={`${ALERT_TONE.warning.tone} text-sm leading-snug border rounded-lg px-3 py-2`}
+                  data-testid="intervals-key-replaces-authorization"
+                >
+                  {t('shell.intervalsKeyReplacesAuthorization')}
+                </p>
               )}
               <p className="text-sm text-on-surface-variant leading-snug">
                 {t('shell.intervalsCredentialsHelp')}

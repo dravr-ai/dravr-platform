@@ -28,6 +28,7 @@ import {
 import {
   followConnectPlan,
   privateSendFailureText,
+  type IntervalsDialog,
   type PlanThreadDraft,
   type UsePrivateLaneResult,
 } from '@pierre/ui-logic';
@@ -193,10 +194,11 @@ export function ChatThread({
   // before the connect starts (Garmin's AI use and workout transfer,
   // carnet#1157 / carnet#1390).
   const [consentFor, setConsentFor] = useState<string | null>(null);
-  // The Intervals.icu sheet a reconnect opened, and whether it leads with the
+  // The Intervals.icu sheet a reconnect opened: whether it leads with the
   // authorization (`intervalsConnectPath` answered `'choose'`) or is the key
-  // form alone.
-  const [intervalsSheet, setIntervalsSheet] = useState<{ offersAuthorize: boolean } | null>(null);
+  // form alone, and whether a key linked there replaces the athlete's
+  // authorization.
+  const [intervalsSheet, setIntervalsSheet] = useState<IntervalsDialog | null>(null);
   // What the coach's day editor is open on — an entry to edit, or a date to
   // add a session to — or `null` while it is closed.
   const [editing, setEditing] = useState<SessionEditorTarget | null>(null);
@@ -462,7 +464,7 @@ export function ChatThread({
     // The consents the sheet returned travel with whichever step it takes.
     followConnectPlan(card, {
       signIn: (target) => openSignIn(target, card, false, true, consents),
-      intervalsDialog: (offersAuthorize) => setIntervalsSheet({ offersAuthorize }),
+      intervalsDialog: setIntervalsSheet,
       authorize,
       none: () => authorize(card.provider),
     });
@@ -724,6 +726,7 @@ export function ChatThread({
               }
             : undefined
         }
+        replacesAuthorization={intervalsSheet?.replacesAuthorization ?? false}
         onConnected={() => {
           setIntervalsSheet(null);
           void providerStatus.refreshAfterLink();
