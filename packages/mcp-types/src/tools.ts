@@ -1698,18 +1698,24 @@ export interface SaveTrainingPlanParams {
 
 
 /**
- * Save one plan session as a template in the caller's own Intervals.icu workout library: a coach's own, whoever's plan it is. Fuelling is left out; saving it again writes nothing.
+ * Save one session as a template in the caller's own Intervals.icu workout library (a coach's own, whoever's plan): a plan session by date, a prescription_id, or a session you design, no plan needed. Fuelling is left out; saving it again writes nothing.
  */
 export interface SaveWorkoutToLibraryParams {
 
-  /** Session date, YYYY-MM-DD. */
-  date: string;
+  /** Plan session date, YYYY-MM-DD. */
+  date?: string;
 
   /** Library folder; default Dravr. */
   folder?: string;
 
-  /** Nth session that day; default 1. */
-  session?: number;
+  /** Nth plan session that day; default 1. */
+  nth?: number;
+
+  /** Id of a workout prescribe_workout prescribed. */
+  prescription_id?: string;
+
+  /** A session you design, in prescribe_workout's session shape: name, sport, intensity_distribution, structure (steps: label, duration_seconds, target_zone, repeat). */
+  session?: Record<string, any>;
 }
 
 

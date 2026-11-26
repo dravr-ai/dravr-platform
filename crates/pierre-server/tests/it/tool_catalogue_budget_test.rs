@@ -122,7 +122,13 @@ use crate::common;
 /// a two-line description, `date`, `session` and `folder` of a few words each,
 /// and the plan tools' shared `athlete` text. The first draft was cut by 163
 /// bytes before measuring; the tool is about 790 bytes, the catalogue 99,614.
-const CATALOGUE_BUDGET_BYTES: usize = 99_650;
+///
+/// 2026-11-26: 99,650 → 100,050 for `save_workout_to_library`'s two new
+/// sources (carnet#1835): `prescription_id`, and `session`, a session the
+/// caller designs. `session` names `prescribe_workout`'s inline shape in one
+/// line instead of copying its nested schema, which would have cost ~2.7 KB.
+/// The tool grows by 364 bytes on the wire.
+const CATALOGUE_BUDGET_BYTES: usize = 100_050;
 
 /// Bytes the loaded core may take when the rest is deferred: what the model
 /// holds in context on a provider with tool search before it loads anything.

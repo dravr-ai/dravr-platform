@@ -33801,25 +33801,30 @@
     },
     {
       "name": "save_workout_to_library",
-      "description": "Save one plan session as a template in the caller's own Intervals.icu workout library: a coach's own, whoever's plan it is. Fuelling is left out; saving it again writes nothing.",
+      "description": "Save one session as a template in the caller's own Intervals.icu workout library (a coach's own, whoever's plan): a plan session by date, a prescription_id, or a session you design, no plan needed. Fuelling is left out; saving it again writes nothing.",
       "inputSchema": {
         "properties": {
           "date": {
-            "description": "Session date, YYYY-MM-DD.",
+            "description": "Plan session date, YYYY-MM-DD.",
             "type": "string"
           },
           "folder": {
             "description": "Library folder; default Dravr.",
             "type": "string"
           },
-          "session": {
-            "description": "Nth session that day; default 1.",
+          "nth": {
+            "description": "Nth plan session that day; default 1.",
             "type": "integer"
+          },
+          "prescription_id": {
+            "description": "Id of a workout prescribe_workout prescribed.",
+            "type": "string"
+          },
+          "session": {
+            "description": "A session you design, in prescribe_workout's session shape: name, sport, intensity_distribution, structure (steps: label, duration_seconds, target_zone, repeat).",
+            "type": "object"
           }
         },
-        "required": [
-          "date"
-        ],
         "type": "object"
       },
       "outputSchema": {
@@ -33832,15 +33837,18 @@
                 "type": "boolean"
               },
               "athlete": {
-                "description": "The coached athlete whose plan it came from; absent for the caller's\nown plan.",
+                "description": "The coached athlete whose plan or calendar it came from; absent for\nthe caller's own, and for a session designed in the call.",
                 "type": [
                   "string",
                   "null"
                 ]
               },
               "date": {
-                "description": "The plan date the session was taken from.",
-                "type": "string"
+                "description": "The date of the plan session or prescription it was taken from;\nabsent for a session designed in the call.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "folder": {
                 "description": "The library folder holding it.",
@@ -33851,7 +33859,7 @@
                 "type": "boolean"
               },
               "name": {
-                "description": "The template's name: the plan session's title.",
+                "description": "The template's name: the session's title.",
                 "type": "string"
               },
               "provider": {
@@ -33869,8 +33877,7 @@
               "folder_created",
               "already_saved",
               "workout_id",
-              "name",
-              "date"
+              "name"
             ],
             "type": "object"
           },
@@ -33919,7 +33926,7 @@
             "type": "object"
           }
         ],
-        "description": "What a save did: where the template is, and which plan session it is.",
+        "description": "What a save did: where the template is, and which session it is.",
         "title": "SavedLibraryWorkout",
         "type": "object"
       },
@@ -33932,7 +33939,7 @@
       },
       "_meta": {
         "ai.dravr.vault/tool": {
-          "def_hash": "sha256:293eeecce49eab3d87a46ec184a4e13d441590276f64735017c98d3c8cc29754"
+          "def_hash": "sha256:77f63727394b4fac4810fcb647c9f8e01dc5d168fcc549f7066e2a4a85092f63"
         }
       }
     },
