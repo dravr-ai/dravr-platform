@@ -22,25 +22,27 @@
 //! code is minted naming the parent, so the client's token keeps the
 //! parent's reach plus the child's.
 //!
-//! The Host Profile basis is the client's CIMD declaration
-//! (`mcp_host_profile`, `declared_cimd`): a client declaring no T2 host,
-//! and every client registered by DCR, is refused. The per-request claim is
+//! The Host Profile basis ([`step_up_basis`]) is the client's metadata
+//! declaration (`mcp_host_profile`, `declared_cimd`) or, for a client
+//! registered by DCR with no metadata document, its own T2 claim `/mcp` saw
+//! on the call that asked for the step-up (`declared_request`, JF
+//! 2026-11-26); a client with neither is refused. The per-request claim is
 //! checked on every call besides (the stricter carrier wins), and the
-//! athlete's `sensitive_t2` switch at every read.
+//! athlete's `sensitive_t2` switch at every read. T3 never opens.
 
 use axum::http::{header, HeaderMap};
 use axum::response::{IntoResponse, Redirect, Response};
 use dravr_tronc::dates::{Timestamp, Zone};
 use pierre_auth::oauth2_server::authorization_details::ResolvedDetails;
-use pierre_auth::oauth2_server::cimd::host_profile_tier;
 use pierre_auth::oauth2_server::endpoints::CheckedAuthorization;
+use pierre_auth::oauth2_server::host_profile::step_up_basis;
 use pierre_auth::oauth2_server::models::{AuthorizeRequest, OAuth2Error};
 use pierre_auth::oauth2_server::step_up_scope;
 use pierre_auth::security::cookies::auth_cookie_name_on;
 use pierre_core::errors::AppError;
 use pierre_core::models::{
-    ChildGrant, GrantApproval, HostProfileBasis, OAuthClientGrant, StepUpTerms, OWNER_VERIFIED_ACR,
-    STEP_UP_MAX_AGE_SECS,
+    ChildGrant, GrantApproval, HostProfileBasis, HostProfileClaim, OAuthClientGrant, StepUpTerms,
+    OWNER_VERIFIED_ACR, STEP_UP_MAX_AGE_SECS,
 };
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -58,7 +60,8 @@ const STEP_UP_NEEDS_A_PRESET: &str =
 /// The refusal of a step-up asking a scope the live grant does not hold.
 const STEP_UP_WIDER_SCOPE: &str = "a step-up asks for no scope beyond the live grant's";
 
-/// The refusal of a step-up whose host declares no Host Profile T2.
+/// The refusal of a step-up whose host declares no Host Profile T2: neither
+/// in a metadata document nor, lately, on its own requests.
 const HOST_PROFILE_MISSING: &str =
     "this application declares no Host Profile T2, so it is never given health records";
 
@@ -71,17 +74,20 @@ pub(super) const STEP_UP_SIGN_IN_STALE: &str =
 /// Each is a client id and the tier it was assessed at. None is listed:
 /// who assesses a host and signs its entry is JF's open question
 /// (carnet#1544), and until an entry is listed every step-up stands on the
-/// host's own metadata declaration (`declared_cimd`).
+/// host's own declaration (`declared_cimd` or `declared_request`).
 const ASSESSED_HOSTS: &[(&str, &str)] = &[];
 
-/// The Host Profile a step-up of `client_id` stands on, and its tier.
-///
-/// Dravr's assessment when `assessed` lists the client at T2, else the T2 its
-/// metadata document `declared`; `None` when neither reaches T2.
+/// The Host Profile a step-up of `client_id` stands on at `now`, and its
+/// tier: Dravr's assessment when `assessed` lists the client at T2, else the
+/// T2 its metadata document `declared`, else, for a client with no metadata
+/// document, its own per-request `claim` ([`step_up_basis`]); `None` when
+/// none reaches T2.
 fn host_basis(
     assessed: &[(&str, &str)],
     client_id: &str,
     declared: Option<&str>,
+    claim: Option<&HostProfileClaim>,
+    now: Timestamp,
 ) -> Option<(HostProfileBasis, String)> {
     let t2 = |tier: &str| tier.eq_ignore_ascii_case("T2");
     if let Some((_, tier)) = assessed
@@ -90,10 +96,7 @@ fn host_basis(
     {
         return Some((HostProfileBasis::Assessed, tier.to_ascii_uppercase()));
     }
-    declared
-        .and_then(host_profile_tier)
-        .filter(|tier| t2(tier))
-        .map(|tier| (HostProfileBasis::DeclaredCimd, tier.to_ascii_uppercase()))
+    step_up_basis(client_id, declared, claim, now)
 }
 
 /// Whether `details` ask for a step-up: a one-off question.
@@ -107,8 +110,9 @@ pub(super) struct StepUpApproval<'req> {
     pub(super) client_id: &'req str,
     /// The scope the code carries: never wider than the parent's
     pub(super) scope: &'req str,
-    /// The one-off details approved
-    pub(super) details: &'req ResolvedDetails,
+    /// The one-off details approved: the request's, narrowed to the
+    /// streams the athlete left ticked
+    pub(super) details: ResolvedDetails,
     /// The review digest the approval was given under
     pub(super) review_digest: String,
     /// The language of the consent text it was given under
@@ -224,14 +228,25 @@ impl OAuth2Routes {
             .client_host_profile(client_id)
             .await
             .map_err(failed)?;
-        let (host_basis, host_tier) = host_basis(ASSESSED_HOSTS, client_id, declared.as_deref())
-            .ok_or_else(|| {
-                warn!(
-                    client_id,
-                    "step-up refused: the client declares no Host Profile T2"
-                );
-                OAuth2Error::access_denied(HOST_PROFILE_MISSING)
-            })?;
+        let claim = context
+            .host_profile_claims
+            .host_profile_claim(tenant_id, &user, &parent.id)
+            .await
+            .map_err(failed)?;
+        let (host_basis, host_tier) = host_basis(
+            ASSESSED_HOSTS,
+            client_id,
+            declared.as_deref(),
+            claim.as_ref(),
+            now,
+        )
+        .ok_or_else(|| {
+            warn!(
+                client_id,
+                "step-up refused: the client declares no Host Profile T2"
+            );
+            OAuth2Error::access_denied(HOST_PROFILE_MISSING)
+        })?;
         let (frozen, expires_at) = details.freeze(now, &zone).map_err(failed)?;
         let child = ChildGrant {
             grant: OAuthClientGrant {
@@ -281,32 +296,57 @@ mod tests {
 
     #[test]
     fn an_assessment_outranks_the_declaration_and_nothing_below_t2_stands() {
+        let now = Timestamp::now();
         let declared_t2 = r#"{"tier_max":"t2","version":1}"#;
         let declared_t1 = r#"{"tier_max":"T1","version":1}"#;
         let assessed = [("https://assessed.example/cimd", "T2")];
+        let basis = |assessed: &[(&str, &str)], client: &str, declared, claim| {
+            host_basis(assessed, client, declared, claim, now)
+        };
         assert_eq!(
-            host_basis(
+            basis(
                 &assessed,
                 "https://assessed.example/cimd",
-                Some(declared_t1)
+                Some(declared_t1),
+                None
             ),
             Some((HostProfileBasis::Assessed, "T2".to_owned())),
             "bug: an assessed host"
         );
         assert_eq!(
-            host_basis(&assessed, "https://other.example/cimd", Some(declared_t2)),
+            basis(
+                &assessed,
+                "https://other.example/cimd",
+                Some(declared_t2),
+                None
+            ),
             Some((HostProfileBasis::DeclaredCimd, "T2".to_owned())),
             "bug: a declared host"
         );
         assert_eq!(
-            host_basis(&assessed, "https://other.example/cimd", Some(declared_t1)),
+            basis(
+                &assessed,
+                "https://other.example/cimd",
+                Some(declared_t1),
+                None
+            ),
             None,
             "bug: a T1 host stood for a step-up"
         );
         assert_eq!(
-            host_basis(ASSESSED_HOSTS, "https://other.example/cimd", None),
+            basis(ASSESSED_HOSTS, "https://other.example/cimd", None, None),
             None,
             "bug: a host declaring nothing stood for a step-up"
+        );
+        let claimed = HostProfileClaim {
+            client_grant_id: "parent".to_owned(),
+            tier_max: "T2".to_owned(),
+            seen_at: now,
+        };
+        assert_eq!(
+            basis(ASSESSED_HOSTS, "dcr-client", None, Some(&claimed)),
+            Some((HostProfileBasis::DeclaredRequest, "T2".to_owned())),
+            "bug: a DCR client's own T2 claim did not stand"
         );
     }
 

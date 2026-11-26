@@ -91,6 +91,18 @@ const FIELD_DIGEST: &str = "review_digest";
 /// each carry theirs as `standing_policy_<preset>`.
 const FIELD_STANDING_POLICY: &str = "standing_policy";
 
+/// The step-up screen's checkbox of one stream: this prefix, then the
+/// stream's owl name (`step_up_stream:labs.summary`). Each its own field: a
+/// form posts as one value per name.
+const FIELD_STEP_UP_STREAM: &str = "step_up_stream:";
+
+/// The refusal of a step-up approved with every stream unticked.
+const STEP_UP_NO_STREAM: &str = "choose at least one kind of data to share";
+
+/// The refusal of a step-up approval ticking a stream the request did not
+/// ask for.
+const STEP_UP_STREAM_NOT_ASKED: &str = "the approval names data the application did not ask for";
+
 /// Whether `user`'s consent screen may offer the standing-policy box: never
 /// to an admin, whose access is chosen per connection. The screen and the
 /// submit both read it, so a box the screen never offered is never read from
@@ -452,8 +464,9 @@ fn requested_html(
 
 /// The step-up screen's details: a one-off look that includes health
 /// records (T2), read once and then ended, how long it may wait to be used,
-/// the host's own unverifiable declaration, and the client's purpose in its
-/// own words. No standing-policy box: a policy never renews a T2 grant (owl
+/// the host's own unverifiable declaration, the streams asked for, each a
+/// checkbox ticked by default ([`ticked_details`]), and the client's purpose
+/// in its own words. No standing-policy box: a policy never renews a T2 grant (owl
 /// §6.4).
 fn step_up_html(
     details: &ResolvedDetails,
@@ -484,7 +497,15 @@ fn step_up_html(
                 .map(|key| text.html(key, &[]))
                 .filter(|label| !label.is_empty())
                 .unwrap_or_else(|| escape_html_attribute(stream.name()));
-            write!(html, "<li>{label}</li>").ok();
+            // Ticked by default: the owner unticks what the client should
+            // not read (owl §3.1), and the approval refuses none ticked.
+            write!(
+                html,
+                r#"<li><label><input type="checkbox" name="{}{}" value="on" checked> {label}</label></li>"#,
+                FIELD_STEP_UP_STREAM,
+                escape_html_attribute(stream.name()),
+            )
+            .ok();
         }
         html.push_str("</ul>");
     }
@@ -503,6 +524,80 @@ fn step_up_html(
     html.push_str(&hidden(FIELD_DIGEST, review_digest));
     html.push_str("</div>");
     html
+}
+
+/// The one-off question the athlete approved on the step-up screen:
+/// `details`, the request's, narrowed to the streams `form` left ticked.
+///
+/// # Errors
+/// `access_denied` when none is ticked, or one the request did not ask for
+/// is: nothing is dropped or added silently.
+pub(super) fn ticked_details(
+    form: &HashMap<String, String>,
+    details: &ResolvedDetails,
+) -> Result<ResolvedDetails, OAuth2Error> {
+    let mut ticked = Vec::new();
+    for name in form
+        .keys()
+        .filter_map(|key| key.strip_prefix(FIELD_STEP_UP_STREAM))
+    {
+        let stream = Stream::from_name(name)
+            .filter(|stream| details.picked_streams().contains(stream))
+            .ok_or_else(|| {
+                warn!(
+                    stream = name,
+                    "OAuth consent refused: a step-up ticked a stream not asked for"
+                );
+                OAuth2Error::access_denied(STEP_UP_STREAM_NOT_ASKED)
+            })?;
+        ticked.push(stream);
+    }
+    if ticked.is_empty() {
+        return Err(OAuth2Error::access_denied(STEP_UP_NO_STREAM));
+    }
+    details.narrowed_to(&ticked).map_err(|e| {
+        warn!("OAuth consent refused: the step-up selection does not narrow the request: {e}");
+        OAuth2Error::access_denied(STEP_UP_STREAM_NOT_ASKED)
+    })
+}
+
+/// The one-off question the athlete approved, and the digest the child records.
+///
+/// [`ticked_details`], then [`selection_digest`] of what it returns.
+///
+/// # Errors
+/// As either refuses.
+pub(super) fn step_up_selection(
+    form: &HashMap<String, String>,
+    details: &ResolvedDetails,
+    text: &ConsentText<'_>,
+    subject: ConsentSubject<'_>,
+) -> Result<(ResolvedDetails, String), OAuth2Error> {
+    let selected = ticked_details(form, details)?;
+    let digest = selection_digest(&selected, text, subject)?;
+    Ok((selected, digest))
+}
+
+/// The review digest of `details`, narrowed by the athlete on the step-up
+/// screen, under the text that screen was rendered in: the digest the child
+/// records, so it covers the selection the athlete approved.
+///
+/// # Errors
+/// `server_error` when the digest cannot be computed.
+pub(super) fn selection_digest(
+    details: &ResolvedDetails,
+    text: &ConsentText<'_>,
+    subject: ConsentSubject<'_>,
+) -> Result<String, OAuth2Error> {
+    let version = consent_version(text, subject);
+    review_digest(
+        &screen_version(&version, text, Some(details)),
+        Some(details),
+    )
+    .map_err(|e| {
+        error!("The step-up selection's review digest could not be computed: {e}");
+        OAuth2Error::server_error(super::consent::CONSENT_NOT_RECORDED)
+    })
 }
 
 /// The step-up screen's label of `stream`, one of those a one-off question

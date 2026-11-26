@@ -838,7 +838,17 @@ export interface OAuthGrantStepUp {
   id: string;
   /** When it ends (RFC 3339). */
   expires_at: string | null;
+  /**
+   * How the app satisfied Host Profile T2: its published metadata (`declared_cimd`), only its own
+   * requests (`declared_request`), or Dravr's assessment. Absent from a server that predates it.
+   */
+  host_profile_basis?: OAuthHostProfileBasis;
+  /** The streams the athlete left ticked on the step-up screen (`labs.summary`): all it reads. Absent from a server that predates it. */
+  streams?: string[];
 }
+
+/** How an app satisfied Host Profile T2 for a one-off question (owl §6.2). */
+export type OAuthHostProfileBasis = 'declared_cimd' | 'declared_request' | 'assessed';
 
 /**
  * One of the athlete's standing policies (`GET /api/me/oauth-standing-policies`):

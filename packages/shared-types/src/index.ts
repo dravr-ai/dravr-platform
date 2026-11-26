@@ -71,6 +71,8 @@ export type {
   OAuthAppCredentials,
   OAuthProvider,
   OAuthGrant,
+  OAuthGrantStepUp,
+  OAuthHostProfileBasis,
   OAuthGrantActor,
   OAuthGrantEventKind,
   OAuthGrantReceipt,

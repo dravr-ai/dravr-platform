@@ -66,7 +66,7 @@ const STEP_UP_LINES: [(&str, &str); 5] = [
 
 /// Word the step-up screen in English, the athlete's language: every line
 /// the screen can show, the ones this suite reads in its own wording.
-fn light_step_up(world: &World) {
+pub(crate) fn light_step_up(world: &World) {
     let strings = &world.resources.mcp.messaging_strings_registry;
     let lines = STEP_UP_SCREEN_KEYS.iter().map(|key| {
         STEP_UP_LINES
@@ -133,7 +133,7 @@ fn one_off_details_with(world: &World, budgets: &Value) -> String {
 }
 
 /// The authorization server's own sign-in cookie, signed in now.
-fn hosted_sign_in(world: &World) -> String {
+pub(crate) fn hosted_sign_in(world: &World) -> String {
     let session = world
         .resources
         .auth
@@ -176,7 +176,7 @@ async fn authorize_details(
 }
 
 /// `GET /oauth2/authorize` with `extra` parameters, under `cookie`.
-async fn authorize_asking(
+pub(crate) async fn authorize_asking(
     world: &World,
     client: &Client,
     cookie: &str,
@@ -219,7 +219,7 @@ async fn approve_details(
 
 /// The athlete approves the screen a request with `extra` parameters
 /// showed, under `cookie`, with the digest carried.
-async fn approve_asking(
+pub(crate) async fn approve_asking(
     world: &World,
     client: &Client,
     (cookie, digest): (&str, &str),
@@ -245,11 +245,45 @@ async fn approve_asking(
         ("review_digest", digest),
     ];
     form.extend_from_slice(extra);
+    // The step-up screen's checkboxes, ticked as the screen renders them.
+    let ticked = asked_streams(extra);
+    form.extend(ticked.iter().map(|field| (field.as_str(), "on")));
     AxumTestRequest::post("/oauth2/consent")
         .header("cookie", cookie)
         .form(&form)
         .send(app(&world.resources))
         .await
+}
+
+/// The step-up screen's checkbox field of each stream a request with
+/// `extra` parameters asks for: its details' streams, or its scope's
+/// `pdpp:stream:` names. Every one is ticked by default.
+pub(crate) fn asked_streams(extra: &[(&str, &str)]) -> Vec<String> {
+    let mut names = Vec::new();
+    for (key, value) in extra {
+        match *key {
+            "authorization_details" => {
+                let details: Value = serde_json::from_str(value).unwrap();
+                for detail in details.as_array().into_iter().flatten() {
+                    for stream in detail["streams"].as_array().into_iter().flatten() {
+                        let name = stream["name"].as_str().unwrap();
+                        names.push(name.trim_start_matches("health.vault.").to_owned());
+                    }
+                }
+            }
+            "scope" => names.extend(
+                value
+                    .split_whitespace()
+                    .filter_map(|scope| scope.strip_prefix("pdpp:stream:"))
+                    .map(str::to_owned),
+            ),
+            _ => {}
+        }
+    }
+    names
+        .into_iter()
+        .map(|name| format!("step_up_stream:{name}"))
+        .collect()
 }
 
 /// The step-up screen's review digest, the screen read under a fresh
@@ -276,14 +310,14 @@ async fn step_up_digest_of(world: &World, client: &Client, details: &str) -> Str
         "bug: the step-up screen does not head its streams: {page}"
     );
     assert!(
-        page.contains("<li>Lab results (test wording)</li>"),
+        page.contains("Lab results (test wording)</label></li>"),
         "bug: the step-up screen does not list the streams it reads: {page}"
     );
     hidden_field(&page, "review_digest").expect("the screen carries its digest")
 }
 
 /// A redirect's query parameter `name`.
-fn param(response: &AxumTestResponse, name: &str) -> String {
+pub(crate) fn param(response: &AxumTestResponse, name: &str) -> String {
     let location = response
         .header("location")
         .unwrap_or_else(|| panic!("a redirect: {}", response.body_text()));
@@ -948,7 +982,11 @@ async fn a_step_up_childs_requests_an_hour_are_its_own() {
 
 /// `tools/call` of `get_health_records` for `kind` over `/mcp` under
 /// `bearer`: the status, the `WWW-Authenticate` header and the body.
-async fn records_status(world: &World, bearer: &str, kind: &str) -> (u16, String, String) {
+pub(crate) async fn records_status(
+    world: &World,
+    bearer: &str,
+    kind: &str,
+) -> (u16, String, String) {
     let response = AxumTestRequest::post("/mcp")
         .header("authorization", &format!("Bearer {bearer}"))
         .header("mcp-protocol-version", "2026-07-28")
@@ -1001,7 +1039,7 @@ async fn under_a_parent() -> (World, Client, String, String) {
 }
 
 /// The `scope` a `WWW-Authenticate` challenge names.
-fn challenged_scope(challenge: &str) -> String {
+pub(crate) fn challenged_scope(challenge: &str) -> String {
     challenge
         .split("scope=\"")
         .nth(1)
@@ -1066,7 +1104,7 @@ async fn a_host_reauthorizing_with_the_challenge_gets_a_child_its_token_names_th
     let page = screen.body_text();
     assert!(
         page.contains("asks for a one-off look at your health records")
-            && page.contains("<li>Lab results (test wording)</li>"),
+            && page.contains("Lab results (test wording)</label></li>"),
         "bug: the challenge's scope is not the step-up screen: {page}"
     );
     let digest = hidden_field(&page, "review_digest").expect("the screen carries its digest");
@@ -1130,7 +1168,7 @@ async fn a_host_reauthorizing_with_the_challenge_gets_a_child_its_token_names_th
 // ============================================================================
 
 /// The athlete's Connected apps, as the web and mobile lists read them.
-async fn connected_apps(world: &World) -> Vec<Value> {
+pub(crate) async fn connected_apps(world: &World) -> Vec<Value> {
     let session = common::generate_test_token(&world.resources, &world.user).await;
     let listed: Value = AxumTestRequest::get("/api/me/oauth-grants")
         .header("Authorization", &format!("Bearer {session}"))

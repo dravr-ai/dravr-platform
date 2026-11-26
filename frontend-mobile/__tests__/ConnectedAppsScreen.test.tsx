@@ -323,6 +323,27 @@ describe('ConnectedAppsScreen', () => {
     expect(screen.getByText('Claude Desktop')).toBeTruthy();
   });
 
+  it('says what a one-off question reads and on what the app\'s word stands', async () => {
+    mockListConnectedApps.mockResolvedValue([
+      {
+        ...GRANT,
+        step_up: {
+          id: 'child-2',
+          expires_at: '2026-11-25T11:00:00Z',
+          streams: ['labs.summary'],
+          host_profile_basis: 'declared_cimd',
+        },
+      },
+    ]);
+    renderScreen();
+
+    expect(await screen.findByTestId(`connected-app-step-up-${GRANT.id}`)).toBeTruthy();
+    const subtitle = `${i18n.t('tokens.connectedAppsStepUpStreams', {
+      streams: i18n.t('oauth.stepUp.stream.labs'),
+    })} · ${i18n.t('tokens.connectedAppsStepUpDeclaredCimd')}`;
+    expect(screen.getByText(subtitle)).toBeTruthy();
+  });
+
   it('says a refused revoke failed, from the catalogue', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
     mockRevokeConnectedApp.mockRejectedValue(new Error('refused'));

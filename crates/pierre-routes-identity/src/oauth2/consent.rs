@@ -217,14 +217,18 @@ impl OAuth2Routes {
             .as_ref()
             .filter(|details| step_up::asks_step_up(Some(details)))
         {
-            let approval = StepUpApproval {
-                client_id: &request.client_id,
-                scope: &scope,
-                details: one_off,
-                review_digest,
-                consent_locale: text.lang().to_owned(),
-                zone: athlete_zone(user.timezone.as_deref()),
-            };
+            // The screen read as rendered (the digest above); the child holds
+            // the streams the athlete left ticked, under a digest of them.
+            let approval = picker::step_up_selection(&form, one_off, &text, subject).map(
+                |(details, review_digest)| StepUpApproval {
+                    client_id: &request.client_id,
+                    scope: &scope,
+                    details,
+                    review_digest,
+                    consent_locale: text.lang().to_owned(),
+                    zone: athlete_zone(user.timezone.as_deref()),
+                },
+            );
             let recorded =
                 Self::approve_step_up(&context, &headers, approval, user_id, tenant_id.clone())
                     .await;
@@ -317,10 +321,11 @@ impl OAuth2Routes {
     async fn approve_step_up(
         context: &OAuth2Context,
         headers: &HeaderMap,
-        approval: StepUpApproval<'_>,
+        approval: Result<StepUpApproval<'_>, OAuth2Error>,
         user_id: Uuid,
         tenant_id: Option<String>,
     ) -> Result<String, OAuth2Error> {
+        let approval = approval?;
         let Some(auth_time) = Self::fresh_sign_in(headers, context, Timestamp::now()).await else {
             warn!(user_id = %user_id, "Step-up refused: no sign-in on this page in the last five minutes");
             return Err(OAuth2Error::access_denied(step_up::STEP_UP_SIGN_IN_STALE));

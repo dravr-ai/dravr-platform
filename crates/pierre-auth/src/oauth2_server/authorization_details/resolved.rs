@@ -290,6 +290,34 @@ impl ResolvedDetails {
         self.0.streams.iter().map(|stream| stream.0).collect()
     }
 
+    /// These details narrowed to `streams`, the subset of
+    /// [`Self::picked_streams`] the owner left ticked on the step-up screen
+    /// (owl §3.1: the owner picks at consent), in the request's order.
+    ///
+    /// # Errors
+    /// An invalid-input error when `streams` names one the request did not
+    /// pick, or none: the owner approves at least one, and never more.
+    pub fn narrowed_to(&self, streams: &[Stream]) -> AppResult<Self> {
+        let picked = self.picked_streams();
+        if streams.is_empty() {
+            return Err(AppError::invalid_input(
+                "A one-off question needs at least one stream",
+            ));
+        }
+        if let Some(stray) = streams.iter().find(|stream| !picked.contains(stream)) {
+            return Err(AppError::invalid_input(format!(
+                "{} was not asked for",
+                stray.name()
+            )));
+        }
+        let mut narrowed = self.clone();
+        narrowed
+            .0
+            .streams
+            .retain(|stream| streams.contains(&stream.0));
+        Ok(narrowed)
+    }
+
     /// The highest tier a call under the grant may read.
     #[must_use]
     pub const fn max_tier(&self) -> Tier {
@@ -802,6 +830,40 @@ mod tests {
             digest,
             review_digest("text-v1", Some(&frozen)).unwrap(),
             "bug: freezing the window changed the digest"
+        );
+    }
+
+    #[test]
+    fn a_one_off_question_narrows_to_the_streams_left_ticked_and_never_beyond() {
+        let details = resolved(&json!([
+            access(&json!({
+                "selection_preset": "one_off_question",
+                "streams": [{"name": "labs.summary"}, {"name": "sleep.summary"}],
+            })),
+            constraints(&json!({
+                "max_tier": "T2",
+                "step_up": {"required": true, "acr": "owner_verified"},
+                "host_profile_required": "t2",
+            })),
+        ]))
+        .unwrap();
+        let narrowed = details.narrowed_to(&[Stream::Labs]).unwrap();
+        assert_eq!(
+            narrowed.picked_streams(),
+            [Stream::Labs],
+            "bug: not narrowed"
+        );
+        assert_ne!(
+            review_digest("text-v1", Some(&narrowed)).unwrap(),
+            review_digest("text-v1", Some(&details)).unwrap(),
+            "bug: the digest does not cover the selection"
+        );
+        assert!(details.narrowed_to(&[]).is_err(), "bug: an empty selection");
+        assert!(
+            details
+                .narrowed_to(&[Stream::Labs, Stream::Workout])
+                .is_err(),
+            "bug: a stream the request did not ask for"
         );
     }
 

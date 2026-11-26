@@ -13,6 +13,7 @@ import type {
   AccessFeedCredential,
   AccessFeedTransport,
   OAuthGrant,
+  OAuthGrantStepUp,
 } from '@pierre/shared-types';
 
 /** Build `useAccessFeed` over one client's access feed API. */
@@ -88,6 +89,11 @@ export interface AccessFeedAppGroup {
    * Empty when the app is not a Connected app, or no grant of it is left.
    */
   revokeGrantIds: string[];
+  /**
+   * The Connected app's live one-off look at health records (a step-up child), shown with what it
+   * reads and on what the app's word stands; null for any other group.
+   */
+  stepUp: OAuthGrantStepUp | null;
 }
 
 /**
@@ -120,6 +126,7 @@ export function groupAccessFeedApps(
         transport: read.transport,
         reads: [read],
         revokeGrantIds: [],
+        stepUp: null,
       });
       continue;
     }
@@ -133,6 +140,8 @@ export function groupAccessFeedApps(
       transport: read.transport,
       reads: [read],
       revokeGrantIds: read.credential === 'oauth_grant' ? clientGrants.map((grant) => grant.id) : [],
+      stepUp:
+        read.credential === 'oauth_grant' ? (clientGrants.find((grant) => grant.step_up)?.step_up ?? null) : null,
     });
   }
   return [...groups.values()];

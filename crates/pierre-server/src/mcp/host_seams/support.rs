@@ -18,6 +18,7 @@
 use dravr_barrage::Tier;
 use dravr_tronc::mcp::tool::ToolContext;
 use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
+use pierre_auth::oauth2_server::host_profile;
 use pierre_core::errors::AppResult;
 use pierre_core::permissions::impersonation::CallerCredential;
 use pierre_core::permissions::scopes::OAuthScope;
@@ -46,10 +47,6 @@ pub(super) fn ceiling() -> Option<GrantCeiling> {
     rate_limiting::request_ceiling()
 }
 
-/// The MCP client extension a host declares its Host Profile with, per
-/// request (owl PDPP §6.2 carrier B).
-const HOST_PROFILE_EXTENSION: &str = "app.dravr.vault/host-profile";
-
 /// [`ceiling`] for the call `ctx` serves, with the Host Profile tier its own
 /// request declares: a step-up child's T2 opens only while each call's claim
 /// still says T2 (owl §6.1, the stricter carrier wins).
@@ -57,24 +54,10 @@ pub(super) fn call_ceiling(ctx: &ToolContext) -> Option<GrantCeiling> {
     ceiling().map(|ceiling| ceiling.with_request_host_tier(request_host_tier(ctx)))
 }
 
-/// The tier `ctx`'s request declares in
-/// `_meta["io.modelcontextprotocol/clientCapabilities"].extensions["app.dravr.vault/host-profile"]`
-/// as `{"tier_max": "t2", "version": …}`; `None` when it declares none or a
-/// value this server does not read, which opens nothing above T1.
+/// The tier `ctx`'s request declares in its Host Profile client extension
+/// ([`host_profile::request_host_tier`]); `None` when it declares none.
 fn request_host_tier(ctx: &ToolContext) -> Option<Tier> {
-    let declared = ctx
-        .client_capabilities
-        .as_ref()?
-        .get("extensions")?
-        .get(HOST_PROFILE_EXTENSION)?
-        .get("tier_max")?
-        .as_str()?;
-    match declared.to_ascii_uppercase().as_str() {
-        "T0" => Some(Tier::T0),
-        "T1" => Some(Tier::T1),
-        "T2" => Some(Tier::T2),
-        _ => None,
-    }
+    host_profile::request_host_tier(ctx.client_capabilities.as_ref()?)
 }
 
 /// The support session live for the admin `ctx` names on the credential

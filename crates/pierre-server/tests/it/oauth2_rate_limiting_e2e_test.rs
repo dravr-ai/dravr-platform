@@ -729,6 +729,7 @@ async fn oauth2_routes(limiter: OAuth2RateLimiter) -> (Router, String) {
         database: Arc::clone(&database),
         oauth2_server: Arc::clone(&repos.oauth2_server),
         standing_policies: Arc::clone(&repos.oauth_standing_policies),
+        host_profile_claims: Arc::clone(&repos.host_profile_claims),
         tenants: Arc::clone(&repos.tenants),
         users: Arc::clone(&repos.users),
         auth_manager: common::create_test_auth_manager(),

@@ -356,12 +356,15 @@ export {
 export {
   type GrantReceiptOutcome,
   GRANT_RECEIPT_OUTCOME_KEYS,
+  STEP_UP_BASIS_KEYS,
+  STEP_UP_STREAM_KEYS,
   alwaysAllowedClients,
   clientNames,
   connectedAppPresetLabel,
   grantReceiptAppName,
   grantReceiptClientId,
   grantReceiptOutcome,
+  stepUpLines,
 } from './grantHistory';
 // Statutory access requests to a company: the letter the athlete sends and its legal deadline (carnet#1646).
 export {

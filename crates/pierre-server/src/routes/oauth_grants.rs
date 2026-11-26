@@ -38,11 +38,12 @@ use serde_json::Value;
 use tracing::warn;
 
 use crate::mcp::resources::ServerContext;
-use pierre_auth::oauth2_server::authorization_details::{ResolvedDetails, Tier};
+use pierre_auth::oauth2_server::authorization_details::{ResolvedDetails, Stream, Tier};
 use pierre_auth::oauth2_server::client_registration::client_display_host;
 use pierre_core::errors::AppError;
 use pierre_core::models::{
-    GrantActor, GrantEvent, OAuthClientGrant, OAuthGrantEvent, OAuthStandingPolicy,
+    ChildGrant, GrantActor, GrantEvent, HostProfileBasis, OAuthClientGrant, OAuthGrantEvent,
+    OAuthStandingPolicy,
 };
 use pierre_middleware::extract_auth_from_headers;
 use pierre_runtime_context::require_tenant;
@@ -87,6 +88,35 @@ struct StepUpChildView {
     id: String,
     /// When it ends (RFC 3339).
     expires_at: Option<String>,
+    /// How its host satisfied Host Profile T2 (owl §6.2): `declared_cimd`,
+    /// `declared_request` or `assessed`.
+    host_profile_basis: HostProfileBasis,
+    /// The streams the athlete left ticked on the step-up screen (owl stream
+    /// names, `labs.summary`): all the child reads.
+    streams: Vec<&'static str>,
+}
+
+/// The view of `child`, a live step-up child.
+fn step_up_view(child: &ChildGrant) -> StepUpChildView {
+    let streams = child
+        .grant
+        .authorization_details
+        .as_deref()
+        .map(ResolvedDetails::from_document)
+        .and_then(|details| {
+            details
+                .inspect_err(|error| warn!(grant_id = %child.grant.id, error = %error, "A step-up child's details do not read"))
+                .ok()
+        })
+        .map_or_else(Vec::new, |details| {
+            details.picked_streams().into_iter().map(Stream::name).collect()
+        });
+    StepUpChildView {
+        id: child.grant.id.clone(),
+        expires_at: child.grant.expires_at.map(Timestamp::to_rfc3339),
+        host_profile_basis: child.terms.host_profile_basis,
+        streams,
+    }
 }
 
 /// The preset and tier `grant`'s stored details name, `(None, None)` for a
@@ -145,10 +175,7 @@ async fn handle_list_grants(
         let step_up = children
             .iter()
             .find(|child| child.terms.parent_grant_id == grant.id && child.grant.is_live_at(now))
-            .map(|child| StepUpChildView {
-                id: child.grant.id.clone(),
-                expires_at: child.grant.expires_at.map(Timestamp::to_rfc3339),
-            });
+            .map(step_up_view);
         let client = resources
             .common
             .repos

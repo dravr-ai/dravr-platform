@@ -147,6 +147,8 @@ pub mod health;
 pub mod health_persistence;
 /// The T2–T3 health records an import or a lab document yields (carnet#1544).
 pub mod health_records;
+/// The per-request Host Profile claims a step-up of a client with no metadata document stands on (carnet#1544).
+pub mod host_profile_claims;
 /// Repository trait, statements and shared body for admin impersonation sessions.
 pub mod impersonation;
 /// Tombstones of a deleted account's provider accounts and email, by hash, refused until cleared.
@@ -399,6 +401,7 @@ pub use health_records::{
     StoredClinicalRecord, StoredLabDocument, StoredSelfReport, LAB_DOCUMENT_PROVIDER,
     LAB_DOCUMENT_SOURCE_MARKER, MAX_HEALTH_RECORDS_PAGE,
 };
+pub use host_profile_claims::HostProfileClaimRepository;
 pub use impersonation::*;
 pub use import_tombstones::{
     athlete_marker, email_identity_hash, provider_identity_hash, subject_hash, ImportTombstone,

@@ -30,9 +30,10 @@
 //! streams reach T2, for two years back, under the child's budgets.
 //!
 //! T2 itself opens for an outside client only through [`Self::opens_t2`]:
-//! the child's step-up is `owner_verified` and its host declared T2 on both
-//! carriers — its CIMD at consent, and the per-request claim of the call
-//! ([`Self::with_request_host_tier`]), the stricter of the two winning.
+//! the child's step-up is `owner_verified`, its host stood on a T2 basis at
+//! consent (its metadata document, or for a client with none its own claim,
+//! [`super::host_profile`]), and the per-request claim of the call still
+//! says T2 ([`Self::with_request_host_tier`]), the stricter winning.
 
 use dravr_barrage::{Preset, Stream, Tier};
 use dravr_tronc::dates::{CivilDate, Timestamp, Zone};
@@ -191,8 +192,8 @@ impl GrantCeiling {
 
     /// Whether a T2 `stream` opens to an outside client under this ceiling:
     /// it is a step-up child's that holds `stream` at T2, the athlete stepped
-    /// up `owner_verified`, and its host declared T2 both at consent and on
-    /// this call (the stricter carrier wins: a call declaring less, or
+    /// up `owner_verified`, and its host stood on a T2 basis at consent and
+    /// declares T2 on this call (the stricter carrier wins: a call declaring less, or
     /// nothing, opens nothing). The athlete's `sensitive_t2` switch is asked
     /// besides, by the tier gate.
     #[must_use]
