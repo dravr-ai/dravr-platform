@@ -1290,10 +1290,13 @@ async fn a_revoked_apps_receipts_still_name_it_and_a_deleted_ones_name_nothing()
             .all(|receipt| receipt["client_name"] == "Receipts client"),
         "bug: a revoked app's history lost its name: {all}"
     );
+    let gone = of(&deleted);
     assert!(
-        of(&deleted)
-            .iter()
-            .all(|receipt| receipt["client_name"].is_null()),
+        !gone.is_empty(),
+        "fixture: the deleted client's grant has receipts: {all}"
+    );
+    assert!(
+        gone.iter().all(|receipt| receipt["client_name"].is_null()),
         "bug: a deleted client was named: {all}"
     );
 

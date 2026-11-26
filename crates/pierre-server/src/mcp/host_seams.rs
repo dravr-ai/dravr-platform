@@ -41,7 +41,7 @@ use dravr_tronc::mcp::tasks::{
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext, ToolRegistry};
 use pierre_auth::auth::AuthResult;
 use pierre_auth::config::www_authenticate_challenge;
-use pierre_auth::oauth2_server::cimd::host_profile_tier;
+use pierre_auth::oauth2_server::cimd;
 use pierre_auth::oauth2_server::first_party::names_third_party;
 use pierre_auth::oauth2_server::step_up_scope::challenge_scope;
 use pierre_config::timeouts::ServerTimeouts;
@@ -307,20 +307,10 @@ impl PierreAuthHook {
             ceiling,
         )?;
         let client_id = auth.client_id.as_deref()?;
-        let declared = self
-            .resources
-            .common
-            .repos
-            .oauth2_server
-            .client_host_profile(client_id)
-            .await
-            .inspect_err(|e| warn!(client_id, "a client's Host Profile could not be read: {e}"))
-            .ok()
-            .flatten();
-        declared
-            .as_deref()
-            .and_then(host_profile_tier)
-            .filter(|tier| tier.eq_ignore_ascii_case("T2"))?;
+        let oauth2 = self.resources.common.repos.oauth2_server.as_ref();
+        if !cimd::declares_host_profile_t2(oauth2, client_id).await {
+            return None;
+        }
         Some(challenge_scope(
             &OAuthScope::render_granted(&auth.scopes),
             &streams,

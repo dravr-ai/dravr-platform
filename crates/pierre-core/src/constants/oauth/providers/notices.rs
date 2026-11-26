@@ -131,8 +131,9 @@ impl ProviderNotice {
 ///   [`SENSITIVE_T3`], and their PAR-Q and injury facts only under
 ///   [`SENSITIVE_T2`] (JF 2026-11-25, "Gate on tier consent"); the human
 ///   coach's own screen reads the notes either way. A class guards no
-///   connect, since nothing connects under it; it rides this table only so the one AI-consent set
-///   withholds it until given, exactly like WHOOP's authorization, and so one
+///   connect, since nothing connects under it; it rides this table only so
+///   the one AI-consent set withholds it until given, exactly like WHOOP's
+///   authorization, and so one
 ///   acceptance record holds every consent to AI use. Asked of every account
 ///   ([`NoticeAudience::EveryAccount`]) as a [`NoticeKind::AiConsent`]: given
 ///   and withdrawn from the privacy settings. No provider descriptor is

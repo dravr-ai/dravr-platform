@@ -123,8 +123,8 @@ impl MemoryReach {
     /// What Dravr's own agent may read of `user_id`'s memory, for a model call
     /// the platform makes outside a turn's scope (the agent proposal's
     /// re-rank) or for text later turns send to the model (the `/season`
-    /// opener's quote): their consents in `tenant_id`, read for a model on Dravr's
-    /// own surface, narrowed by any transport the caller declared.
+    /// opener's quote): their consents in `tenant_id`, read for a model on
+    /// Dravr's own surface, narrowed by any transport the caller declared.
     pub async fn for_agent(repos: &RepositoryRegistry, tenant_id: Uuid, user_id: Uuid) -> Self {
         let withheld = provider_notice::ai_consent_withheld(repos, tenant_id, user_id).await;
         let (reach, _) = ai_scope::serve_over(

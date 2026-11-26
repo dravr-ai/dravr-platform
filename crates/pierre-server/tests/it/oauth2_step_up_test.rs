@@ -1246,4 +1246,8 @@ async fn a_client_declaring_no_t2_host_is_never_told_to_step_up() {
         !body.contains("step_up_required") && !body.contains("one_off_question"),
         "bug: a client that cannot step up was told to: {body}"
     );
+    assert!(
+        body.contains("tier_exceeds_grant") || body.contains("stream_not_granted"),
+        "bug: the call is not refused on its grant's ceiling, in band: {body}"
+    );
 }

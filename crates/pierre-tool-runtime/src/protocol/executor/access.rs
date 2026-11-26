@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use dravr_barrage::Stream;
-use pierre_auth::oauth2_server::cimd::host_profile_tier;
+use pierre_auth::oauth2_server::cimd;
 use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
 use pierre_contremaitre::consent_strings::step_up_worded;
 use pierre_core::transport::Transport;
@@ -95,10 +95,9 @@ impl UniversalExecutor {
             .transpose()
     }
 
-    /// Whether the calling client can complete a step-up: its metadata
-    /// document declares a Host Profile T2, which every step-up approval
-    /// needs. A client registered by DCR, or whose profile cannot be read,
-    /// cannot, so it is never told to step up.
+    /// Whether the calling client may be told to step up, by the rule
+    /// `/mcp`'s 403 challenge follows ([`cimd::declares_host_profile_t2`]).
+    /// A call with no OAuth client (an API key, a session) may not.
     async fn client_can_step_up(&self) -> bool {
         let Some(client_id) = self
             .credential
@@ -107,17 +106,8 @@ impl UniversalExecutor {
         else {
             return false;
         };
-        self.resources
-            .repos()
-            .oauth2_server
-            .client_host_profile(client_id)
-            .await
-            .inspect_err(|e| warn!(client_id, "a client's Host Profile could not be read: {e}"))
-            .ok()
-            .flatten()
-            .as_deref()
-            .and_then(host_profile_tier)
-            .is_some_and(|tier| tier.eq_ignore_ascii_case("T2"))
+        let oauth2 = self.resources.repos().oauth2_server.as_ref();
+        cimd::declares_host_profile_t2(oauth2, client_id).await
     }
 }
 
