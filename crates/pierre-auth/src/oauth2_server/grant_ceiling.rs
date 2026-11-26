@@ -69,7 +69,7 @@ pub struct GrantCeiling {
     pub request_host_tier: Option<Tier>,
     /// The grant's live step-up child, which a call reading only its streams
     /// runs under instead ([`Self::for_streams`])
-    pub child: Option<Box<GrantCeiling>>,
+    pub child: Option<Box<Self>>,
 }
 
 impl GrantCeiling {

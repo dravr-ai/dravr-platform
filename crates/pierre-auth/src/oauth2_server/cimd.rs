@@ -466,10 +466,12 @@ pub(super) struct ResolvedClient {
     pub(super) host_profile: Option<String>,
 }
 
-/// The `mcp_host_profile` member a client's metadata document declares
-/// (owl PDPP §6.2 carrier A), as the JSON `{"tier_max": "T2", "version": v}`
-/// this server stores; `None` when it declares none, or a tier this server
-/// does not grant an outside host (T3) or cannot read.
+/// The `mcp_host_profile` member a client's metadata document declares.
+///
+/// It is owl PDPP §6.2 carrier A, returned as the JSON
+/// `{"tier_max": "T2", "version": v}` this server stores; `None` when it
+/// declares none, or a tier this server does not grant an outside host (T3)
+/// or cannot read.
 #[must_use]
 pub fn host_profile_from_document(body: &[u8]) -> Option<String> {
     let document: serde_json::Value = serde_json::from_slice(body).ok()?;
