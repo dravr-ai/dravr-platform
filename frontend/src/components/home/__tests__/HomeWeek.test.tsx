@@ -107,7 +107,8 @@ describe('HomeWeek — this week', () => {
 
     expect(screen.getByTestId('home-week-day-2026-09-25')).toHaveAccessibleName(/— Rest$/);
     expect(screen.getByTestId('home-week-day-2026-09-26')).toHaveAccessibleName(/— Your plan doesn't cover this day\.$/);
-    expect(screen.getByTestId('home-week-day-2026-09-24')).toHaveTextContent('50 min');
+    // The cell carries the minutes alone, so a narrow cell never truncates them (carnet#1840).
+    expect(screen.getByTestId('home-week-day-2026-09-24')).toHaveTextContent(/50$/);
   });
 
   it("shows a past day's workouts in the cell and opens each one's own view", async () => {
@@ -116,8 +117,9 @@ describe('HomeWeek — this week', () => {
 
     // 35 + 30 minutes done on Tuesday, where the plan had 35 min of strides.
     const tuesday = screen.getByTestId('home-week-day-2026-09-22');
-    expect(tuesday).toHaveTextContent('65 min');
-    expect(tuesday).toHaveAccessibleName(/— Done: Strides session, Evening spin — Strides/);
+    expect(tuesday).toHaveTextContent(/65$/);
+    // The minutes' unit is in the label, which the cell has no room for.
+    expect(tuesday).toHaveAccessibleName(/— Done: Strides session, Evening spin · 65 min — Strides/);
     await userEvent.click(tuesday);
 
     const detail = screen.getByTestId('home-week-detail');
@@ -143,7 +145,7 @@ describe('HomeWeek — this week', () => {
     expect(within(stravaRow).queryByTestId('calendar-activity-attribution')).toBeNull();
   });
 
-  it("opens today to the plan card's own row — steps and fuel — and drafts the question from it", async () => {
+  it("opens today to the plan's entry stacked — steps folded under their count, fuel — and drafts the question from it", async () => {
     const { onOpenChatDraft } = renderWeek();
     await loadedStrip();
 
@@ -156,37 +158,47 @@ describe('HomeWeek — this week', () => {
     expect(cell).toHaveAttribute('aria-controls', 'home-week-detail');
     expect(within(detail).getByText('No activity this day.')).toBeInTheDocument();
     expect(within(detail).getByText('Tempo run')).toBeInTheDocument();
-    expect(within(detail).getByText('Steps')).toBeInTheDocument();
-    expect(within(detail).getByText('Warm-up · 15 min · Z1')).toBeInTheDocument();
     expect(within(detail).getByText('Fuel')).toBeInTheDocument();
+    // The steps wait under their count until asked for (carnet#1840).
+    const steps = within(detail).getByRole('button', { name: '3 steps' });
+    expect(steps).toHaveAttribute('aria-expanded', 'false');
+    expect(within(detail).getByText('Warm-up · 15 min · Z1')).not.toBeVisible();
+    await userEvent.click(steps);
+    expect(steps).toHaveAttribute('aria-expanded', 'true');
+    expect(within(detail).getByText('Warm-up · 15 min · Z1')).toBeVisible();
 
+    // The link's words are short; the question it drafts names the session.
     const named = formatCivilDate(TODAY, 'en', DRAFT_DATE);
-    const draft = `Walk me through my session on ${named}: Tempo run`;
-    await userEvent.click(within(detail).getByRole('button', { name: draft }));
-    expect(onOpenChatDraft).toHaveBeenCalledExactlyOnceWith(draft);
+    const why = within(detail).getByRole('button', { name: 'Why this session?' });
+    expect(why).toHaveAccessibleDescription('Tempo run');
+    await userEvent.click(why);
+    expect(onOpenChatDraft).toHaveBeenCalledExactlyOnceWith(`Walk me through my session on ${named}: Tempo run`);
   });
 
-  it("sums a date's sessions in its cell, names each in its label, and opens to a row and a draft per entry", async () => {
+  it("sums a date's sessions in its cell, names each in its label, and opens to an entry and a draft per session", async () => {
     const { onOpenChatDraft } = renderWeek(twoSessionPlan());
     await loadedStrip();
 
     // 20 minutes of swimming and the 50-minute tempo run (carnet#1716).
     const cell = screen.getByTestId(`home-week-day-${TODAY}`);
-    expect(cell).toHaveTextContent('70 min');
+    expect(cell).toHaveTextContent(/70$/);
     expect(cell).toHaveAccessibleName(/— Technique swim · Swim · 20 min · easy; Tempo run · Run · 50 min · threshold$/);
     // A rest day with an optional spin beside it reads as a day with a session, not as rest.
-    expect(screen.getByTestId('home-week-day-2026-09-25')).toHaveTextContent('30 min');
+    expect(screen.getByTestId('home-week-day-2026-09-25')).toHaveTextContent(/30$/);
 
     await userEvent.click(cell);
     const detail = screen.getByTestId('home-week-detail');
-    const rows = within(detail).getAllByRole('row');
-    expect(rows.map((row) => row.getAttribute('data-testid'))).toEqual([`plan-day-${TODAY}-0`, `plan-day-${TODAY}-1`]);
-    expect(within(detail).getAllByText(formatCivilDate(TODAY, 'en', ROW_DATE))).toHaveLength(1);
+    const entries = within(detail)
+      .getAllByRole('listitem')
+      .filter((item) => item.getAttribute('data-testid')?.startsWith('plan-day-'));
+    expect(entries.map((entry) => entry.getAttribute('data-testid'))).toEqual([`plan-day-${TODAY}-0`, `plan-day-${TODAY}-1`]);
+    // Stacked, with no date column: the selected cell already says the date (carnet#1840).
+    expect(within(detail).queryAllByText(formatCivilDate(TODAY, 'en', ROW_DATE))).toHaveLength(0);
 
     const named = formatCivilDate(TODAY, 'en', DRAFT_DATE);
-    expect(within(detail).getByTestId('home-week-detail-draft-0')).toHaveTextContent(
-      `Walk me through my session on ${named}: Technique swim`,
-    );
+    const first = within(detail).getByTestId('home-week-detail-draft-0');
+    expect(first).toHaveTextContent('Why this session?');
+    expect(first).toHaveAccessibleDescription('Technique swim');
     await userEvent.click(within(detail).getByTestId('home-week-detail-draft-1'));
     expect(onOpenChatDraft).toHaveBeenCalledExactlyOnceWith(`Walk me through my session on ${named}: Tempo run`);
   });
@@ -232,7 +244,7 @@ describe('HomeWeek — this week', () => {
     expect(failed).toHaveTextContent("These days couldn't be loaded.");
     await userEvent.click(within(failed).getByRole('button', { name: 'Retry' }));
     await loadedStrip();
-    expect(screen.getByTestId('home-week-day-2026-09-22')).toHaveTextContent('65 min');
+    expect(screen.getByTestId('home-week-day-2026-09-22')).toHaveTextContent(/65$/);
   });
 });
 
@@ -246,7 +258,7 @@ describe('HomeWeek — paging', () => {
     expect(api.getCalendar).toHaveBeenLastCalledWith('2026-09-14', '2026-09-20', 'en');
     const named = formatCivilDate('2026-09-14', 'en', { day: 'numeric', month: 'long' });
     expect(screen.getByRole('heading', { name: `Week of ${named}` })).toBeInTheDocument();
-    expect(screen.getByTestId('home-week-day-2026-09-19')).toHaveTextContent('90 min');
+    expect(screen.getByTestId('home-week-day-2026-09-19')).toHaveTextContent(/90$/);
     expect(screen.queryByTestId('home-next-week')).toBeNull();
 
     await userEvent.click(screen.getByTestId('home-week-previous'));
@@ -285,7 +297,7 @@ describe('HomeWeek — paging', () => {
     renderWeek(null);
     await loadedStrip();
 
-    expect(screen.getByTestId('home-week-day-2026-09-22')).toHaveTextContent('65 min');
+    expect(screen.getByTestId('home-week-day-2026-09-22')).toHaveTextContent(/65$/);
     expect(screen.getByTestId('home-week-no-plan')).toHaveTextContent(
       "No plan yet, so only what you've done shows here.",
     );

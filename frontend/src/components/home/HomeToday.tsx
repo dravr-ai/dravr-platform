@@ -102,6 +102,31 @@ function entryWords(t: TFunction, day: PlanDay): string {
     .join(' · ');
 }
 
+/**
+ * Today with nothing in the plan, said once and with a way forward: the line
+ * names tomorrow too when it is empty as well, so the section never prints
+ * the same sentence twice, and its link drafts the request to fill the week
+ * (carnet#1840).
+ */
+function UncoveredLine({ alsoTomorrow, onOpenChatDraft }: { alsoTomorrow: boolean; onOpenChatDraft: (text: string) => void }) {
+  const { t } = useTranslation();
+  return (
+    <div data-testid="home-today-uncovered" className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-3 text-sm">
+      <span className="text-on-surface-variant">
+        {t(alsoTomorrow ? 'home.plan.notCoveredBoth' : 'home.plan.notCoveredToday')}
+      </span>
+      <button
+        type="button"
+        data-testid="home-today-fill-week"
+        onClick={() => onOpenChatDraft(t('home.plan.fillWeekDraft'))}
+        className="rounded font-medium text-primary transition-colors hover:text-primary-hover focus-ring touch-target"
+      >
+        {t('home.plan.fillWeekCta')}
+      </button>
+    </div>
+  );
+}
+
 /** "Tomorrow" and what the plan holds for it: one line per entry, each drafting its own question. */
 function TomorrowLine({ lookup, onOpenChatDraft }: { lookup: PlanDayLookup; onOpenChatDraft: (text: string) => void }) {
   const { t, language } = useTranslation();
@@ -109,7 +134,7 @@ function TomorrowLine({ lookup, onOpenChatDraft }: { lookup: PlanDayLookup; onOp
     <div data-testid="home-tomorrow" className="mt-3 flex min-w-0 items-baseline gap-3 text-sm">
       <span className="shrink-0 text-on-surface-variant">{t('home.plan.tomorrow')}</span>
       {lookup.kind === 'uncovered' ? (
-        <span className="min-w-0 text-on-surface-variant">{t('home.plan.notCovered')}</span>
+        <span className="min-w-0 text-on-surface-variant">{t('home.plan.nothingPlanned')}</span>
       ) : (
         <div className="min-w-0 space-y-1">
           {lookup.days.map((day, position) => (
@@ -147,9 +172,7 @@ export function HomeToday({ plan, calendar, onOpenChatDraft }: HomeTodayProps) {
       }
     >
       {today.kind === 'uncovered' ? (
-        <p data-testid="home-today-uncovered" className="py-3 text-sm text-on-surface-variant">
-          {t('home.plan.notCovered')}
-        </p>
+        <UncoveredLine alsoTomorrow={tomorrow.kind === 'uncovered'} onOpenChatDraft={onOpenChatDraft} />
       ) : (
         <div className="space-y-2">
           {today.days.map((day, position) => {
@@ -171,7 +194,10 @@ export function HomeToday({ plan, calendar, onOpenChatDraft }: HomeTodayProps) {
           })}
         </div>
       )}
-      <TomorrowLine lookup={tomorrow} onOpenChatDraft={onOpenChatDraft} />
+      {/* An empty tomorrow is already named by today's empty line. */}
+      {!(today.kind === 'uncovered' && tomorrow.kind === 'uncovered') && (
+        <TomorrowLine lookup={tomorrow} onOpenChatDraft={onOpenChatDraft} />
+      )}
     </Section>
   );
 }

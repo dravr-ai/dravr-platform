@@ -233,6 +233,16 @@ describe('the chat drafts a plan day opens', () => {
     expect(label).toBe('Thursday 24 — 8 × 1 km · Run · 55 min · Z4');
   });
 
+  it('calendarDayLabel says the minutes done, which the cell shows without their unit (carnet#1840)', () => {
+    const day: CalendarDay = {
+      date: '2026-09-20',
+      activities: [activity(), activity({ id: 'ride-2', name: 'Spin', duration_seconds: 1_320 })],
+      plan: null,
+      beforeHistory: false,
+    };
+    expect(calendarDayLabel(t, 'Sunday 20', day, '2026-09-21')).toBe('Sunday 20 — Done: Sunday long ride, Spin · 82 min');
+  });
+
   it('calendarDayLabel names each of a date’s sessions in order (carnet#1716)', () => {
     const swim = { ...intervals, workout: 'Easy swim', sport: 'swim', duration_min: 30, intensity: '', steps: [] };
     const day: CalendarDay = { date: '2026-09-24', activities: [], plan: session(intervals, swim), beforeHistory: false };
