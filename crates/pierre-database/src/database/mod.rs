@@ -96,6 +96,8 @@ pub mod grant_events;
 pub mod health_persistence;
 /// Health records: self-reports, clinical records and lab documents (carnet#1544).
 pub mod health_records;
+/// The per-request Host Profile claims a step-up stands on (`SQLite`) backing `HostProfileClaimRepository`.
+pub mod host_profile_claims;
 /// Impersonation session management for admin user impersonation
 pub mod impersonation;
 /// Import tombstones (`SQLite`) backing `ImportTombstoneRepository`.

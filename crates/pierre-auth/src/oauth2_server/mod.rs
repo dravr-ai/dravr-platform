@@ -22,6 +22,8 @@ pub mod first_party;
 pub mod grant_ceiling;
 /// Where a user's consent to a client stands, read through a short-lived cache
 pub mod grant_standing;
+/// The Host Profile T2 basis a step-up stands on (owl §6.2), and who may be told to step up
+pub mod host_profile;
 /// The known-device cookie that lets a browser skip the account sign-in window
 pub mod known_device;
 /// The mobile app's attestation evidence on its code exchange

@@ -40,7 +40,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::supported_ui_locale;
 use pierre_database::backends::{factory::Database, OAuth2ServerRepository};
 use pierre_database::database::repositories::{TenantRepository, UserRepository};
-use pierre_database::repositories::OAuthStandingPolicyRepository;
+use pierre_database::repositories::{HostProfileClaimRepository, OAuthStandingPolicyRepository};
 use pierre_services::auth::AuthService;
 use secrecy::{ExposeSecret, SecretString};
 use std::fmt;
@@ -120,6 +120,9 @@ pub struct OAuth2Context {
     /// The athletes' standing policies: stored from the consent screen, read
     /// where it would be skipped
     pub standing_policies: Arc<dyn OAuthStandingPolicyRepository>,
+    /// The per-request Host Profile claims `/mcp` recorded, which a step-up
+    /// of a client with no metadata document stands on
+    pub host_profile_claims: Arc<dyn HostProfileClaimRepository>,
     /// Tenant repository for user-tenant lookups
     pub tenants: Arc<dyn TenantRepository>,
     /// User repository for credential and profile lookups

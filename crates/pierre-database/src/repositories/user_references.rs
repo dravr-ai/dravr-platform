@@ -292,6 +292,7 @@ user_owned_tables!(
     "oauth_client_grants",
     "oauth_grant_events",
     "oauth_standing_policies",
+    "oauth_host_profile_claims",
     "oauth2_auth_codes",
     "oauth2_refresh_tokens",
     "oauth2_states",

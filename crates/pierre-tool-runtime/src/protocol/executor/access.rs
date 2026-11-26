@@ -5,8 +5,8 @@
 // Copyright (c) 2026 dravr.ai
 
 use dravr_barrage::Stream;
-use pierre_auth::oauth2_server::cimd;
 use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
+use pierre_auth::oauth2_server::host_profile::{self, CurableCall};
 use pierre_contremaitre::consent_strings::step_up_worded;
 use pierre_core::transport::Transport;
 use pierre_providers::ai_scope;
@@ -85,7 +85,7 @@ impl UniversalExecutor {
                 .map_or_default(|data| data.required_streams().collect());
             if ceiling.step_up_cures(&streams)
                 && step_up_worded(self.resources.messaging_strings_registry())
-                && self.client_can_step_up().await
+                && self.client_can_step_up(user_id, ceiling).await
             {
                 return Ok(Some(grant_ceiling_refusal::step_up(tool_name, &streams)));
             }
@@ -96,9 +96,11 @@ impl UniversalExecutor {
     }
 
     /// Whether the calling client may be told to step up, by the rule
-    /// `/mcp`'s 403 challenge follows ([`cimd::declares_host_profile_t2`]).
-    /// A call with no OAuth client (an API key, a session) may not.
-    async fn client_can_step_up(&self) -> bool {
+    /// `/mcp`'s 403 challenge follows ([`host_profile::may_step_up`]), for a
+    /// call of `user_id` under `ceiling` and the Host Profile claim its own
+    /// request declares. A call with no OAuth client (an API key, a
+    /// session) may not.
+    async fn client_can_step_up(&self, user_id: Uuid, ceiling: &GrantCeiling) -> bool {
         let Some(client_id) = self
             .credential
             .as_ref()
@@ -106,8 +108,19 @@ impl UniversalExecutor {
         else {
             return false;
         };
-        let oauth2 = self.resources.repos().oauth2_server.as_ref();
-        cimd::declares_host_profile_t2(oauth2, client_id).await
+        let repos = self.resources.repos();
+        let call = CurableCall {
+            client_id,
+            user_id: &user_id.to_string(),
+            client_grant_id: &ceiling.client_grant_id,
+            request_tier: ceiling.request_host_tier,
+        };
+        host_profile::may_step_up(
+            repos.oauth2_server.as_ref(),
+            repos.host_profile_claims.as_ref(),
+            call,
+        )
+        .await
     }
 }
 

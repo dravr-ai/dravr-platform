@@ -34,6 +34,35 @@ use super::OAuthClientGrant;
 /// minutes).
 pub const STEP_UP_MAX_AGE_SECS: i64 = 300;
 
+/// The oldest a per-request Host Profile claim may be when the athlete
+/// approves a step-up standing on it (`declared_request`), in seconds: the
+/// host's round trip from the challenge to a fresh sign-in and the approval.
+pub const HOST_PROFILE_CLAIM_MAX_AGE_SECS: i64 = 900;
+
+/// A per-request Host Profile claim `/mcp` saw on a call a step-up would
+/// cure (owl §6.2 carrier B): what a step-up of a client with no metadata
+/// document stands on (`declared_request`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostProfileClaim {
+    /// The live parent grant the call was made under
+    pub client_grant_id: String,
+    /// The tier the call declared (`T2`)
+    pub tier_max: String,
+    /// When `/mcp` saw it
+    pub seen_at: Timestamp,
+}
+
+impl HostProfileClaim {
+    /// Whether this claim declares T2 and is at most
+    /// [`HOST_PROFILE_CLAIM_MAX_AGE_SECS`] old at `now`.
+    #[must_use]
+    pub fn stands_at(&self, now: Timestamp) -> bool {
+        let age = now.epoch_seconds() - self.seen_at.epoch_seconds();
+        self.tier_max.eq_ignore_ascii_case("t2")
+            && (0..=HOST_PROFILE_CLAIM_MAX_AGE_SECS).contains(&age)
+    }
+}
+
 /// The step-up assurance a child records (owl §4.2 `acr`).
 pub const OWNER_VERIFIED_ACR: &str = "owner_verified";
 

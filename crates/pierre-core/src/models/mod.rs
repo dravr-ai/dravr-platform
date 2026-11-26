@@ -266,8 +266,8 @@ pub use tool_selection::{
 // Step-up child grants: one-off T2 access under a live grant (carnet#1544 slice 4b)
 mod child_grant;
 pub use child_grant::{
-    ChildGrant, HostProfileBasis, StepUpResult, StepUpTerms, OWNER_VERIFIED_ACR,
-    STEP_UP_MAX_AGE_SECS,
+    ChildGrant, HostProfileBasis, HostProfileClaim, StepUpResult, StepUpTerms,
+    HOST_PROFILE_CLAIM_MAX_AGE_SECS, OWNER_VERIFIED_ACR, STEP_UP_MAX_AGE_SECS,
 };
 
 // A consent grant's receipts (carnet#1544)

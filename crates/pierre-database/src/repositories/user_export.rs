@@ -410,6 +410,7 @@ user_export_tables_sql!(
     "oauth_client_grants" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
     "oauth_grant_events" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
     "oauth_standing_policies" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
+    "oauth_host_profile_claims" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "client_grant_id"] },
     // The admin and the credential they acted through are theirs, not the user's.
     "impersonation_sessions" { rows: [uuid "target_user_id"], tenant: none, except: ["impersonator_id", "grant_id", "api_key_id"], page: 50, key: [text "id"] },
     "permission_delegations" { rows: [uuid "grantor_id"], tenant: none, except: [], page: 50, key: [text "id"] },

@@ -29,6 +29,7 @@ use async_trait::async_trait;
 use dravr_tronc::mcp::auth::{AuthError, AuthHook};
 use dravr_tronc::mcp::canonical::to_canonical_value;
 use dravr_tronc::mcp::host::{CallToolOutcome, ToolDispatcher};
+use dravr_tronc::mcp::modern::meta_keys;
 use dravr_tronc::mcp::protocol::JsonRpcRequest;
 use dravr_tronc::mcp::schema::{
     OAuth2Capability, PromptsCapability, ResourcesCapability, ServerCapabilities, TaskSupport,
@@ -41,8 +42,8 @@ use dravr_tronc::mcp::tasks::{
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext, ToolRegistry};
 use pierre_auth::auth::AuthResult;
 use pierre_auth::config::www_authenticate_challenge;
-use pierre_auth::oauth2_server::cimd;
 use pierre_auth::oauth2_server::first_party::names_third_party;
+use pierre_auth::oauth2_server::host_profile::{self, CurableCall};
 use pierre_auth::oauth2_server::step_up_scope::challenge_scope;
 use pierre_config::timeouts::ServerTimeouts;
 use pierre_contremaitre::consent_strings::step_up_worded;
@@ -281,9 +282,9 @@ impl PierreAuthHook {
     /// A call under a consent grant's ceiling that the ceiling refuses and a
     /// one-off question would open ([`tool_access::step_up_cure`]), while the
     /// step-up screen is worded, from a client that can complete a step-up
-    /// (its metadata document declares a Host Profile T2, which every
-    /// step-up needs); `None` for every other request, which the dispatch
-    /// chokepoint refuses in band.
+    /// ([`host_profile::may_step_up`]: its metadata document declares a Host
+    /// Profile T2, or, with no metadata document, this request does); `None`
+    /// for every other request, which the dispatch chokepoint refuses in band.
     async fn step_up_scope_for(
         &self,
         request: &JsonRpcRequest,
@@ -306,9 +307,25 @@ impl PierreAuthHook {
             &auth.scopes,
             ceiling,
         )?;
-        let client_id = auth.client_id.as_deref()?;
-        let oauth2 = self.resources.common.repos.oauth2_server.as_ref();
-        if !cimd::declares_host_profile_t2(oauth2, client_id).await {
+        let repos = &self.resources.common.repos;
+        let call = CurableCall {
+            client_id: auth.client_id.as_deref()?,
+            user_id: &auth.user_id.to_string(),
+            client_grant_id: &ceiling.client_grant_id,
+            request_tier: request
+                .params
+                .as_ref()
+                .and_then(|params| params.get("_meta"))
+                .and_then(|meta| meta.get(meta_keys::CLIENT_CAPABILITIES))
+                .and_then(host_profile::request_host_tier),
+        };
+        if !host_profile::may_step_up(
+            repos.oauth2_server.as_ref(),
+            repos.host_profile_claims.as_ref(),
+            call,
+        )
+        .await
+        {
             return None;
         }
         Some(challenge_scope(

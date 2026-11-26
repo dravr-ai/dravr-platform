@@ -217,11 +217,26 @@ impl OAuth2Routes {
             .as_ref()
             .filter(|details| step_up::asks_step_up(Some(details)))
         {
+            // The screen read as rendered (the digest above); the child holds
+            // the streams the athlete left ticked, under a digest of them.
+            let selected = match picker::ticked_details(&form, one_off).and_then(|selected| {
+                picker::selection_digest(&selected, &text, subject).map(|digest| (selected, digest))
+            }) {
+                Ok(selected) => selected,
+                Err(error) => {
+                    return error_redirect(
+                        &context.config.issuer_url,
+                        &redirect_uri,
+                        request.state.as_deref(),
+                        &error,
+                    )
+                }
+            };
             let approval = StepUpApproval {
                 client_id: &request.client_id,
                 scope: &scope,
-                details: one_off,
-                review_digest,
+                details: &selected.0,
+                review_digest: selected.1,
                 consent_locale: text.lang().to_owned(),
                 zone: athlete_zone(user.timezone.as_deref()),
             };

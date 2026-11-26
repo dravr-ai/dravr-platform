@@ -586,6 +586,7 @@ impl ProviderToolRouter {
                 database: resources.agent.database.clone(),
                 oauth2_server: resources.common.repos.oauth2_server.clone(),
                 standing_policies: resources.common.repos.oauth_standing_policies.clone(),
+                host_profile_claims: resources.common.repos.host_profile_claims.clone(),
                 tenants: resources.common.repos.tenants.clone(),
                 users: resources.common.repos.users.clone(),
                 auth_manager: resources.auth.auth_manager.clone(),

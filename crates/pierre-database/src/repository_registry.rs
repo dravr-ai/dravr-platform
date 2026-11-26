@@ -26,18 +26,18 @@ use crate::repositories::{
     FederatedIdentityRepository, FeedbackMessageRepository, FirebaseIdentityDeletionRepository,
     FirstRunProgressRepository, FitnessConfigRepository, GarminPushInboxRepository,
     HarnessMemoryRepository, HealthRecordRepository, HealthSnapshotRepository,
-    HomePreferencesRepository, ImpersonationRepository, ImportTombstoneRepository,
-    LlmCredentialRepository, LlmUsageRepository, McpTaskRepository, MemoryExtractionJobRepository,
-    MessagingRepository, MobilityRepository, NotificationRepository, OAuth2ServerRepository,
-    OAuthClientStateRepository, OAuthGrantEventRepository, OAuthStandingPolicyRepository,
-    OAuthTokenRepository, PasswordResetRepository, PeerDataReadRepository,
-    PersonaDigestReturnRepository, PersonalBestRepository, PlanChangeEventRepository,
-    PlatformPostClaimRepository, PlaybookRepository, PreApprovedEmailRepository,
-    PrescribedWorkoutRepository, ProfileRepository, ProviderConnectionRepository,
-    ProviderDataRepository, PushedDataRepository, RecipeRepository, RecoveryRepository,
-    ResumableTurnRepository, RouteSummaryRepository, RoutineRepository, SecurityRepository,
-    SeederRepository, SessionRefreshTokenRepository, ShortLinkRepository, SignupCodeRepository,
-    SignupCohortRepository, SleepRepository, StoreListingsRepository,
+    HomePreferencesRepository, HostProfileClaimRepository, ImpersonationRepository,
+    ImportTombstoneRepository, LlmCredentialRepository, LlmUsageRepository, McpTaskRepository,
+    MemoryExtractionJobRepository, MessagingRepository, MobilityRepository, NotificationRepository,
+    OAuth2ServerRepository, OAuthClientStateRepository, OAuthGrantEventRepository,
+    OAuthStandingPolicyRepository, OAuthTokenRepository, PasswordResetRepository,
+    PeerDataReadRepository, PersonaDigestReturnRepository, PersonalBestRepository,
+    PlanChangeEventRepository, PlatformPostClaimRepository, PlaybookRepository,
+    PreApprovedEmailRepository, PrescribedWorkoutRepository, ProfileRepository,
+    ProviderConnectionRepository, ProviderDataRepository, PushedDataRepository, RecipeRepository,
+    RecoveryRepository, ResumableTurnRepository, RouteSummaryRepository, RoutineRepository,
+    SecurityRepository, SeederRepository, SessionRefreshTokenRepository, ShortLinkRepository,
+    SignupCodeRepository, SignupCohortRepository, SleepRepository, StoreListingsRepository,
     StravaSeatReclaimWarningRepository, SubscriptionsRepository, SyncCursorRepository,
     SystemSettingsRepository, TenantRepository, ToolSelectionRepository, TrainingHistoryRepository,
     TrainingPlanRepository, UnitPreferencesRepository, UploadedActivityFileRepository,
@@ -276,6 +276,9 @@ pub struct RepositoryRegistry {
     /// An athlete's standing policies ("always allow this app this preset"):
     /// written by the consent screen, read where it would be skipped.
     pub oauth_standing_policies: Arc<dyn OAuthStandingPolicyRepository>,
+    /// The per-request Host Profile claims a step-up of a client with no
+    /// metadata document stands on: written by `/mcp`, read at approval.
+    pub host_profile_claims: Arc<dyn HostProfileClaimRepository>,
     /// Firebase identities still to delete at Google after their account
     /// went: written by the account delete, drained by its post-commit call
     /// and the retry sweep.
@@ -451,6 +454,7 @@ impl RepositoryRegistry {
             archive_erasures: db.clone(),
             oauth_grant_events: db.clone(),
             oauth_standing_policies: db.clone(),
+            host_profile_claims: db.clone(),
             firebase_identity_deletions: db.clone(),
             garmin_push_inbox: db.clone(),
             pushed_data: db.clone(),
@@ -575,6 +579,7 @@ impl RepositoryRegistry {
             archive_erasures: db.clone(),
             oauth_grant_events: db.clone(),
             oauth_standing_policies: db.clone(),
+            host_profile_claims: db.clone(),
             firebase_identity_deletions: db.clone(),
             garmin_push_inbox: db.clone(),
             pushed_data: db.clone(),

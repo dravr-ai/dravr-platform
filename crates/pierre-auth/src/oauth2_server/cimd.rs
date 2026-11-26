@@ -501,26 +501,6 @@ pub fn host_profile_tier(stored: &str) -> Option<String> {
     declared.get("tier_max")?.as_str().map(str::to_owned)
 }
 
-/// Whether client `client_id` may be told to step up.
-///
-/// Its metadata document declares a Host Profile T2, the one carrier a
-/// step-up challenge is offered on. A client registered by DCR, or whose
-/// profile cannot be read, may not.
-pub async fn declares_host_profile_t2(
-    oauth2: &dyn OAuth2ServerRepository,
-    client_id: &str,
-) -> bool {
-    oauth2
-        .client_host_profile(client_id)
-        .await
-        .inspect_err(|e| warn!(client_id, error = %e, "A client's Host Profile could not be read"))
-        .ok()
-        .flatten()
-        .as_deref()
-        .and_then(host_profile_tier)
-        .is_some_and(|tier| tier.eq_ignore_ascii_case("T2"))
-}
-
 /// Resolves a metadata document `client_id` to the public client it describes.
 pub(super) struct MetadataResolver {
     /// Shared with the authorization server, which builds a resolver per request
