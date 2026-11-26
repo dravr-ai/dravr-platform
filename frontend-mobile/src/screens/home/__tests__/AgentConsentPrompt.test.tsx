@@ -77,6 +77,8 @@ describe('AgentConsentPrompt', () => {
     await waitFor(() => expect(answerAgentConsentPrompt).toHaveBeenCalledWith({ dismissed: true }));
     await waitFor(() => expect(screen.queryByTestId('agent-consent-prompt')).toBeNull());
     expect(state).toEqual({ due: false, memory: false, medical: false });
+    // Nothing was saved, so nothing says it was.
+    expect(screen.queryByTestId('agent-consent-prompt-saved')).toBeNull();
   });
 
   it('offers only the class not yet given', async () => {

@@ -30,7 +30,8 @@ export function AgentConsentPrompt() {
 
   const state = prompt.data;
   if (state === undefined || !state.due) {
-    if (answer.isSuccess) {
+    // "Saved" confirms a choice; Not now saved none, so it says nothing.
+    if (answer.isSuccess && !(answer.variables !== undefined && 'dismissed' in answer.variables)) {
       return (
         <p role="status" className="text-sm text-on-surface-variant" data-testid="agent-consent-prompt-saved">
           {t(AGENT_CONSENT_PROMPT_KEYS.saved)}
