@@ -14,6 +14,7 @@ import { PLAN_WORKSPACE_KEYS, formatCivilDate, openThreadRefusalText, planCalend
 import { useAuth } from '../../../hooks/useAuth';
 import { useIsDesktop, useIsMobile } from '../../../hooks/useBreakpoint';
 import { usePlanDraftCard, useSubjectPlan } from '../../../hooks/useCoachPlan';
+import { useWorkspaceAnswers, useWorkspaceThreads } from '../../../hooks/useAthleteWorkspace';
 import { Button, EmptyState, IconButton, Sheet } from '../../ui';
 import { PlanDraftActions } from '../../chat/PlanDraftControls';
 import type { SessionEditorOpening } from '../../chat/SessionEditorSheet';
@@ -26,8 +27,6 @@ import type { CoachDestinations } from '../useCoachDestinations';
 import { PrePublishCheck } from './PrePublishCheck';
 import { WorkspaceCalendar } from './WorkspaceCalendar';
 import { WorkspacePanel, WorkspacePanelOpeners, type WorkspaceGroupTab, type WorkspaceTab } from './WorkspacePanel';
-import { useWorkspaceAnswers } from './useWorkspaceAnswers';
-import { useWorkspaceThreads } from './useWorkspaceThreads';
 
 // The editor loads when a coach first opens it, never before first paint, as
 // on the plan card: it is a coach-only sheet.
@@ -254,8 +253,8 @@ export default function AthleteWorkspace({ athlete, onNavigate, destinations }: 
         <PrePublishCheck
           items={checks}
           athleteName={name}
-          onKeep={answers.keep}
-          keeping={answers.keeping}
+          onKeep={(item) => answers.setCall(item.day, item.position, true)}
+          keeping={answers.callSaving}
           onReview={(item) => setEditing({ day: item.day, entries: item.entries, mode: 'edit' })}
           onCleared={() => calendarRef.current?.focus()}
         />

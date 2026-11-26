@@ -195,6 +195,16 @@ export {
   roomConversationOf,
   usablePlanThread,
 } from './planWorkspace';
+// The athlete workspace's two threads and the coach's answers to the draft, one factory both clients bind (carnet#1816, #1818)
+export {
+  type WorkspaceAnswers,
+  type WorkspaceHooksDeps,
+  type WorkspaceRoom,
+  type WorkspaceThreads,
+  type WorkspaceWords,
+  type WorkspaceWrite,
+  createWorkspaceHooks,
+} from './workspaceHooks';
 // A coach's Groups list with one row per trifecta athlete, opening their workspace (carnet#1817)
 export { type AthleteWorkspaceFold, type GroupsListRow, foldAthleteRows } from './athleteRows';
 // A coach's day editor: the day's own session by hand, or a family build with its live preview, saved into the draft (carnet#1515, #1714)

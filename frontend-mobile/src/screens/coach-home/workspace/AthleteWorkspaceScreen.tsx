@@ -20,11 +20,18 @@ import {
   coachRoomName,
   prePublishChecks,
 } from '@pierre/chat-utils';
-import { PLAN_WORKSPACE_KEYS, openThreadRefusalText, planCalendarWeeks } from '@pierre/ui-logic';
+import {
+  PLAN_WORKSPACE_KEYS,
+  openThreadRefusalText,
+  planCalendarWeeks,
+  type WorkspaceRoom,
+  type WorkspaceThreads,
+} from '@pierre/ui-logic';
 import { EmptyState, TextTabs, type TextTabItem } from '../../../components/ui';
 import { useThemeColors } from '../../../constants/theme';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useCoachRoster } from '../../../hooks/useCoachRoster';
+import { useWorkspaceAnswers, useWorkspaceThreads } from '../../../hooks/useAthleteWorkspace';
 import { useSubjectPlan } from '../../../hooks/useCoachPlan';
 import PlanDraftControls from '../../chat/PlanDraftControls';
 import type { WorkspacePlanSurface } from '../../chat/PlanChangeEntry';
@@ -35,8 +42,6 @@ import { PrePublishCheck } from './PrePublishCheck';
 import { WorkspaceCalendar } from './WorkspaceCalendar';
 import { WorkspaceHistory } from './WorkspaceHistory';
 import { WorkspaceThread } from './WorkspaceThread';
-import { useWorkspaceAnswers } from './useWorkspaceAnswers';
-import { useWorkspaceThreads, type WorkspaceRoom, type WorkspaceThreads } from './useWorkspaceThreads';
 
 /** The workspace's tabs: the plan, its history, the coach's private thread with the agent, the athlete's room. */
 type WorkspaceTab = 'plan' | 'history' | 'dravr' | 'group';

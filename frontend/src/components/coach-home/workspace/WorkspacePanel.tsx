@@ -9,12 +9,11 @@ import { History, Lock, Users, type LucideIcon } from 'lucide-react';
 import { useTranslation, type TFunction } from '@pierre/i18n';
 import { GROUP_ROOM_KEYS, PRIVATE_LANE_KEYS } from '@pierre/chat-utils';
 import type { CoachRosterAthlete } from '@pierre/shared-types';
-import { PLAN_WORKSPACE_KEYS, planHistoryLine } from '@pierre/ui-logic';
+import { PLAN_WORKSPACE_KEYS, planHistoryLine, type WorkspaceRoom } from '@pierre/ui-logic';
 import { Button, EmptyState, Tabs, type Tab } from '../../ui';
 import EmbeddedChat from '../../chat/EmbeddedChat';
 import type { PendingComposerAction, WorkspacePlanSurface } from '../../chat/types';
 import { useSubjectPlanHistory } from '../../../hooks/useSessionEditor';
-import type { WorkspaceRoom } from './useWorkspaceThreads';
 
 /** The panel's tabs: the plan's history, the coach's private thread with the agent, the athlete's room. */
 export type WorkspaceTab = 'history' | 'dravr' | 'group';
