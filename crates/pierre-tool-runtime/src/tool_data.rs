@@ -13,8 +13,23 @@
 //! passes through it.
 
 use dravr_barrage::{Stream, Tier};
+use serde_json::Value;
 
 use crate::read_subject::DataClass;
+
+/// The streams one call reads when an argument picks part of what a tool
+/// declares: each case names the argument's value and the streams a call
+/// naming it reads, a subset of the declaration.
+///
+/// A call naming no case, or a value no case lists, reads every declared
+/// stream, so a gate never asks less of a call than it may read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StreamsByArgument {
+    /// The argument whose value picks the case.
+    argument: &'static str,
+    /// Each value and the streams a call naming it reads.
+    cases: &'static [(&'static str, &'static [Stream])],
+}
 
 /// What one registered tool reads.
 ///
@@ -43,6 +58,8 @@ pub struct ToolData {
     /// Whether it reads only connection metadata: which sources the athlete
     /// connected, their devices, and how fresh each is, never a stream's row.
     connection_metadata: bool,
+    /// The part of `streams` one call reads, when an argument picks it.
+    by_argument: Option<StreamsByArgument>,
 }
 
 impl ToolData {
@@ -56,6 +73,7 @@ impl ToolData {
             incidental_route: false,
             whole_history: false,
             connection_metadata: false,
+            by_argument: None,
         }
     }
 
@@ -71,6 +89,7 @@ impl ToolData {
             incidental_route: false,
             whole_history: false,
             connection_metadata: false,
+            by_argument: None,
         }
     }
 
@@ -105,6 +124,47 @@ impl ToolData {
     pub const fn with_connection_metadata(mut self) -> Self {
         self.connection_metadata = true;
         self
+    }
+
+    /// This tool, one of whose calls reads only the streams the case its
+    /// `argument` names lists (`get_health_records`' `kind`): a `labs` read
+    /// reads labs, never the T3 streams beside them (carnet#1544 slice 4b).
+    /// Every case lists a subset of the declared streams.
+    #[must_use]
+    pub const fn with_streams_by(
+        mut self,
+        argument: &'static str,
+        cases: &'static [(&'static str, &'static [Stream])],
+    ) -> Self {
+        self.by_argument = Some(StreamsByArgument { argument, cases });
+        self
+    }
+
+    /// What one call with `args` reads: the case its argument names, or the
+    /// whole declaration when it names none.
+    #[must_use]
+    pub(crate) fn for_call(mut self, args: &Value) -> Self {
+        let picked = self.by_argument.and_then(|by| {
+            let value = args.get(by.argument).and_then(Value::as_str)?;
+            by.cases
+                .iter()
+                .find(|(case, _)| *case == value)
+                .map(|(_, streams)| *streams)
+        });
+        if let Some(streams) = picked {
+            self.streams = streams;
+        }
+        self
+    }
+
+    /// Whether every case lists only declared streams.
+    #[cfg(test)]
+    fn cases_are_declared(&self) -> bool {
+        self.by_argument.is_none_or(|by| {
+            by.cases
+                .iter()
+                .all(|(_, streams)| streams.iter().all(|s| self.streams.contains(s)))
+        })
     }
 
     /// The streams a grant must hold for it to be called: those it declares,
@@ -154,5 +214,41 @@ impl ToolData {
     #[must_use]
     pub(crate) const fn athlete_text(&self) -> bool {
         self.athlete_text
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    const DECLARED: ToolData = ToolData::of(
+        DataClass::Wellness,
+        &[Stream::Labs, Stream::RestrictedClinical],
+    )
+    .with_streams_by("kind", &[("labs", &[Stream::Labs])]);
+
+    #[test]
+    fn a_call_naming_a_case_reads_only_its_streams() {
+        assert!(
+            DECLARED.cases_are_declared(),
+            "bug: a case beyond the declaration"
+        );
+        assert_eq!(
+            DECLARED.for_call(&json!({ "kind": "labs" })).streams(),
+            &[Stream::Labs],
+            "bug: a labs read"
+        );
+    }
+
+    #[test]
+    fn a_call_naming_no_case_reads_every_declared_stream() {
+        for args in [json!({}), json!({ "kind": "notes" }), json!({ "kind": 3 })] {
+            assert_eq!(
+                DECLARED.for_call(&args).streams(),
+                &[Stream::Labs, Stream::RestrictedClinical],
+                "bug: {args} fails open"
+            );
+        }
     }
 }

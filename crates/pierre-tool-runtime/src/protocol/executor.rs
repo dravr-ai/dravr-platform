@@ -35,7 +35,6 @@ use crate::runtime::ToolRuntime;
 use crate::scopes::missing_scope;
 use crate::security::SecurityLabels;
 use crate::support_session;
-use crate::tool_data::ToolData;
 use crate::turn_end::{self, HandoffSlot};
 use dispatch_record::DispatchRecord;
 use dravr_barrage::Stream;
@@ -669,7 +668,7 @@ impl UniversalExecutor {
             let streams: Vec<Stream> = self
                 .resources
                 .tool_registry()
-                .tool_data(&request.tool_name)
+                .call_data(&request.tool_name, &request.parameters)
                 .map_or_default(|data| data.required_streams().collect());
             ceiling.for_streams(&streams)
         });
@@ -735,7 +734,7 @@ impl UniversalExecutor {
         if let Some(refusal) = self
             .access_refusal(
                 tool.as_ref(),
-                &tool_name,
+                (&tool_name, &args),
                 user_uuid,
                 is_admin,
                 call_ceiling.as_ref(),
@@ -858,12 +857,14 @@ impl UniversalExecutor {
         let member_read = subject.as_ref().map(ReadSubject::athlete);
         // An outside client never reaches a tool reading T3 streams, nor T2
         // ones without a grant reaching T2 (`tier_gate`, carnet#1544).
-        let streams = self
-            .resources
-            .tool_registry()
-            .tool_data(&tool_name)
-            .map_or(&[][..], ToolData::streams);
+        let call_data = self.resources.tool_registry().call_data(&tool_name, &args);
+        let streams = call_data.map_or(&[][..], |data| data.streams());
+        let claim = self.single_use_claim(&tool_name, parties, call_ceiling.as_ref());
         let execute = tier_gate::gated(&tool_name, streams, async move {
+            // Past the tier gate a single-use grant is spent before it reads.
+            if let Some(consumed) = claim.await {
+                return consumed;
+            }
             // What the call derives from here on is the athlete's (carnet#1174),
             // and so is every attribution what it serves owes (carnet#1464).
             match member_read {
@@ -1083,11 +1084,10 @@ impl UniversalExecutor {
             if provenance.served_provider_data() {
                 reply_check::note_unchecked_reply(&mut universal);
             }
-            let declared = self.resources.tool_registry().tool_data(&tool_name);
             trust_labels::attach(
                 &mut universal,
                 &tool_name,
-                declared,
+                call_data.as_ref(),
                 &provenance.source_classes(),
             );
         }

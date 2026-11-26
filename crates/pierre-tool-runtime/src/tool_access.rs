@@ -189,16 +189,32 @@ pub fn withheld(
     tool: &dyn RuntimeTool,
     caller: &Caller<'_>,
 ) -> Option<Withheld> {
-    decide(
-        Declared {
-            surface: tool.reach(),
-            audience: tool.audience(),
-            capabilities: tool.capabilities(),
-            exports_record: tool.exports_record(),
-            data: registry.tool_data(name).copied(),
-        },
-        caller,
-    )
+    decide(declared(tool, registry.tool_data(name).copied()), caller)
+}
+
+/// [`withheld`] for one call with `args`: what it reads is the declaration
+/// narrowed to the streams its arguments pick, so a `labs` read of
+/// `get_health_records` is asked about labs alone (carnet#1544 slice 4b).
+#[must_use]
+pub(crate) fn withheld_call(
+    registry: &ToolRegistry,
+    name: &str,
+    tool: &dyn RuntimeTool,
+    caller: &Caller<'_>,
+    args: &serde_json::Value,
+) -> Option<Withheld> {
+    decide(declared(tool, registry.call_data(name, args)), caller)
+}
+
+/// What `tool` declares, reading `data`.
+fn declared(tool: &dyn RuntimeTool, data: Option<ToolData>) -> Declared {
+    Declared {
+        surface: tool.reach(),
+        audience: tool.audience(),
+        capabilities: tool.capabilities(),
+        exports_record: tool.exports_record(),
+        data,
+    }
 }
 
 /// What a tool declares about itself that the predicate reads.

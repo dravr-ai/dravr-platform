@@ -18,11 +18,11 @@ use crate::protocol::types::UniversalResponse;
 use crate::protocols::ProtocolError;
 use crate::security::{Audience, RuntimeTool};
 use crate::tool_access::{
-    coach_role_refusal, is_human_coach, withheld, Caller, CallerRole, Withheld,
+    coach_role_refusal, is_human_coach, withheld_call, Caller, CallerRole, Withheld,
 };
 
 impl UniversalExecutor {
-    /// What [`withheld`] answers for this call, rendered
+    /// What [`withheld_call`] answers for this call with `args`, rendered
     /// ([`render_withheld`]): `None` when the call may run.
     ///
     /// `is_admin` is the live role
@@ -40,7 +40,7 @@ impl UniversalExecutor {
     pub(super) async fn access_refusal(
         &self,
         tool: &dyn RuntimeTool,
-        tool_name: &str,
+        (tool_name, args): (&str, &serde_json::Value),
         user_id: Uuid,
         is_admin: bool,
         ceiling: Option<&GrantCeiling>,
@@ -63,7 +63,7 @@ impl UniversalExecutor {
             ceiling,
         };
         let registry = self.resources.tool_registry();
-        let answer = withheld(registry, tool_name, tool, &caller).or_else(|| {
+        let answer = withheld_call(registry, tool_name, tool, &caller, args).or_else(|| {
             if self.caller_writes_reply {
                 return None;
             }
@@ -71,14 +71,14 @@ impl UniversalExecutor {
                 role: CallerRole::default(),
                 ..caller
             };
-            withheld(registry, tool_name, tool, &role_less)
+            withheld_call(registry, tool_name, tool, &role_less, args)
                 .filter(|why| *why != Withheld::Role(Audience::Admin))
         });
         // A tier or stream refusal the athlete's step-up would cure says so,
         // once the step-up screen is worded (carnet#1544 slice 4b).
         if let (Some(Withheld::Tier(_) | Withheld::Stream), Some(ceiling)) = (answer, ceiling) {
             let streams: Vec<Stream> = registry
-                .tool_data(tool_name)
+                .call_data(tool_name, args)
                 .map_or_default(|data| data.required_streams().collect());
             if ceiling.step_up_cures(&streams)
                 && step_up_worded(self.resources.messaging_strings_registry())

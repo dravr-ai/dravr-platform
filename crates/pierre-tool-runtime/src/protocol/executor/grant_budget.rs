@@ -29,8 +29,12 @@ use std::collections::HashMap;
 use std::future::Future;
 use tracing::{info, warn};
 
+use dravr_tronc::mcp::schema::ToolResponse;
+use pierre_tools_core::ToolResult;
+
 use super::subject::Parties;
 use super::UniversalExecutor;
+use crate::conversions::tool_result_to_response;
 use crate::protocol::types::{UniversalResponse, GRANT_BLOCK};
 
 /// The `error_code` of a call refused because its grant's day is spent.
@@ -186,8 +190,7 @@ impl UniversalExecutor {
     }
 
     /// Run `body`, a call's, under `ceiling`, counting the rows its readers
-    /// serve, and levy them on its grant's counters ([`Self::levy_rows`]). A
-    /// single-use grant is consumed once the call served it any row.
+    /// serve, and levy them on its grant's counters ([`Self::levy_rows`]).
     pub(super) async fn levied<F: Future>(
         &self,
         parties: Parties,
@@ -196,47 +199,66 @@ impl UniversalExecutor {
     ) -> F::Output {
         let (output, served) = ai_scope::counting_rows(body).await;
         self.levy_rows(served, parties, ceiling).await;
-        self.consume_if_read(served, parties, ceiling).await;
         output
     }
 
-    /// Consume `ceiling`'s single-use grant when the call it ran read data
-    /// (owl §3.1: consumed by the first call that reads data under it). A
-    /// failed write is logged: the grant then lasts to its expiry, an hour
-    /// by default and a day at most.
-    async fn consume_if_read(
+    /// Consume `ceiling`'s single-use grant for the call about to read under
+    /// it, past every gate (owl §3.1: consumed by the first call that reads
+    /// data under it): the refusal when it is not this call's to read,
+    /// `None` when the call may read, and for every other grant.
+    ///
+    /// The one statement that ends the grant decides, so of two calls
+    /// arriving together exactly one reads; the other, and every later one,
+    /// is refused `grant_consumed`. A call admitted here that then reads
+    /// nothing (its arguments refused) has still used the grant: the grant
+    /// is spent before the read, never after, so no read outlives it. A
+    /// failed write refuses the call.
+    pub(super) async fn single_use_claim(
         &self,
-        served: ServedRows,
+        tool_name: &str,
         parties: Parties,
         ceiling: Option<&GrantCeiling>,
-    ) {
-        let (Some(ceiling), Some(tenant)) = (ceiling, parties.requester_tenant) else {
-            return;
+    ) -> Option<ToolResponse> {
+        let ceiling = ceiling.filter(|ceiling| ceiling.single_use)?;
+        let claimed = match parties.requester_tenant {
+            Some(tenant) => self
+                .resources
+                .repos()
+                .oauth2_server
+                .consume_child_grant(
+                    &ceiling.client_grant_id,
+                    &parties.requester.to_string(),
+                    &tenant.to_string(),
+                )
+                .await
+                .unwrap_or_else(|e| {
+                    warn!(
+                        client_grant_id = %ceiling.client_grant_id,
+                        "a single-use grant could not be consumed; refusing: {e}"
+                    );
+                    false
+                }),
+            None => false,
         };
-        if !ceiling.single_use || served == ServedRows::default() {
-            return;
-        }
-        let consumed = self
-            .resources
-            .repos()
-            .oauth2_server
-            .consume_child_grant(
-                &ceiling.client_grant_id,
-                &parties.requester.to_string(),
-                &tenant.to_string(),
-            )
-            .await;
-        match consumed {
-            Ok(true) => info!(
+        if claimed {
+            info!(
+                tool_name,
                 client_grant_id = %ceiling.client_grant_id,
-                "single-use grant consumed by the call that read under it"
-            ),
-            Ok(false) => {}
-            Err(e) => warn!(
-                client_grant_id = %ceiling.client_grant_id,
-                "failed to consume a single-use grant: {e}"
-            ),
+                "single-use grant consumed by the call reading under it"
+            );
+            return None;
         }
+        info!(
+            tool_name,
+            client_grant_id = %ceiling.client_grant_id,
+            "tool call refused: its single-use grant was already consumed"
+        );
+        let refusal = consumed(tool_name);
+        Some(tool_result_to_response(Ok(ToolResult::error(json!({
+            "error_code": GRANT_CONSUMED,
+            "reason": GRANT_CONSUMED,
+            "error": refusal.error,
+        })))))
     }
 
     /// Add what a call under a ceiling served to its grant's counters today.

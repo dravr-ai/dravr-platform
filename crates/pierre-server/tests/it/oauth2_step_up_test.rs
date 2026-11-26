@@ -17,18 +17,29 @@
 //! approval records a child the parent's code names. The child ends with its
 //! parent, alone when revoked, and once when consumed.
 
+use crate::common;
 use crate::helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use crate::helpers::consent_form::hidden_field;
 use crate::oauth2_grant_details_test::{
-    access_detail, app, approve_with, challenge, code_of, constraints_detail, fresh_state,
-    live_grants, register, request_query, world, Client, World, REDIRECT,
+    access_detail, app, approve_with, challenge, claimed_grant, code_of, constraints_detail,
+    exchange, fresh_state, live_grants, register, request_query, tokens, world, Client, World,
+    REDIRECT,
 };
 
 use dravr_tronc::dates::{Elapsed, Timestamp};
-use pierre_core::models::{ChildGrant, GrantActor, GrantEvent, OWNER_VERIFIED_ACR};
+use pierre_core::constants::oauth::providers::SENSITIVE_T2;
+use pierre_core::constants::oauth::INTERVALS_ICU;
+use pierre_core::constants::oauth_providers::NoticeKind;
+use pierre_core::models::{
+    ChildGrant, DataSource, DeviceType, GrantActor, GrantEvent, TenantId, OWNER_VERIFIED_ACR,
+};
+use pierre_database::repositories::{ClinicalRecordWrite, RecordFiling};
+use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
+use pierre_services::provider_notice::grant_consent;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use url::Url;
+use uuid::Uuid;
 
 /// The step-up screen's three lines, as the catalogue will word them.
 const STEP_UP_LINES: [(&str, &str); 3] = [
@@ -238,6 +249,12 @@ async fn events(world: &World, id: &str) -> Vec<GrantEvent> {
 /// declaring a T2 host, with the step-up screen lit, and a child approved
 /// under it: the parent's and the child's ids.
 async fn stepped_up() -> (World, Client, String, String) {
+    let (world, client, parent, child, _code) = stepped_up_with_code().await;
+    (world, client, parent, child)
+}
+
+/// [`stepped_up`], with the code the step-up approval returned.
+async fn stepped_up_with_code() -> (World, Client, String, String, String) {
     let world = world().await;
     let client = register(&world).await;
     let parent = approve_parent(&world, &client).await;
@@ -272,7 +289,7 @@ async fn stepped_up() -> (World, Client, String, String) {
         .into_iter()
         .find(|child| child.terms.parent_grant_id == parent)
         .expect("bug: no child under the parent");
-    (world, client, parent, child.grant.id)
+    (world, client, parent, child.grant.id, code)
 }
 
 // ============================================================================
@@ -572,4 +589,201 @@ async fn a_step_up_under_a_plain_grant_is_refused() {
         refused.header("location")
     );
     assert!(children(&world).await.is_empty(), "bug: a child was stored");
+}
+
+// ============================================================================
+// T2 end to end: the child's lab read over /mcp
+// ============================================================================
+
+/// The athlete's lab result, filed three days ago.
+async fn file_a_lab(world: &World) {
+    let repos = &world.resources.common.repos;
+    let tenant = TenantId::from_uuid(world.tenant_id.parse().unwrap());
+    let source = repos
+        .data_sources
+        .upsert_data_source(
+            &tenant,
+            &DataSource {
+                id: String::new(),
+                user_id: world.user.id.to_string(),
+                provider: INTERVALS_ICU.to_owned(),
+                device_model: None,
+                software_version: None,
+                source: None,
+                device_type: DeviceType::Band,
+                original_source_name: None,
+            },
+        )
+        .await
+        .unwrap();
+    let filing = RecordFiling {
+        tenant_id: &tenant,
+        user_id: world.user.id,
+        provider: INTERVALS_ICU,
+        data_source_id: &source,
+    };
+    let lab = ClinicalRecordWrite {
+        record_id: "lab-ferritin".to_owned(),
+        resource_type: "Observation".to_owned(),
+        tier: "T2".to_owned(),
+        sensitivity_class: None,
+        fhir_version: "4.0.1".to_owned(),
+        resource: json!({ "resourceType": "Observation", "id": "ferritin" }).to_string(),
+        stripped: json!({ "resourceType": "Observation", "id": "ferritin" }).to_string(),
+        provenance: json!({ "resourceType": "Provenance" }).to_string(),
+        flat: None,
+        derivation: "verbatim".to_owned(),
+        review_state: "none".to_owned(),
+        checks: "[]".to_owned(),
+        locator: None,
+        read_by: None,
+        effective_at: Some(Timestamp::now() - Elapsed::days(3)),
+        lab_document_id: None,
+        legacy_id: None,
+    };
+    repos
+        .health_records
+        .upsert_clinical_records(filing, &[lab])
+        .await
+        .unwrap();
+}
+
+/// The athlete lets AI read their health records (`sensitive_t2`).
+async fn allow_health_records(world: &World) {
+    grant_consent(
+        &world.resources.common.repos,
+        Uuid::parse_str(&world.tenant_id).unwrap(),
+        world.user.id,
+        SENSITIVE_T2,
+        NoticeKind::AiConsent,
+        "Health records",
+    )
+    .await
+    .unwrap();
+}
+
+/// `get_health_records` of `kind` over `/mcp` under `bearer`, the request
+/// declaring a Host Profile of `tier` when one is given: the JSON-RPC body.
+async fn read_records(world: &World, bearer: &str, kind: &str, tier: Option<&str>) -> Value {
+    let capabilities = tier.map_or_else(
+        || json!({}),
+        |tier| {
+            json!({ "extensions": {
+                "app.dravr.vault/host-profile": { "tier_max": tier, "version": 1 }
+            }})
+        },
+    );
+    let start = (Timestamp::now() - Elapsed::days(30)).to_rfc3339();
+    let response = AxumTestRequest::post("/mcp")
+        .header("authorization", &format!("Bearer {bearer}"))
+        .header("mcp-protocol-version", "2026-07-28")
+        .header("mcp-method", "tools/call")
+        .header("mcp-name", "get_health_records")
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "get_health_records",
+                "arguments": { "kind": kind, "start": start },
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": capabilities,
+                },
+            },
+        }))
+        .send(ProviderToolRouter::build_http_app(&world.resources))
+        .await;
+    assert_eq!(response.status(), 200, "{kind}: {}", response.body_text());
+    serde_json::from_str(&response.body_text()).unwrap()
+}
+
+#[tokio::test]
+async fn the_childs_lab_read_reaches_an_outside_client_once_and_nothing_else_does() {
+    common::init_server_config();
+    let (world, client, parent, child, code) = stepped_up_with_code().await;
+    file_a_lab(&world).await;
+    allow_health_records(&world).await;
+
+    // The token the step-up's code mints names the parent, never the child.
+    let (token, _) = tokens(&exchange(&world, &client, &code).await);
+    assert_eq!(
+        claimed_grant(&token).as_deref(),
+        Some(parent.as_str()),
+        "bug: the re-authorized token does not name the parent"
+    );
+
+    // Without the request's own Host Profile claim, T2 stays shut.
+    let unclaimed = read_records(&world, &token, "labs", None).await.to_string();
+    assert!(
+        !unclaimed.contains("ferritin"),
+        "bug: a lab read without the request's Host Profile claim: {unclaimed}"
+    );
+    // Another kind declares T3 streams: refused under any child.
+    let clinical = read_records(&world, &token, "clinical", Some("T2")).await;
+    assert_eq!(
+        clinical["result"]["isError"],
+        json!(true),
+        "bug: a clinical read reached an outside client: {clinical}"
+    );
+    assert!(
+        !clinical.to_string().contains("step_up_required"),
+        "bug: a step-up was offered for T3 streams: {clinical}"
+    );
+    assert_eq!(
+        children(&world).await.len(),
+        1,
+        "bug: a refusal consumed the child"
+    );
+
+    // The labs, read once under the child.
+    let labs = read_records(&world, &token, "labs", Some("T2")).await;
+    assert!(
+        labs.to_string().contains("ferritin"),
+        "bug: the child's lab read was not served: {labs}"
+    );
+    assert_eq!(
+        events(&world, &child).await,
+        [GrantEvent::StepUp, GrantEvent::Consume],
+        "bug: the single-use read did not consume the child"
+    );
+    let again = read_records(&world, &token, "labs", Some("T2"))
+        .await
+        .to_string();
+    assert!(
+        !again.contains("ferritin"),
+        "bug: a consumed single-use child read again: {again}"
+    );
+}
+
+#[tokio::test]
+async fn two_lab_reads_arriving_together_under_a_single_use_child_serve_one() {
+    common::init_server_config();
+    let (world, client, _parent, child, code) = stepped_up_with_code().await;
+    file_a_lab(&world).await;
+    allow_health_records(&world).await;
+    let (token, _) = tokens(&exchange(&world, &client, &code).await);
+    let (first, second) = tokio::join!(
+        read_records(&world, &token, "labs", Some("T2")),
+        read_records(&world, &token, "labs", Some("T2")),
+    );
+    let served: Vec<bool> = [&first, &second]
+        .iter()
+        .map(|body| body.to_string().contains("ferritin"))
+        .collect();
+    assert_eq!(
+        served.iter().filter(|served| **served).count(),
+        1,
+        "bug: a single-use child served {served:?}: {first} / {second}"
+    );
+    let refused = if served[0] { &second } else { &first };
+    assert!(
+        refused.to_string().contains("grant_consumed"),
+        "bug: the second read was not refused as consumed: {refused}"
+    );
+    assert_eq!(
+        events(&world, &child).await,
+        [GrantEvent::StepUp, GrantEvent::Consume],
+        "bug: the child's receipts"
+    );
 }

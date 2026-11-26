@@ -1,5 +1,5 @@
 // ABOUTME: get_health_records — the athlete's lab results, clinical records, glucose and cycle tracking, each row by its own tier
-// ABOUTME: Free-text-stripped copies only; outside clients are refused at dispatch (a T2 stream), a coach reaches T2 under their grant only
+// ABOUTME: Free-text-stripped copies only; an outside client reads labs under a step-up child alone, a coach reaches T2 under their grant only
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,9 +9,10 @@
 //! The one reader of the T2–T3 records every import stores
 //! ([`pierre_services::health_records::read`]). It declares owl's streams
 //! `labs.summary` and `clinical.raw` (T2) and `restricted.clinical.summary`
-//! and `restricted.selfreport.summary` (T3), so the dispatch tier gate refuses
-//! every outside client (a T2 stream is never readable there until grants
-//! carry authorization details, slice 3). Within Dravr:
+//! and `restricted.selfreport.summary` (T3); a `labs` call reads the labs
+//! stream alone, so an outside client holding a step-up child over it reads
+//! lab results, and the dispatch tier gate refuses it every other kind
+//! (slice 4b). Within Dravr:
 //!
 //! - every record is served as its free-text-stripped copy, never the
 //!   resource as read, and only once read as it is or confirmed by the
@@ -190,9 +191,11 @@ impl McpTool<dyn ToolRuntime> for GetHealthRecordsTool {
     }
 }
 
-// The T2–T3 records every import stores (carnet#1544): a T2 stream, so
-// the dispatch gate refuses it to every outside client until grants carry
-// authorization details.
+// The T2–T3 records every import stores (carnet#1544). A call names one
+// kind and reads that kind's streams alone: a `labs` read is the labs stream
+// (T2), which an outside client reads through a step-up child holding it
+// (slice 4b); every other kind, or a call naming none, is asked about every
+// stream, the T3 ones among them, so no outside client reaches it.
 crate::declare_security!(
     GetHealthRecordsTool => empty,
     reads: ToolData::of(
@@ -203,7 +206,8 @@ crate::declare_security!(
             Stream::RestrictedClinical,
             Stream::RestrictedSelfReport,
         ],
-    ),
+    )
+    .with_streams_by("kind", &[("labs", &[Stream::Labs])]),
 );
 
 #[cfg(test)]
