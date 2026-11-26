@@ -26,13 +26,14 @@ use pierre_chat_pipeline::{
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::{ConversationTurnId, Tenant, TenantId};
-use pierre_core::transport::TransportPolicy;
+use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_database::repositories::UpsertUserFactParams;
 use pierre_llm::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, MessageRole, StreamChunk,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
+use pierre_providers::ai_scope;
 use uuid::Uuid;
 
 use crate::common::{create_test_server_resources_with_chat_provider, create_test_user};
@@ -200,28 +201,34 @@ async fn a_room_turn_carries_the_north_star_stamped_in_the_athletes_own_workspac
         prose_contract: None,
     });
 
-    pierre_chat_pipeline::run(
-        &ctx,
-        TurnInput {
-            origin: TurnOrigin::Athlete,
-            input_source: InputSource::Typed,
-            conversation_id: conversation.id.clone(),
-            user_id: user.to_string(),
-            conversation_tenant_id: channel,
-            tool_tenant_id: home,
-            is_direct_message: false,
-            content: "What should I focus on this week?".to_owned(),
-            turn_id: ConversationTurnId::new(),
-            ambient_context: None,
-            quote: None,
-            quota: QuotaState::Ok,
-            mentioned_agent: None,
-            steps_after: None,
-            grant: OAuthScope::self_grant(),
-        },
-        &profile,
-        &PipelineHooks::none(),
-    )
+    // A web room turn, declared as the web app's request layer declares it:
+    // a read declaring no transport counts as an outside client's, which the
+    // agent's memory (T3) never reaches (JF 2026-11-25).
+    Box::pin(ai_scope::serve_over(
+        Transport::WebApp,
+        pierre_chat_pipeline::run(
+            &ctx,
+            TurnInput {
+                origin: TurnOrigin::Athlete,
+                input_source: InputSource::Typed,
+                conversation_id: conversation.id.clone(),
+                user_id: user.to_string(),
+                conversation_tenant_id: channel,
+                tool_tenant_id: home,
+                is_direct_message: false,
+                content: "What should I focus on this week?".to_owned(),
+                turn_id: ConversationTurnId::new(),
+                ambient_context: None,
+                quote: None,
+                quota: QuotaState::Ok,
+                mentioned_agent: None,
+                steps_after: None,
+                grant: OAuthScope::self_grant(),
+            },
+            &profile,
+            &PipelineHooks::none(),
+        ),
+    ))
     .await
     .expect("the room turn completes");
 
