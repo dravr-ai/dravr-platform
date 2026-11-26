@@ -177,6 +177,7 @@ async fn token(
             family_created_at: None,
             resource: None,
             client_grant_id: grant,
+            dpop_jkt: None,
         })
         .await
         .unwrap();
