@@ -43,9 +43,11 @@ use super::cimd::{host_profile_tier, is_metadata_document_id};
 /// request (owl PDPP §6.2 carrier B).
 pub const HOST_PROFILE_EXTENSION: &str = "app.dravr.vault/host-profile";
 
-/// The tier a request's client capabilities (its
-/// `_meta["io.modelcontextprotocol/clientCapabilities"]`) declare in
-/// `extensions["app.dravr.vault/host-profile"]` as `{"tier_max": "t2", …}`;
+/// The Host Profile tier a request's client capabilities declare.
+///
+/// Read from the capabilities (its
+/// `_meta["io.modelcontextprotocol/clientCapabilities"]`) at
+/// `extensions["app.dravr.vault/host-profile"]`, `{"tier_max": "t2", …}`;
 /// `None` when they declare none or a value this server does not read,
 /// which opens nothing above T1.
 #[must_use]
@@ -63,8 +65,9 @@ pub fn request_host_tier(capabilities: &Value) -> Option<Tier> {
     }
 }
 
-/// The Host Profile T2 basis a step-up of `client_id` stands on at `now`,
-/// and the tier it declares: its metadata document's declaration
+/// The Host Profile T2 basis a step-up of `client_id` stands on at `now`.
+///
+/// With the tier it declares: its metadata document's declaration
 /// (`declared`) when it has one, else, for a client with no metadata
 /// document, the per-request `claim` seen under its parent grant. `None`
 /// when neither stands at T2.
