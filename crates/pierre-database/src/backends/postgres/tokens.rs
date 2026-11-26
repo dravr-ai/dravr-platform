@@ -39,7 +39,7 @@ use crate::repositories::tokens::{
 use crate::repositories::OAuth2ServerRepository;
 
 impl_oauth2_server_repository!(PostgresDatabase);
-impl_client_grant_writes!(PostgresDatabase, PgRow);
+impl_client_grant_writes!(PostgresDatabase, PgRow, "BEGIN", "FOR UPDATE");
 impl_pushed_request_store!(PostgresDatabase);
 impl_ungranted_refresh_families!(PostgresDatabase);
 impl_client_host_profile!(PostgresDatabase);

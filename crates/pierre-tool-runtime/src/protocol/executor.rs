@@ -859,12 +859,9 @@ impl UniversalExecutor {
         // ones without a grant reaching T2 (`tier_gate`, carnet#1544).
         let call_data = self.resources.tool_registry().call_data(&tool_name, &args);
         let streams = call_data.map_or(&[][..], |data| data.streams());
-        let claim = Box::pin(self.single_use_claim(&tool_name, parties, call_ceiling.as_ref()));
-        let execute = tier_gate::gated(&tool_name, streams, async move {
-            // Past the tier gate a single-use grant is spent before it reads.
-            if let Some(consumed) = claim.await {
-                return consumed;
-            }
+        // Past the tier gate a single-use grant is spent before it reads.
+        let ceiling = call_ceiling.as_ref();
+        let claimed = self.single_use_claimed(&tool_name, parties, ceiling, async move {
             // What the call derives from here on is the athlete's (carnet#1174),
             // and so is every attribution what it serves owes (carnet#1464).
             match member_read {
@@ -876,6 +873,7 @@ impl UniversalExecutor {
                 None => tool.execute(&self.resources, &ctx, args).await,
             }
         });
+        let execute = tier_gate::gated(&tool_name, streams, Box::pin(claimed));
         // A call that answers a chat turn under its real turn token may hand
         // an effect the turn's next call would only repeat to the turn's end
         // (carnet#1702). A one-shot MCP or A2A call is its own turn, with no

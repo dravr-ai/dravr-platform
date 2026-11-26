@@ -427,8 +427,10 @@ async fn the_first_party_tools_are_neither_listed_nor_run_over_mcp() {
 
     let names = listed(&app, &authorization).await;
     assert!(names.contains("verify_claim"), "D14 keeps it: {names:?}");
-    assert!(names.contains("recall_user_memory"), "{names:?}");
-    assert!(names.contains("export_dossier"), "{names:?}");
+    // Every call of these reads T3, which never goes to an outside client:
+    // the tier gate would refuse each, so they are not offered (carnet#1544).
+    assert!(!names.contains("recall_user_memory"), "{names:?}");
+    assert!(!names.contains("export_dossier"), "{names:?}");
     for hidden in HIDDEN_TOOLS {
         assert!(!names.contains(hidden), "{hidden} is listed");
         let refused = mcp_call(&app, &authorization, hidden, json!({})).await;
@@ -529,10 +531,18 @@ async fn a_global_admins_list_follows_the_grant_on_mcp() {
         with_key.iter().any(|name| name.starts_with("admin_")),
         "{with_key:?}"
     );
+    // Every call of these reads T3, which no outside client is served,
+    // an admin's key included (carnet#1544): the rest are listed to it.
+    let read_t3 = [
+        "remember_fact",
+        "forget_playbook",
+        "list_coaching_playbooks",
+    ];
     for hidden in HIDDEN_TOOLS {
-        assert!(
+        assert_eq!(
             with_key.contains(hidden),
-            "{hidden} is listed to an admin's key"
+            !read_t3.contains(&hidden),
+            "{hidden}: listed to an admin's key exactly when some call of it reads below T3"
         );
     }
     assert!(!with_key.contains("publish_training_plan"), "{with_key:?}");

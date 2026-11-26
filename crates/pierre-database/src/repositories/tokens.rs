@@ -841,9 +841,10 @@ macro_rules! impl_oauth2_server_repository {
 
             async fn refresh_families_without_grant(
                 &self,
+                tenant_id: &str,
                 now: Timestamp,
             ) -> AppResult<Vec<$crate::repositories::UngrantedRefreshFamilies>> {
-                self.ungranted_family_rows(now).await
+                self.ungranted_family_rows(tenant_id, now).await
             }
 
             async fn set_client_host_profile(

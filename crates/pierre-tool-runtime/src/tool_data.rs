@@ -204,6 +204,19 @@ impl ToolData {
         self.streams.iter().map(|stream| stream.tier()).max()
     }
 
+    /// Whether every call to it reads a stream of `tier`: its whole
+    /// declaration does (a call naming no case reads that), and so does each
+    /// case its argument may pick. A tool every call of which reads T3 is one
+    /// an outside client can only be refused by the tier gate (carnet#1544).
+    #[must_use]
+    pub(crate) fn every_call_reads(&self, tier: Tier) -> bool {
+        let reads = |streams: &[Stream]| streams.iter().any(|stream| stream.tier() == tier);
+        reads(self.streams)
+            && self
+                .by_argument
+                .is_none_or(|by| by.cases.iter().all(|(_, streams)| reads(streams)))
+    }
+
     /// Every stream it declares: the tier gate at dispatch asks each one's
     /// tier, as that stream, and refuses an outside call when any one is
     /// unreadable there (carnet#1544). Empty for a tool declaring none.

@@ -22,6 +22,7 @@
 use dravr_tronc::dates::Timestamp;
 use dravr_tronc::mcp::schema::ToolResponse;
 use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
+use pierre_auth::oauth2_server::grant_standing::GrantStandings;
 use pierre_core::constants::time_constants;
 use pierre_providers::ai_scope::{self, ServedRows};
 use pierre_services::usage_counter::{current_counter, increment_counter, LIFETIME_COUNTER_PREFIX};
@@ -35,6 +36,21 @@ use super::subject::Parties;
 use super::UniversalExecutor;
 use crate::conversions::tool_result_to_response;
 use crate::protocol::types::{UniversalResponse, GRANT_BLOCK};
+
+tokio::task_local! {
+    /// The single-use grant the enclosing top-level call consumed, in scope
+    /// over that call's body: a dispatch nested in it runs under the grant
+    /// the call already spent, and is neither refused nor claims it again.
+    static CONSUMED_BY_THIS_CALL: String;
+}
+
+/// Whether `ceiling`'s grant is the single-use grant the enclosing call
+/// consumed ([`CONSUMED_BY_THIS_CALL`]).
+fn consumed_by_this_call(ceiling: &GrantCeiling) -> bool {
+    CONSUMED_BY_THIS_CALL
+        .try_with(|id| *id == ceiling.client_grant_id)
+        .unwrap_or(false)
+}
 
 /// The `error_code` of a call refused because its grant's day is spent.
 const BUDGET_EXHAUSTED: &str = "budget_exhausted";
@@ -83,7 +99,9 @@ impl UniversalExecutor {
         let ceiling = ceiling?;
         let tenant = parties.requester_tenant?.to_string();
         let user = parties.requester.to_string();
-        if ceiling.single_use && !self.single_use_live(ceiling, &user, &tenant).await {
+        // A dispatch nested in the call that consumed the grant is that call.
+        let nested = consumed_by_this_call(ceiling);
+        if ceiling.single_use && !nested && !self.single_use_live(ceiling, &user, &tenant).await {
             info!(
                 tool_name,
                 client_grant_id = %ceiling.client_grant_id,
@@ -91,11 +109,13 @@ impl UniversalExecutor {
             );
             return Some(consumed(tool_name));
         }
-        if let Some(refusal) = self
-            .child_hour_refusal(tool_name, ceiling, &user, &tenant)
-            .await
-        {
-            return Some(refusal);
+        if !nested {
+            if let Some(refusal) = self
+                .child_hour_refusal(tool_name, ceiling, &user, &tenant)
+                .await
+            {
+                return Some(refusal);
+            }
         }
         if let Some(refusal) = self
             .total_budget_refusal(tool_name, ceiling, &user, &tenant)
@@ -254,25 +274,37 @@ impl UniversalExecutor {
         output
     }
 
-    /// Consume `ceiling`'s single-use grant for the call about to read under it.
+    /// Run `body`, a call's, once `ceiling`'s single-use grant is consumed
+    /// for it.
     ///
     /// Past every gate (owl §3.1: consumed by the first call that reads data
-    /// under it): the refusal when it is not this call's to read, `None` when
-    /// the call may read, and for every other grant.
+    /// under it): the refusal when it is not this call's to read; `body`
+    /// when the call may read, and under every other grant.
     ///
     /// The one statement that ends the grant decides, so of two calls
     /// arriving together exactly one reads; the other, and every later one,
     /// is refused `grant_consumed`. A call admitted here that then reads
     /// nothing (its arguments refused) has still used the grant: the grant
     /// is spent before the read, never after, so no read outlives it. A
-    /// failed write refuses the call.
-    pub(super) async fn single_use_claim(
+    /// failed write refuses the call. The grant is consumed once per
+    /// top-level call: `body` runs with it marked consumed by this call, so
+    /// a dispatch nested in it neither claims it again nor is refused.
+    pub(super) async fn single_use_claimed<F>(
         &self,
         tool_name: &str,
         parties: Parties,
         ceiling: Option<&GrantCeiling>,
-    ) -> Option<ToolResponse> {
-        let ceiling = ceiling.filter(|ceiling| ceiling.single_use)?;
+        body: F,
+    ) -> ToolResponse
+    where
+        F: Future<Output = ToolResponse>,
+    {
+        let Some(ceiling) = ceiling.filter(|ceiling| ceiling.single_use) else {
+            return body.await;
+        };
+        if consumed_by_this_call(ceiling) {
+            return body.await;
+        }
         let claimed = match parties.requester_tenant {
             Some(tenant) => self
                 .resources
@@ -299,7 +331,10 @@ impl UniversalExecutor {
                 client_grant_id = %ceiling.client_grant_id,
                 "single-use grant consumed by the call reading under it"
             );
-            return None;
+            self.forget_standing(parties).await;
+            return CONSUMED_BY_THIS_CALL
+                .scope(ceiling.client_grant_id.clone(), body)
+                .await;
         }
         info!(
             tool_name,
@@ -307,11 +342,40 @@ impl UniversalExecutor {
             "tool call refused: its single-use grant was already consumed"
         );
         let refusal = consumed(tool_name);
-        Some(tool_result_to_response(Ok(ToolResult::error(json!({
+        tool_result_to_response(Ok(ToolResult::error(json!({
             "error_code": GRANT_CONSUMED,
             "reason": GRANT_CONSUMED,
             "error": refusal.error,
-        })))))
+        }))))
+    }
+
+    /// Drop the cached standing of the calling client's consent, which still
+    /// holds the child this call consumed: introspection and the next
+    /// token's admission read it, and would echo a consumed child live until
+    /// the entry expired.
+    async fn forget_standing(&self, parties: Parties) {
+        let (Some(tenant), Some(client_id)) = (
+            parties.requester_tenant,
+            self.credential
+                .as_ref()
+                .and_then(|credential| credential.client_id.as_deref()),
+        ) else {
+            return;
+        };
+        let standings = GrantStandings::new(
+            self.resources.repos().oauth2_server.clone(),
+            self.resources.cache().clone(),
+        );
+        let (user, tenant, client_id) =
+            (parties.requester, tenant.to_string(), client_id.to_owned());
+        // Its own task, awaited: the cache's future is deep enough that
+        // carrying it inside every dispatch's overflows the `Send` check of
+        // the callers that spawn a dispatch.
+        let forgotten =
+            tokio::spawn(async move { standings.forget(user, &tenant, &client_id).await });
+        if let Err(e) = forgotten.await {
+            warn!("a consumed grant's cached standing could not be dropped: {e}");
+        }
     }
 
     /// Add what a call under a ceiling served to its grant's counters today.

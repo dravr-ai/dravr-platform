@@ -587,6 +587,7 @@ jobs:
           ./scripts/ci/check-hosted-css.test.sh
           ./scripts/ci/check-backend-name-exposure.test.sh
           ./scripts/ci/check-admin-vocabulary.test.sh
+          ./scripts/ci/check-channel-error-sanitization.test.sh
           ./scripts/ci/check-log-email-redaction.test.sh
           ./scripts/ci/check-secret-fields.test.sh
           ./scripts/ci/check-merge-risk.test.sh

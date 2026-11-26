@@ -34,12 +34,14 @@ use dravr_barrage::{Stream, Tier};
 use dravr_tronc::mcp::schema::ToolResponse;
 use pierre_providers::ai_scope;
 use pierre_tools_core::ToolResult;
-use serde_json::json;
+use serde_json::{json, Value};
 
 use crate::conversions::tool_result_to_response;
+use crate::protocol::types::UniversalResponse;
+use crate::tool_access::SENSITIVE_TIER_WITHHELD;
 
 /// The `error_code` of a call the tier gate refused.
-const TIER_GATE_ERROR_CODE: &str = "sensitive_tier_withheld";
+const TIER_GATE_ERROR_CODE: &str = SENSITIVE_TIER_WITHHELD;
 
 /// Run `body`, a call to `tool_name` whose declared `streams` it reads
 /// (empty: it declares none), unless the tier gate refuses it here: then the
@@ -73,6 +75,30 @@ fn refused(stream: Stream) -> bool {
 
 /// The in-band refusal of `tool_name`, which reads `tier` records.
 fn refusal(tool_name: &str, tier: Tier) -> ToolResult {
+    let (result, error) = refusal_parts(tool_name, tier);
+    let mut body = result;
+    if let Some(object) = body.as_object_mut() {
+        object.insert("error".to_owned(), json!(error));
+    }
+    ToolResult::error(body)
+}
+
+/// The access check's refusal of `tool_name`, every call of which reads T3,
+/// to an outside caller
+/// ([`Withheld::NeverExternal`](crate::tool_access::Withheld::NeverExternal)):
+/// the tier gate's own answer, so the call reads alike either way.
+pub(super) fn never_external(tool_name: &str) -> UniversalResponse {
+    let (result, error) = refusal_parts(tool_name, Tier::T3);
+    UniversalResponse {
+        success: false,
+        result: Some(result),
+        error: Some(error),
+        metadata: None,
+    }
+}
+
+/// The refusal's data and its message, for `tool_name` reading `tier`.
+fn refusal_parts(tool_name: &str, tier: Tier) -> (Value, String) {
     let error = match tier {
         Tier::T3 => format!(
             "'{tool_name}' reads the athlete's notes and their agent's memory, which are never \
@@ -84,12 +110,12 @@ fn refusal(tool_name: &str, tier: Tier) -> ToolResult {
              interface. The athlete still sees them in Dravr."
         ),
     };
-    ToolResult::error(json!({
+    let result = json!({
         "error_code": TIER_GATE_ERROR_CODE,
         "reason": "sensitive_tier",
         "tier": tier,
-        "error": error,
-    }))
+    });
+    (result, error)
 }
 
 #[cfg(test)]

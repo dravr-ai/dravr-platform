@@ -1,5 +1,5 @@
 -- ABOUTME: Step-up child grants, the Host Profile basis, and the consume and step_up receipt kinds (PostgreSQL)
--- ABOUTME: ONE-WAY: widens oauth_grant_events' event CHECK and terminal index; the rest is nullable columns and recreated indexes
+-- ABOUTME: ONE-WAY: widens oauth_grant_events' event CHECK and terminal index; the rest is nullable columns and added indexes
 
 -- SPDX-License-Identifier: MIT OR Apache-2.0
 -- Copyright (c) 2026 dravr.ai
@@ -12,8 +12,9 @@ ALTER TABLE oauth_client_grants ADD COLUMN IF NOT EXISTS step_up_acr TEXT;
 ALTER TABLE oauth_client_grants ADD COLUMN IF NOT EXISTS host_profile_basis TEXT;
 ALTER TABLE oauth_client_grants ADD COLUMN IF NOT EXISTS host_profile_tier TEXT;
 
-DROP INDEX IF EXISTS idx_oauth_client_grants_active;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_oauth_client_grants_active
+-- Expand, then contract (the SQLite twin says why): the previous binary's
+-- arbiter, idx_oauth_client_grants_active, is left as it was.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_oauth_client_grants_live_parent
     ON oauth_client_grants(user_id, tenant_id, client_id, scope)
     WHERE revoked_at IS NULL AND parent_grant_id IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_oauth_client_grants_live_child

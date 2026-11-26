@@ -23,12 +23,27 @@
 #      `to_channel_reply` call — that literal is the prefix the original
 #      leak (DRAVR ticket, 2026-04-22) used, so we pin it as a canary.
 #
-# Run from repo root. Exits non-zero on the first match.
+# Usage: check-channel-error-sanitization.sh [root]  (default: this repo's root).
+# Exits non-zero when any match is found, and 2 when ripgrep is missing: a
+# pattern it cannot search is a gate that cannot fail.
 
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT_DIR="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 cd "$ROOT_DIR"
+
+# The tree both patterns read, named to every search: ripgrep given no path
+# reads stdin when stdin is not a terminal (a hook, CI), and so searched
+# nothing and passed.
+SCAN_DIR="crates/pierre-server/src"
+if [[ ! -d "$SCAN_DIR" ]]; then
+    echo "FAIL: $SCAN_DIR not found under $ROOT_DIR"
+    exit 2
+fi
+if ! command -v rg >/dev/null 2>&1; then
+    echo "FAIL: ripgrep (rg) is required for the multiline pattern"
+    exit 2
+fi
 
 STATUS=0
 
@@ -50,28 +65,25 @@ is_allowed() {
 # Pattern 1: `format!("...{e}...")` near `MessageContent::Text`. Use ripgrep
 # with multiline mode to catch constructions that span several lines, which
 # is the common shape when the body is built in-place.
-if command -v rg >/dev/null 2>&1; then
-    MATCHES=$(rg --multiline --no-heading -n \
-        -g 'crates/pierre-server/src/**/*.rs' \
-        -e 'MessageContent::Text\s*\{\s*body:\s*format!\([^)]*\{e[!?]?\}' \
-        -e 'MessageContent::Text\s*\{\s*body:\s*format!\([^)]*\{err[!?]?\}' \
-        2>/dev/null || true)
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        path=$(echo "$line" | cut -d: -f1)
-        if is_allowed "$path"; then continue; fi
-        echo "FAIL: raw error interpolation into MessageContent::Text at $line"
-        echo "      Route the error through ChannelErrorReply::to_channel_reply instead."
-        STATUS=1
-    done <<< "$MATCHES"
-fi
+MATCHES=$(rg --multiline --no-heading -n -g '*.rs' \
+    -e 'MessageContent::Text\s*\{\s*body:\s*format!\([^)]*\{e[!?]?\}' \
+    -e 'MessageContent::Text\s*\{\s*body:\s*format!\([^)]*\{err[!?]?\}' \
+    "$SCAN_DIR" </dev/null || true)
+while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    path=$(echo "$line" | cut -d: -f1)
+    if is_allowed "$path"; then continue; fi
+    echo "FAIL: raw error interpolation into MessageContent::Text at $line"
+    echo "      Route the error through ChannelErrorReply::to_channel_reply instead."
+    STATUS=1
+done <<< "$MATCHES"
 
 # Pattern 2: the literal "Command failed:" outside the sanitizer. This
 # catches the original leak shape even when the error variable isn't named
 # `e` or `err`.
 MATCHES=$(grep -rn --include='*.rs' \
     -F 'Command failed:' \
-    crates/pierre-server/src/ 2>/dev/null || true)
+    "$SCAN_DIR" 2>/dev/null || true)
 while IFS= read -r line; do
     [[ -z "$line" ]] && continue
     path=$(echo "$line" | cut -d: -f1)

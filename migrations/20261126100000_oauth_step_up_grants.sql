@@ -1,5 +1,5 @@
 -- ABOUTME: Step-up child grants, the Host Profile basis, and the consume and step_up receipt kinds (SQLite)
--- ABOUTME: ONE-WAY: rebuilds oauth_grant_events to widen its event CHECK; the rest is nullable columns and recreated indexes
+-- ABOUTME: ONE-WAY: rebuilds oauth_grant_events to widen its event CHECK; the rest is nullable columns and added indexes
 
 -- SPDX-License-Identifier: MIT OR Apache-2.0
 -- Copyright (c) 2026 dravr.ai
@@ -23,10 +23,17 @@ ALTER TABLE oauth_client_grants ADD COLUMN step_up_acr TEXT; -- idempotency-ok: 
 ALTER TABLE oauth_client_grants ADD COLUMN host_profile_basis TEXT; -- idempotency-ok: SQLite ADD COLUMN has no IF NOT EXISTS; _sqlx_migrations prevents re-run
 ALTER TABLE oauth_client_grants ADD COLUMN host_profile_tier TEXT; -- idempotency-ok: SQLite ADD COLUMN has no IF NOT EXISTS; _sqlx_migrations prevents re-run
 
--- The one-live-grant-per-scope rule holds for parents only; a child is held
--- to one live child per parent, so a new step-up revokes the old child first.
-DROP INDEX IF EXISTS idx_oauth_client_grants_active;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_oauth_client_grants_active
+-- Expand, then contract. idx_oauth_client_grants_active stays exactly as
+-- 20260709000002 made it, so the previous binary's
+-- `ON CONFLICT (user_id, tenant_id, client_id, scope) WHERE revoked_at IS NULL`
+-- still finds its arbiter while it serves beside this one (a rolling deploy)
+-- or after a rollback. A child never collides with its parent there: its
+-- scope names the one-off preset (`pdpp:preset:one_off_question`) beside the
+-- parent's. This binary's conflict target names the parent-only index below;
+-- a later migration drops the old one once no binary reads it.
+-- A child is held to one live child per parent, so a new step-up revokes the
+-- old child first.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_oauth_client_grants_live_parent
     ON oauth_client_grants(user_id, tenant_id, client_id, scope)
     WHERE revoked_at IS NULL AND parent_grant_id IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_oauth_client_grants_live_child

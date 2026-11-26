@@ -298,10 +298,12 @@ async fn the_backfill_links_a_token_to_its_one_live_grant_and_leaves_the_rest_nu
 
     let mut left = repos
         .oauth2_server
-        .refresh_families_without_grant(Timestamp::now())
+        .refresh_families_without_grant(TENANT, Timestamp::now())
         .await
         .unwrap();
     left.retain(|group| group.client_id == client.client_id);
+    let other_tenant = Uuid::new_v4();
+    token(repos, &client, other_tenant, "tenant-other", false, None).await;
     let group = |user: Uuid| UngrantedRefreshFamilies {
         tenant_id: TENANT.to_owned(),
         client_id: client.client_id.clone(),
@@ -313,5 +315,22 @@ async fn the_backfill_links_a_token_to_its_one_live_grant_and_leaves_the_rest_nu
     assert_eq!(
         left, want,
         "bug: the boot read does not name exactly the live tokens the backfill left NULL"
+    );
+    let elsewhere_left = repos
+        .oauth2_server
+        .refresh_families_without_grant("tenant-other", Timestamp::now())
+        .await
+        .unwrap();
+    assert!(
+        elsewhere_left
+            .iter()
+            .all(|group| group.tenant_id == "tenant-other"),
+        "bug: one tenant's read named another tenant's tokens: {elsewhere_left:?}"
+    );
+    assert!(
+        elsewhere_left
+            .iter()
+            .any(|group| group.user_id == other_tenant.to_string()),
+        "bug: the other tenant's own ungranted token is not named in its read"
     );
 }

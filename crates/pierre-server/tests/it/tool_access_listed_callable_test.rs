@@ -39,7 +39,7 @@ use pierre_tool_runtime::first_party_tools::FIRST_PARTY_SURFACE_ERROR_CODE;
 use pierre_tool_runtime::guardian::TENANT_DISABLED_ERROR_CODE;
 use pierre_tool_runtime::protocols::{ProtocolError, UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
-use pierre_tool_runtime::tool_access::COACH_ROLE_REQUIRED;
+use pierre_tool_runtime::tool_access::{COACH_ROLE_REQUIRED, SENSITIVE_TIER_WITHHELD};
 use serde_json::{json, Value};
 
 /// How the dispatcher answered a call.
@@ -170,9 +170,11 @@ async fn answer(res: &Arc<ServerContext>, seat: &Seat, tool: &str) -> Answer {
     match called {
         Ok(response) => match error_code(response.result.as_ref()) {
             Some(TENANT_DISABLED_ERROR_CODE) => Answer::PassedAccess,
-            Some(code @ (FIRST_PARTY_SURFACE_ERROR_CODE | COACH_ROLE_REQUIRED)) => {
-                Answer::RefusedAccess(code.to_owned())
-            }
+            Some(
+                code @ (FIRST_PARTY_SURFACE_ERROR_CODE
+                | COACH_ROLE_REQUIRED
+                | SENSITIVE_TIER_WITHHELD),
+            ) => Answer::RefusedAccess(code.to_owned()),
             _ => Answer::Other(format!("{response:?}")),
         },
         Err(ProtocolError::PermissionDenied { reason, .. }) => Answer::RefusedAccess(reason),
@@ -390,4 +392,57 @@ async fn under_a_preset_grant_list_card_and_dispatch_agree() {
         "bug: list and call disagree under a preset:\n{}",
         mismatches.join("\n")
     );
+}
+
+/// A tool every call of which reads T3 (the agent's memory and playbooks,
+/// the dossier that carries the durable facts) is not offered over `/mcp`,
+/// the A2A card or an API key, where the tier gate would refuse each call,
+/// and stays offered on Dravr's own surfaces. A tool one of whose calls
+/// stays below T3 (`get_health_records`' `labs`) is still offered outside.
+#[test]
+fn a_tool_every_call_of_which_reads_t3_is_offered_only_on_dravrs_own_surfaces() {
+    use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
+    use pierre_tool_runtime::registry::ToolRegistry;
+    use pierre_tool_runtime::tool_access::{retain_offered, Caller, CallerRole};
+
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+    let grant = OAuthScope::self_grant();
+    let offered = |transport: Transport| {
+        let mut schemas = registry.all_schemas();
+        let caller = Caller {
+            role: CallerRole {
+                admin: true,
+                coach: false,
+            },
+            grant: &grant,
+            transport: Some(transport),
+            support_session: false,
+            ceiling: None,
+        };
+        retain_offered(&registry, &mut schemas, &caller);
+        schemas
+            .into_iter()
+            .map(|schema| schema.name)
+            .collect::<BTreeSet<_>>()
+    };
+    let in_app = offered(Transport::WebApp);
+    for transport in [Transport::McpHttp, Transport::A2a, Transport::ApiKey] {
+        let outside = offered(transport);
+        let hidden: BTreeSet<&String> = in_app.difference(&outside).collect();
+        for t3_only in ["recall_user_memory", "remember_fact", "export_dossier"] {
+            assert!(
+                in_app.contains(t3_only),
+                "premise: Dravr's own surfaces offer {t3_only}"
+            );
+            assert!(
+                hidden.contains(&t3_only.to_owned()),
+                "bug: {t3_only} is offered over {transport:?}, where every call is refused"
+            );
+        }
+        assert!(
+            outside.contains("get_health_records"),
+            "bug: get_health_records, whose labs read a step-up opens, is hidden over {transport:?}"
+        );
+    }
 }

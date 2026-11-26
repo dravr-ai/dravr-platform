@@ -39,7 +39,7 @@ use crate::repositories::tokens::{
 use crate::repositories::OAuth2ServerRepository;
 
 impl_oauth2_server_repository!(Database);
-impl_client_grant_writes!(Database, SqliteRow);
+impl_client_grant_writes!(Database, SqliteRow, "BEGIN IMMEDIATE", "");
 impl_pushed_request_store!(Database);
 impl_ungranted_refresh_families!(Database);
 impl_client_host_profile!(Database);

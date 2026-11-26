@@ -1075,8 +1075,14 @@ async fn mcp_lists_athlete_on_the_training_reads_and_chat_never_offers_it() {
         "a wellness read takes athlete over MCP too, under the athlete's wellness grant"
     );
     assert!(
-        !declares_athlete(by_name("recall_user_memory")),
+        !declares_athlete(by_name("get_connection_status")),
         "a read with no class reads only the caller"
+    );
+    assert!(
+        tools
+            .iter()
+            .all(|tool| tool["name"] != "recall_user_memory"),
+        "a tool every call of which reads T3 is not offered over MCP (carnet#1544)"
     );
     let shared = |name: &str| {
         let properties = &by_name(name)["inputSchema"]["properties"];

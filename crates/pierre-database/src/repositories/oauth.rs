@@ -464,13 +464,15 @@ pub trait OAuth2ServerRepository: Send + Sync {
         now: Timestamp,
     ) -> AppResult<bool>;
 
-    /// The live refresh-token families, unexpired at `now`, that name no grant.
+    /// The live refresh-token families in `tenant_id`, unexpired at `now`,
+    /// that name no grant.
     ///
-    /// Grouped by tenant, client and user: what the one-time grant backfill
+    /// Grouped by client and user: what the one-time grant backfill
     /// (migration `20261126001550`, carnet#1550) left `NULL`, read for the
-    /// boot log. Every tenant, by design; never a token or family id.
+    /// boot log, which asks each tenant in turn. Never a token or family id.
     async fn refresh_families_without_grant(
         &self,
+        tenant_id: &str,
         now: Timestamp,
     ) -> AppResult<Vec<UngrantedRefreshFamilies>>;
 
