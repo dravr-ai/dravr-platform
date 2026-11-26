@@ -8,11 +8,13 @@ import type { OAuthGrant, OAuthGrantReceipt, OAuthStandingPolicy } from '@pierre
 
 /**
  * What a receipt records, as Connected apps names it:
- * - `allowed`: the athlete approved the grant on the consent screen (or the
- *   grant predates receipts and was recorded later, a baseline);
+ * - `allowed`: the athlete approved the grant on the consent screen, or a
+ *   one-off question after a fresh sign-in (`step_up`), or the grant predates
+ *   receipts and was recorded later (a baseline);
  * - `renewed`: a standing policy renewed it without the screen;
  * - `endedByYou`: the athlete revoked it, or approving the app again replaced it;
- * - `endedByApp`: the app revoked it (RFC 7009) or its owner deleted it;
+ * - `endedByApp`: the app revoked it (RFC 7009), its owner deleted it, or the
+ *   app's one read used up a single-use grant (`consume`);
  * - `endedByDravr`: Dravr ended it (the app's registration was swept, the account closed);
  * - `expired`: it reached its end date.
  */
@@ -70,6 +72,12 @@ export function grantReceiptOutcome(receipt: OAuthGrantReceipt): GrantReceiptOut
       const approval = member(receipt.payload, 'approval');
       return receipt.actor === 'auto' && approval?.standing_policy_ref ? 'renewed' : 'allowed';
     }
+    case 'step_up':
+      // The athlete approved a one-off question after a fresh sign-in.
+      return 'allowed';
+    case 'consume':
+      // The app's one read ended the single-use grant.
+      return 'endedByApp';
   }
   return 'allowed';
 }

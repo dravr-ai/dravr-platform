@@ -10,6 +10,8 @@
 //! outside-Québec and express-consent lines carry legal weight, so a change to
 //! their wording in any locale is a change a person reads, not a copy edit.
 
+use crate::MessagingStringsRegistry;
+
 /// Key: "Authorize access": the page title and heading. No format placeholders.
 pub const KEY_CONSENT_TITLE: &str = "oauth.consent.title";
 /// Key: "`{0}` wants to access your Dravr fitness data."
@@ -198,7 +200,7 @@ pub const STEP_UP_SCREEN_KEYS: [&str; 14] = [
 /// rather than show an athlete a screen with a line missing: the AS refuses a
 /// step-up request and no tool refusal offers one.
 #[must_use]
-pub fn step_up_worded(strings: &crate::MessagingStringsRegistry) -> bool {
+pub fn step_up_worded(strings: &MessagingStringsRegistry) -> bool {
     STEP_UP_SCREEN_KEYS
         .iter()
         .all(|key| strings.get_exact(key, "en").is_some())

@@ -20,25 +20,21 @@
 //! budget the grant has no value for is not checked.
 
 use dravr_tronc::dates::Timestamp;
+use dravr_tronc::mcp::schema::ToolResponse;
 use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
 use pierre_core::constants::time_constants;
 use pierre_providers::ai_scope::{self, ServedRows};
 use pierre_services::usage_counter::{current_counter, increment_counter, LIFETIME_COUNTER_PREFIX};
+use pierre_tools_core::ToolResult;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::future::Future;
 use tracing::{info, warn};
 
-use dravr_tronc::mcp::schema::ToolResponse;
-use pierre_tools_core::ToolResult;
-
 use super::subject::Parties;
 use super::UniversalExecutor;
 use crate::conversions::tool_result_to_response;
 use crate::protocol::types::{UniversalResponse, GRANT_BLOCK};
-
-/// Seconds in the clock hour a step-up child's requests are counted over.
-const SECONDS_PER_HOUR: i64 = 3_600;
 
 /// The `error_code` of a call refused because its grant's day is spent.
 const BUDGET_EXHAUSTED: &str = "budget_exhausted";
@@ -131,7 +127,8 @@ impl UniversalExecutor {
         ceiling.step_up.as_ref()?;
         let limit = ceiling.budgets.requests_per_hour;
         let now = Timestamp::now();
-        let hour = now.epoch_seconds().div_euclid(SECONDS_PER_HOUR);
+        let hour_secs = i64::from(time_constants::SECONDS_PER_HOUR);
+        let hour = now.epoch_seconds().div_euclid(hour_secs);
         let counter = format!("grant_child_requests:{}:{hour}", ceiling.client_grant_id);
         let repo = self.resources.repos().usage_counters.as_ref();
         let over = increment_counter(repo, tenant, user, &counter, 1)
@@ -152,7 +149,7 @@ impl UniversalExecutor {
                 client_grant_id = %ceiling.client_grant_id,
                 "tool call refused: its step-up grant's requests this hour are spent"
             );
-            let retry = SECONDS_PER_HOUR - now.epoch_seconds().rem_euclid(SECONDS_PER_HOUR);
+            let retry = hour_secs - now.epoch_seconds().rem_euclid(hour_secs);
             hour_exhausted(tool_name, retry)
         })
     }
@@ -336,13 +333,13 @@ impl UniversalExecutor {
             .budgets
             .total_rows
             .map(|_| (total_rows_counter(ceiling), served.rows));
-        for (counter, amount) in [
+        let levies = [
             (rows_counter(ceiling), served.rows),
             (raw_rows_counter(ceiling), served.raw_rows),
         ]
         .into_iter()
-        .chain(total)
-        {
+        .chain(total);
+        for (counter, amount) in levies {
             if amount == 0 {
                 continue;
             }

@@ -224,7 +224,6 @@ impl OAuth2Routes {
                 review_digest,
                 consent_locale: text.lang().to_owned(),
                 zone: athlete_zone(user.timezone.as_deref()),
-                auth_time: Timestamp::now(),
             };
             let recorded =
                 Self::approve_step_up(&context, &headers, approval, user_id, tenant_id.clone())
@@ -330,16 +329,7 @@ impl OAuth2Routes {
             error!(user_id = %user_id, "Step-up not recorded: the grant has no tenant");
             return Err(OAuth2Error::server_error(CONSENT_NOT_RECORDED));
         };
-        Self::record_step_up(
-            context,
-            StepUpApproval {
-                auth_time,
-                ..approval
-            },
-            user_id,
-            &tid,
-        )
-        .await
+        Self::record_step_up(context, approval, auth_time, user_id, &tid).await
     }
 
     /// Record the athlete's approval of `scope` on the consent screen, the

@@ -652,13 +652,13 @@ async fn merge_restatement<R: HarnessMemoryRepository + ?Sized>(
 
 /// The athlete's facts a write is decided against.
 #[derive(Clone, Copy)]
-struct KnownFacts<'a> {
+struct KnownFacts<'facts> {
     /// Every stored fact the athlete's consents admit: what the code's
     /// same-sentence match compares against, whether or not the model saw it.
-    stored: &'a [UserFact],
+    stored: &'facts [UserFact],
     /// The facts the extractor was shown, numbered as it saw them, which its
     /// `same_as` indexes.
-    shown: &'a [UserFact],
+    shown: &'facts [UserFact],
 }
 
 /// Write the facts the gate passes. Returns the rows written and how many facts

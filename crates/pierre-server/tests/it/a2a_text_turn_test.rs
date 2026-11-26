@@ -338,8 +338,9 @@ async fn seed_withheld(fx: &Fixture, rider: &Rider) {
         TransportPolicy::AnyTransport,
     )
     .await;
-    // An outside client's turn reads the agent's memory only under the
-    // athlete's `sensitive_t3` (carnet#1544); given here, so the facts run.
+    // The athlete gives `sensitive_t3`, so Dravr's own agent reads the
+    // memory on the control turn; an outside client's turn never does, T3
+    // never going outside (carnet#1544, JF 2026-11-25).
     allow_memory_to_ai(
         &fx.resources.common.repos,
         rider.tenant.as_uuid(),
@@ -381,8 +382,14 @@ async fn a_text_turn_feeds_the_model_nothing_a_providers_terms_keep_first_party(
         "a fact derived from first-party-only data reached the model over A2A"
     );
     assert!(
-        over_a2a.contains(OPEN_FACT),
-        "the prompt's facts must still run: an empty memory proves nothing"
+        !over_a2a.contains(OPEN_FACT),
+        "bug: the agent's memory (T3) reached the model over A2A under sensitive_t3"
+    );
+    assert!(
+        over_a2a.contains(
+            "never serves the athlete's notes or their agent's memory to outside AI apps"
+        ) && !over_a2a.contains("Only the athlete can change this"),
+        "bug: an A2A turn is told the athlete's switch withholds what the interface does"
     );
     assert!(
         over_a2a.contains(QUESTION),
@@ -408,6 +415,11 @@ async fn a_text_turn_feeds_the_model_nothing_a_providers_terms_keep_first_party(
     assert!(
         own_surface.contains(WITHHELD_FACT),
         "control: a first-party turn reads the stamped fact"
+    );
+    assert!(
+        own_surface.contains(OPEN_FACT),
+        "control: the facts run on the athlete's own surface, so an empty memory \
+         over A2A is the transport's doing"
     );
 }
 

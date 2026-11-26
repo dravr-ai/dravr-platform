@@ -214,7 +214,7 @@ pub fn dialed_uri(
 #[must_use]
 pub fn dpop_context<'r>(request: &'r JsonRpcRequest, htu: Option<&'r str>) -> DpopContext<'r> {
     let proof = forwarded(request, DPOP_HEADER);
-    let count = request
+    let count: usize = request
         .metadata
         .get(DPOP_PROOFS_METADATA)
         .and_then(|count| count.parse().ok())

@@ -23,7 +23,7 @@ use serde_json::{Map, Value};
 use super::duration::parse_seconds;
 use super::{
     refused, ClientClaims, Preset, Representation, Retention, Source, Tier, DATA_ACCESS_TYPE,
-    HEALTH_CONSTRAINTS_TYPE, MAX_AUTHORIZATION_DETAILS_BYTES,
+    HEALTH_CONSTRAINTS_TYPE, MAX_AUTHORIZATION_DETAILS_BYTES, STREAM_NAME_PREFIX,
 };
 use crate::oauth2_server::models::OAuth2Error;
 
@@ -41,10 +41,6 @@ const MAX_TOKEN_CHARS: usize = 256;
 
 /// The longest `source.id` read: a resource URL.
 const MAX_SOURCE_CHARS: usize = 2_048;
-
-/// The prefix owl's stream names carry on the wire (`health.vault.labs.summary`);
-/// a name without it is read as barrage's own.
-const STREAM_NAME_PREFIX: &str = "health.vault.";
 
 /// Members only the authorization server sets (owl §4.2 "AS-set").
 const AS_SET_MEMBERS: [&str; 3] = ["host_profile", "standing_policy_ref", "step_up_result"];

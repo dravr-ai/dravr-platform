@@ -285,7 +285,8 @@ impl OAuth2AuthorizationServer {
 
     /// The live step-up child of grant `client_grant_id`, as the token
     /// response states it; `None` for a token naming no grant, or a grant
-    /// with no live child.
+    /// with no live child. A child past its expiry is not live, consumed or
+    /// not, as introspection and the resource server read it.
     ///
     /// # Errors
     /// `server_error` when the children, or the child's details, cannot be
@@ -303,12 +304,13 @@ impl OAuth2AuthorizationServer {
             error!(%user_id, client_grant_id = parent, error = %e, "Could not read a grant's step-up child");
             OAuth2Error::server_error("Failed to read the consent grant")
         };
+        let now = Timestamp::now();
         self.oauth2_server
             .list_live_child_grants(&user_id.to_string(), tenant_id)
             .await
             .map_err(failed)?
             .iter()
-            .find(|child| child.terms.parent_grant_id == parent)
+            .find(|child| child.terms.parent_grant_id == parent && child.grant.is_live_at(now))
             .map(StepUpEcho::of_child)
             .transpose()
             .map_err(failed)

@@ -264,8 +264,8 @@ pub struct Confirmation {
 /// The token kinds (owl PDPP §5.1) this server mints.
 ///
 /// The protected resource metadata lists them: `owner`, a session of Dravr's
-/// own apps, and `client`, a third party's delegated token. `agent_write` (4c)
-/// and `relay_ingest` (phase 8) join when the server can serve them.
+/// own apps, and `client`, a third party's delegated token. owl's
+/// `agent_write` and `relay_ingest` kinds are not minted, so not listed.
 pub const PDPP_TOKEN_KINDS: [&str; 2] = ["owner", "client"];
 
 impl Claims {

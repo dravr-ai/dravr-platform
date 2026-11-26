@@ -12,7 +12,7 @@ use axum::{
 };
 use pierre_auth::auth::PDPP_TOKEN_KINDS;
 use pierre_auth::config;
-use pierre_auth::dpop::signing_algorithms;
+use pierre_auth::dpop;
 use pierre_auth::oauth2_server::authorization_details::AUTHORIZATION_DETAILS_TYPES;
 use pierre_core::permissions::scopes::OAuthScope;
 use tokio::task::spawn_blocking;
@@ -61,7 +61,7 @@ impl OAuth2Routes {
                 // RFC 9396: the detail types this server resolves.
                 "authorization_details_types_supported": AUTHORIZATION_DETAILS_TYPES,
                 // RFC 9449 §5.1: the token endpoint binds to a DPoP proof.
-                "dpop_signing_alg_values_supported": signing_algorithms()
+                "dpop_signing_alg_values_supported": dpop::signing_algorithms()
             })
         })
         .await
@@ -138,7 +138,7 @@ impl OAuth2Routes {
                 "bearer_methods_supported": ["header"],
                 // RFC 9728 §2 / RFC 9449: a key-bound token is presented with
                 // a DPoP proof; unbound Bearer tokens are still accepted.
-                "dpop_signing_alg_values_supported": signing_algorithms(),
+                "dpop_signing_alg_values_supported": dpop::signing_algorithms(),
                 "dpop_bound_access_tokens_required": false,
                 // Owl PDPP §5.1: the kinds of token this resource serves.
                 "pdpp_token_kinds_supported": PDPP_TOKEN_KINDS

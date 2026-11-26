@@ -28,6 +28,9 @@ use sqlx::Row;
 /// The migration under test; everything before it builds the old shape.
 const STEP_UP_MIGRATION: i64 = 20_261_126_100_000;
 
+// The migration files are embedded on purpose: the shipped SQL is the data
+// under test, replayed up to and through the step-up migration, since a test
+// database from the factory is already past it.
 static MIGRATOR: Migrator = sqlx::migrate!("../../migrations");
 #[cfg(feature = "postgresql")]
 static PG_MIGRATOR: Migrator = sqlx::migrate!("../../migrations_pg");

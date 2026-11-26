@@ -323,8 +323,8 @@ export const SENSITIVE_T2_CONSENT = 'sensitive_t2';
 /**
  * The consent class of the athlete's intimate health records (cycle
  * tracking, mental and reproductive health), their notes and their agent's
- * memory: Dravr's own agent and the AI apps the athlete connects (Claude,
- * ChatGPT) read them only under it (carnet#1544).
+ * memory: Dravr's own agent reads them only under it. The AI apps the athlete
+ * connects (Claude, ChatGPT) never read them, whatever it says (carnet#1544).
  */
 export const SENSITIVE_T3_CONSENT = 'sensitive_t3';
 

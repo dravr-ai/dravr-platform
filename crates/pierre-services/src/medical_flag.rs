@@ -98,8 +98,7 @@ const EXTERNAL_TRANSPORT_NOTE: &str = "Energy, protein, carbohydrate, fat, fluid
      they were withheld here.";
 
 /// The note a model reads while the athlete keeps their health records from
-/// AI. It names no flag and no clinician of theirs, so it tells nothing of
-/// what is on file.
+/// AI. It names no flag and no clinician of theirs.
 const HEALTH_RECORDS_WITHHELD_NOTE: &str = "Energy, protein, carbohydrate, fat, fluid, sodium and \
      caffeine amounts were withheld here. This athlete keeps their health records from AI, so \
      the reason is not shown: ask what they have been advised about their intake and work \

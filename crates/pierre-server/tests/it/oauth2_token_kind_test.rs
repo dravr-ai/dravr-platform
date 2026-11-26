@@ -20,6 +20,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::extract::connect_info::MockConnectInfo;
+use axum::Router;
 use base64::{engine::general_purpose, Engine as _};
 use jsonwebtoken::dangerous::insecure_decode;
 use pierre_auth::auth::{oauth_access_token_lifetime_secs, Claims, DelegatedGrant};
@@ -46,7 +47,7 @@ const VERIFIER: &str = "token-kind-pkce-verifier-0123456789-abcdefghijklmnopqrst
 /// Fifteen minutes, in seconds: a third-party access token's lifetime.
 const DELEGATED_SECS: i64 = OAUTH_DELEGATED_ACCESS_TOKEN_EXPIRY_MINUTES * 60;
 
-fn app(resources: &Arc<ServerContext>) -> axum::Router {
+fn app(resources: &Arc<ServerContext>) -> Router {
     ProviderToolRouter::build_http_app(resources)
         .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40_951))))
 }
@@ -198,8 +199,16 @@ async fn a_third_party_token_is_the_client_kind_and_lives_fifteen_minutes() {
     assert_eq!(issued["expires_in"], DELEGATED_SECS, "{issued}");
     let access = issued["access_token"].as_str().unwrap();
     let claims = insecure_decode::<Claims>(access).unwrap().claims;
-    assert_eq!(claims.exp - claims.iat, DELEGATED_SECS);
-    assert_eq!(claims.pdpp_token_kind(), Some("client"));
+    assert_eq!(
+        claims.exp - claims.iat,
+        DELEGATED_SECS,
+        "bug: a third party's token outlives fifteen minutes"
+    );
+    assert_eq!(
+        claims.pdpp_token_kind(),
+        Some("client"),
+        "bug: a third party's token is not the client kind"
+    );
 
     let answer = introspect(&world, access).await;
     assert_eq!(answer["active"], true, "{answer}");
@@ -226,7 +235,10 @@ async fn a_third_party_token_is_the_client_kind_and_lives_fifteen_minutes() {
         .await;
     assert_eq!(refreshed.status(), 200, "{}", refreshed.body_text());
     let refreshed: Value = serde_json::from_str(&refreshed.body_text()).unwrap();
-    assert_eq!(refreshed["expires_in"], DELEGATED_SECS);
+    assert_eq!(
+        refreshed["expires_in"], DELEGATED_SECS,
+        "bug: a refresh changed the third party's lifetime: {refreshed}"
+    );
 }
 
 /// Dravr's own session is the `owner` kind. Introspection describes no
@@ -236,7 +248,11 @@ async fn a_session_is_the_owner_kind_and_introspection_does_not_describe_it() {
     let world = world().await;
     let claims = insecure_decode::<Claims>(&world.session).unwrap().claims;
     assert!(claims.is_session(), "the fixture session is a session");
-    assert_eq!(claims.pdpp_token_kind(), Some("owner"));
+    assert_eq!(
+        claims.pdpp_token_kind(),
+        Some("owner"),
+        "bug: Dravr's own session is not the owner kind"
+    );
     let answer = introspect(&world, &world.session).await;
     assert_eq!(answer["active"], false, "{answer}");
     assert!(answer.get("pdpp_token_kind").is_none(), "{answer}");
@@ -247,11 +263,20 @@ async fn a_session_is_the_owner_kind_and_introspection_does_not_describe_it() {
 #[tokio::test]
 async fn first_party_lifetimes_are_unchanged() {
     let hour = OAUTH_ACCESS_TOKEN_EXPIRY_HOURS * 3600;
-    assert_eq!(oauth_access_token_lifetime_secs(WEB_CLIENT_ID), hour);
-    assert_eq!(oauth_access_token_lifetime_secs(MOBILE_CLIENT_ID), hour);
+    assert_eq!(
+        oauth_access_token_lifetime_secs(WEB_CLIENT_ID),
+        hour,
+        "bug: the web app lost its hour"
+    );
+    assert_eq!(
+        oauth_access_token_lifetime_secs(MOBILE_CLIENT_ID),
+        hour,
+        "bug: the mobile app lost its hour"
+    );
     assert_eq!(
         oauth_access_token_lifetime_secs("some-registered-client"),
-        DELEGATED_SECS
+        DELEGATED_SECS,
+        "bug: a registered client outlives fifteen minutes"
     );
 
     let world = world().await;
@@ -297,9 +322,13 @@ async fn discovery_names_the_kinds_and_the_dpop_algorithms() {
     let prm: Value = serde_json::from_str(&prm.body_text()).unwrap();
     assert_eq!(
         prm["pdpp_token_kinds_supported"],
-        json!(["owner", "client"])
+        json!(["owner", "client"]),
+        "bug: discovery does not list the two token kinds: {prm}"
     );
-    assert_eq!(prm["dpop_bound_access_tokens_required"], false);
+    assert_eq!(
+        prm["dpop_bound_access_tokens_required"], false,
+        "bug: discovery requires DPoP of every client: {prm}"
+    );
     assert!(
         prm["dpop_signing_alg_values_supported"]
             .as_array()

@@ -20,9 +20,12 @@
 //! Both halves are one vocabulary, here, so the challenge a host is sent is
 //! the request the server reads.
 
+use pierre_core::models::OWNER_VERIFIED_ACR;
 use serde_json::{json, Value};
 
-use super::authorization_details::{Stream, AUTHORIZATION_DETAILS_TYPES};
+use super::authorization_details::{
+    Preset, Stream, AUTHORIZATION_DETAILS_TYPES, STREAM_NAME_PREFIX,
+};
 use super::models::OAuth2Error;
 
 /// The scope naming a one-off question's preset.
@@ -34,9 +37,6 @@ pub const STEP_UP_STREAM_SCOPE: &str = "pdpp:stream:";
 
 /// Every `pdpp:` name starts so.
 const PDPP_SCOPE_PREFIX: &str = "pdpp:";
-
-/// owl's wire prefix of a stream name in a detail.
-const DETAIL_STREAM_PREFIX: &str = "health.vault.";
 
 /// The grant a step-up request carries when its scope names nothing beside
 /// the `pdpp:` names: reading, the least any parent grant holds.
@@ -123,7 +123,7 @@ pub fn one_off_details(step_up: &StepUpScope, source: &str) -> String {
         .iter()
         .map(|stream| {
             json!({
-                "name": format!("{DETAIL_STREAM_PREFIX}{}", stream.name()),
+                "name": format!("{STREAM_NAME_PREFIX}{}", stream.name()),
                 "necessity": "required",
             })
         })
@@ -132,7 +132,7 @@ pub fn one_off_details(step_up: &StepUpScope, source: &str) -> String {
         {
             "type": data_access,
             "source": {"id": source},
-            "selection_preset": "one_off_question",
+            "selection_preset": Preset::OneOffQuestion.name(),
             "access_mode": "single_use",
             "streams": streams,
         },
@@ -141,7 +141,7 @@ pub fn one_off_details(step_up: &StepUpScope, source: &str) -> String {
             "applies_to": 0,
             "critical": true,
             "max_tier": "T2",
-            "step_up": {"required": true, "acr": "owner_verified"},
+            "step_up": {"required": true, "acr": OWNER_VERIFIED_ACR},
             "host_profile_required": "t2",
         },
     ])

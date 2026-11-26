@@ -17,9 +17,9 @@ use super::McpAuthMiddleware;
 /// How a JWT reached the middleware: the scheme it was presented under, and
 /// the request's `DPoP` context on a path that takes proofs (`/mcp`, A2A).
 #[derive(Debug, Clone, Copy)]
-pub(super) struct Presented<'a> {
+pub(super) struct Presented<'req> {
     pub(super) scheme: PresentedScheme,
-    pub(super) dpop: Option<&'a DpopContext<'a>>,
+    pub(super) dpop: Option<&'req DpopContext<'req>>,
 }
 
 impl Presented<'_> {

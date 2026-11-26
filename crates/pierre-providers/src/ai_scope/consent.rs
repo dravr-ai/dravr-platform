@@ -35,7 +35,7 @@ use pierre_core::constants::oauth_providers::{
 };
 use pierre_core::errors::{AppError, AppResult};
 
-use super::{exposure, grant_ceiling, record_withheld};
+use super::{exposure, grant_ceiling, read_by_ai, record_withheld};
 
 tokio::task_local! {
     /// The providers whose data the athlete has not consented to hand to AI,
@@ -282,12 +282,12 @@ pub fn tier_readable_in(tier: Tier, stream: Stream) -> bool {
 /// agent reads of the athlete's notes and of its memory (T3) and of their
 /// PAR-Q medical facts (T2) is held to the athlete's tier consent, like an
 /// outside client's, by the one tier rule ([`tier_readable`]). A read feeding
-/// no AI ([`read_by_ai`](super::read_by_ai)) — the athlete's own screens, a
+/// no AI ([`read_by_ai`]) — the athlete's own screens, a
 /// human coach's own screen — is not asked here, so the coach keeps reading
 /// what the athlete shares with them.
 #[must_use]
 pub fn ai_reads_tier(tier: Tier) -> bool {
-    !super::read_by_ai() || tier_readable(tier)
+    !read_by_ai() || tier_readable(tier)
 }
 
 /// Tally one field of `tier` a filter nulled because [`tier_readable`] said no.

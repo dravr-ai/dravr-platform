@@ -22,6 +22,7 @@ use std::sync::Arc;
 use tracing::{debug, warn};
 
 use pierre_mcp_schema::{JsonSchema, ToolSchema};
+use serde_json::Value;
 
 use crate::chat_catalogue;
 use crate::read_subject::{athlete_property, DataClass, ATHLETE_ARGUMENT};
@@ -219,7 +220,7 @@ impl ToolRegistry {
     /// What one call to `name` with `args` reads: the declaration, narrowed
     /// to the streams its arguments pick ([`ToolData::for_call`]).
     #[must_use]
-    pub(crate) fn call_data(&self, name: &str, args: &serde_json::Value) -> Option<ToolData> {
+    pub(crate) fn call_data(&self, name: &str, args: &Value) -> Option<ToolData> {
         self.tool_data(name).map(|data| data.for_call(args))
     }
 

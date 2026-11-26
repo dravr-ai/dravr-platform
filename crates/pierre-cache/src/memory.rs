@@ -344,8 +344,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use tokio::spawn;
-    use tokio::time::sleep;
+    use tokio::{task, time};
     use uuid::Uuid;
 
     use super::InMemoryCache;
@@ -372,10 +371,13 @@ mod tests {
     async fn set_if_absent_stores_once_and_leaves_the_first_value() {
         let cache = cache();
         let key = key("once");
-        assert!(cache
-            .set_if_absent(&key, &"first", Duration::from_secs(60))
-            .await
-            .unwrap());
+        assert!(
+            cache
+                .set_if_absent(&key, &"first", Duration::from_secs(60))
+                .await
+                .unwrap(),
+            "bug: an absent key must take the first write"
+        );
         assert!(
             !cache
                 .set_if_absent(&key, &"second", Duration::from_secs(60))
@@ -395,11 +397,14 @@ mod tests {
     async fn set_if_absent_takes_a_key_whose_entry_expired() {
         let cache = cache();
         let key = key("expired");
-        assert!(cache
-            .set_if_absent(&key, &1_u8, Duration::from_millis(1))
-            .await
-            .unwrap());
-        sleep(Duration::from_millis(5)).await;
+        assert!(
+            cache
+                .set_if_absent(&key, &1_u8, Duration::from_millis(1))
+                .await
+                .unwrap(),
+            "bug: an absent key must take the first write"
+        );
+        time::sleep(Duration::from_millis(5)).await;
         assert!(
             cache
                 .set_if_absent(&key, &2_u8, Duration::from_secs(60))
@@ -415,7 +420,7 @@ mod tests {
         let mut tasks = Vec::new();
         for _ in 0..16 {
             let cache = Arc::clone(&cache);
-            tasks.push(spawn(async move {
+            tasks.push(task::spawn(async move {
                 cache
                     .set_if_absent(&key("race"), &true, Duration::from_secs(60))
                     .await

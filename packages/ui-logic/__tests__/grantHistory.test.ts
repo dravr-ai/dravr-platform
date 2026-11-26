@@ -81,6 +81,8 @@ describe('grantReceiptOutcome', () => {
     expect(grantReceiptOutcome(receipt('revoke', 'client'))).toBe('endedByApp');
     expect(grantReceiptOutcome(receipt('revoke', 'auto'))).toBe('endedByDravr');
     expect(grantReceiptOutcome(receipt('expire', 'auto'))).toBe('expired');
+    expect(grantReceiptOutcome(receipt('step_up', 'user'))).toBe('allowed');
+    expect(grantReceiptOutcome(receipt('consume', 'client'))).toBe('endedByApp');
   });
 
   it('reads a payload without an approval member as allowed', () => {

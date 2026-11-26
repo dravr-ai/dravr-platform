@@ -77,9 +77,30 @@ const MEDICAL_WITHHELD: &str = "\n\n# Medical screening\n\nThis athlete keeps th
      volume, or starting a new kind of training, ask whether a clinician has limited what they \
      may do.\n";
 
+/// The model-facing line said in place of the agent's memory on an outside
+/// client's turn (MCP, A2A, an API key), which never reads it whatever the
+/// athlete consented to (JF 2026-11-25): it names no switch, since none
+/// opens it.
+const MEMORY_OFF_INTERFACE: &str = "\n\n# The athlete's memory\n\nDravr never serves the \
+     athlete's notes or their agent's memory to outside AI apps, so nothing they told Dravr in \
+     earlier conversations is shown here. Do not claim to remember their goals, preferences or \
+     past answers; ask when you need one.\n";
+
+/// The model-facing line said in place of the athlete's medical screening
+/// answers on an outside client's turn, which reads no health record outside
+/// a step-up. Said whatever is on file, so it never tells whether a flag is.
+const MEDICAL_OFF_INTERFACE: &str = "\n\n# Medical screening\n\nDravr does not serve the \
+     athlete's health records, their PAR-Q medical screening answers included, to outside AI \
+     apps here, so you cannot see whether any medical flag is on file. Do not assume there is \
+     none: before raising intensity or volume, or starting a new kind of training, ask whether a \
+     clinician has limited what they may do.\n";
+
 /// Which of the athlete's memory the AI reading now may read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MemoryReach {
+    /// Whether the read is served to an outside client: what is withheld is
+    /// the interface's ceiling, not the athlete's choice.
+    outside: bool,
     /// The health facts: PAR-Q medical facts and injuries (T2,
     /// `sensitive_t2`).
     medical: bool,
@@ -93,6 +114,7 @@ impl MemoryReach {
     #[must_use]
     pub fn now() -> Self {
         Self {
+            outside: ai_scope::serving_external(),
             medical: ai_scope::ai_reads_tier(HEALTH_FACT_TIER),
             memory: ai_scope::ai_reads_tier(memory_tier()),
         }
@@ -100,7 +122,8 @@ impl MemoryReach {
 
     /// What Dravr's own agent may read of `user_id`'s memory, for a model call
     /// the platform makes outside a turn's scope (the agent proposal's
-    /// re-rank): their consents in `tenant_id`, read for a model on Dravr's
+    /// re-rank) or for text later turns send to the model (the `/season`
+    /// opener's quote): their consents in `tenant_id`, read for a model on Dravr's
     /// own surface, narrowed by any transport the caller declared.
     pub async fn for_agent(repos: &RepositoryRegistry, tenant_id: Uuid, user_id: Uuid) -> Self {
         let withheld = provider_notice::ai_consent_withheld(repos, tenant_id, user_id).await;
@@ -182,13 +205,20 @@ impl MemoryReach {
     }
 
     /// The lines a prompt carries in place of what this reach withholds, or
-    /// `None` when it withholds nothing. Keyed on the athlete's consent alone,
-    /// never on what is stored, so it reveals nothing of what is.
+    /// `None` when it withholds nothing. Keyed on the athlete's consent and
+    /// the interface alone, never on what is stored, so it reveals nothing of
+    /// what is. On an outside client's turn the lines name the interface,
+    /// not the athlete's switch, which opens nothing there.
     #[must_use]
     pub fn framing(self) -> Option<String> {
+        let (memory, medical) = if self.outside {
+            (MEMORY_OFF_INTERFACE, MEDICAL_OFF_INTERFACE)
+        } else {
+            (MEMORY_WITHHELD, MEDICAL_WITHHELD)
+        };
         let lines: Vec<&str> = [
-            (!self.memory).then_some(MEMORY_WITHHELD),
-            (!self.medical).then_some(MEDICAL_WITHHELD),
+            (!self.memory).then_some(memory),
+            (!self.medical).then_some(medical),
         ]
         .into_iter()
         .flatten()
@@ -280,6 +310,7 @@ mod tests {
     fn an_injury_fact_in_a_pillar_follows_sensitive_t2() {
         let mut memory_only = dossier_with_injury_and_goal();
         MemoryReach {
+            outside: false,
             medical: false,
             memory: true,
         }
@@ -296,6 +327,7 @@ mod tests {
 
         let mut health_only = dossier_with_injury_and_goal();
         MemoryReach {
+            outside: false,
             medical: true,
             memory: false,
         }
@@ -313,6 +345,7 @@ mod tests {
 
         let mut neither = dossier_with_injury_and_goal();
         MemoryReach {
+            outside: false,
             medical: false,
             memory: false,
         }
@@ -326,11 +359,13 @@ mod tests {
     #[test]
     fn the_framing_names_each_withheld_tier_and_nothing_when_both_are_given() {
         let both = MemoryReach {
+            outside: false,
             medical: true,
             memory: true,
         };
         assert_eq!(both.framing(), None, "bug: nothing withheld, nothing said");
         let neither = MemoryReach {
+            outside: false,
             medical: false,
             memory: false,
         }
@@ -345,6 +380,7 @@ mod tests {
             "bug: the medical line is said without sensitive_t2: {neither}"
         );
         let memory_only = MemoryReach {
+            outside: false,
             medical: true,
             memory: false,
         }
@@ -353,6 +389,46 @@ mod tests {
         assert!(
             !memory_only.contains("PAR-Q"),
             "bug: sensitive_t2 given, no medical line: {memory_only}"
+        );
+    }
+
+    #[test]
+    fn an_outside_turn_names_the_interface_not_the_athletes_switch() {
+        let outside = MemoryReach {
+            outside: true,
+            medical: false,
+            memory: false,
+        }
+        .framing()
+        .unwrap();
+        assert!(
+            outside.contains(
+                "never serves the athlete's notes or their agent's memory to outside AI apps"
+            ),
+            "bug: the outside memory line is not said: {outside}"
+        );
+        assert!(
+            outside.contains("whether any medical flag is on file"),
+            "bug: the outside medical line is not said: {outside}"
+        );
+        assert!(
+            !outside.contains("Privacy & Data") && !outside.contains("Only the athlete can change"),
+            "bug: an outside turn blames a switch that opens nothing there: {outside}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_reach_knows_an_outside_client_from_dravrs_own_agent() {
+        let reach = |transport| {
+            ai_scope::serve_over(transport, ai_scope::ai_read(async { MemoryReach::now() }))
+        };
+        assert!(
+            reach(Transport::McpHttp).await.0.outside,
+            "bug: an MCP read is an outside client's"
+        );
+        assert!(
+            !reach(Transport::WebApp).await.0.outside,
+            "bug: Dravr's own agent is no outside client"
         );
     }
 }

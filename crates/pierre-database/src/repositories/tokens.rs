@@ -41,7 +41,7 @@
 mod device_sql;
 /// The live refresh-token families the one-time grant backfill left unnamed
 pub(crate) mod grant_backfill;
-/// The reads of a consent grant row, parents only
+/// The reads of a consent grant row: lists of parents, step-up children apart
 mod grant_reads;
 /// Every statement that starts or ends a consent grant, and its receipts
 pub(crate) mod grant_writes;

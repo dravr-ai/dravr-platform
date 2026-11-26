@@ -805,10 +805,17 @@ fn spawn_background_workers(
     // backfill (migration 20261126001550, carnet#1550) left without a grant:
     // no live grant matched their tenant, client and user, or several did.
     // They keep being admitted as before; the log says who they are, by
-    // tenant, client and user only. Detached, as nothing waits on it.
+    // tenant, client and user only. Detached, as nothing waits on it; a
+    // panic in the report is logged rather than lost with its handle.
     {
         let oauth2 = Arc::clone(&resources.common.repos.oauth2_server);
-        tokio::spawn(async move { report_ungranted_refresh_families(oauth2.as_ref()).await });
+        let report =
+            tokio::spawn(async move { report_ungranted_refresh_families(oauth2.as_ref()).await });
+        tokio::spawn(async move {
+            if let Err(e) = report.await {
+                error!(error = %e, "The refresh-token grant report task failed");
+            }
+        });
     }
 
     // Start the record_log worker (carnet#1542): keys erasures and

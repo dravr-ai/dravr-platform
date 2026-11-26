@@ -90,17 +90,17 @@ pub enum PresentedScheme {
 /// The `DPoP` headers one request carries, as the transport counted them.
 /// RFC 9449 §4.3 refuses a request with more than one.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct PresentedProofs<'a> {
+pub struct PresentedProofs<'req> {
     /// The proof, when exactly one `DPoP` header was sent; the first when
     /// several were (refused by its count)
-    pub proof: Option<&'a str>,
+    pub proof: Option<&'req str>,
     /// How many `DPoP` headers the request carried
     pub count: usize,
 }
 
-impl<'a> PresentedProofs<'a> {
+impl<'req> PresentedProofs<'req> {
     /// The one proof, or why there is not exactly one.
-    fn single(&self) -> Result<&'a str, DpopRefusal> {
+    fn single(&self) -> Result<&'req str, DpopRefusal> {
         match (self.count, self.proof) {
             (1, Some(proof)) => Ok(proof),
             (0, _) | (_, None) => Err(DpopRefusal::Missing),
@@ -115,13 +115,13 @@ impl<'a> PresentedProofs<'a> {
 /// when the dialed origin is not one of this server's, which no proof can then
 /// match).
 #[derive(Debug, Clone, Copy)]
-pub struct DpopContext<'a> {
+pub struct DpopContext<'req> {
     /// The request's `DPoP` headers
-    pub proofs: PresentedProofs<'a>,
+    pub proofs: PresentedProofs<'req>,
     /// The HTTP method, compared with the proof's `htm`
-    pub htm: &'a str,
+    pub htm: &'req str,
     /// The dialed URI without query, compared with the proof's `htu`
-    pub htu: Option<&'a str>,
+    pub htu: Option<&'req str>,
 }
 
 /// Why a `DPoP` check refused a request.
@@ -363,7 +363,7 @@ mod tests {
         for alg in &algs {
             assert!(
                 challenge.contains(alg.as_str()),
-                "{alg} missing from {challenge}"
+                "bug: the challenge omits the accepted algorithm {alg}: {challenge}"
             );
         }
     }

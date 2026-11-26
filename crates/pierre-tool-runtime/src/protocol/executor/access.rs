@@ -9,6 +9,7 @@ use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
 use pierre_contremaitre::consent_strings::step_up_worded;
 use pierre_core::transport::Transport;
 use pierre_providers::ai_scope;
+use serde_json::Value;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -40,7 +41,7 @@ impl UniversalExecutor {
     pub(super) async fn access_refusal(
         &self,
         tool: &dyn RuntimeTool,
-        (tool_name, args): (&str, &serde_json::Value),
+        (tool_name, args): (&str, &Value),
         user_id: Uuid,
         is_admin: bool,
         ceiling: Option<&GrantCeiling>,

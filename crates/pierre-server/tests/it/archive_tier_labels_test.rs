@@ -17,6 +17,7 @@ use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use axum::Router;
 use dravr_tronc::dates::{Elapsed, Timestamp};
+use pierre_a2a::ClientRegistrationRequest;
 use pierre_core::constants::oauth_providers::{INTERVALS_ICU, USER_PROVIDED_PROVIDERS, WAHOO};
 use pierre_core::models::{
     Activity, ActivityBuilder, ConnectionType, SportType, TenantId, User, UserOAuthToken,
@@ -290,7 +291,7 @@ async fn an_a2a_tool_artifact_carries_the_same_label_in_its_metadata() {
         .a2a
         .a2a_client_manager
         .register_client(
-            pierre_a2a::ClientRegistrationRequest {
+            ClientRegistrationRequest {
                 name: format!("labels-agent-{}", rider.user_id),
                 description: "an agent writing its own replies".into(),
                 capabilities: vec!["fitness-data-analysis".into()],
@@ -563,7 +564,7 @@ async fn no_outside_surface_serves_t3_under_sensitive_t3() {
         .a2a
         .a2a_client_manager
         .register_client(
-            pierre_a2a::ClientRegistrationRequest {
+            ClientRegistrationRequest {
                 name: format!("t3-agent-{}", rider.user_id),
                 description: "an agent writing its own replies".into(),
                 capabilities: vec!["fitness-data-analysis".into()],

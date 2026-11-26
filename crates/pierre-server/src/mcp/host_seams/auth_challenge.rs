@@ -68,9 +68,9 @@ pub(super) fn auth_refusal(refusal: &AuthRefusal, resource_url: &str) -> AuthErr
     }
     debug!(error = %error, "MCP request rejected: bearer token failed validation");
     let bearer = www_authenticate_challenge(resource_url, Some("invalid_token"));
-    let www_authenticate = refusal.dpop_error.map_or_else(
-        || bearer.clone(),
-        |code| format!("{}, {bearer}", dpop_challenge(Some(code))),
-    );
+    let www_authenticate = match refusal.dpop_error {
+        Some(code) => format!("{}, {bearer}", dpop_challenge(Some(code))),
+        None => bearer,
+    };
     AuthError::Unauthorized { www_authenticate }
 }

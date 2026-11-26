@@ -34,8 +34,7 @@
 //! carriers — its CIMD at consent, and the per-request claim of the call
 //! ([`Self::with_request_host_tier`]), the stricter of the two winning.
 
-use dravr_barrage::Preset;
-use dravr_barrage::{Stream, Tier};
+use dravr_barrage::{Preset, Stream, Tier};
 use dravr_tronc::dates::{CivilDate, Timestamp, Zone};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::StepUpTerms;

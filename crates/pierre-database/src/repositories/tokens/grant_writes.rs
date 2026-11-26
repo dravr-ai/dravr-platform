@@ -152,13 +152,31 @@ pub(crate) const DELETE_ORPHANED_CLIENT_GRANTS_SQL: &str = r"
             )
             ";
 
-/// Grants still un-revoked whose expiry is at or before `$1` and that have
-/// no terminal event yet, in every tenant: what the expire pass ends.
+/// Parent grants still un-revoked whose expiry is at or before `$1` and that
+/// have no terminal event yet, in every tenant: what the expire pass ends.
 pub(crate) const LIST_EXPIRED_UNENDED_CLIENT_GRANTS_SQL: &str = r"
             SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
                    consent_version, consent_locale, authorization_details, expires_at
             FROM oauth_client_grants g
-            WHERE g.revoked_at IS NULL
+            WHERE g.revoked_at IS NULL AND g.parent_grant_id IS NULL
+              AND g.expires_at IS NOT NULL AND g.expires_at <= $1
+              AND NOT EXISTS (
+                SELECT 1 FROM oauth_grant_events e
+                WHERE e.tenant_id = g.tenant_id AND e.user_id = g.user_id
+                  AND e.client_grant_id = g.id AND e.event IN ('revoke', 'expire')
+            )
+            ";
+
+/// The step-up children [`LIST_EXPIRED_UNENDED_CLIENT_GRANTS_SQL`] leaves
+/// out, with their step-up columns, so each `expire` receipt states its
+/// step-up as every other receipt of a child does.
+pub(crate) const LIST_EXPIRED_UNENDED_CHILD_GRANTS_SQL: &str = r"
+            SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
+                   consent_version, consent_locale, authorization_details, expires_at,
+                   parent_grant_id, step_up_auth_time, step_up_acr, host_profile_basis,
+                   host_profile_tier
+            FROM oauth_client_grants g
+            WHERE g.revoked_at IS NULL AND g.parent_grant_id IS NOT NULL
               AND g.expires_at IS NOT NULL AND g.expires_at <= $1
               AND NOT EXISTS (
                 SELECT 1 FROM oauth_grant_events e
@@ -610,9 +628,7 @@ macro_rules! impl_client_grant_writes {
                         "Failed to revoke the client's standing policies: {e}"
                     ))
                 })?;
-                tx.commit().await.map_err(|e| {
-                    AppError::database(format!("Failed to revoke OAuth client grant: {e}"))
-                })?;
+                tx.commit().await.map_err(revoke_error)?;
                 self.revoke_late_refresh_tokens(user_id, tenant_id, &client_id)
                     .await?;
                 Ok(true)
@@ -841,6 +857,28 @@ macro_rules! impl_client_grant_writes {
                         &grant,
                         GrantActor::Auto,
                         now,
+                    )
+                    .await?
+                    {
+                        written += 1;
+                    }
+                }
+                let children = sqlx::query(
+                    $crate::repositories::tokens::grant_writes::LIST_EXPIRED_UNENDED_CHILD_GRANTS_SQL,
+                )
+                .bind(now)
+                .fetch_all(&mut *conn)
+                .await
+                .map_err(|e| AppError::database(format!("Failed to list expired step-up grants: {e}")))?;
+                for row in &children {
+                    let child = $crate::repositories::tokens::child_grant_from_row(row)?;
+                    let (event, actor, at) = GrantEvent::ending(&child.grant, GrantActor::Auto, now);
+                    if Self::record_grant_event_in(
+                        conn,
+                        &child.grant,
+                        event,
+                        ReceiptApproval::by(actor).stepped_up(&child.terms),
+                        at,
                     )
                     .await?
                     {

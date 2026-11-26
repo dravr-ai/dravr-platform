@@ -1,5 +1,5 @@
 // ABOUTME: The reads of an OAuth consent grant row: a client's live grant, a user's grants, a client's history
-// ABOUTME: Parents only, every one: a step-up child is read through its parent (child_grants), never as a grant of its own
+// ABOUTME: The lists read parents only, a step-up child through its parent; the read by id returns either
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -34,8 +34,9 @@ pub(crate) const LIST_CLIENT_GRANTS_SQL: &str = r"
             ORDER BY granted_at DESC
             ";
 
-/// One grant by its id, live or not; `user_id` + `tenant_id` in the filter is
-/// the ownership check.
+/// One grant by its id, live or not, a parent or a step-up child (the
+/// single-use check reads a child ceiling's grant by the child's id);
+/// `user_id` + `tenant_id` in the filter is the ownership check.
 pub(crate) const GET_CLIENT_GRANT_SQL: &str = r"
             SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
                    consent_version, consent_locale, authorization_details, expires_at

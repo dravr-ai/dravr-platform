@@ -70,7 +70,7 @@ async fn setup(email: &str) -> Fixture {
     let resources = create_test_server_resources_with_chat_provider(provider.clone())
         .await
         .unwrap();
-    let (user_id, _user, tenant) =
+    let (user_id, _, tenant) =
         create_test_user_with_plan(&resources.agent.database, email, "professional")
             .await
             .unwrap();

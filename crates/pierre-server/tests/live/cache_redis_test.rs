@@ -127,7 +127,8 @@ async fn test_redis_cache_set_if_absent_stores_once() -> Result<()> {
     assert!(
         cache
             .set_if_absent(&key, &1_u8, Duration::from_secs(1))
-            .await?
+            .await?,
+        "the first caller stores an absent key"
     );
     assert!(
         !cache
@@ -197,7 +198,11 @@ async fn test_redis_dpop_replay_is_refused_across_replicas() -> Result<()> {
         .verify(presented, "POST", Some(htu), None)
         .await
         .map_err(|refusal| anyhow!("a fresh proof is admitted: {refusal}"))?;
-    assert_eq!(verified.jkt, A.thumbprint()?);
+    assert_eq!(
+        verified.jkt,
+        A.thumbprint()?,
+        "a verified proof names the key that signed it"
+    );
 
     for replica in [&replica_two, &replica_one] {
         let replay = replica.verify(presented, "POST", Some(htu), None).await;

@@ -126,10 +126,12 @@ impl ProviderNotice {
 ///   glucose) and T3 (cycle tracking, mental and reproductive health),
 ///   whichever provider or import holds it (J2, 2026-11-12). Neither opens
 ///   T3 to an outside AI client: T3 never goes outside (JF
-///   2026-11-25, closing JF 2026-11-20's path, carnet#1544), and Dravr's own
-///   agent and the human coach read the athlete's notes and their agent's
-///   memory either way. A class guards no connect, since nothing
-///   connects under it; it rides this table only so the one AI-consent set
+///   2026-11-25, closing JF 2026-11-20's path, carnet#1544). Dravr's own
+///   agent reads the athlete's notes and its memory only under
+///   [`SENSITIVE_T3`], and their PAR-Q and injury facts only under
+///   [`SENSITIVE_T2`] (JF 2026-11-25, "Gate on tier consent"); the human
+///   coach's own screen reads the notes either way. A class guards no
+///   connect, since nothing connects under it; it rides this table only so the one AI-consent set
 ///   withholds it until given, exactly like WHOOP's authorization, and so one
 ///   acceptance record holds every consent to AI use. Asked of every account
 ///   ([`NoticeAudience::EveryAccount`]) as a [`NoticeKind::AiConsent`]: given
@@ -265,9 +267,10 @@ pub const SENSITIVE_T2: &str = "sensitive_t2";
 /// provider or import holds them: while it is not given, no model and no
 /// human coach reads one. No outside AI client (MCP, A2A, an API key) reads
 /// a T3 record or the athlete's notes and their agent's memory, given or not
-/// (JF 2026-11-25); Dravr's own agent and the human coach read the
-/// notes and memory without it ([`PROVIDER_NOTICES`]). Its acceptance is a row of
-/// `provider_terms_consents` under this key.
+/// (JF 2026-11-25). Dravr's own agent reads the notes and its memory only
+/// while it is given (JF 2026-11-25, "Gate on tier consent"); the human
+/// coach's own screen reads the notes without it ([`PROVIDER_NOTICES`]). Its
+/// acceptance is a row of `provider_terms_consents` under this key.
 pub const SENSITIVE_T3: &str = "sensitive_t3";
 
 /// Every consent class [`PROVIDER_NOTICES`] carries.

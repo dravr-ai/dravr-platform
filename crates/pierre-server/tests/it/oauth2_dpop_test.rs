@@ -24,6 +24,7 @@ use std::slice;
 use std::sync::Arc;
 
 use axum::extract::connect_info::MockConnectInfo;
+use axum::Router;
 use base64::{engine::general_purpose, Engine as _};
 use dravr_tronc::dates::Timestamp;
 use jsonwebtoken::dangerous::insecure_decode;
@@ -47,7 +48,7 @@ use uuid::Uuid;
 const REDIRECT: &str = "https://dpop.example.test/callback";
 const VERIFIER: &str = "dpop-bound-pkce-verifier-0123456789-abcdefghijklmnopqrstuvwxyz";
 
-fn app(resources: &Arc<ServerContext>) -> axum::Router {
+fn app(resources: &Arc<ServerContext>) -> Router {
     ProviderToolRouter::build_http_app(resources)
         .layer(MockConnectInfo(SocketAddr::from(([127, 0, 0, 1], 40_949))))
 }
@@ -663,7 +664,11 @@ async fn pushed_dpop_jkt_binds_the_code_and_must_name_the_proofs_key() {
         .await,
     );
     let claims = insecure_decode::<Claims>(&access).unwrap().claims;
-    assert_eq!(claims.cnf.map(|cnf| cnf.jkt), Some(B.thumbprint().unwrap()));
+    assert_eq!(
+        claims.cnf.map(|cnf| cnf.jkt),
+        Some(B.thumbprint().unwrap()),
+        "bug: the token is not bound to the key the code was bound to"
+    );
 }
 
 /// `dpop_jkt` sent in the authorization query (RFC 9449 §10) crosses the

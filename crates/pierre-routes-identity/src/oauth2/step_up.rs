@@ -101,21 +101,19 @@ pub(super) fn asks_step_up(details: Option<&ResolvedDetails>) -> bool {
 }
 
 /// A step-up approval to record.
-pub(super) struct StepUpApproval<'a> {
+pub(super) struct StepUpApproval<'req> {
     /// The client approved
-    pub(super) client_id: &'a str,
+    pub(super) client_id: &'req str,
     /// The scope the code carries: never wider than the parent's
-    pub(super) scope: &'a str,
+    pub(super) scope: &'req str,
     /// The one-off details approved
-    pub(super) details: &'a ResolvedDetails,
+    pub(super) details: &'req ResolvedDetails,
     /// The review digest the approval was given under
     pub(super) review_digest: String,
     /// The language of the consent text it was given under
     pub(super) consent_locale: String,
     /// The athlete's zone, which the window is frozen in
     pub(super) zone: Zone,
-    /// When the athlete signed in on the hosted page
-    pub(super) auth_time: Timestamp,
 }
 
 impl OAuth2Routes {
@@ -168,8 +166,9 @@ impl OAuth2Routes {
     }
 
     /// Record `approval` as a child of the client's live grant for
-    /// `user_id` in `tenant_id`. Returns the **parent's** id, the grant the
-    /// code and its tokens name.
+    /// `user_id` in `tenant_id`, the athlete having signed in on the hosted
+    /// page at `auth_time` ([`Self::fresh_sign_in`]). Returns the
+    /// **parent's** id, the grant the code and its tokens name.
     ///
     /// # Errors
     /// `access_denied` when the sign-in is not fresh, the client holds no
@@ -178,6 +177,7 @@ impl OAuth2Routes {
     pub(super) async fn record_step_up(
         context: &OAuth2Context,
         approval: StepUpApproval<'_>,
+        auth_time: Timestamp,
         user_id: Uuid,
         tenant_id: &str,
     ) -> Result<String, OAuth2Error> {
@@ -188,14 +188,13 @@ impl OAuth2Routes {
             review_digest,
             consent_locale,
             zone,
-            auth_time,
         } = approval;
         let now = Timestamp::now();
         if now.epoch_seconds() - auth_time.epoch_seconds() > STEP_UP_MAX_AGE_SECS {
             return Err(OAuth2Error::access_denied(STEP_UP_SIGN_IN_STALE));
         }
         let failed = |e: AppError| {
-            error!(user_id = %user_id, client_id, "Failed to record a step-up grant: {e}");
+            error!(user_id = %user_id, client_id, error = %e, "Failed to record a step-up grant");
             OAuth2Error::server_error(super::consent::CONSENT_NOT_RECORDED)
         };
         let user = user_id.to_string();

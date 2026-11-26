@@ -486,6 +486,7 @@ impl HostProfile<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::{HostProfileBasis, OWNER_VERIFIED_ACR};
 
     /// The instant `seconds` after the epoch.
     fn at(seconds: i64) -> AppResult<Timestamp> {
@@ -720,8 +721,8 @@ mod tests {
         let terms = StepUpTerms {
             parent_grant_id: "parent-1".to_owned(),
             auth_time: at(1_700_000_000)?,
-            acr: super::super::OWNER_VERIFIED_ACR.to_owned(),
-            host_profile_basis: super::super::HostProfileBasis::DeclaredCimd,
+            acr: OWNER_VERIFIED_ACR.to_owned(),
+            host_profile_basis: HostProfileBasis::DeclaredCimd,
             host_profile_tier: "T2".to_owned(),
         };
         let (text, _) = GrantReceipt {

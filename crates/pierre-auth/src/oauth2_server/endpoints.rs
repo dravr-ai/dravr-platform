@@ -33,7 +33,7 @@ use crate::refresh_rotation::{
 };
 use base64::{engine::general_purpose, Engine as _};
 use dravr_tronc::dates::{Elapsed, Timestamp};
-use grant_checks::{require_refresh_dpop_binding, token_type};
+use grant_checks::require_refresh_dpop_binding;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::redaction;
@@ -47,6 +47,7 @@ use uuid::Uuid;
 
 /// Minting the access token a grant is redeemed for, under its refresh family
 mod access_token;
+/// Minting an authorization code, its state and its `DPoP` binding
 mod auth_code;
 use auth_code::{check_dpop_jkt, AuthCodeParams};
 /// Admin access at consent: the one way a grant holds `admin` (carnet#1511)
@@ -843,7 +844,7 @@ impl OAuth2AuthorizationServer {
 
         Ok(TokenResponse {
             access_token: SecretString::from(access_token),
-            token_type: token_type(dpop_jkt).to_owned(),
+            token_type: grant_checks::token_type(dpop_jkt).to_owned(),
             expires_in: oauth_access_token_lifetime_secs(&request.client_id),
             scope: Self::rendered_scope(&granted),
             refresh_token: Some(SecretString::from(refresh_token_value)),
@@ -987,7 +988,7 @@ impl OAuth2AuthorizationServer {
 
         Ok(TokenResponse {
             access_token: SecretString::from(access_token),
-            token_type: token_type(dpop_jkt).to_owned(),
+            token_type: grant_checks::token_type(dpop_jkt).to_owned(),
             expires_in: oauth_access_token_lifetime_secs(&request.client_id),
             scope: Self::rendered_scope(&granted),
             refresh_token: Some(SecretString::from(new_refresh_token_value)),

@@ -88,7 +88,7 @@ async fn seed_policy(world: &World, grant: &OAuthClientGrant) -> OAuthStandingPo
 }
 
 /// Move `grant_id`'s expiry into the past, as 30 days do.
-async fn expire(world: &World, grant_id: &str) {
+pub(crate) async fn expire(world: &World, grant_id: &str) {
     let past = Timestamp::now() - Elapsed::minutes(1);
     match world.resources.agent.database.backend() {
         DatabaseBackend::SQLite(db) => {

@@ -376,7 +376,8 @@ mod tests {
         );
         assert_eq!(
             config.dialed_uri(Some("http, https"), Some("localhost:8081"), "/a2a"),
-            Some("http://localhost:8081/a2a".to_owned())
+            Some("http://localhost:8081/a2a".to_owned()),
+            "bug: the first forwarded proto picks the http alias, path appended"
         );
         assert_eq!(
             config.dialed_uri(Some("http"), Some("mcp.example.test"), "/mcp"),

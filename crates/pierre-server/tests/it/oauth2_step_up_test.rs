@@ -22,9 +22,10 @@ use crate::helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use crate::helpers::consent_form::hidden_field;
 use crate::oauth2_grant_details_test::{
     access_detail, app, approve_with, challenge, claimed_grant, code_of, constraints_detail,
-    exchange, fresh_state, live_grants, register, request_query, tokens, world, Client, World,
-    REDIRECT,
+    exchange, fresh_state, live_grants, refresh, register, request_query, tokens, world, Client,
+    World, REDIRECT,
 };
+use crate::oauth_standing_policy_test::expire;
 
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_contremaitre::consent_strings::STEP_UP_SCREEN_KEYS;
@@ -1141,5 +1142,68 @@ async fn connected_apps_list_the_child_under_its_app_and_revoke_it_alone() {
     assert!(
         apps[0]["step_up"].is_null(),
         "bug: a revoked child is still listed: {apps:?}"
+    );
+}
+
+// ============================================================================
+// A child past its expiry, never used
+// ============================================================================
+
+/// A step-up child that expired unused: the refresh response no longer
+/// states it, as introspection and `/mcp` already read it, and the expire
+/// pass writes its `expire` receipt with the step-up it was approved with,
+/// as every other receipt of a child carries.
+#[tokio::test]
+async fn an_expired_unused_child_leaves_the_refresh_and_its_expire_receipt_names_the_step_up() {
+    let (world, client, parent, child, code) = stepped_up_with_code().await;
+    let issued = exchange(&world, &client, &code).await;
+    let (_, refresh_token) = tokens(&issued);
+    let body: Value = serde_json::from_str(&issued.body_text()).unwrap();
+    assert_eq!(
+        body["step_up"]["grant_id"],
+        child.as_str(),
+        "fixture: the live child is stated: {body}"
+    );
+
+    expire(&world, &child).await;
+    let refreshed = refresh(&world, &client, &refresh_token).await;
+    tokens(&refreshed);
+    let body: Value = serde_json::from_str(&refreshed.body_text()).unwrap();
+    assert!(
+        body["step_up"].is_null(),
+        "bug: the refresh stated a child past its expiry: {body}"
+    );
+
+    let long_ago = Timestamp::now() - Elapsed::days(10_000);
+    let repos = &world.resources.common.repos;
+    repos
+        .oauth2_server
+        .delete_stale_clients(long_ago, long_ago, Timestamp::now())
+        .await
+        .unwrap();
+    let receipts = repos
+        .oauth_grant_events
+        .list_for_user(
+            &world.tenant_id,
+            &world.user.id.to_string(),
+            Some(&child),
+            100,
+            0,
+        )
+        .await
+        .unwrap();
+    let ended = receipts
+        .iter()
+        .find(|receipt| receipt.event == GrantEvent::Expire)
+        .expect("bug: the expire pass wrote no receipt for the child");
+    let payload: Value = serde_json::from_str(&ended.payload).unwrap();
+    assert_eq!(
+        payload["grant"]["parent_grant_id"],
+        parent.as_str(),
+        "bug: the child's expire receipt does not name its parent: {payload}"
+    );
+    assert_eq!(
+        payload["approval"]["step_up_result"]["acr"], OWNER_VERIFIED_ACR,
+        "bug: the child's expire receipt does not state its step-up: {payload}"
     );
 }

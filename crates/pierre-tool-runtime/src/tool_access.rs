@@ -68,7 +68,7 @@ use pierre_core::transport::Transport;
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_schema::ToolSchema;
 use pierre_services::coach_roster::{self, RosterAccess};
-use serde_json::json;
+use serde_json::{json, Value};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -203,7 +203,7 @@ pub(crate) fn withheld_call(
     name: &str,
     tool: &dyn RuntimeTool,
     caller: &Caller<'_>,
-    args: &serde_json::Value,
+    args: &Value,
 ) -> Option<Withheld> {
     decide(declared(tool, registry.call_data(name, args)), caller)
 }
@@ -221,7 +221,7 @@ pub(crate) fn withheld_call(
 #[must_use]
 pub fn step_up_cure(
     registry: &ToolRegistry,
-    (name, args): (&str, &serde_json::Value),
+    (name, args): (&str, &Value),
     grant: &[OAuthScope],
     ceiling: &GrantCeiling,
 ) -> Option<Vec<Stream>> {

@@ -40,6 +40,7 @@ mod guided_turn {
         test_server_config_with_sciotte,
     };
     use crate::helpers::sciotte_mock::{seed_sciotte_session, spawn_mock_session_reader};
+    use crate::tier_consent_test::allow_memory_to_ai;
     use pierre_chat_pipeline::stages::capability_recovery::REPAIR_EVIDENCE_FRAME;
     use pierre_chat_pipeline::{
         CommandPersistence, InputSource, PipelineHooks, ServedTurn, SurfaceId, SurfaceProfile,
@@ -56,8 +57,6 @@ mod guided_turn {
     };
     use pierre_database::repositories::UpsertUserFactParams;
     use pierre_mcp_server::mcp::resources::ServerContext;
-
-    use crate::tier_consent_test::allow_memory_to_ai;
     use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 
     /// A substring of the capability re-ask's instruction: a request carrying

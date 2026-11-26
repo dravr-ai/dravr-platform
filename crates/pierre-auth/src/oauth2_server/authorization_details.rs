@@ -59,6 +59,10 @@ pub(crate) const HEALTH_CONSTRAINTS_TYPE: &str =
 /// The detail types this server resolves, as discovery lists them.
 pub const AUTHORIZATION_DETAILS_TYPES: [&str; 2] = [DATA_ACCESS_TYPE, HEALTH_CONSTRAINTS_TYPE];
 
+/// The prefix owl's stream names carry on the wire (`health.vault.labs.summary`);
+/// a name without it is read as barrage's own.
+pub(crate) const STREAM_NAME_PREFIX: &str = "health.vault.";
+
 /// The longest `authorization_details` parameter read, in bytes.
 pub(crate) const MAX_AUTHORIZATION_DETAILS_BYTES: usize = 8 * 1024;
 

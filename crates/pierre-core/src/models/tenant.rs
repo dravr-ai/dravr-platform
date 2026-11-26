@@ -408,7 +408,8 @@ impl ClientGrantStanding {
     /// is dropped, as is one carrying no details.
     #[must_use]
     pub fn with_children(mut self, children: &[ChildGrant], now: Timestamp) -> Self {
-        for child in children.iter().filter(|child| child.grant.is_live_at(now)) {
+        let live = children.iter().filter(|child| child.grant.is_live_at(now));
+        for child in live {
             let Some(document) = child.grant.authorization_details.clone() else {
                 continue;
             };
