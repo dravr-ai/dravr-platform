@@ -129,11 +129,14 @@ impl Desk {
     }
 
     /// Reconcile now, then deliver the brief's wakes over the next day: one
-    /// slot, whatever the hour. Returns what the brief's deliveries did.
+    /// slot, whatever the hour. A 24-hour window holds exactly one daily
+    /// slot; 25 hours held two whenever the run started in the hour before
+    /// the slot (06:00-07:00 UTC), and the suite failed then on every lane.
+    /// Returns what the brief's deliveries did.
     async fn next_morning(&self) -> Vec<WakeOutcome> {
         let now = Timestamp::now();
         self.fx
-            .run(now, now + Elapsed::hours(25))
+            .run(now, now + Elapsed::hours(24))
             .await
             .into_iter()
             .filter(|(wake, _)| matches!(wake, Wake::Routine { .. }))
