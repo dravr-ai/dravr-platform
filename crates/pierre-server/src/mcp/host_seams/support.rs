@@ -15,6 +15,7 @@
 //! lists and dispatches as the user. The two session tools are the one
 //! exception: they run as the admin, so the session can always be ended.
 
+use dravr_barrage::Tier;
 use dravr_tronc::mcp::tool::ToolContext;
 use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
 use pierre_core::errors::AppResult;
@@ -43,6 +44,37 @@ pub(super) fn credential() -> Option<CallerCredential> {
 /// HTTP request.
 pub(super) fn ceiling() -> Option<GrantCeiling> {
     rate_limiting::request_ceiling()
+}
+
+/// The MCP client extension a host declares its Host Profile with, per
+/// request (owl PDPP §6.2 carrier B).
+const HOST_PROFILE_EXTENSION: &str = "app.dravr.vault/host-profile";
+
+/// [`ceiling`] for the call `ctx` serves, with the Host Profile tier its own
+/// request declares: a step-up child's T2 opens only while each call's claim
+/// still says T2 (owl §6.1, the stricter carrier wins).
+pub(super) fn call_ceiling(ctx: &ToolContext) -> Option<GrantCeiling> {
+    ceiling().map(|ceiling| ceiling.with_request_host_tier(request_host_tier(ctx)))
+}
+
+/// The tier `ctx`'s request declares in
+/// `_meta["io.modelcontextprotocol/clientCapabilities"].extensions["app.dravr.vault/host-profile"]`
+/// as `{"tier_max": "t2", "version": …}`; `None` when it declares none or a
+/// value this server does not read, which opens nothing above T1.
+fn request_host_tier(ctx: &ToolContext) -> Option<Tier> {
+    let declared = ctx
+        .client_capabilities
+        .as_ref()?
+        .get("extensions")?
+        .get(HOST_PROFILE_EXTENSION)?
+        .get("tier_max")?
+        .as_str()?;
+    match declared.to_ascii_uppercase().as_str() {
+        "T0" => Some(Tier::T0),
+        "T1" => Some(Tier::T1),
+        "T2" => Some(Tier::T2),
+        _ => None,
+    }
 }
 
 /// The support session live for the admin `ctx` names on the credential
@@ -96,4 +128,40 @@ pub(super) fn as_user(ctx: &ToolContext, live: &LiveSupport) -> ToolContext {
         .map(|scope| scope.as_str().to_owned())
         .collect();
     user
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn declaring(capabilities: serde_json::Value) -> ToolContext {
+        ToolContext::default().with_client_capabilities(capabilities)
+    }
+
+    #[test]
+    fn a_requests_host_profile_claim_is_read_and_anything_else_opens_nothing() {
+        let claim = |value| json!({"extensions": {HOST_PROFILE_EXTENSION: value}});
+        assert_eq!(
+            request_host_tier(&declaring(claim(json!({"tier_max": "t2", "version": 1})))),
+            Some(Tier::T2),
+            "bug: a T2 claim was not read"
+        );
+        assert_eq!(
+            request_host_tier(&declaring(claim(json!({"tier_max": "t3"})))),
+            None,
+            "bug: a T3 claim read as a tier"
+        );
+        assert_eq!(
+            request_host_tier(&declaring(claim(json!({})))),
+            None,
+            "bug: a claim with no tier read as one"
+        );
+        assert_eq!(
+            request_host_tier(&declaring(json!({}))),
+            None,
+            "bug: no claim read as one"
+        );
+        assert_eq!(request_host_tier(&ToolContext::default()), None, "bug: legacy");
+    }
 }

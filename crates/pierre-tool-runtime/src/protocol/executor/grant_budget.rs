@@ -76,10 +76,19 @@ impl UniversalExecutor {
         &self,
         tool_name: &str,
         parties: Parties,
+        ceiling: Option<&GrantCeiling>,
     ) -> Option<UniversalResponse> {
-        let ceiling = self.ceiling.as_ref()?;
+        let ceiling = ceiling?;
         let tenant = parties.requester_tenant?.to_string();
         let user = parties.requester.to_string();
+        if ceiling.single_use && !self.single_use_live(ceiling, &user, &tenant).await {
+            info!(
+                tool_name,
+                client_grant_id = %ceiling.client_grant_id,
+                "tool call refused: its single-use grant was already consumed"
+            );
+            return Some(consumed(tool_name));
+        }
         let repo = self.resources.repos().usage_counters.as_ref();
         let budgets = ceiling.budgets;
         let rows = current_counter(repo, &tenant, &user, &rows_counter(ceiling)).await;
@@ -128,20 +137,84 @@ impl UniversalExecutor {
         })
     }
 
-    /// Run `body`, a call's, counting the rows its readers serve, and levy
-    /// them on its grant's counters ([`Self::levy_rows`]).
-    pub(super) async fn levied<F: Future>(&self, parties: Parties, body: F) -> F::Output {
+    /// Whether single-use grant `ceiling` is still live: the standing a
+    /// token was admitted on may be cached past the call that consumed it.
+    /// A grant that cannot be read is not.
+    async fn single_use_live(&self, ceiling: &GrantCeiling, user: &str, tenant: &str) -> bool {
+        match self
+            .resources
+            .repos()
+            .oauth2_server
+            .get_client_grant(&ceiling.client_grant_id, user, tenant)
+            .await
+        {
+            Ok(grant) => grant.is_some_and(|grant| grant.is_live_at(Timestamp::now())),
+            Err(e) => {
+                warn!("a single-use grant could not be read; refusing: {e}");
+                false
+            }
+        }
+    }
+
+    /// Run `body`, a call's, under `ceiling`, counting the rows its readers
+    /// serve, and levy them on its grant's counters ([`Self::levy_rows`]). A
+    /// single-use grant is consumed once the call served it any row.
+    pub(super) async fn levied<F: Future>(
+        &self,
+        parties: Parties,
+        ceiling: Option<&GrantCeiling>,
+        body: F,
+    ) -> F::Output {
         let (output, served) = ai_scope::counting_rows(body).await;
-        self.levy_rows(served, parties).await;
+        self.levy_rows(served, parties, ceiling).await;
+        self.consume_if_read(served, parties, ceiling).await;
         output
+    }
+
+    /// Consume `ceiling`'s single-use grant when the call it ran read data
+    /// (owl §3.1: consumed by the first call that reads data under it). A
+    /// failed write is logged: the grant then lasts to its expiry, an hour
+    /// by default and a day at most.
+    async fn consume_if_read(
+        &self,
+        served: ServedRows,
+        parties: Parties,
+        ceiling: Option<&GrantCeiling>,
+    ) {
+        let (Some(ceiling), Some(tenant)) = (ceiling, parties.requester_tenant) else {
+            return;
+        };
+        if !ceiling.single_use || served == ServedRows::default() {
+            return;
+        }
+        let consumed = self
+            .resources
+            .repos()
+            .oauth2_server
+            .consume_child_grant(
+                &ceiling.client_grant_id,
+                &parties.requester.to_string(),
+                &tenant.to_string(),
+            )
+            .await;
+        match consumed {
+            Ok(true) => info!(
+                client_grant_id = %ceiling.client_grant_id,
+                "single-use grant consumed by the call that read under it"
+            ),
+            Ok(false) => {}
+            Err(e) => warn!(
+                client_grant_id = %ceiling.client_grant_id,
+                "failed to consume a single-use grant: {e}"
+            ),
+        }
     }
 
     /// Add what a call under a ceiling served to its grant's counters today.
     /// Best effort: a failed write is logged, and the next call is admitted
     /// on the counts the store holds.
-    async fn levy_rows(&self, served: ServedRows, parties: Parties) {
-        let (Some(ceiling), Some(tenant)) = (self.ceiling.as_ref(), parties.requester_tenant)
-        else {
+    async fn levy_rows(&self, served: ServedRows, parties: Parties, ceiling: Option<&GrantCeiling>) {
+        let (Some(ceiling), Some(tenant)) = (ceiling, parties.requester_tenant) else {
             return;
         };
         let tenant = tenant.to_string();
@@ -184,6 +257,30 @@ fn budget_exhausted(tool_name: &str, retry_after_secs: i64) -> UniversalResponse
              all the data it may today. Retry in {retry_after_secs} seconds."
         )),
         // Stamped, so a transport can pass the refusal's data on.
+        metadata: Some(HashMap::from([(
+            "blocked_reason".to_owned(),
+            Value::from(GRANT_BLOCK),
+        )])),
+    }
+}
+
+/// The `error_code` of a call refused because its single-use grant was
+/// consumed (owl §7.4 `grant_consumed`).
+const GRANT_CONSUMED: &str = "grant_consumed";
+
+/// The in-band refusal of `tool_name`: its single-use grant was consumed by
+/// an earlier call.
+fn consumed(tool_name: &str) -> UniversalResponse {
+    UniversalResponse {
+        success: false,
+        result: Some(json!({
+            "error_code": GRANT_CONSUMED,
+            "reason": GRANT_CONSUMED,
+        })),
+        error: Some(format!(
+            "'{tool_name}' was not run: the one-off access the athlete gave this application was \
+             used by an earlier call. Ask the athlete to approve a new question."
+        )),
         metadata: Some(HashMap::from([(
             "blocked_reason".to_owned(),
             Value::from(GRANT_BLOCK),

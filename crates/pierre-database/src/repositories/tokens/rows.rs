@@ -9,8 +9,8 @@ use std::fmt::Display;
 use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    DeviceAuthorization, OAuth2AuthCode, OAuth2Client, OAuth2RefreshToken, OAuth2State,
-    OAuthClientGrant,
+    ChildGrant, DeviceAuthorization, HostProfileBasis, OAuth2AuthCode, OAuth2Client,
+    OAuth2RefreshToken, OAuth2State, OAuthClientGrant, StepUpTerms,
 };
 use secrecy::SecretString;
 use uuid::Uuid;
@@ -280,6 +280,54 @@ where
         expires_at: row
             .try_get("expires_at")
             .map_err(|e| column_error("expires_at", e))?,
+    })
+}
+
+/// Decode one step-up child row of `oauth_client_grants`: a grant row with
+/// its `parent_grant_id`, `step_up_auth_time` (epoch seconds),
+/// `step_up_acr`, `host_profile_basis` and `host_profile_tier`.
+///
+/// # Errors
+/// Returns a database error naming the first column that cannot be decoded,
+/// and for a row that is not a child or records a basis this server never
+/// writes.
+pub(crate) fn child_grant_from_row<R>(row: &R) -> AppResult<ChildGrant>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<Timestamp>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<i64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let grant = client_grant_from_row(row)?;
+    let text = |col: &str| -> AppResult<String> {
+        let value: Option<String> = row.try_get(col).map_err(|e| column_error(col, e))?;
+        value.ok_or_else(|| AppError::database(format!("A child grant has no {col}")))
+    };
+    let auth_time: Option<i64> = row
+        .try_get("step_up_auth_time")
+        .map_err(|e| column_error("step_up_auth_time", e))?;
+    let auth_time = auth_time
+        .ok_or_else(|| AppError::database("A child grant has no step_up_auth_time"))
+        .and_then(|seconds| {
+            Timestamp::from_epoch_seconds(seconds)
+                .map_err(|e| AppError::database(format!("Failed to read step_up_auth_time: {e}")))
+        })?;
+    let basis = text("host_profile_basis")?;
+    let host_profile_basis = HostProfileBasis::parse(&basis).ok_or_else(|| {
+        AppError::database(format!("A child grant records an unknown basis `{basis}`"))
+    })?;
+    Ok(ChildGrant {
+        grant,
+        terms: StepUpTerms {
+            parent_grant_id: text("parent_grant_id")?,
+            auth_time,
+            acr: text("step_up_acr")?,
+            host_profile_basis,
+            host_profile_tier: text("host_profile_tier")?,
+        },
     })
 }
 

@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
 use pierre_core::transport::Transport;
 use pierre_providers::ai_scope;
 use tracing::warn;
@@ -40,6 +41,7 @@ impl UniversalExecutor {
         tool_name: &str,
         user_id: Uuid,
         is_admin: bool,
+        ceiling: Option<&GrantCeiling>,
     ) -> Result<Option<UniversalResponse>, ProtocolError> {
         let transport = ai_scope::effective_transport(self.transport);
         let external = !transport.is_some_and(Transport::is_first_party);
@@ -56,7 +58,7 @@ impl UniversalExecutor {
             grant: &self.scopes,
             transport,
             support_session: self.support_session.is_some(),
-            ceiling: self.ceiling.as_ref(),
+            ceiling,
         };
         let registry = self.resources.tool_registry();
         let answer = withheld(registry, tool_name, tool, &caller).or_else(|| {

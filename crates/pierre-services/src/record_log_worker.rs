@@ -399,6 +399,8 @@ impl RecordLogWorker {
             GrantEvent::Issue => EntryKind::GrantIssue,
             GrantEvent::Revoke => EntryKind::GrantRevoke,
             GrantEvent::Expire => EntryKind::GrantExpire,
+            GrantEvent::Consume => EntryKind::GrantConsume,
+            GrantEvent::StepUp => EntryKind::GrantStepUp,
         };
         let content = Sha256::parse_hex(&receipt.payload_sha256).map_err(|e| {
             ReceiptFailure::Row(AppError::internal(format!(

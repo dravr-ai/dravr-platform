@@ -1,5 +1,5 @@
 // ABOUTME: The tier gate at dispatch — an outside client never calls a tool reading T3 streams, nor T2 without a grant reaching it
-// ABOUTME: Every tier its declared streams reach is asked (ToolData::tiers); a refusal is an in-band tool error, tallied (carnet#1544)
+// ABOUTME: Every stream it declares is asked as itself (ToolData::streams); a refusal is an in-band tool error, tallied (carnet#1544)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,11 +11,11 @@
 //! `sensitive_t3` given or not (JF 2026-11-25, closing JF
 //! 2026-11-20's "Gate for third parties" path). The memory tools declare the
 //! `RestrictedNotes` stream (T3) in their [`ToolData`](crate::tool_data::ToolData),
-//! so a call to a tool any of whose declared tiers
-//! ([`ToolData::tiers`](crate::tool_data::ToolData::tiers)) is unreadable is
+//! so a call to a tool any of whose declared streams
+//! ([`ToolData::streams`](crate::tool_data::ToolData::streams)) is unreadable is
 //! refused here before its body reads or writes anything, by the one tier rule
-//! ([`ai_scope::tier_readable`]): a T3 tool never, a T2 tool only through a
-//! grant that reaches T2. A write tool
+//! ([`ai_scope::tier_readable_in`]): a T3 tool never, a T2 tool only through a
+//! step-up child that opens its T2 stream (slice 4b). A write tool
 //! declaring the stream is held to it alike. Dravr's own agent and the human
 //! coach are not gated here: on Dravr's own surfaces the agent keeps its
 //! memory (E3, directive 2).
@@ -26,7 +26,7 @@
 
 use std::future::Future;
 
-use dravr_barrage::Tier;
+use dravr_barrage::{Stream, Tier};
 use dravr_tronc::mcp::schema::ToolResponse;
 use pierre_providers::ai_scope;
 use pierre_tools_core::ToolResult;
@@ -37,31 +37,34 @@ use crate::conversions::tool_result_to_response;
 /// The `error_code` of a call the tier gate refused.
 const TIER_GATE_ERROR_CODE: &str = "sensitive_tier_withheld";
 
-/// Run `body`, a call to `tool_name` whose declared streams reach `tiers`
+/// Run `body`, a call to `tool_name` whose declared `streams` it reads
 /// (empty: it declares none), unless the tier gate refuses it here: then the
 /// refusal, tallied once, and the body never runs.
 ///
-/// Every tier is asked, not only the most sensitive, so a tool reading
-/// several is refused while any is unreadable, and the refusal names the
-/// lowest one refused — the health records a T2 stream reads before the
-/// notes and memory a T3 copy names (carnet#1544).
-pub(super) async fn gated<F>(tool_name: &str, tiers: &[Tier], body: F) -> ToolResponse
+/// Every stream's tier is asked, not only the most sensitive, so a tool
+/// reading several is refused while any is unreadable, and the refusal names
+/// the lowest tier refused — the health records a T2 stream reads before the
+/// notes and memory a T3 copy names (carnet#1544). Each stream is asked as
+/// itself, so a step-up child's T2 stream may open (slice 4b).
+pub(super) async fn gated<F>(tool_name: &str, streams: &[Stream], body: F) -> ToolResponse
 where
     F: Future<Output = ToolResponse>,
 {
-    match tiers.iter().copied().find(|tier| refused(*tier)) {
-        Some(tier) => {
-            ai_scope::withhold_tier(tier);
-            tool_result_to_response(Ok(refusal(tool_name, tier)))
+    let mut streams = streams.to_vec();
+    streams.sort_unstable_by_key(|stream| stream.tier());
+    match streams.into_iter().find(|stream| refused(*stream)) {
+        Some(stream) => {
+            ai_scope::withhold_tier_in(stream.tier(), stream);
+            tool_result_to_response(Ok(refusal(tool_name, stream.tier())))
         }
         None => body.await,
     }
 }
 
-/// Whether a call reaching `tier` is refused now: it is served to an outside
-/// client and the tier rule withholds `tier` there.
-fn refused(tier: Tier) -> bool {
-    ai_scope::serving_external() && !ai_scope::tier_readable(tier)
+/// Whether a call reading `stream` is refused now: it is served to an
+/// outside client and the tier rule withholds the stream's tier there.
+fn refused(stream: Stream) -> bool {
+    ai_scope::serving_external() && !ai_scope::tier_readable_in(stream.tier(), stream)
 }
 
 /// The in-band refusal of `tool_name`, which reads `tier` records.
@@ -110,6 +113,16 @@ mod tests {
         call_reaching(transport, withheld, tier.as_slice()).await
     }
 
+    /// A stream of `tier`.
+    const fn stream_of(tier: Tier) -> Stream {
+        match tier {
+            Tier::T0 => Stream::Workout,
+            Tier::T1 => Stream::Sleep,
+            Tier::T2 => Stream::Labs,
+            Tier::T3 => Stream::RestrictedNotes,
+        }
+    }
+
     /// [`call`] for a tool whose streams reach every tier of `tiers`.
     async fn call_reaching(
         transport: Transport,
@@ -117,11 +130,12 @@ mod tests {
         tiers: &[Tier],
     ) -> (ToolResponse, Withheld) {
         let withheld: BTreeSet<String> = withheld.iter().map(|key| (*key).to_owned()).collect();
+        let streams: Vec<Stream> = tiers.iter().copied().map(stream_of).collect();
         serve_over(
             transport,
             with_ai_consent(
                 withheld,
-                ai_read(gated("recall_user_memory", tiers, async { ran() })),
+                ai_read(gated("recall_user_memory", &streams, async { ran() })),
             ),
         )
         .await

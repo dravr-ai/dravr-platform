@@ -142,16 +142,12 @@ impl ToolData {
         self.streams.iter().map(|stream| stream.tier()).max()
     }
 
-    /// Every tier its declared streams reach, ascending and each once: the
-    /// tier gate at dispatch refuses an outside call when any one of them is
-    /// unreadable there, since a T2 stream is never readable outside while a
-    /// T3 one may be (carnet#1544). Empty for a tool declaring none.
+    /// Every stream it declares: the tier gate at dispatch asks each one's
+    /// tier, as that stream, and refuses an outside call when any one is
+    /// unreadable there (carnet#1544). Empty for a tool declaring none.
     #[must_use]
-    pub(crate) fn tiers(&self) -> Vec<Tier> {
-        let mut tiers: Vec<Tier> = self.streams.iter().map(|stream| stream.tier()).collect();
-        tiers.sort_unstable();
-        tiers.dedup();
-        tiers
+    pub(crate) const fn streams(&self) -> &'static [Stream] {
+        self.streams
     }
 
     /// Whether its result passes unchecked written text through.

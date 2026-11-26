@@ -15,6 +15,7 @@
 
 use dravr_barrage::Stream;
 use dravr_tronc::dates::Timestamp;
+use pierre_core::models::OWNER_VERIFIED_ACR as OWNER_VERIFIED;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -45,8 +46,6 @@ const MAX_SOURCE_CHARS: usize = 2_048;
 /// a name without it is read as barrage's own.
 const STREAM_NAME_PREFIX: &str = "health.vault.";
 
-/// The only step-up assurance a client may ask for (owl §4.2 `step_up.acr`).
-pub const OWNER_VERIFIED: &str = "owner_verified";
 
 /// Members only the authorization server sets (owl §4.2 "AS-set").
 const AS_SET_MEMBERS: [&str; 3] = ["host_profile", "standing_policy_ref", "step_up_result"];

@@ -55,12 +55,14 @@ const RECEIPT_PAGE: u32 = 100;
 /// The namespace a preset's IRI is minted under.
 const PRESET_IRI: &str = "https://dravr.ai/pdpp/health-profile/v0/preset#";
 
-/// The DPV consent status a receipt's event states.
+/// The DPV consent status a receipt's event states. A step-up child is a
+/// consent given; a single-use grant consumed by its one read has run its
+/// course, as an expired one has.
 const fn consent_status(event: GrantEvent) -> &'static str {
     match event {
-        GrantEvent::Issue => "dpv:ConsentGiven",
+        GrantEvent::Issue | GrantEvent::StepUp => "dpv:ConsentGiven",
         GrantEvent::Revoke => "dpv:ConsentWithdrawn",
-        GrantEvent::Expire => "dpv:ConsentExpired",
+        GrantEvent::Expire | GrantEvent::Consume => "dpv:ConsentExpired",
     }
 }
 

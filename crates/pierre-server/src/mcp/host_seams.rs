@@ -857,8 +857,10 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         };
         let ctx = &call_ctx;
         // Captured by value, as the credential is: a task-local does not
-        // cross the spawn of a call converted into a task.
-        let ceiling = support::ceiling();
+        // cross the spawn of a call converted into a task. With this
+        // request's own Host Profile claim, which a step-up child's T2 asks
+        // on every call (carnet#1544 slice 4b).
+        let ceiling = support::call_ceiling(ctx);
         let dispatch = |resources: Arc<ServerContext>, state: Arc<dyn ToolRuntime>| {
             CALLER_CREDENTIAL.scope(
                 credential.clone(),

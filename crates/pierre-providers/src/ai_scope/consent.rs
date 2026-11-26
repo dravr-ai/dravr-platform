@@ -28,7 +28,7 @@ use std::collections::BTreeSet;
 use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use dravr_barrage::Tier;
+use dravr_barrage::{Stream, Tier};
 use pierre_core::ai_policy::Withheld;
 use pierre_core::constants::oauth_providers::{
     ai_consent_backends, consent_key, is_consent_class, NoticeKind, SENSITIVE_T2, SENSITIVE_T3,
@@ -198,7 +198,8 @@ enum TierRefusal {
     Withheld,
 }
 
-/// Why a `tier` record read now is refused, or `None` when it may be read.
+/// Why a `tier` record of `stream` read now is refused, or `None` when it
+/// may be read.
 ///
 /// T0 and T1 are always read (D1). Under any gate — a model read, a human
 /// coach's read ([`for_human_coach`](super::for_human_coach)), an external
@@ -209,16 +210,31 @@ enum TierRefusal {
 /// outside client, `sensitive_t3` given or not (JF 2026-11-25), and
 /// Dravr's own agent is no external transport. Anywhere else — the athlete's
 /// own screens — every tier is read.
-fn tier_refusal(tier: Tier) -> Option<TierRefusal> {
+///
+/// The one exception for an outside client is a T2 record of a `stream` its
+/// step-up child grant opens ([`GrantCeiling::opens_t2`](pierre_auth::oauth2_server::grant_ceiling::GrantCeiling::opens_t2),
+/// carnet#1544 slice 4b): `owner_verified`, a T2 host on both carriers, and
+/// the athlete's `sensitive_t2` switch, asked below like any model read's. A
+/// read that names no stream never opens T2 outside.
+fn tier_refusal(tier: Tier, stream: Option<Stream>) -> Option<TierRefusal> {
     let gate = exposure()?;
+    let ceiling = grant_ceiling();
     // A call under a detailed consent grant reads nothing above its
     // `max_tier`, whatever the athlete consented to (plan slice 3).
-    if grant_ceiling().is_some_and(|ceiling| !ceiling.reaches(tier)) {
+    if ceiling.as_ref().is_some_and(|ceiling| !ceiling.reaches(tier)) {
         return Some(TierRefusal::External);
     }
+    let opened = |stream: Stream| {
+        ceiling
+            .as_ref()
+            .is_some_and(|ceiling| ceiling.opens_t2(stream))
+    };
     let class = match tier {
         Tier::T0 | Tier::T1 => return None,
-        Tier::T2 | Tier::T3 if gate.external => return Some(TierRefusal::External),
+        Tier::T2 if gate.external && !stream.is_some_and(opened) => {
+            return Some(TierRefusal::External);
+        }
+        Tier::T3 if gate.external => return Some(TierRefusal::External),
         Tier::T2 => SENSITIVE_T2,
         Tier::T3 => SENSITIVE_T3,
     };
@@ -246,7 +262,15 @@ fn tally_refusal(refusal: TierRefusal) {
 /// so the caller tallies each row it nulls ([`withhold_tier`]).
 #[must_use]
 pub fn tier_readable(tier: Tier) -> bool {
-    tier_refusal(tier).is_none()
+    tier_refusal(tier, None).is_none()
+}
+
+/// [`tier_readable`] for a record of `stream`: what a reader that knows the
+/// stream it serves asks, so a step-up child's T2 stream may open to an
+/// outside client.
+#[must_use]
+pub fn tier_readable_in(tier: Tier, stream: Stream) -> bool {
+    tier_refusal(tier, Some(stream)).is_none()
 }
 
 /// Tally one field of `tier` a filter nulled because [`tier_readable`] said no.
@@ -255,7 +279,14 @@ pub fn tier_readable(tier: Tier) -> bool {
 /// field over an external transport counts as data not served over this
 /// interface.
 pub fn withhold_tier(tier: Tier) {
-    if let Some(refusal) = tier_refusal(tier) {
+    if let Some(refusal) = tier_refusal(tier, None) {
+        tally_refusal(refusal);
+    }
+}
+
+/// [`withhold_tier`] for a field of `stream`.
+pub fn withhold_tier_in(tier: Tier, stream: Stream) {
+    if let Some(refusal) = tier_refusal(tier, Some(stream)) {
         tally_refusal(refusal);
     }
 }
@@ -277,7 +308,7 @@ mod tests {
     /// tallied once when refused, and answered as the read refusal a
     /// tool returns.
     fn consented_tier(tier: Tier) -> AppResult<()> {
-        let Some(refusal) = tier_refusal(tier) else {
+        let Some(refusal) = tier_refusal(tier, None) else {
             return Ok(());
         };
         tally_refusal(refusal);

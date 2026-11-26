@@ -26,7 +26,7 @@
 
 use std::fmt;
 
-use dravr_barrage::Tier;
+use dravr_barrage::{Stream, Tier};
 use dravr_riviere::SeriesType;
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::ai_policy::ProviderTerms;
@@ -192,10 +192,12 @@ fn stored_tier(tier: &str) -> AppResult<Tier> {
         .map_err(|e| AppError::internal(format!("stored health record tier {tier}: {e}")))
 }
 
-/// Whether a `tier` record reaches this read, tallied when the tier rule
-/// leaves it out. A coach's read never reaches T3, and T2 only under their
-/// health-records grant.
-fn reaches(tier: Tier, coach: Option<CoachReach>) -> bool {
+/// Whether a `tier` record of `stream` (`None`: a record no one stream
+/// names) reaches this read, tallied when the tier rule leaves it out. A
+/// coach's read never reaches T3, and T2 only under their health-records
+/// grant; an outside client's T2 only through a step-up child holding
+/// `stream`.
+fn reaches(tier: Tier, stream: Option<Stream>, coach: Option<CoachReach>) -> bool {
     let granted = match (coach, tier) {
         (None, _) | (Some(_), Tier::T0 | Tier::T1) => true,
         (Some(reach), Tier::T2) => reach.health_records,
@@ -204,10 +206,17 @@ fn reaches(tier: Tier, coach: Option<CoachReach>) -> bool {
     if !granted {
         return false;
     }
-    if ai_scope::tier_readable(tier) {
+    let readable = stream.map_or_else(
+        || ai_scope::tier_readable(tier),
+        |stream| ai_scope::tier_readable_in(tier, stream),
+    );
+    if readable {
         return true;
     }
-    ai_scope::withhold_tier(tier);
+    match stream {
+        Some(stream) => ai_scope::withhold_tier_in(tier, stream),
+        None => ai_scope::withhold_tier(tier),
+    }
     false
 }
 
@@ -277,7 +286,10 @@ async fn clinical_page(
         .await?;
     let mut served = Vec::with_capacity(stored.len());
     for record in stored {
-        if reaches(stored_tier(&record.tier)?, coach) {
+        // A lab result is the labs stream's; every other clinical record names
+        // none a grant could hold.
+        let stream = observations.then_some(Stream::Labs);
+        if reaches(stored_tier(&record.tier)?, stream, coach) {
             served.push(served_clinical(record, view)?);
         }
     }
@@ -309,7 +321,7 @@ async fn glucose_page(
     .await?;
     for source in series.records {
         for point in source.points {
-            if reaches(Tier::T2, coach) {
+            if reaches(Tier::T2, None, coach) {
                 page.readings.push(GlucoseReadingOut {
                     at: point.timestamp,
                     mg_dl: point.value,
@@ -404,7 +416,7 @@ impl RecordsRead<'_> {
                 // Every self-report is T3.
                 let self_reports = stored
                     .into_iter()
-                    .filter(|_| reaches(Tier::T3, self.coach))
+                    .filter(|_| reaches(Tier::T3, None, self.coach))
                     .map(served_self_report)
                     .collect();
                 Ok(HealthRecordsPage {
@@ -467,13 +479,13 @@ mod tests {
         let not_granted = Some(CoachReach {
             health_records: false,
         });
-        assert!(!reaches(Tier::T3, granted), "bug: a coach reached T3");
-        assert!(!reaches(Tier::T2, not_granted), "bug: T2 without the grant");
+        assert!(!reaches(Tier::T3, None, granted), "bug: a coach reached T3");
+        assert!(!reaches(Tier::T2, None, not_granted), "bug: T2 without the grant");
         // Outside any gate (the athlete's own read) every tier is read.
         assert!(
-            reaches(Tier::T2, granted),
+            reaches(Tier::T2, None, granted),
             "bug: the grant was not honoured"
         );
-        assert!(reaches(Tier::T3, None), "bug: the athlete's own T3 read");
+        assert!(reaches(Tier::T3, None, None), "bug: the athlete's own T3 read");
     }
 }

@@ -60,6 +60,8 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use uuid::Uuid;
 
+use super::{ChildGrant, StepUpTerms};
+
 /// Type-safe wrapper for tenant identifiers.
 ///
 /// Provides compile-time distinction between tenant IDs and other UUIDs. See
@@ -359,6 +361,23 @@ pub struct StandingGrant {
     pub authorization_details: Option<String>,
     /// When the grant stops admitting a token; `None` never expires
     pub expires_at: Option<Timestamp>,
+    /// The grant's live step-up child, if any (carnet#1544 slice 4b): what a
+    /// token naming this grant also reads, never a grant a token names
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child: Option<StandingChild>,
+}
+
+/// The live step-up child of a [`StandingGrant`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StandingChild {
+    /// The child's id, its `oauth_client_grants` row
+    pub id: String,
+    /// The child's resolved authorization details
+    pub authorization_details: String,
+    /// When the child stops reading
+    pub expires_at: Option<Timestamp>,
+    /// What the step-up recorded
+    pub terms: StepUpTerms,
 }
 
 impl ClientGrantStanding {
@@ -374,6 +393,7 @@ impl ClientGrantStanding {
                 scope: grant.scope.clone(),
                 authorization_details: grant.authorization_details.clone(),
                 expires_at: grant.expires_at,
+                child: None,
             })
             .collect();
         Self {
@@ -381,6 +401,31 @@ impl ClientGrantStanding {
             last_revoked_at: grants.iter().filter_map(|grant| grant.revoked_at).max(),
             grants: live,
         }
+    }
+
+    /// This standing with each live, unexpired child of `children` attached
+    /// to its live parent; a child whose parent is not among the live grants
+    /// is dropped, as is one carrying no details.
+    #[must_use]
+    pub fn with_children(mut self, children: &[ChildGrant], now: Timestamp) -> Self {
+        for child in children.iter().filter(|child| child.grant.is_live_at(now)) {
+            let Some(document) = child.grant.authorization_details.clone() else {
+                continue;
+            };
+            if let Some(parent) = self
+                .grants
+                .iter_mut()
+                .find(|grant| grant.id == child.terms.parent_grant_id)
+            {
+                parent.child = Some(StandingChild {
+                    id: child.grant.id.clone(),
+                    authorization_details: document,
+                    expires_at: child.grant.expires_at,
+                    terms: child.terms.clone(),
+                });
+            }
+        }
+        self
     }
 
     /// Whether an access token issued at `issued_at` (seconds since the epoch,

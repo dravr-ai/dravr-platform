@@ -46,7 +46,7 @@ mod parse;
 /// The resolved document a grant stores
 mod resolved;
 
-pub use parse::{parse_authorization_details, RequestedDetails, OWNER_VERIFIED};
+pub use parse::{parse_authorization_details, RequestedDetails};
 pub use resolved::{athlete_zone, preset_defaults, resolve, review_digest, ResolvedDetails};
 
 /// The PDPP Core detail type a client asks for data with.
