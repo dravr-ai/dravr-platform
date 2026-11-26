@@ -102,7 +102,8 @@ struct JudgeVerdict {
 /// The pure labelling rules (unit-tested without a DB or LLM).
 mod labels;
 pub use labels::{
-    activity_completed_label, consistency_label, delta_label, ramp_within_label, DeltaVerdict,
+    activity_completed_label, consistency_label, delta_label, peak_atl_ctl_ratio,
+    ramp_within_label, DeltaVerdict,
 };
 
 // ---- Async evaluation (reads the data layer; may call the LLM judge) ----
@@ -306,7 +307,7 @@ async fn eval_consistency(ctx: &EvalCtx<'_>, window_days: u8) -> AdviceResolutio
     .await
 }
 
-/// TSB / ramp-rate: read training-history endpoints over the window.
+/// TSB delta / peak ATL:CTL: read training-history rows over the window.
 ///
 /// The rows the judge may read: the persisted rollup when nothing in the
 /// window is withheld, else the series recomputed from the permitted sessions.
@@ -333,13 +334,10 @@ async fn eval_training(ctx: &EvalCtx<'_>) -> AdviceResolution {
             self_or_judge(ctx, verdict, "TSB", before, after).await
         }
         OutcomeMetric::RampRateWithin { ceiling } => {
-            let max_ramp = hist
-                .iter()
-                .filter_map(|d| d.ramp_rate)
-                .fold(None, |acc: Option<f64>, r| {
-                    Some(acc.map_or(r, |m| m.max(r)))
-                });
-            resolve_data(max_ramp.map(|r| ramp_within_label(r, f64::from(*ceiling))))
+            // The ceiling is an EMA ATL/CTL ratio, so the window is judged
+            // on its peak ratio, never on the CTL ramp rate in points.
+            let peak = peak_atl_ctl_ratio(hist.iter().map(|d| (d.atl, d.ctl)));
+            resolve_data(peak.map(|r| ramp_within_label(r, f64::from(*ceiling))))
         }
         // Unreachable: this fn is only dispatched for the two training metrics.
         _ => AdviceResolution::Expire,

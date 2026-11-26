@@ -22,12 +22,12 @@ use crate::conversions::{answers_with, ok_typed, tool_definition, tool_result_to
 use crate::implementations::physiology_args::{optional_number, optional_whole_number};
 use crate::read_subject;
 use crate::runtime::ToolRuntime;
-use dravr_cageux::algorithms::vo2max::PLAUSIBLE_VO2MAX_ML_KG_MIN;
 use dravr_cageux::algorithms::{
     VdotAlgorithm, Vo2maxAlgorithm, DANIELS_TABLE_DISTANCE_METERS, PREDICTABLE_VDOT,
 };
 use dravr_cageux::config::intelligence::VO2MaxCalculator;
 use dravr_cageux::performance_prediction::PerformancePredictor;
+use dravr_cageux::plausibility::computation::VO2MAX_ML_KG_MIN;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_config::environment::TrainingZonesConfig;
@@ -178,7 +178,7 @@ fn kilometres(distance_meters: f64) -> String {
 /// The warning for a `VO2max` outside the human range, naming the inputs of
 /// `method` to recheck. It is reported as computed, never clamped.
 fn implausible_vo2max_warning(vo2max: f64, method: &str) -> Option<String> {
-    if PLAUSIBLE_VO2MAX_ML_KG_MIN.contains(&vo2max) {
+    if VO2MAX_ML_KG_MIN.in_range(vo2max) {
         return None;
     }
     let inputs = match method {
@@ -188,8 +188,8 @@ fn implausible_vo2max_warning(vo2max: f64, method: &str) -> Option<String> {
     };
     Some(format!(
         "VO2max {vo2max:.1} ml/kg/min is outside the {:.0}-{:.0} range people measure; recheck {inputs}",
-        PLAUSIBLE_VO2MAX_ML_KG_MIN.start(),
-        PLAUSIBLE_VO2MAX_ML_KG_MIN.end()
+        VO2MAX_ML_KG_MIN.min,
+        VO2MAX_ML_KG_MIN.max
     ))
 }
 

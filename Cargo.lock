@@ -1454,8 +1454,8 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-barrage"
-version = "0.35.0"
-source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.35.0#d784759e36b63d4d8cec513b365e0217fe0da689"
+version = "0.35.1"
+source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.35.1#112d72e7f3a482fe47b49df0c0791aac75f94c97"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1500,8 +1500,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.60.0"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.60.0#f4954eda0eb34d9d15e320088056d0b01f919267"
+version = "0.61.0"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.61.0#6850a51505fc73b32f4cd4c19505d77090be8c22"
 dependencies = [
  "async-trait",
  "dravr-tronc",
@@ -1568,11 +1568,12 @@ source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=3914eb67438
 
 [[package]]
 name = "dravr-enforme"
-version = "0.23.1"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.23.1#247939a4a47737773d2bf426a95f942eeca37873"
+version = "0.24.0"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.24.0#26e8f272c02b891671c51b3d4ee0a87af1e25706"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
+ "dravr-cageux",
  "dravr-equilibre",
  "dravr-sciotte",
  "dravr-tronc",

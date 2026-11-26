@@ -45,6 +45,7 @@ use dravr_cageux::algorithms::PREDICTABLE_VDOT;
 use dravr_cageux::physiological_constants::physiological_defaults::{
     LACTATE_THRESHOLD_MAX, LACTATE_THRESHOLD_MIN,
 };
+use dravr_cageux::plausibility::computation;
 use dravr_tronc::dates::CivilDate;
 use serde_json::{json, Map, Value};
 use tracing::info;
@@ -82,67 +83,6 @@ use pierre_services::athlete_clock::athlete_today;
 use pierre_services::athlete_vdot::vdot_beyond_tables_warning;
 use pierre_services::effective_physiology::{record_manual_measurements, ManualMeasurements};
 use pierre_tools_core::ToolResult;
-
-/// Lightest body weight accepted, in kilograms. Below this the value is a
-/// child's weight or a pounds-for-kilograms unit error, not an adult athlete.
-const WEIGHT_KG_MIN: f64 = 30.0;
-
-/// Heaviest body weight accepted, in kilograms — above the heaviest recorded
-/// competitor in any endurance discipline, so anything past it is a unit error.
-const WEIGHT_KG_MAX: f64 = 250.0;
-
-/// Youngest age accepted, in years. Matches the floor the platform's own
-/// max-HR estimators are calibrated for.
-const AGE_YEARS_MIN: u64 = 10;
-
-/// Oldest age accepted, in years — past the verified human maximum.
-const AGE_YEARS_MAX: u64 = 120;
-
-/// Most training experience accepted, in years. A lifetime of training still
-/// fits; anything beyond is an entry error.
-const TRAINING_EXPERIENCE_YEARS_MAX: u64 = 80;
-
-/// Fastest threshold pace accepted, in seconds per kilometre. 2:00/km is
-/// quicker than the men's 10 km world-record pace, so a smaller number means
-/// the athlete gave seconds per mile or minutes per kilometre by mistake.
-pub(crate) const THRESHOLD_PACE_SEC_PER_KM_MIN: f64 = 120.0;
-
-/// Slowest threshold pace accepted, in seconds per kilometre. 15:00/km is
-/// slower than a walk, which is no longer a threshold effort.
-pub(crate) const THRESHOLD_PACE_SEC_PER_KM_MAX: f64 = 900.0;
-
-/// Lowest critical power accepted, in watts. Below FTP's 50 W floor on
-/// purpose: patients with COPD measure 46 ± 22 W (Tiller 2023), and a
-/// floor at 50 would refuse half of such a cohort. Sources for every bound
-/// below: `Methodology/Intelligence/Critical Power and Critical Speed`.
-pub(crate) const CRITICAL_POWER_WATTS_MIN: u32 = 30;
-
-/// Highest critical power accepted, in watts — above the 402 ± 33 W elite
-/// track riders reach on a 3-minute all-out test (Bartram 2017).
-pub(crate) const CRITICAL_POWER_WATTS_MAX: u32 = 600;
-
-/// Smallest W′ accepted, in joules. Habitually active adults hold 15-16 kJ
-/// (Vanhatalo 2007), so anything below 2 kJ is a kilojoules-for-joules slip.
-const W_PRIME_JOULES_MIN: u32 = 2_000;
-
-/// Largest W′ accepted, in joules — well above the 24 ± 4 kJ of elite track
-/// endurance riders (Bartram 2017).
-const W_PRIME_JOULES_MAX: u32 = 60_000;
-
-/// Slowest critical speed accepted, in metres per second (11:07/km).
-pub(crate) const CRITICAL_SPEED_MPS_MIN: f64 = 1.5;
-
-/// Fastest critical speed accepted, in metres per second (2:23/km). Critical
-/// speed sits below 5000 m race speed, and the world record is about
-/// 6.6 m/s; Kipchoge's is 6.04 m/s (Jones & Vanhatalo 2017).
-pub(crate) const CRITICAL_SPEED_MPS_MAX: f64 = 7.0;
-
-/// Smallest D′ accepted, in metres.
-const D_PRIME_METERS_MIN: f64 = 30.0;
-
-/// Largest D′ accepted, in metres. Elite marathoners reach 616 m (Jones &
-/// Vanhatalo 2017, Table 1) and middle-distance runners plausibly more.
-const D_PRIME_METERS_MAX: f64 = 1_000.0;
 
 /// Longest `measurement_source`, or sport anchor `source` or `method`,
 /// accepted, in characters: room for "3-min all-out test on the velodrome",
@@ -487,38 +427,44 @@ fn overlay<T>(
     }
 }
 
-/// Range-check the columns `configuration_validation` does not cover.
+/// Range-check the profile columns [`validate_parameter_ranges`] does not.
 ///
-/// The heart-rate, VO2 max and FTP bounds live in
-/// `dravr_cageux::physiological_constants::configuration_validation`
-/// and are applied by [`validate_parameter_ranges`]; these are the remaining
-/// profile columns, whose bounds have no home there.
+/// The heart-rate, VO2 max and FTP bounds are applied by
+/// [`validate_parameter_ranges`]; these are the remaining profile columns,
+/// bounded by cageux's [`computation`] plausibility set.
 fn validate_uncovered_ranges(profile: &UserPhysiologicalProfile, errors: &mut Vec<String>) {
     if let Some(weight) = profile.weight {
-        if !(WEIGHT_KG_MIN..=WEIGHT_KG_MAX).contains(&weight) {
+        if !computation::WEIGHT_KG.in_range(weight) {
             errors.push(format!(
-                "weight must be between {WEIGHT_KG_MIN} and {WEIGHT_KG_MAX} kg, got {weight:.1}"
+                "weight must be between {} and {} kg, got {weight:.1}",
+                computation::WEIGHT_KG.min,
+                computation::WEIGHT_KG.max
             ));
         }
     }
     if let Some(age) = profile.age {
-        if !(AGE_YEARS_MIN..=AGE_YEARS_MAX).contains(&u64::from(age)) {
+        if !computation::AGE_YEARS.in_range(u64::from(age)) {
             errors.push(format!(
-                "age must be between {AGE_YEARS_MIN} and {AGE_YEARS_MAX} years, got {age}"
+                "age must be between {} and {} years, got {age}",
+                computation::AGE_YEARS.min,
+                computation::AGE_YEARS.max
             ));
         }
     }
     if let Some(years) = profile.training_experience_years {
-        if u64::from(years) > TRAINING_EXPERIENCE_YEARS_MAX {
+        if !computation::TRAINING_EXPERIENCE_YEARS.in_range(u64::from(years)) {
             errors.push(format!(
-                "training_experience_years must be at most {TRAINING_EXPERIENCE_YEARS_MAX}, got {years}"
+                "training_experience_years must be at most {}, got {years}",
+                computation::TRAINING_EXPERIENCE_YEARS.max
             ));
         }
     }
     if let Some(pace) = profile.threshold_pace_sec_per_km {
-        if !(THRESHOLD_PACE_SEC_PER_KM_MIN..=THRESHOLD_PACE_SEC_PER_KM_MAX).contains(&pace) {
+        if !computation::THRESHOLD_PACE_SEC_PER_KM.in_range(pace) {
             errors.push(format!(
-                "threshold_pace_sec_per_km must be between {THRESHOLD_PACE_SEC_PER_KM_MIN} and {THRESHOLD_PACE_SEC_PER_KM_MAX} seconds, got {pace:.1}"
+                "threshold_pace_sec_per_km must be between {} and {} seconds, got {pace:.1}",
+                computation::THRESHOLD_PACE_SEC_PER_KM.min,
+                computation::THRESHOLD_PACE_SEC_PER_KM.max
             ));
         }
     }
@@ -542,33 +488,41 @@ fn validate_uncovered_ranges(profile: &UserPhysiologicalProfile, errors: &mut Ve
         }
     }
     if let Some(ref cp) = profile.critical_power_watts {
-        if !(CRITICAL_POWER_WATTS_MIN..=CRITICAL_POWER_WATTS_MAX).contains(&cp.value) {
+        if !computation::CRITICAL_POWER_WATTS.in_range(cp.value) {
             errors.push(format!(
-                "critical_power_watts must be between {CRITICAL_POWER_WATTS_MIN} and {CRITICAL_POWER_WATTS_MAX} W, got {}",
+                "critical_power_watts must be between {} and {} W, got {}",
+                computation::CRITICAL_POWER_WATTS.min,
+                computation::CRITICAL_POWER_WATTS.max,
                 cp.value
             ));
         }
     }
     if let Some(ref w_prime) = profile.w_prime_joules {
-        if !(W_PRIME_JOULES_MIN..=W_PRIME_JOULES_MAX).contains(&w_prime.value) {
+        if !computation::W_PRIME_JOULES.in_range(w_prime.value) {
             errors.push(format!(
-                "w_prime_joules must be between {W_PRIME_JOULES_MIN} and {W_PRIME_JOULES_MAX} J (W′ is in joules: 20 kJ is 20000), got {}",
+                "w_prime_joules must be between {} and {} J (W′ is in joules: 20 kJ is 20000), got {}",
+                computation::W_PRIME_JOULES.min,
+                computation::W_PRIME_JOULES.max,
                 w_prime.value
             ));
         }
     }
     if let Some(ref cs) = profile.critical_speed_mps {
-        if !(CRITICAL_SPEED_MPS_MIN..=CRITICAL_SPEED_MPS_MAX).contains(&cs.value) {
+        if !computation::CRITICAL_SPEED_MPS.in_range(cs.value) {
             errors.push(format!(
-                "critical_speed_mps must be between {CRITICAL_SPEED_MPS_MIN} and {CRITICAL_SPEED_MPS_MAX} m/s (4:00/km is 4.17), got {:.2}",
+                "critical_speed_mps must be between {} and {} m/s (4:00/km is 4.17), got {:.2}",
+                computation::CRITICAL_SPEED_MPS.min,
+                computation::CRITICAL_SPEED_MPS.max,
                 cs.value
             ));
         }
     }
     if let Some(ref d_prime) = profile.d_prime_meters {
-        if !(D_PRIME_METERS_MIN..=D_PRIME_METERS_MAX).contains(&d_prime.value) {
+        if !computation::D_PRIME_METERS.in_range(d_prime.value) {
             errors.push(format!(
-                "d_prime_meters must be between {D_PRIME_METERS_MIN} and {D_PRIME_METERS_MAX} m, got {:.1}",
+                "d_prime_meters must be between {} and {} m, got {:.1}",
+                computation::D_PRIME_METERS.min,
+                computation::D_PRIME_METERS.max,
                 d_prime.value
             ));
         }

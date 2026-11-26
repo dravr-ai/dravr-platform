@@ -28,6 +28,7 @@ use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
+use dravr_cageux::periodization::load_metrics::{ACWR_ACUTE_DAYS, ACWR_CHRONIC_DAYS};
 use dravr_cageux::training_load::FormBand;
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::config::profiles::FitnessLevel;
@@ -35,9 +36,7 @@ use pierre_core::models::{
     Activity, ActivityBuilder, AnchorProvenance, ConnectionType, DailyTrainingState, SportType,
     TenantId, ThresholdProvenance, ThresholdStatedOn, User, UserPhysiologicalProfile,
 };
-use pierre_fitness_compute::training_history_compute::{
-    ACWR_ACUTE_DAYS, ACWR_CHRONIC_DAYS, CTL_WINDOW_DAYS,
-};
+use pierre_fitness_compute::training_history_compute::CTL_WINDOW_DAYS;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_mcp_server::services::training_status::status_from_rows;

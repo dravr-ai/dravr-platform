@@ -19,6 +19,7 @@
 use std::collections::BTreeSet;
 
 use dravr_cageux::physiological_constants::configuration_validation;
+use dravr_cageux::plausibility::computation;
 use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::constants::units::METERS_PER_KM;
 use pierre_core::errors::{AppError, AppResult};
@@ -32,11 +33,7 @@ use pierre_core::models::{
 };
 use serde_json::Value;
 
-use super::physiology::{
-    CRITICAL_POWER_WATTS_MAX, CRITICAL_POWER_WATTS_MIN, CRITICAL_SPEED_MPS_MAX,
-    CRITICAL_SPEED_MPS_MIN, MEASUREMENT_SOURCE_MAX_CHARS, THRESHOLD_PACE_SEC_PER_KM_MAX,
-    THRESHOLD_PACE_SEC_PER_KM_MIN,
-};
+use super::physiology::MEASUREMENT_SOURCE_MAX_CHARS;
 
 /// The argument name.
 pub(crate) const SPORT_ANCHORS_ARG: &str = "sport_anchors";
@@ -79,25 +76,6 @@ pub(crate) fn refuse_reserved_origin(args: &Value) -> AppResult<()> {
     }
     Ok(())
 }
-
-/// Highest maximal aerobic power accepted, in watts: the critical-power
-/// ceiling times the top of the MAP-to-CP spread (cageux's I8 default is
-/// 1.30), rounded up.
-const MAP_WATTS_MAX: f64 = 800.0;
-
-/// Fastest run `vVO2max` or MAS accepted, in metres per second: the
-/// critical-speed ceiling (7.0 m/s) times the top of the `vVO2max`-to-CS
-/// spread (1.16, cageux I8), rounded up.
-const RUN_AEROBIC_SPEED_MPS_MAX: f64 = 8.5;
-
-/// Slowest swim speed accepted for any swim speed anchor, in metres per second
-/// (4:10 per 100 m).
-const SWIM_SPEED_MPS_MIN: f64 = 0.4;
-
-/// Fastest swim speed accepted for any swim speed anchor, in metres per second:
-/// below the 50 m freestyle world-record average (about 2.39 m/s), above any
-/// aerobic swimming speed.
-const SWIM_SPEED_MPS_MAX: f64 = 2.2;
 
 /// One anchor as the call states it, before it is dated.
 #[derive(Debug, Clone)]
@@ -314,19 +292,26 @@ fn bounds(sport: SportFamily, anchor: SportAnchorName) -> (f64, f64) {
             configuration_validation::FTP_MAX as f64,
         ),
         SportAnchorName::CriticalPower => (
-            f64::from(CRITICAL_POWER_WATTS_MIN),
-            f64::from(CRITICAL_POWER_WATTS_MAX),
+            f64::from(computation::CRITICAL_POWER_WATTS.min),
+            f64::from(computation::CRITICAL_POWER_WATTS.max),
         ),
-        SportAnchorName::Map => (f64::from(CRITICAL_POWER_WATTS_MIN), MAP_WATTS_MAX),
-        _ if swim && matches!(anchor.unit(), AnchorUnit::MetresPerSecond) => {
-            (SWIM_SPEED_MPS_MIN, SWIM_SPEED_MPS_MAX)
-        }
-        SportAnchorName::CriticalSpeed => (CRITICAL_SPEED_MPS_MIN, CRITICAL_SPEED_MPS_MAX),
+        SportAnchorName::Map => (computation::MAP_WATTS.min, computation::MAP_WATTS.max),
+        _ if swim && matches!(anchor.unit(), AnchorUnit::MetresPerSecond) => (
+            computation::SWIM_SPEED_MPS.min,
+            computation::SWIM_SPEED_MPS.max,
+        ),
+        SportAnchorName::CriticalSpeed => (
+            computation::CRITICAL_SPEED_MPS.min,
+            computation::CRITICAL_SPEED_MPS.max,
+        ),
         SportAnchorName::ThresholdSpeed => (
-            METERS_PER_KM / THRESHOLD_PACE_SEC_PER_KM_MAX,
-            METERS_PER_KM / THRESHOLD_PACE_SEC_PER_KM_MIN,
+            METERS_PER_KM / computation::THRESHOLD_PACE_SEC_PER_KM.max,
+            METERS_PER_KM / computation::THRESHOLD_PACE_SEC_PER_KM.min,
         ),
-        SportAnchorName::Vvo2max => (CRITICAL_SPEED_MPS_MIN, RUN_AEROBIC_SPEED_MPS_MAX),
+        SportAnchorName::Vvo2max => (
+            computation::RUN_AEROBIC_SPEED_MPS.min,
+            computation::RUN_AEROBIC_SPEED_MPS.max,
+        ),
         SportAnchorName::MaxHeartRate => (
             configuration_validation::MAX_HR_MIN as f64,
             configuration_validation::MAX_HR_MAX as f64,

@@ -25,10 +25,9 @@ pub use latest_snapshot::{
 /// Endurance Phase 2 daily training-history compute (`get_training_history`).
 pub mod training_history_compute;
 pub use training_history_compute::{
-    compute_training_history, warmup_days, AthleteInputs, ACWR_ACUTE_DAYS, ACWR_CHRONIC_DAYS,
-    ATL_WINDOW_DAYS as TH_ATL_WINDOW_DAYS, CTL_WARMUP_MARGIN_DAYS,
-    CTL_WINDOW_DAYS as TH_CTL_WINDOW_DAYS, FOSTER_WINDOW_DAYS,
-    MAX_BACKFILL_DAYS as TH_MAX_BACKFILL_DAYS, RAMP_RATE_LOOKBACK_DAYS,
+    compute_training_history, warmup_days, AthleteInputs, ATL_WINDOW_DAYS as TH_ATL_WINDOW_DAYS,
+    CTL_WARMUP_MARGIN_DAYS, CTL_WINDOW_DAYS as TH_CTL_WINDOW_DAYS,
+    MAX_BACKFILL_DAYS as TH_MAX_BACKFILL_DAYS,
 };
 
 /// Endurance Phase 3 intervals.json builder (`export_intervals`).

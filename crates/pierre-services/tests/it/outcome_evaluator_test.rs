@@ -8,9 +8,11 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use std::iter;
+
 use pierre_memory::playbooks::OutcomeLabel;
 use pierre_services::outcome_evaluator::{
-    activity_completed_label, consistency_label, delta_label, ramp_within_label,
+    activity_completed_label, consistency_label, delta_label, peak_atl_ctl_ratio, ramp_within_label,
 };
 
 #[test]
@@ -50,6 +52,65 @@ fn delta_orientation_and_dead_band() {
 
     // Missing an endpoint -> no delta -> expire.
     assert_eq!(delta_label(None, Some(50.0), true, 3.0).label, None);
+}
+
+#[test]
+fn a_building_week_is_judged_on_its_ratio_not_its_ctl_gain() {
+    // CTL climbs 40 -> 48 in a week (a ramp of +8 points) while ATL stays
+    // within 1.3 of it: the window is within the ceiling.
+    let days = [
+        (44.0, 40.0),
+        (48.0, 42.0),
+        (52.0, 44.0),
+        (57.0, 46.0),
+        (60.0, 48.0),
+    ];
+    let peak = peak_atl_ctl_ratio(days).expect("bug: a window with a chronic base has a peak");
+    assert!(
+        (peak - 1.25).abs() < 1e-12,
+        "bug: the peak is not the highest daily ATL/CTL, got {peak}"
+    );
+    assert_eq!(
+        ramp_within_label(peak, 1.3),
+        OutcomeLabel::Success,
+        "bug: a CTL gain under the ratio ceiling is judged as past it"
+    );
+}
+
+#[test]
+fn one_day_past_the_ceiling_fails_the_window() {
+    // CTL barely moves, but one day's ATL reaches 1.4 x CTL.
+    let days = [(40.0, 40.0), (56.0, 40.0), (44.0, 40.5)];
+    let peak = peak_atl_ctl_ratio(days).expect("bug: a window with a chronic base has a peak");
+    assert!(
+        (peak - 1.4).abs() < 1e-12,
+        "bug: the peak is not the highest daily ATL/CTL, got {peak}"
+    );
+    assert_eq!(
+        ramp_within_label(peak, 1.3),
+        OutcomeLabel::Failure,
+        "bug: one day past the ratio ceiling does not fail the window"
+    );
+}
+
+#[test]
+fn a_window_with_no_chronic_base_has_no_peak() {
+    assert_eq!(
+        peak_atl_ctl_ratio([(5.0, 0.0), (0.0, 0.0)]),
+        None,
+        "bug: a window with no chronic base reports a peak"
+    );
+    assert_eq!(
+        peak_atl_ctl_ratio(iter::empty()),
+        None,
+        "bug: an empty window reports a peak"
+    );
+    // A day with no base is skipped, not read as an infinite ratio.
+    assert_eq!(
+        peak_atl_ctl_ratio([(5.0, 0.0), (10.0, 10.0)]),
+        Some(1.0),
+        "bug: a day with no chronic base is not skipped"
+    );
 }
 
 #[test]

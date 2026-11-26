@@ -24,27 +24,9 @@
 //! Absence of a warning has to mean "measured and fine", or the warning's
 //! presence tells you nothing.
 
+use dravr_cageux::periodization::load_ratios;
 use pierre_core::models::LoadSnapshot;
 use serde::Serialize;
-
-/// Fractional increase over the athlete's recent weekly hours that trips the
-/// warning.
-///
-/// Twenty percent, deliberately looser than the +10% the guidance recommends:
-/// this rail is also the measurement instrument for whether calibration steers
-/// generation at all, and a threshold set at the guidance line would fire on
-/// nearly every plan and teach nobody anything. Tighten it toward +10% with
-/// data, not before.
-pub const RAMP_WARN_THRESHOLD: f64 = 0.20;
-
-/// Slack on the threshold comparison.
-///
-/// Both sides of the ratio come from integer minutes through a division, and
-/// the resulting hour counts are not exactly representable — 504 minutes is
-/// "8.4" hours only approximately. Without this, a plan sitting exactly on the
-/// +20% line lands a few units in the last place above it and warns, which
-/// would make the rail fire on plans that followed the guidance precisely.
-const THRESHOLD_EPSILON: f64 = 1e-9;
 
 /// Why a ramp check could not produce a verdict.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, schemars::JsonSchema)]
@@ -127,17 +109,24 @@ pub fn assess_ramp(
     let Some(planned_minutes) = planned_week_minutes(first_week_durations) else {
         return RampVerdict::Unmeasurable(RampUnmeasurable::NoPlannedDurations);
     };
+    let planned_hours = f64::from(planned_minutes) / 60.0;
     // A baseline of zero hours cannot produce a meaningful ratio, and dividing
     // by it would yield infinity. An athlete with a cached window that sums to
-    // nothing has no measurable baseline either.
-    if baseline.weekly_hours <= 0.0 {
+    // nothing has no measurable baseline either: cageux gives no increase.
+    let Some(increase) = load_ratios::plan_ramp_increase(planned_hours, baseline.weekly_hours)
+    else {
         return RampVerdict::Unmeasurable(RampUnmeasurable::NoBaseline);
-    }
+    };
 
-    let planned_hours = f64::from(planned_minutes) / 60.0;
-    let increase = (planned_hours - baseline.weekly_hours) / baseline.weekly_hours;
-
-    if increase > RAMP_WARN_THRESHOLD + THRESHOLD_EPSILON {
+    // The warning trips above cageux's `PLAN_RAMP_WARN_INCREASE` (+20%),
+    // deliberately looser than the +10% the guidance recommends: this rail is
+    // also the measurement instrument for whether calibration steers
+    // generation at all, and a threshold set at the guidance line would fire
+    // on nearly every plan and teach nobody anything. Tighten it toward +10%
+    // with data, not before. `PLAN_RAMP_EPSILON` of slack keeps a plan sitting
+    // exactly on the line within it: both sides come from integer minutes
+    // through a division, and 504 minutes is "8.4" hours only approximately.
+    if load_ratios::plan_ramp_exceeds(increase) {
         RampVerdict::Exceeded {
             planned_hours,
             baseline_hours: baseline.weekly_hours,
