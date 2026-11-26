@@ -47,8 +47,9 @@ use pierre_contremaitre::consent_strings::{
     KEY_CONSENT_GRANT_SLEEP_COACH_HINT, KEY_CONSENT_GRANT_TRAINING_COACH,
     KEY_CONSENT_GRANT_TRAINING_COACH_HINT, KEY_CONSENT_GRANT_TRAINING_COACH_SUMMARY_HINT,
     PRESET_KEY_STANDING_POLICY, PRESET_KEY_STEP_UP_HOST, PRESET_KEY_STEP_UP_T2_DISCLOSURE,
-    PRESET_KEY_STEP_UP_TITLE, STEP_UP_SCREEN_KEYS,
+    PRESET_KEY_STEP_UP_TITLE,
 };
+use pierre_contremaitre::consent_strings::step_up_worded;
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::time_constants;
 use pierre_core::html::escape_html_attribute;
@@ -117,11 +118,7 @@ pub(super) fn offered(strings: &MessagingStringsRegistry) -> bool {
 /// step-up request is resolved only then (carnet#1544 slice 4b), and refused
 /// before sign-in otherwise.
 pub(super) fn step_up_offered(strings: &MessagingStringsRegistry) -> bool {
-    let english = ConsentText::new(strings, "en");
-    offered(strings)
-        && STEP_UP_SCREEN_KEYS
-            .iter()
-            .all(|key| !english.line(key).is_empty())
+    offered(strings) && step_up_worded(strings)
 }
 
 /// One of the picker's choices.

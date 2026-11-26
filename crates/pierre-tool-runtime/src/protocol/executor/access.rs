@@ -4,7 +4,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use dravr_barrage::Stream;
 use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
+use pierre_contremaitre::consent_strings::step_up_worded;
 use pierre_core::transport::Transport;
 use pierre_providers::ai_scope;
 use tracing::warn;
@@ -72,6 +74,19 @@ impl UniversalExecutor {
             withheld(registry, tool_name, tool, &role_less)
                 .filter(|why| *why != Withheld::Role(Audience::Admin))
         });
+        // A tier or stream refusal the athlete's step-up would cure says so,
+        // once the step-up screen is worded (carnet#1544 slice 4b).
+        if let (Some(Withheld::Tier(_) | Withheld::Stream), Some(ceiling)) = (answer, ceiling) {
+            let streams: Vec<Stream> = registry
+                .tool_data(tool_name)
+                .map(|data| data.required_streams().collect())
+                .unwrap_or_default();
+            if ceiling.step_up_cures(&streams)
+                && step_up_worded(self.resources.messaging_strings_registry())
+            {
+                return Ok(Some(grant_ceiling_refusal::step_up(tool_name, &streams)));
+            }
+        }
         answer
             .map(|answer| render_withheld(tool_name, answer))
             .transpose()

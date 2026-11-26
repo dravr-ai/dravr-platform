@@ -160,6 +160,16 @@ pub const STEP_UP_SCREEN_KEYS: [&str; 3] = [
     PRESET_KEY_STEP_UP_HOST,
 ];
 
+/// Whether `strings` word every line of the step-up screen in English: the
+/// one switch of the step-up's dark launch. While it is off, the AS refuses a
+/// step-up request and no tool refusal offers one.
+#[must_use]
+pub fn step_up_worded(strings: &crate::MessagingStringsRegistry) -> bool {
+    STEP_UP_SCREEN_KEYS
+        .iter()
+        .all(|key| strings.get_exact(key, "en").is_some())
+}
+
 /// Every line the consent screen can show.
 ///
 /// What the user reads when they choose Allow access.
