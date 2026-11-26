@@ -3863,8 +3863,8 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "photograveur"
-version = "0.9.1"
-source = "git+https://github.com/dravr-ai/dravr-photograveur.git?tag=v0.9.1#e27cc8be4d46e9a98ebd71c9293ab2566d51fde4"
+version = "0.9.3"
+source = "git+https://github.com/dravr-ai/dravr-photograveur.git?tag=v0.9.3#4e7c74566498e952004d2b3ec4cc9c3fbd7855fa"
 dependencies = [
  "dravr-tronc",
  "serde",
@@ -5283,7 +5283,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.3",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -5321,7 +5321,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "tracing",
  "windows-sys 0.61.2",
 ]
