@@ -162,6 +162,10 @@ mod tests {
             None,
             "bug: no claim read as one"
         );
-        assert_eq!(request_host_tier(&ToolContext::default()), None, "bug: legacy");
+        assert_eq!(
+            request_host_tier(&ToolContext::default()),
+            None,
+            "bug: legacy"
+        );
     }
 }

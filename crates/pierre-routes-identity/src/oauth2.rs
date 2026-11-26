@@ -87,14 +87,14 @@ mod pages;
 mod par;
 /// What the consent screen offers to grant, and the review digest of each choice
 mod picker;
-/// The step-up approval of a one-off T2 question
-mod step_up;
 /// RFC 7009 token revocation
 mod revoke;
 /// The sign-in cookie: its name, value and reading.
 mod session;
 /// A standing policy's renewal of a preset grant without the consent screen
 mod standing_policy;
+/// The step-up approval of a one-off T2 question
+mod step_up;
 /// `POST /oauth2/token-validate`: the SDK's check of its own token
 mod token_validate;
 /// did:web for the checkpoint key and the newest signed checkpoint (carnet#1542)

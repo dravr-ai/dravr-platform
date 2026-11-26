@@ -774,7 +774,10 @@ mod tests {
 
     #[test]
     fn consume_is_terminal_and_step_up_is_not() {
-        assert!(GrantEvent::Consume.is_terminal(), "bug: consume did not end");
+        assert!(
+            GrantEvent::Consume.is_terminal(),
+            "bug: consume did not end"
+        );
         assert!(!GrantEvent::StepUp.is_terminal(), "bug: step_up ended");
         for event in [GrantEvent::Consume, GrantEvent::StepUp] {
             assert_eq!(

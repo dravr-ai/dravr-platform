@@ -32,7 +32,10 @@ use url::Url;
 
 /// The step-up screen's three lines, as the catalogue will word them.
 const STEP_UP_LINES: [(&str, &str); 3] = [
-    ("oauth.consent.stepUpTitle", "{0} asks for a one-off look at your health records"),
+    (
+        "oauth.consent.stepUpTitle",
+        "{0} asks for a one-off look at your health records",
+    ),
     (
         "oauth.consent.stepUpT2Disclosure",
         "This includes your health records. {0} reads them once, then this access ends.",
@@ -216,7 +219,13 @@ async fn events(world: &World, id: &str) -> Vec<GrantEvent> {
         .common
         .repos
         .oauth_grant_events
-        .list_for_user(&world.tenant_id, &world.user.id.to_string(), Some(id), 100, 0)
+        .list_for_user(
+            &world.tenant_id,
+            &world.user.id.to_string(),
+            Some(id),
+            100,
+            0,
+        )
         .await
         .unwrap();
     // The store stamps whole seconds on SQLite: within one, the ending
@@ -376,7 +385,11 @@ async fn an_approved_step_up_is_a_child_the_parents_code_names() {
         .find(|child| child.grant.id == child_id)
         .unwrap();
     assert_eq!(child.terms.acr, OWNER_VERIFIED_ACR, "bug: acr");
-    assert_eq!(child.terms.host_profile_basis.as_str(), "declared_cimd", "bug: basis");
+    assert_eq!(
+        child.terms.host_profile_basis.as_str(),
+        "declared_cimd",
+        "bug: basis"
+    );
     assert_eq!(child.terms.host_profile_tier, "T2", "bug: tier");
     assert!(
         child.grant.expires_at.is_some_and(|expires_at| {
@@ -386,15 +399,29 @@ async fn an_approved_step_up_is_a_child_the_parents_code_names() {
     );
     let details: Value =
         serde_json::from_str(child.grant.authorization_details.as_deref().unwrap()).unwrap();
-    assert_eq!(details[0]["streams"], json!(["labs.summary"]), "bug: streams");
+    assert_eq!(
+        details[0]["streams"],
+        json!(["labs.summary"]),
+        "bug: streams"
+    );
     assert_eq!(details[0]["access_mode"], "single_use", "bug: access mode");
-    assert_eq!(events(&world, &child_id).await, [GrantEvent::StepUp], "bug: receipt");
+    assert_eq!(
+        events(&world, &child_id).await,
+        [GrantEvent::StepUp],
+        "bug: receipt"
+    );
     assert!(
-        live_grants(&world).await.iter().all(|grant| grant.id != child_id),
+        live_grants(&world)
+            .await
+            .iter()
+            .all(|grant| grant.id != child_id),
         "bug: the child is listed as a grant of its own"
     );
     assert!(
-        live_grants(&world).await.iter().any(|grant| grant.id == parent),
+        live_grants(&world)
+            .await
+            .iter()
+            .any(|grant| grant.id == parent),
         "bug: the parent was edited or ended"
     );
     let standing = world
@@ -426,7 +453,11 @@ async fn a_new_step_up_replaces_the_old_child() {
     let (world, client, parent, first) = stepped_up().await;
     let digest = step_up_digest(&world, &client).await;
     let again = approve_one_off(&world, &client, &hosted_sign_in(&world), &digest).await;
-    assert!(param(&again, "error").is_empty(), "{:?}", again.header("location"));
+    assert!(
+        param(&again, "error").is_empty(),
+        "{:?}",
+        again.header("location")
+    );
     let live = children(&world).await;
     assert_eq!(live.len(), 1, "bug: two live children under one parent");
     assert_ne!(live[0].grant.id, first, "bug: the old child stayed live");
@@ -449,15 +480,25 @@ async fn revoking_the_parent_ends_its_child_and_revoking_the_child_spares_the_pa
             .unwrap(),
         "bug: the child could not be revoked"
     );
-    assert!(children(&world).await.is_empty(), "bug: the child stayed live");
     assert!(
-        live_grants(&world).await.iter().any(|grant| grant.id == parent),
+        children(&world).await.is_empty(),
+        "bug: the child stayed live"
+    );
+    assert!(
+        live_grants(&world)
+            .await
+            .iter()
+            .any(|grant| grant.id == parent),
         "bug: revoking the child ended its parent"
     );
 
     let digest = step_up_digest(&world, &client).await;
     let approved = approve_one_off(&world, &client, &hosted_sign_in(&world), &digest).await;
-    assert!(param(&approved, "error").is_empty(), "{:?}", approved.header("location"));
+    assert!(
+        param(&approved, "error").is_empty(),
+        "{:?}",
+        approved.header("location")
+    );
     let second = children(&world).await[0].grant.id.clone();
     assert!(
         repo.revoke_client_grant(&parent, &user, &world.tenant_id, GrantActor::User)
@@ -465,7 +506,10 @@ async fn revoking_the_parent_ends_its_child_and_revoking_the_child_spares_the_pa
             .unwrap(),
         "bug: the parent could not be revoked"
     );
-    assert!(children(&world).await.is_empty(), "bug: a child outlived its parent");
+    assert!(
+        children(&world).await.is_empty(),
+        "bug: a child outlived its parent"
+    );
     assert_eq!(
         events(&world, &second).await,
         [GrantEvent::StepUp, GrantEvent::Revoke],
@@ -500,5 +544,8 @@ async fn a_single_use_child_is_consumed_once_with_one_terminal_receipt() {
         [GrantEvent::StepUp, GrantEvent::Consume],
         "bug: the consumed child's receipts"
     );
-    assert!(children(&world).await.is_empty(), "bug: a consumed child stayed live");
+    assert!(
+        children(&world).await.is_empty(),
+        "bug: a consumed child stayed live"
+    );
 }

@@ -346,14 +346,23 @@ mod tests {
 
     fn one_off(streams: &[&str]) -> ResolvedDetails {
         use crate::oauth2_server::authorization_details::{parse_authorization_details, resolve};
-        let picked: Vec<_> = streams.iter().map(|name| serde_json::json!({"name": name})).collect();
+        let picked: Vec<_> = streams
+            .iter()
+            .map(|name| serde_json::json!({"name": name}))
+            .collect();
         let raw = serde_json::json!([
             {"type": "https://pdpp.dev/data-access", "source": {"id": MCP},
              "selection_preset": "one_off_question", "streams": picked},
             {"type": "https://dravr.ai/pdpp/health-profile/v0/health-constraints",
              "applies_to": 0, "critical": true, "max_tier": "T2"},
         ]);
-        approved(&resolve(&parse_authorization_details(&raw.to_string()).unwrap(), &[MCP]).unwrap())
+        approved(
+            &resolve(
+                &parse_authorization_details(&raw.to_string()).unwrap(),
+                &[MCP],
+            )
+            .unwrap(),
+        )
     }
 
     fn terms(acr: &str, tier: &str) -> StepUpTerms {
@@ -373,7 +382,8 @@ mod tests {
             &Zone::utc(),
         )
         .unwrap();
-        let child = GrantCeiling::of_details("c", &one_off(&["labs.summary"]), &Zone::utc()).unwrap();
+        let child =
+            GrantCeiling::of_details("c", &one_off(&["labs.summary"]), &Zone::utc()).unwrap();
         parent.with_child(child, terms(acr, tier))
     }
 
@@ -381,18 +391,34 @@ mod tests {
     fn a_call_runs_under_the_parent_unless_only_the_child_covers_it() {
         let ceiling = with_labs_child(pierre_core::models::OWNER_VERIFIED_ACR, "T2");
         let sleep = ceiling.for_streams(&[Stream::Sleep]);
-        assert_eq!(sleep.client_grant_id, "g", "bug: a parent stream ran under the child");
-        assert!(sleep.child.is_none(), "bug: the effective ceiling kept a child");
+        assert_eq!(
+            sleep.client_grant_id, "g",
+            "bug: a parent stream ran under the child"
+        );
+        assert!(
+            sleep.child.is_none(),
+            "bug: the effective ceiling kept a child"
+        );
         let labs = ceiling.for_streams(&[Stream::Labs]);
-        assert_eq!(labs.client_grant_id, "c", "bug: the child's stream ran under the parent");
+        assert_eq!(
+            labs.client_grant_id, "c",
+            "bug: the child's stream ran under the parent"
+        );
         assert!(labs.single_use, "bug: a one-off child is not single-use");
-        assert_eq!(labs.budgets.total_rows, Some(500), "bug: the child's budget was lost");
+        assert_eq!(
+            labs.budgets.total_rows,
+            Some(500),
+            "bug: the child's budget was lost"
+        );
         let both = ceiling.for_streams(&[Stream::Labs, Stream::Workout]);
         assert_eq!(
             both.client_grant_id, "g",
             "bug: a call reading beyond either grant ran under the child"
         );
-        assert!(!both.holds(Stream::Labs), "bug: the union widened the parent");
+        assert!(
+            !both.holds(Stream::Labs),
+            "bug: the union widened the parent"
+        );
     }
 
     #[test]
@@ -400,18 +426,27 @@ mod tests {
         let open = with_labs_child(pierre_core::models::OWNER_VERIFIED_ACR, "T2")
             .with_request_host_tier(Some(Tier::T2))
             .for_streams(&[Stream::Labs]);
-        assert!(open.opens_t2(Stream::Labs), "bug: every condition held and T2 stayed shut");
+        assert!(
+            open.opens_t2(Stream::Labs),
+            "bug: every condition held and T2 stayed shut"
+        );
         assert!(
             !open.opens_t2(Stream::ClinicalRaw),
             "bug: an unpicked T2 stream opened"
         );
         let no_claim = with_labs_child(pierre_core::models::OWNER_VERIFIED_ACR, "T2")
             .for_streams(&[Stream::Labs]);
-        assert!(!no_claim.opens_t2(Stream::Labs), "bug: no per-request claim opened T2");
+        assert!(
+            !no_claim.opens_t2(Stream::Labs),
+            "bug: no per-request claim opened T2"
+        );
         let t1_claim = with_labs_child(pierre_core::models::OWNER_VERIFIED_ACR, "T2")
             .with_request_host_tier(Some(Tier::T1))
             .for_streams(&[Stream::Labs]);
-        assert!(!t1_claim.opens_t2(Stream::Labs), "bug: a T1 claim opened T2");
+        assert!(
+            !t1_claim.opens_t2(Stream::Labs),
+            "bug: a T1 claim opened T2"
+        );
         let weak = with_labs_child("password", "T2")
             .with_request_host_tier(Some(Tier::T2))
             .for_streams(&[Stream::Labs]);
@@ -419,10 +454,16 @@ mod tests {
         let t1_host = with_labs_child(pierre_core::models::OWNER_VERIFIED_ACR, "T1")
             .with_request_host_tier(Some(Tier::T2))
             .for_streams(&[Stream::Labs]);
-        assert!(!t1_host.opens_t2(Stream::Labs), "bug: a T1 CIMD host opened T2");
+        assert!(
+            !t1_host.opens_t2(Stream::Labs),
+            "bug: a T1 CIMD host opened T2"
+        );
         let parent = with_labs_child(pierre_core::models::OWNER_VERIFIED_ACR, "T2")
             .with_request_host_tier(Some(Tier::T2));
-        assert!(!parent.opens_t2(Stream::Labs), "bug: the parent itself opened T2");
+        assert!(
+            !parent.opens_t2(Stream::Labs),
+            "bug: the parent itself opened T2"
+        );
     }
 
     #[test]
@@ -433,13 +474,25 @@ mod tests {
             &Zone::utc(),
         )
         .unwrap();
-        assert!(parent.step_up_cures(&[Stream::Labs]), "bug: labs not curable");
-        assert!(!parent.step_up_cures(&[Stream::Sleep]), "bug: a held stream curable");
+        assert!(
+            parent.step_up_cures(&[Stream::Labs]),
+            "bug: labs not curable"
+        );
+        assert!(
+            !parent.step_up_cures(&[Stream::Sleep]),
+            "bug: a held stream curable"
+        );
         assert!(
             !parent.step_up_cures(&[Stream::RestrictedNotes]),
             "bug: T3 curable by step-up"
         );
-        assert!(!parent.step_up_cures(&[Stream::ClinicalRaw]), "bug: a raw T2 curable");
-        assert!(!parent.step_up_cures(&[]), "bug: a call reading nothing curable");
+        assert!(
+            !parent.step_up_cures(&[Stream::ClinicalRaw]),
+            "bug: a raw T2 curable"
+        );
+        assert!(
+            !parent.step_up_cures(&[]),
+            "bug: a call reading nothing curable"
+        );
     }
 }

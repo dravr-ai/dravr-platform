@@ -23,9 +23,7 @@ use dravr_tronc::dates::Timestamp;
 use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
 use pierre_core::constants::time_constants;
 use pierre_providers::ai_scope::{self, ServedRows};
-use pierre_services::usage_counter::{
-    current_counter, increment_counter, LIFETIME_COUNTER_PREFIX,
-};
+use pierre_services::usage_counter::{current_counter, increment_counter, LIFETIME_COUNTER_PREFIX};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::future::Future;
@@ -213,7 +211,12 @@ impl UniversalExecutor {
     /// Add what a call under a ceiling served to its grant's counters today.
     /// Best effort: a failed write is logged, and the next call is admitted
     /// on the counts the store holds.
-    async fn levy_rows(&self, served: ServedRows, parties: Parties, ceiling: Option<&GrantCeiling>) {
+    async fn levy_rows(
+        &self,
+        served: ServedRows,
+        parties: Parties,
+        ceiling: Option<&GrantCeiling>,
+    ) {
         let (Some(ceiling), Some(tenant)) = (ceiling, parties.requester_tenant) else {
             return;
         };

@@ -149,16 +149,33 @@ mod tests {
     fn only_owner_verified_and_a_t2_host_open_t2() {
         assert!(terms(OWNER_VERIFIED_ACR, "T2").opens_t2(), "bug: closed");
         assert!(terms(OWNER_VERIFIED_ACR, "t2").opens_t2(), "bug: case");
-        assert!(!terms("password", "T2").opens_t2(), "bug: any acr opened T2");
-        assert!(!terms(OWNER_VERIFIED_ACR, "T1").opens_t2(), "bug: a T1 host opened T2");
+        assert!(
+            !terms("password", "T2").opens_t2(),
+            "bug: any acr opened T2"
+        );
+        assert!(
+            !terms(OWNER_VERIFIED_ACR, "T1").opens_t2(),
+            "bug: a T1 host opened T2"
+        );
     }
 
     #[test]
     fn a_stored_basis_reads_back_and_an_unknown_one_opens_nothing() {
-        for basis in [HostProfileBasis::DeclaredCimd, HostProfileBasis::DeclaredRequest] {
-            assert_eq!(HostProfileBasis::parse(basis.as_str()), Some(basis), "bug: round trip");
+        for basis in [
+            HostProfileBasis::DeclaredCimd,
+            HostProfileBasis::DeclaredRequest,
+        ] {
+            assert_eq!(
+                HostProfileBasis::parse(basis.as_str()),
+                Some(basis),
+                "bug: round trip"
+            );
         }
-        assert_eq!(HostProfileBasis::parse("assessed"), None, "bug: an unbuilt basis read");
+        assert_eq!(
+            HostProfileBasis::parse("assessed"),
+            None,
+            "bug: an unbuilt basis read"
+        );
     }
 
     #[test]

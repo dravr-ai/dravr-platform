@@ -480,12 +480,18 @@ mod tests {
             health_records: false,
         });
         assert!(!reaches(Tier::T3, None, granted), "bug: a coach reached T3");
-        assert!(!reaches(Tier::T2, None, not_granted), "bug: T2 without the grant");
+        assert!(
+            !reaches(Tier::T2, None, not_granted),
+            "bug: T2 without the grant"
+        );
         // Outside any gate (the athlete's own read) every tier is read.
         assert!(
             reaches(Tier::T2, None, granted),
             "bug: the grant was not honoured"
         );
-        assert!(reaches(Tier::T3, None, None), "bug: the athlete's own T3 read");
+        assert!(
+            reaches(Tier::T3, None, None),
+            "bug: the athlete's own T3 read"
+        );
     }
 }

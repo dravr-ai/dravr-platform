@@ -474,7 +474,12 @@ pub(super) struct ResolvedClient {
 pub fn host_profile_from_document(body: &[u8]) -> Option<String> {
     let document: serde_json::Value = serde_json::from_slice(body).ok()?;
     let declared = document.get("mcp_host_profile")?;
-    let tier = match declared.get("tier_max")?.as_str()?.to_ascii_uppercase().as_str() {
+    let tier = match declared
+        .get("tier_max")?
+        .as_str()?
+        .to_ascii_uppercase()
+        .as_str()
+    {
         tier @ ("T0" | "T1" | "T2") => tier.to_owned(),
         _ => return None,
     };
@@ -1078,11 +1083,16 @@ mod tests {
     #[test]
     fn a_declared_host_profile_is_read_and_t3_or_nonsense_is_not() {
         let declared = |member: &str| {
-            host_profile_from_document(document(URL, &format!(r#","mcp_host_profile":{member}"#)).as_slice())
+            host_profile_from_document(
+                document(URL, &format!(r#","mcp_host_profile":{member}"#)).as_slice(),
+            )
         };
         let t2 = declared(r#"{"tier_max":"t2","version":1}"#).expect("bug: T2 not read");
         assert_eq!(host_profile_tier(&t2).as_deref(), Some("T2"), "bug: tier");
-        assert!(declared(r#"{"tier_max":"t3"}"#).is_none(), "bug: a T3 host read");
+        assert!(
+            declared(r#"{"tier_max":"t3"}"#).is_none(),
+            "bug: a T3 host read"
+        );
         assert!(declared(r#"{"version":1}"#).is_none(), "bug: no tier read");
         assert!(
             host_profile_from_document(&document(URL, "")).is_none(),

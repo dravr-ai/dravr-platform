@@ -40,6 +40,7 @@ use pierre_auth::oauth2_server::authorization_details::{
 };
 use pierre_auth::oauth2_server::endpoints::CheckedAuthorization;
 use pierre_auth::oauth2_server::models::OAuth2Error;
+use pierre_contremaitre::consent_strings::step_up_worded;
 use pierre_contremaitre::consent_strings::{
     KEY_CONSENT_GRANT_CHOICE_TITLE, KEY_CONSENT_GRANT_COMMITMENTS, KEY_CONSENT_GRANT_EVERYTHING,
     KEY_CONSENT_GRANT_EVERYTHING_HINT, KEY_CONSENT_GRANT_LASTS_DAYS, KEY_CONSENT_GRANT_LASTS_HOURS,
@@ -49,7 +50,6 @@ use pierre_contremaitre::consent_strings::{
     PRESET_KEY_STANDING_POLICY, PRESET_KEY_STEP_UP_HOST, PRESET_KEY_STEP_UP_T2_DISCLOSURE,
     PRESET_KEY_STEP_UP_TITLE,
 };
-use pierre_contremaitre::consent_strings::step_up_worded;
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::time_constants;
 use pierre_core::html::escape_html_attribute;

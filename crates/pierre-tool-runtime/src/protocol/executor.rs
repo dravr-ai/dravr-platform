@@ -38,11 +38,11 @@ use crate::support_session;
 use crate::tool_data::ToolData;
 use crate::turn_end::{self, HandoffSlot};
 use dispatch_record::DispatchRecord;
+use dravr_barrage::Stream;
 use dravr_cageux::config::intelligence::IntelligenceConfig;
 use dravr_tronc::mcp::tool::ToolCapabilities;
 use futures_util::future::Either;
 use pierre_auth::auth::ImpersonationGrant;
-use dravr_barrage::Stream;
 use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
 use pierre_config::environment::default_provider;
 use pierre_core::ai_policy::{WithConsent, Withheld};
@@ -931,12 +931,11 @@ impl UniversalExecutor {
         // Every reader below runs under the grant's ceiling, which counts
         // the rows they serve for its daily budgets.
         // Boxed for the reason the body above is.
-        let body =
-            Box::pin(self.levied(
-                parties,
-                call_ceiling.as_ref(),
-                ai_scope::under_grant(call_ceiling.clone(), body),
-            ));
+        let body = Box::pin(self.levied(
+            parties,
+            call_ceiling.as_ref(),
+            ai_scope::under_grant(call_ceiling.clone(), body),
+        ));
         // A call feeding a group chat reads nothing kept to Dravr's members
         // (carnet#1170).
         let group_chat = self.group_chat;

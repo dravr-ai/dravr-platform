@@ -221,7 +221,10 @@ fn tier_refusal(tier: Tier, stream: Option<Stream>) -> Option<TierRefusal> {
     let ceiling = grant_ceiling();
     // A call under a detailed consent grant reads nothing above its
     // `max_tier`, whatever the athlete consented to (plan slice 3).
-    if ceiling.as_ref().is_some_and(|ceiling| !ceiling.reaches(tier)) {
+    if ceiling
+        .as_ref()
+        .is_some_and(|ceiling| !ceiling.reaches(tier))
+    {
         return Some(TierRefusal::External);
     }
     let opened = |stream: Stream| {

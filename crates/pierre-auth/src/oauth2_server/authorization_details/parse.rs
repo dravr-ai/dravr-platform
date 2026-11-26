@@ -46,7 +46,6 @@ const MAX_SOURCE_CHARS: usize = 2_048;
 /// a name without it is read as barrage's own.
 const STREAM_NAME_PREFIX: &str = "health.vault.";
 
-
 /// Members only the authorization server sets (owl §4.2 "AS-set").
 const AS_SET_MEMBERS: [&str; 3] = ["host_profile", "standing_policy_ref", "step_up_result"];
 
@@ -426,9 +425,7 @@ fn check_constraints(
     }
     match constraint.max_tier {
         Some(Tier::T3) => {
-            return Err(refused(
-                "max_tier T3 is never granted to an outside client",
-            ));
+            return Err(refused("max_tier T3 is never granted to an outside client"));
         }
         Some(tier) if tier > preset.max_tier() => {
             return Err(refused(&format!(
@@ -473,13 +470,15 @@ fn check_constraints(
         }
     }
     if let Some(step_up) = &constraint.step_up {
-        if step_up.acr.as_deref().is_some_and(|acr| acr != OWNER_VERIFIED) {
+        if step_up
+            .acr
+            .as_deref()
+            .is_some_and(|acr| acr != OWNER_VERIFIED)
+        {
             return Err(refused("step_up.acr must be owner_verified"));
         }
         if !preset.requires_step_up() && (step_up.required || step_up.acr.is_some()) {
-            return Err(refused(
-                "step-up is granted only to one_off_question",
-            ));
+            return Err(refused("step-up is granted only to one_off_question"));
         }
     }
     match constraint.host_profile_required.as_deref() {

@@ -355,7 +355,11 @@ impl ResolvedDetails {
             .checked_sub_days(i64::from(self.0.window.days))
             .ok_or_else(out_of_range)?;
         let midnight = zone.start_of_day(first_day).map_err(|_| out_of_range())?;
-        let since = self.0.window.from.map_or(midnight, |from| from.max(midnight));
+        let since = self
+            .0
+            .window
+            .from
+            .map_or(midnight, |from| from.max(midnight));
         let expires_at = now.checked_add(self.lifetime()).ok_or_else(out_of_range)?;
         let mut frozen = self.clone();
         frozen.0.window.since = Some(since);

@@ -33,8 +33,8 @@ use pierre_auth::oauth2_server::cimd::host_profile_tier;
 use pierre_auth::oauth2_server::models::OAuth2Error;
 use pierre_auth::security::cookies::auth_cookie_name_on;
 use pierre_core::models::{
-    ChildGrant, GrantApproval, HostProfileBasis, OAuthClientGrant, StepUpTerms,
-    OWNER_VERIFIED_ACR, STEP_UP_MAX_AGE_SECS,
+    ChildGrant, GrantApproval, HostProfileBasis, OAuthClientGrant, StepUpTerms, OWNER_VERIFIED_ACR,
+    STEP_UP_MAX_AGE_SECS,
 };
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -151,7 +151,10 @@ impl OAuth2Routes {
             .and_then(host_profile_tier)
             .filter(|tier| tier.eq_ignore_ascii_case("T2"))
             .ok_or_else(|| {
-                warn!(client_id, "step-up refused: the client declares no Host Profile T2");
+                warn!(
+                    client_id,
+                    "step-up refused: the client declares no Host Profile T2"
+                );
                 OAuth2Error::access_denied(HOST_PROFILE_MISSING)
             })?;
         let (frozen, expires_at) = details.freeze(now, &zone).map_err(failed)?;
