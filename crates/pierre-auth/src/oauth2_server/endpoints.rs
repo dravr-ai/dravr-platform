@@ -757,6 +757,13 @@ impl OAuth2AuthorizationServer {
                 auth_code.client_grant_id.as_deref(),
             )
             .await?;
+        let step_up = self
+            .step_up_echo(
+                auth_code.user_id,
+                &auth_code.tenant_id,
+                auth_code.client_grant_id.as_deref(),
+            )
+            .await?;
 
         // Generate JWT access token; `admin` only while the user is an admin
         let granted = self
@@ -841,6 +848,7 @@ impl OAuth2AuthorizationServer {
             scope: Self::rendered_scope(&granted),
             refresh_token: Some(SecretString::from(refresh_token_value)),
             authorization_details,
+            step_up,
         })
     }
 
@@ -882,6 +890,7 @@ impl OAuth2AuthorizationServer {
             scope: Self::rendered_scope(&granted),
             refresh_token: None,
             authorization_details: None,
+            step_up: None,
         })
     }
 
@@ -908,6 +917,14 @@ impl OAuth2AuthorizationServer {
         // A family bound to a key rotates only with a proof by it (RFC 9449
         // §5), checked before the token is rotated away.
         require_refresh_dpop_binding(grant.as_ref(), dpop_jkt)?;
+        let step_up = match &grant {
+            Some(grant) => {
+                let user_id = grant.user_id;
+                let named = grant.client_grant_id.as_deref();
+                self.step_up_echo(user_id, &grant.tenant_id, named).await?
+            }
+            None => None,
+        };
         self.admit_refresh_user(grant.as_ref(), &request.client_id)
             .await?;
 
@@ -975,6 +992,7 @@ impl OAuth2AuthorizationServer {
             scope: Self::rendered_scope(&granted),
             refresh_token: Some(SecretString::from(new_refresh_token_value)),
             authorization_details,
+            step_up,
         })
     }
 

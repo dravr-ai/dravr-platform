@@ -12,6 +12,7 @@ use std::fmt;
 use uuid::Uuid;
 
 use super::authorization_details::ResolvedDetails;
+use super::step_up_echo::StepUpEcho;
 use crate::dpop::INVALID_DPOP_PROOF;
 
 /// The error code a throttled OAuth endpoint answers with, alongside HTTP 429.
@@ -233,6 +234,10 @@ pub struct TokenResponse {
     /// plain grant
     #[serde(skip_serializing_if = "Option::is_none")]
     pub authorization_details: Option<ResolvedDetails>,
+    /// The live step-up child the token reads beside the grant it names
+    /// (owl §7.6); absent when the grant has none
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub step_up: Option<StepUpEcho>,
 }
 
 /// OAuth 2.0 Error Response

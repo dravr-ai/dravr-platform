@@ -1054,10 +1054,38 @@ async fn a_host_reauthorizing_with_the_challenge_gets_a_child_its_token_names_th
         child[0].terms.parent_grant_id, parent,
         "bug: another parent"
     );
-    let (stepped, _) = tokens(&exchange(&world, &client, &code_of(&approved)).await);
+    let response = exchange(&world, &client, &code_of(&approved)).await;
+    let (stepped, _) = tokens(&response);
     assert_eq!(
         claimed_grant(&stepped).as_deref(),
         Some(parent.as_str()),
         "bug: the re-authorized token does not name the parent"
+    );
+    // The token response states the child beside the parent it names.
+    let body: Value = serde_json::from_str(&response.body_text()).unwrap();
+    let step_up = &body["step_up"];
+    assert_eq!(
+        step_up["grant_id"],
+        json!(child[0].grant.id),
+        "bug: the token response does not state the child: {body}"
+    );
+    assert_eq!(
+        step_up["step_up_result"]["acr"],
+        json!(OWNER_VERIFIED_ACR),
+        "bug: {step_up}"
+    );
+    assert!(
+        step_up["step_up_result"]["device"].is_null(),
+        "bug: a device named: {step_up}"
+    );
+    assert_eq!(
+        step_up["host_profile"],
+        json!({"basis": "declared_cimd", "tier": "T2"}),
+        "bug: {step_up}"
+    );
+    assert_eq!(
+        step_up["authorization_details"][0]["selection_preset"],
+        json!("one_off_question"),
+        "bug: {step_up}"
     );
 }
