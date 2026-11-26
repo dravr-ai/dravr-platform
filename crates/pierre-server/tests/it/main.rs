@@ -598,6 +598,7 @@ mod messenger_persistent_menu_test;
 mod metrics_extractor_test;
 mod middleware_csrf_test;
 mod misc_mcp_tools_integration_test;
+mod missed_sessions_test;
 mod mobility_database_test;
 mod mobility_e2e_test;
 mod mobility_seeder_test;

@@ -222,6 +222,11 @@ pub struct UpdateCoachConsentsRequest {
     /// the member in the roster tools (carnet#1511)
     #[serde(default)]
     pub assistant_read: Option<bool>,
+    /// Turn on (`true`) or off (`false`) the coach being told, on To handle
+    /// and in the morning brief, of the planned sessions the member missed
+    /// (carnet#1792)
+    #[serde(default)]
+    pub missed_session_check: Option<bool>,
     /// Grant (`true`) or revoke (`false`) the coach's reads of the member's
     /// health records (T2: labs, clinical records, blood glucose), its own
     /// grant beside `wellness_read`
@@ -271,6 +276,14 @@ pub struct CoachConsentsResponse {
     /// Whether the group has a human coach other than the member, so the
     /// member can be asked for `assistant_read`
     pub assistant_read_supported: bool,
+    /// The group's coach is told of the planned sessions the member missed;
+    /// on by default (carnet#1792)
+    pub missed_session_check: bool,
+    /// When the member last turned `missed_session_check` on or off (RFC 3339)
+    pub missed_session_check_at: Option<String>,
+    /// Whether the group has a human coach other than the member, so the
+    /// member can turn `missed_session_check` off
+    pub missed_session_check_supported: bool,
     /// The group's coach may read the member's health records (T2) now: the
     /// grant is given and has not lapsed. It reaches a read only alongside
     /// `wellness_read`, and the member's own consent to AI use of those
@@ -737,6 +750,9 @@ impl DelegatedConnectionRoutes {
             assistant_read: consents.assistant_read,
             assistant_read_at: consents.assistant_read_at.map(Timestamp::to_rfc3339),
             assistant_read_supported: offer.assistant_read,
+            missed_session_check: consents.missed_session_check,
+            missed_session_check_at: consents.missed_session_check_at.map(Timestamp::to_rfc3339),
+            missed_session_check_supported: offer.missed_session_check,
             sensitive_t2_read: consents.sensitive_t2_standing(Timestamp::now()),
             sensitive_t2_read_at: consents.sensitive_t2_read_at.map(Timestamp::to_rfc3339),
             sensitive_t2_read_until: consents.sensitive_t2_read_until.map(Timestamp::to_rfc3339),
@@ -787,6 +803,7 @@ impl DelegatedConnectionRoutes {
             calendar_write: body.calendar_write,
             wellness_read: body.wellness_read,
             assistant_read: body.assistant_read,
+            missed_session_check: body.missed_session_check,
             sensitive_t2_read: body.sensitive_t2_read,
             sensitive_window: SensitiveWindow::try_from_days(body.sensitive_days)?,
         };

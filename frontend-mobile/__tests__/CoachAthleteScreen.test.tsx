@@ -10,7 +10,7 @@ import { act, fireEvent, render, waitFor, within } from '@testing-library/react-
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { i18n } from '@pierre/i18n';
 import type { CoachBrief, CoachBriefUpdate, CoachRosterAthlete, CoachRosterResponse } from '@pierre/shared-types';
-import { CAMILLE, HUGO, JULIEN, LEA, MATHIEU, ROSTER, day, reason } from '../integration/app/helpers/coachRosterFixtures';
+import { CAMILLE, EMILIE, HUGO, JULIEN, LEA, MATHIEU, ROSTER, day, reason } from '../integration/app/helpers/coachRosterFixtures';
 
 const mockPush = jest.fn();
 let mockAthleteId = 'lea';
@@ -98,6 +98,42 @@ describe('why now', () => {
     const block = within(await screen.findByTestId('coach-reason-deep_fatigue_streak'));
     expect(block.getByTestId('coach-reason-title')).toHaveTextContent('Léa Gagnon is in deep fatigue for the 3rd morning in a row.');
     expect(block.getByTestId('coach-reason-label')).toHaveTextContent('Deep fatigue for 3 mornings in a row');
+  });
+
+  it('says which planned days went unmatched, with the athlete note printed as their words', async () => {
+    const screen = renderAthlete('emilie');
+    const block = within(await screen.findByTestId('coach-reason-planned_sessions_missed'));
+    expect(block.getByTestId('coach-reason-title')).toHaveTextContent(
+      'Émilie Girard has no activity matching the sessions planned on their last 2 planned days.',
+    );
+    expect(block.getByTestId('coach-reason-label')).toHaveTextContent('No matching activity on 2 planned days in a row');
+    const lines = block.getAllByTestId('coach-evidence');
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toHaveTextContent(/^3 of the 6 sessions planned since .+ have no matching activity/);
+    expect(within(lines[0]).getByTestId('coach-evidence-source')).toHaveTextContent(/^Intervals\.icu · Their plan · /);
+    expect(lines[1]).toHaveTextContent(/^Planned on .+: .+, no matching activity/);
+    expect(lines[1]).not.toHaveTextContent(/: run,/);
+    expect(lines[2]).toHaveTextContent(/Last wellness note \(.+\): “Genou sensible depuis la sortie de dimanche”/);
+    expect(within(lines[2]).getByTestId('coach-evidence-source')).toHaveTextContent(/^Wellness · /);
+  });
+
+  it('prints a wellness note that looks like markup or a placeholder as the text the athlete typed', async () => {
+    const [missed] = EMILIE.attention;
+    const note = '<b>sore</b> {{name}} & tired';
+    const marked = {
+      ...EMILIE,
+      attention: [
+        {
+          ...missed,
+          evidence: missed.evidence.map((line) =>
+            line.key === 'coachHome.evidence.wellnessNote' ? { ...line, params: { ...line.params, note } } : line,
+          ),
+        },
+      ],
+    };
+    const screen = renderAthlete('emilie', [marked]);
+    const block = within(await screen.findByTestId('coach-reason-planned_sessions_missed'));
+    expect(block.getAllByTestId('coach-evidence')[2]).toHaveTextContent(`“${note}”`, { exact: false });
   });
 
   it('gives every open reason its own sentence', async () => {

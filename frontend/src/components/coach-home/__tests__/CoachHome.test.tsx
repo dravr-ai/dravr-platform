@@ -141,14 +141,17 @@ describe('À traiter', () => {
       'coach-queue-row-u-lea',
     ]);
     const week = screen.getByTestId('coach-queue-week');
+    // missed planned sessions (290) first of the week, then draft (300), new member (310), plan ended (320)
     expect(within(week).getAllByRole('button').map((b) => b.getAttribute('data-testid'))).toEqual([
+      'coach-queue-row-u-kevin',
       'coach-queue-row-u-mathieu',
       'coach-queue-row-u-camille',
       'coach-queue-row-u-olivier',
     ]);
-    expect(screen.getByTestId('coach-queue-count')).toHaveTextContent('7');
+    expect(screen.getByTestId('coach-queue-count')).toHaveTextContent('8');
     const calm = screen.getByTestId('coach-queue-calm');
-    expect(within(calm).getByTestId('coach-calm-u-kevin')).toBeInTheDocument();
+    // Kevin missed planned sessions: he stands in the week, not among the calm.
+    expect(within(calm).queryByTestId('coach-calm-u-kevin')).not.toBeInTheDocument();
     expect(within(calm).getByTestId('coach-calm-u-rosalie')).toBeInTheDocument();
     expect(within(calm).getByTestId('coach-not-sharing-u-hugo')).toBeInTheDocument();
   });
@@ -182,6 +185,49 @@ describe('À traiter', () => {
     expect(within(screen.getByTestId('coach-queue-row-u-lea')).getByTestId('coach-queue-reason')).toHaveTextContent(
       'Deep fatigue for 3 mornings in a row',
     );
+  });
+
+  it('says which planned days went unmatched, sport by sport, with the athlete note printed as their words', async () => {
+    const user = userEvent.setup();
+    renderHome();
+    await user.click(await screen.findByTestId('coach-queue-row-u-kevin'));
+    const block = within(await screen.findByTestId('coach-reason-planned_sessions_missed'));
+    expect(block.getByTestId('coach-reason-title')).toHaveTextContent(
+      'Kevin Ouellet has no activity matching the sessions planned on their last 2 planned days.',
+    );
+    expect(block.getByTestId('coach-reason-label')).toHaveTextContent('No matching activity on 2 planned days in a row');
+    const lines = block.getAllByTestId('coach-evidence');
+    expect(lines).toHaveLength(4);
+    const day = (offset: number) => civilShortDate(civilFromDayNumber(civilDayNumber(TODAY) + offset), 'en');
+    expect(lines[0]).toHaveTextContent(`3 of the 6 sessions planned since ${day(-14)} have no matching activity`);
+    expect(within(lines[0]).getByTestId('coach-evidence-source')).toHaveTextContent(/^Intervals\.icu · Their plan · /);
+    expect(lines[1]).toHaveTextContent(new RegExp(`^Planned on ${day(-3)}: .+, no matching activity`));
+    expect(lines[1]).not.toHaveTextContent(/: ride,/);
+    expect(lines[3]).toHaveTextContent(`Last wellness note (${day(-1)}): “Genou sensible depuis la sortie de dimanche”`);
+    expect(within(lines[3]).getByTestId('coach-evidence-source')).toHaveTextContent(/^Wellness · /);
+    expect(within(screen.getByTestId('coach-queue-row-u-kevin')).getByTestId('coach-queue-reason')).toHaveTextContent(
+      'No matching activity on 2 planned days in a row',
+    );
+  });
+
+  it('prints a wellness note that looks like markup as the text the athlete typed, never as markup', async () => {
+    const roster = buildRoster(TODAY);
+    const note = '<img src=x onerror="alert(1)"> {{name}} <b>sore</b>';
+    const kevin = roster.athletes.find((a) => a.user_id === 'u-kevin');
+    const missed = kevin?.attention[0];
+    if (kevin === undefined || missed === undefined) throw new Error('the fixture lost u-kevin');
+    kevin.attention = [
+      { ...missed, evidence: missed.evidence.map((line) => (line.key === 'coachHome.evidence.wellnessNote' ? { ...line, params: { ...line.params, note } } : line)) },
+    ];
+    getRoster.mockResolvedValue(roster);
+    const user = userEvent.setup();
+    renderHome();
+    await user.click(await screen.findByTestId('coach-queue-row-u-kevin'));
+    const block = await screen.findByTestId('coach-reason-planned_sessions_missed');
+    const lines = within(block).getAllByTestId('coach-evidence');
+    expect(lines[3]).toHaveTextContent(`“${note}”`);
+    expect(block.querySelector('img')).toBeNull();
+    expect(block.querySelector('b')).toBeNull();
   });
 
   it('shows form as the server band on a six-step strip, and nothing for a non-sharer', async () => {
@@ -315,7 +361,7 @@ describe('Traité', () => {
     // Out of the queue at once, into the treated block, and the pane says so.
     await waitFor(() => expect(screen.queryByTestId('coach-queue-row-u-julien')).not.toBeInTheDocument());
     expect(screen.getByTestId('coach-treated-row-u-julien')).toBeInTheDocument();
-    expect(screen.getByTestId('coach-queue-count')).toHaveTextContent('6');
+    expect(screen.getByTestId('coach-queue-count')).toHaveTextContent('7');
     expect(await screen.findByTestId('coach-treated-note')).toBeInTheDocument();
 
     await user.click(screen.getByTestId('coach-treated-undo-u-julien'));
@@ -660,7 +706,9 @@ describe('the morning brief', () => {
     expect(fatigue).toHaveAttribute('aria-checked', 'true');
     await user.click(fatigue);
     await waitFor(() => expect(updateBrief).toHaveBeenLastCalledWith({ reasons_off: ['deep_fatigue_streak'] }));
-    expect(within(sheet).getAllByRole('switch')).toHaveLength(7);
+    // One switch per reason the brief checks, missed planned sessions included.
+    expect(within(sheet).getAllByRole('switch')).toHaveLength(8);
+    expect(within(sheet).getByTestId('coach-brief-reason-planned_sessions_missed')).toHaveAttribute('aria-checked', 'true');
   });
 
   it('lists who is left out by their roster name and puts them back with the whole list', async () => {
@@ -771,7 +819,7 @@ describe('failure and emptiness', () => {
     await screen.findByTestId('coach-queue');
     expect(getRoster).toHaveBeenNthCalledWith(1, { offset: 0, limit: 100 });
     expect(getRoster).toHaveBeenNthCalledWith(2, { offset: 5, limit: 100 });
-    expect(screen.getByTestId('coach-queue-count')).toHaveTextContent('7');
+    expect(screen.getByTestId('coach-queue-count')).toHaveTextContent('8');
   });
 
   it('says so when the coach holds no athlete', async () => {

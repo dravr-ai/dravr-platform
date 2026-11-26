@@ -31,6 +31,7 @@ use std::sync::Arc;
 use dravr_tronc::dates::{Elapsed, Timestamp, Zone};
 use pierre_contremaitre::messaging_strings::{
     format_template, KEY_PLATFORM_POST_MORNING_BRIEF_LINKS,
+    KEY_PLATFORM_POST_MORNING_BRIEF_MISSED_OFF, KEY_PLATFORM_POST_MORNING_BRIEF_MISSED_UNREADABLE,
     KEY_PLATFORM_POST_MORNING_BRIEF_NOT_SHARING, KEY_PLATFORM_POST_MORNING_BRIEF_PROMPT,
     KEY_PLATFORM_POST_MORNING_BRIEF_UNREADABLE,
 };
@@ -41,6 +42,7 @@ use pierre_database::repositories::{CoachReadSurface, ListedItem};
 use pierre_providers::ai_scope::{self, Provenance};
 use pierre_services::coach_attention::{AttentionHorizon, AttentionKind};
 use pierre_services::coach_roster::{roster_access, RosterAccess, RosterAthleteStatus};
+use pierre_services::missed_sessions::PlannedVsDone;
 use serde_json::Value;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -110,6 +112,11 @@ pub(crate) struct BriefFindings {
     pub not_sharing: usize,
     /// Sharers whose training could not be read this morning.
     pub unreadable: usize,
+    /// Sharers whose missed sessions were not checked because a calendar
+    /// could not be read (carnet#1792).
+    pub missed_unreadable: usize,
+    /// Sharers who switched the missed-session check off for the coach.
+    pub missed_off: usize,
 }
 
 impl BriefFindings {
@@ -119,6 +126,8 @@ impl BriefFindings {
         LeftOut {
             not_sharing: count(self.not_sharing),
             unreadable: count(self.unreadable),
+            missed_unreadable: count(self.missed_unreadable),
+            missed_off: count(self.missed_off),
         }
     }
 
@@ -145,6 +154,11 @@ impl BriefFindings {
 /// of their training read is counted as unreadable. One who shares with no
 /// source connected was read: there is nothing to read, which is not a
 /// failure.
+///
+/// While the brief checks missed sessions, a sharer whose check could not
+/// read a calendar, or who switched it off for the coach, is counted too
+/// (carnet#1792): they may be listed for another reason, but the brief
+/// says their missed sessions went unchecked.
 pub(crate) fn brief_findings(
     rows: &[RosterRow],
     refused: &[Uuid],
@@ -155,6 +169,13 @@ pub(crate) fn brief_findings(
         if row.status == RosterAthleteStatus::NoCoachConsent || refused.contains(&row.user_id) {
             found.not_sharing += 1;
             continue;
+        }
+        if settings.checks(AttentionKind::PlannedSessionsMissed.as_str()) {
+            match row.missed_sessions {
+                Some(PlannedVsDone::Unreadable) => found.missed_unreadable += 1,
+                Some(PlannedVsDone::Off) => found.missed_off += 1,
+                _ => {}
+            }
         }
         let lead = row
             .attention
@@ -243,6 +264,14 @@ pub(crate) fn appendix(
         (
             findings.unreadable,
             KEY_PLATFORM_POST_MORNING_BRIEF_UNREADABLE,
+        ),
+        (
+            findings.missed_unreadable,
+            KEY_PLATFORM_POST_MORNING_BRIEF_MISSED_UNREADABLE,
+        ),
+        (
+            findings.missed_off,
+            KEY_PLATFORM_POST_MORNING_BRIEF_MISSED_OFF,
         ),
     ];
     let footer: Vec<String> = left_out
@@ -365,6 +394,8 @@ pub(crate) async fn run_morning_brief(
             routine_id = %routine.id,
             not_sharing = findings.not_sharing,
             unreadable = findings.unreadable,
+            missed_unreadable = findings.missed_unreadable,
+            missed_off = findings.missed_off,
             "Morning brief: nothing to report"
         );
         return BriefRun::Empty(findings.left_out());
@@ -618,6 +649,7 @@ mod tests {
             agent_replies: None,
             season: None,
             attention,
+            missed_sessions: None,
         }
     }
 
@@ -755,6 +787,46 @@ mod tests {
             findings_lines(&found),
             "- Tia · today · nothing_received · days: 9, provider: Strava",
             "bug: the line the model reads changed shape"
+        );
+    }
+
+    #[test]
+    fn athletes_whose_missed_sessions_went_unchecked_are_counted_while_it_checks_them() {
+        let mut off = row("Odile", RosterAthleteStatus::Shared, Vec::new());
+        off.missed_sessions = Some(PlannedVsDone::Off);
+        let mut unread = row(
+            "Ulysse",
+            RosterAthleteStatus::Shared,
+            vec![reason(AttentionKind::PlanEnded, AttentionHorizon::Week)],
+        );
+        unread.missed_sessions = Some(PlannedVsDone::Unreadable);
+        let rows = [off, unread];
+        let found = brief_findings(&rows, &[], &BriefSettings::default());
+        assert_eq!(
+            (found.missed_off, found.missed_unreadable),
+            (1, 1),
+            "bug: an unchecked athlete was not counted under why"
+        );
+        assert_eq!(
+            found.items.len(),
+            1,
+            "bug: an unchecked athlete is still listed for another reason"
+        );
+        let left_out = found.left_out();
+        assert_eq!(
+            (left_out.missed_off, left_out.missed_unreadable),
+            (1, 1),
+            "bug: the run records other counts than the findings"
+        );
+        let unchecked = BriefSettings {
+            reasons_off: vec![AttentionKind::PlannedSessionsMissed.as_str().to_owned()],
+            ..BriefSettings::default()
+        };
+        let found = brief_findings(&rows, &[], &unchecked);
+        assert_eq!(
+            (found.missed_off, found.missed_unreadable),
+            (0, 0),
+            "bug: a brief that does not check missed sessions counts nobody as unchecked"
         );
     }
 }

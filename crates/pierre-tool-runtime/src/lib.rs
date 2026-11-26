@@ -124,6 +124,9 @@ pub mod headless_stream;
 pub mod implementations;
 /// The incomplete-window signal and its per-turn store (carnet#1481).
 pub mod incomplete_window;
+/// The missed-session check of one coached athlete, read for To handle and the morning brief (carnet#1792)
+#[cfg(feature = "tools-data")]
+pub mod missed_session_check;
 /// The gate streamed reply text crosses on its way to the turn sink: canary
 /// and `<tool_call>` filtering, and the retraction of text that is not the reply
 #[cfg(feature = "client-chat")]

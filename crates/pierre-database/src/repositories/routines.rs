@@ -260,8 +260,9 @@ pub(crate) const UPDATE_ROUTINE_SQL: &str = r"
 
 pub(crate) const INSERT_ROUTINE_RUN_SQL: &str = r"
             INSERT INTO routine_runs (id, tenant_id, routine_id, owner_user_id, kind, slot_ms,
-                                      ran_at_ms, outcome, items, not_sharing, unreadable)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                                      ran_at_ms, outcome, items, not_sharing, unreadable,
+                                      missed_unreadable, missed_off)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             ";
 
 pub(crate) const INSERT_ROUTINE_RUN_ITEM_SQL: &str = r"
@@ -271,7 +272,8 @@ pub(crate) const INSERT_ROUTINE_RUN_ITEM_SQL: &str = r"
             ";
 
 pub(crate) const LAST_ROUTINE_RUN_SQL: &str = r"
-            SELECT slot_ms, ran_at_ms, outcome, items, not_sharing, unreadable FROM routine_runs
+            SELECT slot_ms, ran_at_ms, outcome, items, not_sharing, unreadable, missed_unreadable,
+                   missed_off FROM routine_runs
             WHERE tenant_id = $1 AND routine_id = $2
             ORDER BY ran_at_ms DESC LIMIT 1
             ";
@@ -311,6 +313,8 @@ pub(crate) fn routine_run(columns: &RunColumns) -> AppResult<RoutineRun> {
         left_out: LeftOut {
             not_sharing: count("not_sharing", columns.not_sharing)?,
             unreadable: count("unreadable", columns.unreadable)?,
+            missed_unreadable: count("missed_unreadable", columns.missed_unreadable)?,
+            missed_off: count("missed_off", columns.missed_off)?,
         },
     })
 }
@@ -325,6 +329,8 @@ pub(crate) struct RunColumns {
     pub items: i64,
     pub not_sharing: i64,
     pub unreadable: i64,
+    pub missed_unreadable: i64,
+    pub missed_off: i64,
 }
 
 /// The check-in routine's stored days mask, local hour and state for
@@ -599,6 +605,8 @@ macro_rules! impl_routine_repository {
                     .bind(i64::try_from(run.items.len()).unwrap_or(i64::MAX))
                     .bind(i64::from(run.left_out.not_sharing))
                     .bind(i64::from(run.left_out.unreadable))
+                    .bind(i64::from(run.left_out.missed_unreadable))
+                    .bind(i64::from(run.left_out.missed_off))
                     .execute(&mut *tx)
                     .await
                     .map_err(failed)?;
@@ -647,6 +655,8 @@ macro_rules! impl_routine_repository {
                             items: column("items")?,
                             not_sharing: column("not_sharing")?,
                             unreadable: column("unreadable")?,
+                            missed_unreadable: column("missed_unreadable")?,
+                            missed_off: column("missed_off")?,
                         },
                     )
                 })

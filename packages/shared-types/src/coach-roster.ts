@@ -157,6 +157,7 @@ export type CoachAttentionKind =
   | 'provider_reconnect'
   | 'nothing_received'
   | 'deep_fatigue_streak'
+  | 'planned_sessions_missed'
   | 'plan_draft_waiting'
   | 'new_member_no_plan'
   | 'plan_ended';
@@ -182,7 +183,8 @@ export type CoachEvidenceSourceKind =
   | 'verification'
   | 'plan'
   | 'plan_thread'
-  | 'membership';
+  | 'membership'
+  | 'wellness';
 
 /** The source of one evidence line. */
 export interface CoachEvidenceSource {
@@ -195,7 +197,10 @@ export interface CoachEvidenceSource {
 export interface CoachAttentionEvidence {
   /** An i18n key under `coachHome.evidence.*`. */
   key: string;
-  /** The values the string interpolates: dates `YYYY-MM-DD`, instants ISO 8601, numbers. */
+  /**
+   * The values the string interpolates: dates `YYYY-MM-DD`, instants ISO 8601,
+   * numbers, and the athlete's own words (a wellness `note`), printed as text.
+   */
   params: Record<string, string | number>;
   source: CoachEvidenceSource;
   /** When the source said it (ISO 8601); null only for a revoke whose instant was never recorded. */

@@ -14,9 +14,11 @@
 //!
 //! - **Order** (ChefFamille, 2026-10-30). Today: consent revoked, an agent
 //!   reply with a figure nothing matches, source problems, then a run of
-//!   deep-fatigue mornings. This week: plan states (a draft awaiting the
-//!   coach, a new member without a plan, a plan ended with nothing next),
-//!   then days without a session, the longest first. [`AttentionReason::rank`]
+//!   deep-fatigue mornings. This week: planned sessions missed on
+//!   consecutive planned days (Phil, 2026-11-26: first of the week), plan
+//!   states (a draft awaiting the coach, a new member without a plan, a plan
+//!   ended with nothing next), then days without a session, the longest
+//!   first. [`AttentionReason::rank`]
 //!   carries that order as one number, so a client merging pages sorts on it.
 //! - **No data is not no activity.** Quiet days while a source is dead or its
 //!   data is stale are a source problem (today, "nothing received"), never a
@@ -45,11 +47,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::coach_roster::{RosterAthleteStatus, RosterJoin};
+use crate::missed_sessions::PlannedVsDone;
 
 mod reasons;
 
 use reasons::{
-    consent_revoked, deep_fatigue_streak, plan_reasons, source_reasons, unverified_figure,
+    consent_revoked, deep_fatigue_streak, plan_reasons, planned_sessions_missed, source_reasons,
+    unverified_figure,
 };
 
 /// What a reason is about.
@@ -67,6 +71,9 @@ pub enum AttentionKind {
     NothingReceived,
     /// Form has sat in the deep-fatigue band for consecutive mornings.
     DeepFatigueStreak,
+    /// None of the sessions planned on consecutive planned days has a
+    /// matching activity (carnet#1792).
+    PlannedSessionsMissed,
     /// The coach's draft of the athlete's plan is not published.
     PlanDraftWaiting,
     /// A new member of the coach's groups has no plan.
@@ -85,6 +92,7 @@ impl AttentionKind {
             Self::ProviderReconnect => "provider_reconnect",
             Self::NothingReceived => "nothing_received",
             Self::DeepFatigueStreak => "deep_fatigue_streak",
+            Self::PlannedSessionsMissed => "planned_sessions_missed",
             Self::PlanDraftWaiting => "plan_draft_waiting",
             Self::NewMemberNoPlan => "new_member_no_plan",
             Self::PlanEnded => "plan_ended",
@@ -140,6 +148,9 @@ pub enum EvidenceSourceKind {
     PlanThread,
     /// The athlete's membership of the coach's group.
     Membership,
+    /// The athlete's own wellness notes, read under their wellness grant to
+    /// the coach.
+    Wellness,
 }
 
 /// The source of one evidence line.
@@ -330,6 +341,9 @@ pub struct AttentionInputs<'row> {
     pub draft: Option<&'row DraftSignals>,
     /// The agent's replies to them this week.
     pub replies: &'row [ReplySignal],
+    /// Their missed-session check; absent where it was not run (a
+    /// non-sharer).
+    pub missed_sessions: Option<&'row PlannedVsDone>,
 }
 
 /// Where the athlete's season stands, for the season view (carnet#1250).
@@ -385,6 +399,9 @@ pub fn attention_reasons(
     if let Some(training) = &inputs.training {
         reasons.extend(source_reasons(training, inputs.zone, thresholds));
         reasons.extend(deep_fatigue_streak(training, inputs.zone, thresholds));
+    }
+    if let Some(check) = inputs.missed_sessions {
+        reasons.extend(planned_sessions_missed(check));
     }
     if inputs.plan_read {
         reasons.extend(plan_reasons(inputs, thresholds));
@@ -479,6 +496,7 @@ pub fn apply_dismissals(
 mod tests {
     use super::*;
     use crate::coach_roster::RosterGroupRef;
+    use crate::missed_sessions::MissedRun;
 
     static NO_REFUSALS: BTreeMap<String, Timestamp> = BTreeMap::new();
 
@@ -486,6 +504,8 @@ mod tests {
         days_without_activity: 5,
         fatigue_streak_mornings: 2,
         new_member_days: 14,
+        missed_planned_days: 2,
+        missed_lookback_days: 14,
     };
 
     fn at(s: &str) -> Timestamp {
@@ -522,6 +542,7 @@ mod tests {
             plan: None,
             draft: None,
             replies: &[],
+            missed_sessions: None,
         }
     }
 
@@ -888,6 +909,17 @@ mod tests {
         let mut verification = inputs(&join, Some(training(&sources, &[], &[], Some(1))));
         let replies = [reply];
         verification.replies = &replies;
+        let missed_check = PlannedVsDone::Read {
+            read_at: at("2026-10-30T06:30:00Z"),
+            run: Some(MissedRun {
+                days: vec![date("2026-10-24"), date("2026-10-26")],
+                sessions: Vec::new(),
+                since: date("2026-10-22"),
+                planned: 2,
+                missed: 2,
+            }),
+            wellness: None,
+        };
         let ranks = [
             rank(
                 AttentionKind::ConsentRevoked,
@@ -911,6 +943,11 @@ mod tests {
                     &THRESHOLDS,
                 ),
             ),
+            rank(AttentionKind::PlannedSessionsMissed, &{
+                let mut missed = inputs(&join, Some(training(&sources, &[], &[], Some(1))));
+                missed.missed_sessions = Some(&missed_check);
+                attention_reasons(&missed, &THRESHOLDS)
+            }),
             rank(
                 AttentionKind::NewMemberNoPlan,
                 &attention_reasons(&inputs(&join, None), &THRESHOLDS),

@@ -27,6 +27,14 @@ export interface CoachBriefRun {
   not_sharing: number;
   /** Athletes it left out because their data could not be read. */
   unreadable: number;
+  /**
+   * Athletes whose missed planned sessions it did not check because a
+   * calendar could not be read. Not left out: they may be listed for another
+   * reason.
+   */
+  missed_unreadable: number;
+  /** Athletes whose missed planned sessions it did not check because they switched the check off. */
+  missed_off: number;
 }
 
 /** `GET /api/coach/brief` and `PUT /api/coach/brief`. 403 for a caller who coaches no one. */

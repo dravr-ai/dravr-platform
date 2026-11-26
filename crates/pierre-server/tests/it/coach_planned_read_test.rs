@@ -28,6 +28,7 @@
 
 use crate::common;
 use crate::common::{offline_provider_config, offline_provider_registry};
+use crate::helpers::coach_roster_fixtures::plan_with_days;
 use secrecy::SecretString;
 
 use std::collections::HashSet;
@@ -41,23 +42,28 @@ use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use common::{create_test_server_resources, create_test_user_with_plan, in_web_turn};
-use dravr_tronc::dates::Timestamp;
+use dravr_tronc::dates::{CivilDate, Timestamp, Zone};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
+use pierre_config::coach_home::CoachHomeConfig;
 use pierre_core::constants::oauth::providers::INTERVALS_ICU;
 use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{
-    ConnectionStatus, ConnectionType, DelegatedConnection, RosterAthlete, TenantId, UserOAuthToken,
-    API_KEY_TOKEN_TYPE,
+    ConnectionStatus, ConnectionType, DataSource, DelegatedConnection, DeviceType, RosterAthlete,
+    StoredRecoveryMetrics, TenantId, UserOAuthToken, API_KEY_TOKEN_TYPE,
 };
 use pierre_core::transport::Transport;
+use pierre_database::repositories::{CoachReadClass, WellnessWriteMode};
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_providers::ai_scope::serve_over;
+use pierre_providers::ai_scope::{self, serve_over};
+use pierre_services::coached_athlete::coached_athlete_access;
+use pierre_services::missed_sessions::PlannedVsDone;
 use pierre_test_support::delegation::{create_group_agent, grant_coach_access};
 use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
 use pierre_tool_runtime::implementations::planned_workouts::GetPlannedWorkoutsTool;
+use pierre_tool_runtime::missed_session_check::{check_missed_sessions, MissedCheckRequest};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
@@ -86,6 +92,9 @@ struct Api {
     /// Whether the coach's key has stopped working, as a regenerated key
     /// does: every request is then refused as unauthenticated.
     dead: Arc<AtomicBool>,
+    /// The calendar and pairing to answer instead of [`calendar`] and the
+    /// default pairing, when a test sets them.
+    week: Arc<Mutex<Option<(Value, Value)>>>,
 }
 
 impl Api {
@@ -152,7 +161,13 @@ async fn events_route(
     if api.off_roster.lock().unwrap().contains(&athlete) {
         return (StatusCode::FORBIDDEN, Json(json!({})));
     }
-    (StatusCode::OK, Json(calendar()))
+    let week = api
+        .week
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|(events, _)| events.clone());
+    (StatusCode::OK, Json(week.unwrap_or_else(calendar)))
 }
 
 /// The pairing, null values left out as `fields=` leaves them.
@@ -164,13 +179,21 @@ async fn activities_route(
     if !api.record(format!("/api/v1/athlete/{athlete}/activities"), &headers) {
         return (StatusCode::UNAUTHORIZED, Json(json!({})));
     }
+    let week = api
+        .week
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|(_, pairing)| pairing.clone());
     (
         StatusCode::OK,
-        Json(json!([
-            { "id": "i101", "paired_event_id": 42 },
-            { "id": "i102", "paired_event_id": 46 },
-            { "id": "i103" }
-        ])),
+        Json(week.unwrap_or_else(|| {
+            json!([
+                { "id": "i101", "paired_event_id": 42 },
+                { "id": "i102", "paired_event_id": 46 },
+                { "id": "i103" }
+            ])
+        })),
     )
 }
 
@@ -855,4 +878,293 @@ async fn a_dead_coach_key_on_an_own_connection_read_flags_the_coach_alone() {
         "{refusal}"
     );
     assert!(w.api.calendar_calls().is_empty(), "{:?}", w.api.hits());
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// The missed-session check reads the calendar the coach reaches (carnet#1792)
+// ════════════════════════════════════════════════════════════════════════
+
+/// The morning the check runs on.
+fn check_day() -> CivilDate {
+    CivilDate::from_ymd(2026, 10, 1).unwrap()
+}
+
+/// A week on `athlete`'s calendar before [`check_day`].
+///
+/// The coach's ride on the 24th, done, and on the 26th, not done; and the
+/// ride Dravr pushed for the 28th from the athlete's plan, which the calendar
+/// paired with nothing.
+fn missed_week(athlete: Uuid) -> (Value, Value) {
+    let pushed = format!("dravr:plan:{athlete}:2026-09-28:0");
+    (
+        json!([
+            { "id": 61, "category": "WORKOUT", "name": "Endurance", "type": "Ride",
+              "start_date_local": "2026-09-24T00:00:00" },
+            { "id": 62, "category": "WORKOUT", "name": "Sweet spot", "type": "Ride",
+              "start_date_local": "2026-09-26T00:00:00" },
+            { "id": 64, "category": "WORKOUT", "name": "Dravr ride", "type": "Ride",
+              "start_date_local": "2026-09-28T00:00:00", "external_id": pushed }
+        ]),
+        json!([{ "id": "i301", "paired_event_id": 61 }, { "id": "i302" }]),
+    )
+}
+
+/// The coach's missed-session check of `member` on [`check_day`].
+async fn missed_check(w: &World, member: Person) -> PlannedVsDone {
+    checked_for(w, member, false).await
+}
+
+/// The coach's missed-session check of `member` on [`check_day`], read for a
+/// model (the morning brief's) when `for_model`.
+async fn checked_for(w: &World, member: Person, for_model: bool) -> PlannedVsDone {
+    let access = coached_athlete_access(w.repos(), w.coach.id, member.id, w.group.id)
+        .await
+        .unwrap()
+        .expect("the coach coaches the member");
+    let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&w.res);
+    let zone = Zone::utc();
+    let thresholds = CoachHomeConfig::default();
+    let check = Box::pin(check_missed_sessions(
+        &runtime,
+        MissedCheckRequest {
+            coach: w.coach.id,
+            access: &access,
+            zone: &zone,
+            today: check_day(),
+            thresholds: &thresholds,
+            plan_read: true,
+            surface: "coach_roster",
+            outside: false,
+            for_model,
+        },
+    ));
+    if for_model {
+        ai_scope::for_model(check).await.unwrap()
+    } else {
+        ai_scope::for_human_coach(check).await.unwrap()
+    }
+}
+
+/// `member` shares their wellness with the coach and noted "tired" on the
+/// 29th, in the window the check reads.
+async fn tired_on_the_29th(w: &World, member: Person) {
+    let repos = w.repos();
+    repos
+        .groups
+        .set_coach_consents(
+            &w.group.id.to_string(),
+            member.id,
+            None,
+            Some(true),
+            Timestamp::now(),
+        )
+        .await
+        .unwrap()
+        .expect("the member is live");
+    let source = repos
+        .data_sources
+        .upsert_data_source(
+            &member.tenant,
+            &DataSource {
+                id: String::new(),
+                user_id: member.id.to_string(),
+                provider: INTERVALS_ICU.to_owned(),
+                device_model: None,
+                software_version: None,
+                source: None,
+                device_type: DeviceType::Band,
+                original_source_name: None,
+            },
+        )
+        .await
+        .unwrap();
+    let now = Timestamp::now();
+    repos
+        .recovery
+        .upsert_recovery_metrics(
+            &member.tenant,
+            &StoredRecoveryMetrics {
+                id: format!("icu-day-{}", Uuid::new_v4()),
+                user_id: member.id.to_string(),
+                data_source_id: source,
+                date: CivilDate::from_ymd(2026, 9, 29).unwrap(),
+                recovery_score: None,
+                readiness_score: Some(61),
+                hrv_ms: None,
+                hrv_rmssd: None,
+                resting_heart_rate: None,
+                stress_score: None,
+                body_battery: None,
+                spo2: None,
+                respiratory_rate: None,
+                skin_temp_deviation: None,
+                daily_strain: None,
+                athlete_note: Some("tired".to_owned()),
+                source_name: INTERVALS_ICU.to_owned(),
+                recorded_at: now,
+            },
+            WellnessWriteMode::FullDay,
+            now,
+        )
+        .await
+        .unwrap();
+}
+
+/// How many wellness reads the coach has on `member`'s who-read record.
+async fn wellness_reads(w: &World, member: Person) -> usize {
+    w.repos()
+        .coach_data_reads
+        .list_coach_reads(member.tenant, member.id, w.group.id, 100)
+        .await
+        .unwrap()
+        .iter()
+        .filter(|read| read.class == CoachReadClass::Wellness)
+        .count()
+}
+
+/// A member with their own Intervals.icu key whose Dravr plan rides on the
+/// 28th, the day [`missed_week`] shows Dravr pushed.
+async fn planned_member(w: &World, name: &str, athlete: &str) -> Person {
+    let member = own_connection(w, name, athlete, true).await;
+    let day = CivilDate::from_ymd(2026, 9, 28).unwrap();
+    plan_with_days(&w.res, (member.id, member.tenant), day, &[(day, "ride")]).await;
+    *w.api.week.lock().unwrap() = Some(missed_week(member.id));
+    member
+}
+
+#[tokio::test]
+async fn the_check_judges_the_coachs_sessions_and_dravrs_push_by_the_calendars_pairing() {
+    let w = World::new().await;
+    let olga = planned_member(&w, "Olga Ownkey", "i240").await;
+
+    let PlannedVsDone::Read {
+        run: Some(run),
+        wellness,
+        ..
+    } = missed_check(&w, olga).await
+    else {
+        panic!("bug: two missed planned days raised no run");
+    };
+    assert_eq!(
+        run.days,
+        [
+            CivilDate::from_ymd(2026, 9, 26).unwrap(),
+            CivilDate::from_ymd(2026, 9, 28).unwrap()
+        ],
+        "bug: the run is not the coach's unpaired ride and Dravr's unpaired push"
+    );
+    assert!(
+        run.sessions
+            .iter()
+            .all(|session| session.provider.as_deref() == Some(INTERVALS_ICU)),
+        "bug: Dravr's push was judged by something other than the calendar's pairing: {run:?}"
+    );
+    assert_eq!(
+        (run.missed, run.planned),
+        (2, 3),
+        "bug: the window's counts are not two missed of three planned: {run:?}"
+    );
+    assert_eq!(
+        wellness, None,
+        "bug: a note was read without the athlete's wellness grant"
+    );
+    assert!(
+        w.api
+            .calendar_calls()
+            .iter()
+            .all(|hit| hit.key == COACH_KEY),
+        "bug: the check read the calendar with a key other than the coach's: {:?}",
+        w.api.hits()
+    );
+}
+
+#[tokio::test]
+async fn a_calendar_the_coach_cannot_read_is_never_a_miss() {
+    let w = World::new().await;
+    let olga = planned_member(&w, "Olga Ownkey", "i241").await;
+    w.api.dead.store(true, Ordering::SeqCst);
+
+    assert_eq!(
+        missed_check(&w, olga).await,
+        PlannedVsDone::Unreadable,
+        "bug: a refused read was judged"
+    );
+    // The next read is refused before any call: the coach must reconnect,
+    // and it is still unreadable rather than a calendar with nothing on it.
+    assert_eq!(
+        missed_check(&w, olga).await,
+        PlannedVsDone::Unreadable,
+        "bug: a read refused before any call was judged as an empty calendar"
+    );
+}
+
+#[tokio::test]
+async fn an_athlete_who_switched_the_check_off_is_not_read_for_it() {
+    let w = World::new().await;
+    let olga = planned_member(&w, "Olga Ownkey", "i242").await;
+    w.repos()
+        .groups
+        .set_coach_missed_session_check(&w.group.id.to_string(), olga.id, false, Timestamp::now())
+        .await
+        .unwrap()
+        .expect("Olga is a live member");
+    w.api.clear();
+
+    assert_eq!(
+        missed_check(&w, olga).await,
+        PlannedVsDone::Off,
+        "bug: a switched-off check still ran"
+    );
+    assert!(
+        w.api.calendar_calls().is_empty(),
+        "bug: a switched-off check read the calendar: {:?}",
+        w.api.hits()
+    );
+}
+
+#[tokio::test]
+async fn under_the_wellness_grant_to_handle_quotes_the_last_note_and_records_the_read() {
+    let w = World::new().await;
+    let olga = planned_member(&w, "Olga Ownkey", "i243").await;
+    tired_on_the_29th(&w, olga).await;
+
+    let PlannedVsDone::Read { wellness, .. } = missed_check(&w, olga).await else {
+        panic!("bug: the check did not read");
+    };
+    let note = wellness.expect("bug: the granted note was not quoted");
+    assert_eq!(
+        note.text, "tired",
+        "bug: the note was not quoted as written"
+    );
+    assert_eq!(
+        note.date,
+        CivilDate::from_ymd(2026, 9, 29).unwrap(),
+        "bug: the note carries another day"
+    );
+    assert_eq!(
+        wellness_reads(&w, olga).await,
+        1,
+        "bug: the coach's wellness read is not on the athlete's record"
+    );
+}
+
+#[tokio::test]
+async fn a_check_a_model_reads_never_fetches_the_note() {
+    let w = World::new().await;
+    let olga = planned_member(&w, "Olga Ownkey", "i244").await;
+    tired_on_the_29th(&w, olga).await;
+
+    let PlannedVsDone::Read { run, wellness, .. } = checked_for(&w, olga, true).await else {
+        panic!("bug: the brief's check did not read");
+    };
+    assert!(run.is_some(), "bug: the brief's check lost the run");
+    assert_eq!(
+        wellness, None,
+        "bug: the note reached a read a model receives"
+    );
+    assert_eq!(
+        wellness_reads(&w, olga).await,
+        0,
+        "bug: a wellness read nobody was shown went on the athlete's record"
+    );
 }

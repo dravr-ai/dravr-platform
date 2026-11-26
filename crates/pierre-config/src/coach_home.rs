@@ -1,5 +1,5 @@
 // ABOUTME: The thresholds Coach Home's attention queue raises a reason at, read from the environment once at startup
-// ABOUTME: Product thresholds (days without activity, mornings of deep fatigue, a new member's window), never training science
+// ABOUTME: Product thresholds (days without activity, fatigue mornings, a new member's window, missed planned days), never science
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -18,6 +18,16 @@ pub const DEFAULT_FATIGUE_STREAK_MORNINGS: u32 = 2;
 /// no plan is a new member to plan for.
 pub const DEFAULT_NEW_MEMBER_DAYS: u32 = 14;
 
+/// Consecutive missed planned days before `planned_sessions_missed` (carnet#1792).
+///
+/// A planned day is missed when none of its sessions was done. Rest days
+/// between two planned days do not break the run, and one missed day never
+/// raises it: planned and executed training diverge as a matter of course.
+pub const DEFAULT_MISSED_PLANNED_DAYS: u32 = 2;
+
+/// Days before today the missed-session check reads planned sessions over.
+pub const DEFAULT_MISSED_LOOKBACK_DAYS: u32 = 14;
+
 /// When Coach Home's attention queue raises a reason (carnet#1252).
 ///
 /// These say when a coach should look, not what a body is doing: the band an
@@ -35,6 +45,12 @@ pub struct CoachHomeConfig {
     /// `COACH_HOME_NEW_MEMBER_DAYS`: days after joining during which an
     /// athlete without a plan raises `new_member_no_plan`.
     pub new_member_days: u32,
+    /// `COACH_HOME_MISSED_PLANNED_DAYS`: consecutive planned days with none
+    /// of their sessions done before `planned_sessions_missed` is raised.
+    pub missed_planned_days: u32,
+    /// `COACH_HOME_MISSED_LOOKBACK_DAYS`: days before today the
+    /// missed-session check reads planned sessions over.
+    pub missed_lookback_days: u32,
 }
 
 impl Default for CoachHomeConfig {
@@ -43,6 +59,8 @@ impl Default for CoachHomeConfig {
             days_without_activity: DEFAULT_DAYS_WITHOUT_ACTIVITY,
             fatigue_streak_mornings: DEFAULT_FATIGUE_STREAK_MORNINGS,
             new_member_days: DEFAULT_NEW_MEMBER_DAYS,
+            missed_planned_days: DEFAULT_MISSED_PLANNED_DAYS,
+            missed_lookback_days: DEFAULT_MISSED_LOOKBACK_DAYS,
         }
     }
 }
@@ -60,6 +78,10 @@ impl CoachHomeConfig {
                 .unwrap_or(defaults.fatigue_streak_mornings),
             new_member_days: positive("COACH_HOME_NEW_MEMBER_DAYS")
                 .unwrap_or(defaults.new_member_days),
+            missed_planned_days: positive("COACH_HOME_MISSED_PLANNED_DAYS")
+                .unwrap_or(defaults.missed_planned_days),
+            missed_lookback_days: positive("COACH_HOME_MISSED_LOOKBACK_DAYS")
+                .unwrap_or(defaults.missed_lookback_days),
         }
     }
 }

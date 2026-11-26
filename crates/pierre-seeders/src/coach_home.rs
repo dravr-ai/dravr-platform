@@ -20,7 +20,8 @@
 //! - **this week**: four have gone 6 to 12 days without a session on live
 //!   sources; two have only the coach's draft and one a draft over a live
 //!   plan; three joined this week with no plan; two finished their plan with
-//!   its A race and one ran out of plan after a C race;
+//!   its A race and one ran out of plan after a C race; one rode none of
+//!   the last three planned days of their plan (missed planned sessions);
 //! - **calm** and **season**: the rest run a plan toward an A race ahead —
 //!   a 70.3 or a full distance, a marathon or a fondo by group, two weeks to
 //!   eight months out, some in transition after a race last week, some with a
@@ -40,23 +41,20 @@
 //! pierre-cli seed coach-home
 //! ```
 
-use std::collections::BTreeMap;
-
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{GroupRole, NewGroupTranscriptEntry, TranscriptSpeaker};
-use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::{Activity, ActivityBuilder, AddMessageParams, SportType};
 use pierre_core::transport::TransportPolicy;
 use pierre_core::uuid_utils;
 use pierre_database::repositories::{
-    DraftOwner, InsertClaimVerdictParams, PlanAuthor, PlanOutlineInput, PlanWeekInput,
-    SaveDraftParams, SavePlanBundleParams,
+    DraftOwner, InsertClaimVerdictParams, PlanAuthor, PlanWeekInput, SaveDraftParams,
+    SavePlanBundleParams,
 };
 use pierre_database::seed_models::SeedSyntheticActivity;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
-use pierre_memory::training_plans::{GoalRace, PlanPhase, RacePriority};
+use pierre_memory::training_plans::{PlannedDay, RacePriority};
 use pierre_middleware::mask_email;
 use pierre_services::live_activities::{LiveActivityStore, WriteOrigin};
 use tracing::info;
@@ -66,6 +64,10 @@ use crate::accounts::{account, create_account, hash_password, Account, NewAccoun
 use crate::coached_group::{add_member, coaches_group_named, seed_coached_group, GroupSpec};
 use crate::demo_data::DEMO_USER_PASSWORD;
 use crate::synthetic_activities::register_provider_connection;
+
+mod seasons;
+
+use seasons::{a_race_season, b_race_season, ended_season, shifted, ymd, Season, Slot};
 
 /// The coach's three groups.
 pub const GROUP_NAMES: [&str; 3] = [
@@ -83,6 +85,13 @@ const BASE_DAYS: i64 = 55;
 /// The days of the loading block a fatigue athlete ends on, before the
 /// session they train on the seed day itself.
 const FATIGUE_BLOCK_DAYS: i64 = 10;
+
+/// The days before the seed day a missed-sessions athlete's plan rides on.
+const MISSED_PLAN_DAYS: [i64; 3] = [6, 4, 2];
+
+/// Their last session, this many days before the seed day: nothing within a
+/// day of a planned ride.
+const MISSED_SINCE_DAYS: i64 = 9;
 
 /// What one seeded athlete's situation is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -118,13 +127,18 @@ enum Scenario {
     PlanRanOut,
     /// Shares, no source connected.
     NoSource,
+    /// Planned sessions missed on consecutive planned days (carnet#1792).
+    ///
+    /// Their plan rode six, four and two days ago; nothing came in since nine
+    /// days ago.
+    MissedSessions,
 }
 
 /// The 45 athletes, in order.
 const SCENARIOS: [Scenario; 45] = {
     use Scenario::{
-        Calm, DeadSource, DraftOnly, DraftOverPlan, Fatigue, NeverShared, NewMember, NoARace,
-        NoPlan, NoSource, PlanRanOut, Quiet, RaceRun, Revoked, UnmatchedFigure,
+        Calm, DeadSource, DraftOnly, DraftOverPlan, Fatigue, MissedSessions, NeverShared,
+        NewMember, NoARace, NoPlan, NoSource, PlanRanOut, Quiet, RaceRun, Revoked, UnmatchedFigure,
     };
     [
         Fatigue,
@@ -171,7 +185,7 @@ const SCENARIOS: [Scenario; 45] = {
         Calm,
         Calm,
         Calm,
-        Calm,
+        MissedSessions,
     ]
 };
 
@@ -459,6 +473,10 @@ impl Seeded<'_> {
                 self.live_plan(&a_race_season(self.slot, today)).await?;
             }
             Scenario::NoARace => self.live_plan(&b_race_season(self.slot, today)).await?,
+            Scenario::MissedSessions => {
+                self.plan_with_days(&a_race_season(self.slot, today), today)
+                    .await?;
+            }
             Scenario::RaceRun => {
                 self.live_plan(&ended_season(self.slot, today, RacePriority::A))
                     .await?;
@@ -560,6 +578,46 @@ impl Seeded<'_> {
                 replace_season: false,
                 outline: Some(season.outline()),
                 weeks: &[],
+                transport_policy: TransportPolicy::AnyTransport,
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// `season` with one week that rode on each of [`MISSED_PLAN_DAYS`] days
+    /// before `today`.
+    async fn plan_with_days(&self, season: &Season, today: CivilDate) -> AppResult<()> {
+        let (tenant, athlete) = (self.athlete.tenant.to_string(), self.athlete.id.to_string());
+        let days = MISSED_PLAN_DAYS
+            .iter()
+            .map(|days_ago| {
+                serde_json::from_value::<PlannedDay>(serde_json::json!({
+                    "date": ymd(shifted(today, -days_ago)),
+                    "sport": "ride",
+                    "workout": "Endurance ride, 1 h 30",
+                }))
+                .map_err(|e| AppError::internal(format!("a seeded plan day is malformed: {e}")))
+            })
+            .collect::<AppResult<Vec<_>>>()?;
+        let first = MISSED_PLAN_DAYS.iter().max().copied().unwrap_or(0);
+        let week_start = ymd(shifted(today, -first));
+        let weeks = [PlanWeekInput {
+            week_start: &week_start,
+            focus: "Aerobic base: three endurance rides",
+            days: &days,
+            adjustment_reason: "",
+            phase_index: None,
+        }];
+        self.repos
+            .training_plans
+            .save_plan_bundle(&SavePlanBundleParams {
+                tenant_id: &tenant,
+                user_id: &athlete,
+                author: PlanAuthor::none(),
+                goal_fact_id: None,
+                replace_season: false,
+                outline: Some(season.outline()),
+                weeks: &weeks,
                 transport_policy: TransportPolicy::AnyTransport,
             })
             .await?;
@@ -730,6 +788,8 @@ fn sessions(scenario: Scenario) -> Vec<(i64, u64)> {
         // Nothing since the connection died.
         Scenario::DeadSource => every_other_day(8),
         Scenario::Quiet(days) => every_other_day(days),
+        // Nothing on or around the plan's last three ride days.
+        Scenario::MissedSessions => every_other_day(MISSED_SINCE_DAYS),
         _ => every_other_day(1),
     }
 }
@@ -742,239 +802,6 @@ fn every_other_day(latest: i64) -> Vec<(i64, u64)> {
         .collect()
 }
 
-/// A season: its goal race, the races beside it and its phases.
-struct Season {
-    goal: GoalRace,
-    races: Vec<GoalRace>,
-    phases: Vec<PlanPhase>,
-}
-
-impl Season {
-    fn outline(&self) -> PlanOutlineInput<'_> {
-        PlanOutlineInput {
-            goal_race: &self.goal,
-            races: Some(&self.races),
-            strategy: "Construire la base, puis l'intensité, puis affûter.",
-            phases: &self.phases,
-            source_conversation_id: None,
-            flavour: None,
-            season_start: None,
-            season_end: None,
-        }
-    }
-}
-
-fn ymd(date: CivilDate) -> String {
-    date.to_string()
-}
-
-fn shifted(today: CivilDate, days: i64) -> CivilDate {
-    today.checked_add_days(days).unwrap_or(today)
-}
-
-fn phase(kind: PhaseKind, start: CivilDate, weeks: u8) -> PlanPhase {
-    PlanPhase {
-        kind,
-        start: ymd(start),
-        weeks,
-        purpose: String::new(),
-        intent: "Build the aerobic engine the season stands on.".to_owned(),
-        target_hours: None,
-        volume_share_of_peak: None,
-        tid_target: None,
-        hard_sessions_max: None,
-        session_mix: BTreeMap::new(),
-        flavour_override: None,
-        loading_pattern: None,
-        skeleton_id: None,
-    }
-}
-
-/// Phases laid back to back from `start`; a zero-week block is left out.
-fn phases(start: CivilDate, blocks: &[(PhaseKind, u8)]) -> Vec<PlanPhase> {
-    let mut at = start;
-    blocks
-        .iter()
-        .filter(|(_, weeks)| *weeks > 0)
-        .map(|&(kind, weeks)| {
-            let laid = phase(kind, at, weeks);
-            at = shifted(at, i64::from(weeks) * 7);
-            laid
-        })
-        .collect()
-}
-
-/// What each group trains for.
-struct Discipline {
-    /// The `discipline` its races carry.
-    name: &'static str,
-    /// The A races its athletes aim at.
-    a_races: [&'static str; 4],
-    /// The tune-up races beside them.
-    tune_ups: [&'static str; 2],
-}
-
-/// One discipline per group, in [`GROUP_NAMES`] order.
-const DISCIPLINES: [Discipline; 3] = [
-    Discipline {
-        name: "triathlon",
-        a_races: [
-            "IM 70.3 Indian Wells",
-            "Ironman Cozumel",
-            "Ironman Lake Placid",
-            "IM 70.3 Mont-Tremblant",
-        ],
-        tune_ups: ["Triathlon de Magog", "Duathlon de Granby"],
-    },
-    Discipline {
-        name: "marathon",
-        a_races: [
-            "Marathon de Philadelphie",
-            "Marathon de Boston",
-            "Marathon de Montréal",
-            "Marathon de Québec",
-        ],
-        tune_ups: ["Demi-marathon de Lévis", "10 km de Laval"],
-    },
-    Discipline {
-        name: "road",
-        a_races: [
-            "Gran Fondo Mont-Tremblant",
-            "Paris-Roubaix Challenge",
-            "L'Étape du Tour",
-            "Gran Fondo Whistler",
-        ],
-        tune_ups: ["Classique de Charlevoix", "Critérium de Sherbrooke"],
-    },
-];
-
-/// Weeks from today to the A race, spread from three weeks to eight months
-/// so different phases are current: the shortest are in their taper.
-const WEEKS_OUT: [i64; 11] = [2, 3, 5, 8, 11, 14, 18, 22, 26, 30, 34];
-
-/// A seeded athlete's place: their group and their position on the roster.
-#[derive(Debug, Clone, Copy)]
-struct Slot {
-    group: usize,
-    index: usize,
-}
-
-impl Slot {
-    fn discipline(self) -> &'static Discipline {
-        &DISCIPLINES[self.group % DISCIPLINES.len()]
-    }
-
-    fn race(self, name: &str, date: CivilDate, priority: RacePriority) -> GoalRace {
-        GoalRace {
-            name: name.to_owned(),
-            date: ymd(date),
-            discipline: self.discipline().name.to_owned(),
-            priority,
-        }
-    }
-
-    /// The athlete's A race, picked by their position.
-    fn a_race_name(self) -> &'static str {
-        let races = &self.discipline().a_races;
-        races[(self.index / DISCIPLINES.len()) % races.len()]
-    }
-}
-
-/// The blocks of a `total`-week build to a race, laid from the race back:
-/// two weeks of taper, up to four of specialty, up to six of build, the rest
-/// of base.
-fn build_to_race(total: i64) -> [(PhaseKind, u8); 4] {
-    let mut left = total.max(0);
-    let mut take = |most: i64| {
-        let weeks = left.min(most);
-        left -= weeks;
-        u8::try_from(weeks).unwrap_or(u8::MAX)
-    };
-    let taper = take(2);
-    let specialty = take(4);
-    let build = take(6);
-    let base = take(i64::from(u8::MAX));
-    [
-        (PhaseKind::Base, base),
-        (PhaseKind::Build, build),
-        (PhaseKind::Specialty, specialty),
-        (PhaseKind::Taper, taper),
-    ]
-}
-
-/// A plan toward an A race between two weeks and eight months out, entered a
-/// few weeks ago. One athlete in nine is in transition after an A race run
-/// last week; one in six has a B race on the way, one in seven a C race.
-fn a_race_season(slot: Slot, today: CivilDate) -> Season {
-    let index = i64::try_from(slot.index).unwrap_or(0);
-    let weeks_out = WEEKS_OUT[slot.index % WEEKS_OUT.len()];
-    let race_day = shifted(today, weeks_out * 7 - 1);
-    let goal = slot.race(slot.a_race_name(), race_day, RacePriority::A);
-    let tune_up = slot.discipline().tune_ups[slot.index % 2];
-    let mut races = Vec::new();
-
-    let (start, mut blocks) = if slot.index % 9 == 4 && weeks_out >= 4 {
-        // Raced an A race eight days ago; two weeks of transition, then the
-        // build to the next.
-        let past = slot.discipline().a_races[(slot.index + 1) % 4];
-        races.push(slot.race(past, shifted(today, -8), RacePriority::A));
-        let start = shifted(today, -7);
-        let mut blocks = vec![(PhaseKind::Transition, 2)];
-        // From the transition's end, a week from now, to the race.
-        blocks.extend(build_to_race(weeks_out - 1));
-        (start, blocks)
-    } else {
-        let elapsed = 2 + index % 5;
-        (
-            shifted(today, -elapsed * 7),
-            build_to_race(weeks_out + elapsed).to_vec(),
-        )
-    };
-    if slot.index.is_multiple_of(6) && weeks_out > 6 {
-        races.push(slot.race(
-            tune_up,
-            shifted(today, (weeks_out / 2) * 7 + 5),
-            RacePriority::B,
-        ));
-    }
-    if slot.index % 7 == 3 && weeks_out > 4 {
-        races.push(slot.race(tune_up, shifted(today, 10), RacePriority::C));
-    }
-    races.sort_by(|a, b| a.date.cmp(&b.date));
-    blocks.retain(|(_, weeks)| *weeks > 0);
-    Season {
-        goal,
-        races,
-        phases: phases(start, &blocks),
-    }
-}
-
-/// A base and a build toward a B race, no A race.
-fn b_race_season(slot: Slot, today: CivilDate) -> Season {
-    let start = shifted(today, -7);
-    let tune_up = slot.discipline().tune_ups[slot.index % 2];
-    Season {
-        goal: slot.race(tune_up, shifted(start, 8 * 7 - 1), RacePriority::B),
-        races: Vec::new(),
-        phases: phases(start, &[(PhaseKind::Base, 4), (PhaseKind::Build, 4)]),
-    }
-}
-
-/// A ten-week plan that ended two weeks ago with its goal race.
-fn ended_season(slot: Slot, today: CivilDate, priority: RacePriority) -> Season {
-    let start = shifted(today, -12 * 7);
-    let name = if priority == RacePriority::A {
-        slot.a_race_name()
-    } else {
-        slot.discipline().tune_ups[0]
-    };
-    Season {
-        goal: slot.race(name, shifted(start, 10 * 7 - 1), priority),
-        races: Vec::new(),
-        phases: phases(start, &[(PhaseKind::Base, 6), (PhaseKind::Build, 4)]),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
@@ -984,6 +811,7 @@ mod tests {
     use pierre_core::models::{FormBand, FormReading};
     use pierre_fitness_compute::AthleteInputs;
 
+    use super::seasons::DISCIPLINES;
     use super::*;
 
     #[test]
@@ -1004,6 +832,7 @@ mod tests {
             Scenario::NoARace,
             Scenario::NoSource,
             Scenario::Calm,
+            Scenario::MissedSessions,
         ] {
             assert!(SCENARIOS.contains(&wanted), "{wanted:?} has no athlete");
         }

@@ -127,8 +127,8 @@ use crate::models::provider_context::{
     ProviderGear, ProviderPersonalRecord, ProviderWeight,
 };
 use crate::models::{
-    Activity, Athlete, CalendarEventRef, LibraryWorkoutRef, PlannedSession, PlannedWorkout,
-    ProviderThresholds, SportType, TenantId, TimeSeriesData, API_KEY_TOKEN_TYPE,
+    Activity, Athlete, CalendarEventRef, LibraryWorkoutRef, PlannedCalendar, PlannedSession,
+    PlannedWorkout, ProviderThresholds, SportType, TenantId, TimeSeriesData, API_KEY_TOKEN_TYPE,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::provider_context::unsupported as context_unsupported;
@@ -598,6 +598,24 @@ pub trait FitnessProvider: Send + Sync {
     ) -> AppResult<Vec<PlannedWorkout>> {
         let _ = (after, before);
         Err(planned_workouts_unsupported(self.name()))
+    }
+
+    /// Read the planned calendar and the pairing of Dravr's pushes there.
+    ///
+    /// Over `[after, before]`, for the missed-session check (carnet#1792).
+    ///
+    /// A provider whose calendar pairs Dravr's own pushes with activities
+    /// overrides it; every other one reads [`Self::list_planned_workouts`]
+    /// and reports no pairing for them (`pushed: None`), never an empty one.
+    async fn read_planned_calendar(
+        &self,
+        after: CivilDate,
+        before: CivilDate,
+    ) -> AppResult<PlannedCalendar> {
+        Ok(PlannedCalendar {
+            planned: self.list_planned_workouts(after, before).await?,
+            pushed: None,
+        })
     }
 
     // ── Provider context ─────────────────────────────────────────────────

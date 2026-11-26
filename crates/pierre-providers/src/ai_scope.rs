@@ -67,7 +67,7 @@ use pierre_core::constants::oauth_providers::{
     garmin_device, source_attribution, source_class_of, GARMIN_ATTRIBUTION,
 };
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{Activity, PlannedWorkout};
+use pierre_core::models::{Activity, PlannedWorkout, PushedEventPairing};
 use pierre_core::transport::{Transport, TransportPolicy};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -530,6 +530,24 @@ pub fn filter_activities(
     note_rows(kept.len());
     // A grant without routes reads the sessions, not where they were.
     without_route(kept)
+}
+
+/// The pairing of Dravr's pushes to `provider`'s calendar, as the gates let it be seen.
+///
+/// Unchanged when no gate applies. Keyed on the calendar's provider, as a
+/// plan is.
+#[must_use]
+fn filter_pushed_pairings(
+    lookup: &dyn ProviderTerms,
+    provider: &str,
+    pushed: Vec<PushedEventPairing>,
+) -> Vec<PushedEventPairing> {
+    filter_typed(
+        lookup,
+        pushed,
+        |_| (provider.to_owned(), None),
+        &["external_id"],
+    )
 }
 
 /// Planned workouts as a model, or a caller over an external transport, may

@@ -518,6 +518,17 @@ pub const KEY_PLATFORM_POST_MORNING_BRIEF_NOT_SHARING: &str =
 pub const KEY_PLATFORM_POST_MORNING_BRIEF_UNREADABLE: &str =
     "platform_post.morning_brief.unreadable";
 
+/// Key: the brief's footer line for missed sessions a calendar read kept unchecked.
+///
+/// carnet#1792. `{0}` = how many.
+pub const KEY_PLATFORM_POST_MORNING_BRIEF_MISSED_UNREADABLE: &str =
+    "platform_post.morning_brief.missed_unreadable";
+
+/// Key: the morning brief's footer line for athletes who switched the
+/// missed-session check off for the coach (carnet#1792). `{0}` = how many.
+pub const KEY_PLATFORM_POST_MORNING_BRIEF_MISSED_OFF: &str =
+    "platform_post.morning_brief.missed_off";
+
 /// Key: the line that introduces the morning brief's links into To handle.
 /// No placeholder.
 pub const KEY_PLATFORM_POST_MORNING_BRIEF_LINKS: &str = "platform_post.morning_brief.links";

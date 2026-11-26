@@ -34,6 +34,7 @@ export const COACH_BRIEF_REASON_LABEL_KEY: Record<Exclude<CoachAttentionKind, 'c
   provider_reconnect: 'coachHome.brief.reason.providerReconnect',
   nothing_received: 'coachHome.brief.reason.nothingReceived',
   deep_fatigue_streak: 'coachHome.brief.reason.deepFatigueStreak',
+  planned_sessions_missed: 'coachHome.brief.reason.plannedSessionsMissed',
   plan_draft_waiting: 'coachHome.brief.reason.planDraftWaiting',
   new_member_no_plan: 'coachHome.brief.reason.newMemberNoPlan',
   plan_ended: 'coachHome.brief.reason.planEnded',
@@ -50,6 +51,7 @@ export const COACH_EVIDENCE_SOURCE_LABEL_KEY: Record<CoachEvidenceSourceKind, st
   plan: 'coachHome.source.plan',
   plan_thread: 'coachHome.source.plan_thread',
   membership: 'coachHome.source.membership',
+  wellness: 'coachHome.source.wellness',
 };
 
 /** The line a row of the season view carries for where the athlete's season stands. */
@@ -124,6 +126,8 @@ export const COACH_UNVERIFIED_KEYS: CountKeys = {
  */
 export const COACH_PLURAL_LINE_PARAM: Readonly<Record<string, string>> = {
   'coachHome.reason.unverifiedFigure': 'count',
+  // The planned days missed in a row.
+  'coachHome.reason.plannedSessionsMissed': 'count',
 };
 
 /**

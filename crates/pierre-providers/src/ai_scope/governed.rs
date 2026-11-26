@@ -17,14 +17,14 @@ use pierre_core::models::provider_context::{
     ProviderGear, ProviderPersonalRecord, ProviderWeight,
 };
 use pierre_core::models::{
-    Activity, Athlete, CalendarEventRef, LibraryWorkoutRef, PlannedSession, PlannedWorkout,
-    ProviderThresholds, SportType, TimeSeriesData,
+    Activity, Athlete, CalendarEventRef, LibraryWorkoutRef, PlannedCalendar, PlannedSession,
+    PlannedWorkout, ProviderThresholds, SportType, TimeSeriesData,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 
 use super::{
-    consented_read, filter_activities, filter_one, filter_planned_workouts, first_party_only_read,
-    note_raw_rows, policies_apply, withheld_error,
+    consented_read, filter_activities, filter_one, filter_planned_workouts, filter_pushed_pairings,
+    first_party_only_read, note_raw_rows, policies_apply, withheld_error,
 };
 use crate::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, OwnerStores, ProviderConfig,
@@ -227,6 +227,23 @@ impl FitnessProvider for AiGovernedProvider {
     ) -> AppResult<Vec<PlannedWorkout>> {
         let workouts = self.inner.list_planned_workouts(after, before).await?;
         Ok(filter_planned_workouts(self.lookup(), workouts))
+    }
+
+    /// The calendar's own sessions and the pairing of Dravr's pushes there,
+    /// each judged by the calendar's provider as a planned read judges it.
+    async fn read_planned_calendar(
+        &self,
+        after: CivilDate,
+        before: CivilDate,
+    ) -> AppResult<PlannedCalendar> {
+        let calendar = self.inner.read_planned_calendar(after, before).await?;
+        let provider = self.inner.name();
+        Ok(PlannedCalendar {
+            planned: filter_planned_workouts(self.lookup(), calendar.planned),
+            pushed: calendar
+                .pushed
+                .map(|pushed| filter_pushed_pairings(self.lookup(), provider, pushed)),
+        })
     }
 
     fn calendar_key(&self, external_id: &str) -> String {

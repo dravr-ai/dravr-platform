@@ -180,8 +180,10 @@ export default function GroupInfoPanel({
   const { setSharing: setCoachSharing, isPending: isSavingCoachSharing } =
     useSetCoachSharing(groupId);
   // Whether the coach's AI assistant includes the member in its roster tools
-  // (carnet#1511): per membership, off until the member turns it on here.
-  const { setConsents: setCoachConsents, isPending: isSavingAssistantRead } =
+  // (carnet#1511), off until the member turns it on here, and whether the
+  // coach is told of missed planned sessions (carnet#1792), on until the
+  // member turns it off here: both per membership.
+  const { setConsents: setCoachConsents, isPending: isSavingCoachConsents } =
     useSetCoachConsents(groupId);
   const { leaveGroup, isPending: isLeaving } = useLeaveGroup();
   const { deleteGroup, isPending: isDeleting } = useDeleteGroup();
@@ -254,6 +256,17 @@ export default function GroupInfoPanel({
   const handleAssistantReadChange = async (granted: boolean) => {
     try {
       await setCoachConsents({ assistant_read: granted });
+      showSuccess(t('delegation.consentsSavedToast'));
+    } catch (err) {
+      const message = describeApiError(err, { t, fallbackKey: 'groups.consentFailed' });
+      showError(t('app.updateFailed'), message);
+    }
+  };
+
+  /** Let the coach be told when the caller's planned sessions are missed, or stop it. */
+  const handleMissedSessionCheckChange = async (on: boolean) => {
+    try {
+      await setCoachConsents({ missed_session_check: on });
       showSuccess(t('delegation.consentsSavedToast'));
     } catch (err) {
       const message = describeApiError(err, { t, fallbackKey: 'groups.consentFailed' });
@@ -576,9 +589,24 @@ export default function GroupInfoPanel({
                   label={t('humanCoach.assistantOptIn.label', { coach: coachName ?? '' })}
                   description={t('humanCoach.assistantOptIn.hint', { coach: coachName ?? '' })}
                   checked={coachConsents.assistant_read}
-                  disabled={isSavingAssistantRead}
+                  disabled={isSavingCoachConsents}
                   onChange={(e) => void handleAssistantReadChange(e.target.checked)}
                   data-testid="coach-assistant-read-switch"
+                />
+              </div>
+            )}
+            {/* Whether the coach's To handle and morning brief say when the
+                member's planned sessions go unmatched (carnet#1792): on by
+                default, and turned off here without a confirm. */}
+            {showsCoachSharing && group.coach_user_id && coachConsents?.missed_session_check_supported && (
+              <div className={clsx('px-4 py-3', ROW_DIVIDER)} data-testid="coach-missed-session-check-row">
+                <Checkbox
+                  label={t('humanCoach.missedSessionCheck.label', { coach: coachName ?? '' })}
+                  description={t('humanCoach.missedSessionCheck.hint', { coach: coachName ?? '' })}
+                  checked={coachConsents.missed_session_check}
+                  disabled={isSavingCoachConsents}
+                  onChange={(e) => void handleMissedSessionCheckChange(e.target.checked)}
+                  data-testid="coach-missed-session-check-switch"
                 />
               </div>
             )}

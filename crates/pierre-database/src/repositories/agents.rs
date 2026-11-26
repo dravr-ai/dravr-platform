@@ -523,6 +523,20 @@ pub trait CoachingGroupRepository:
             .await
     }
 
+    /// The live member `user_id` of `group_id` turns on (`on`) or off their
+    /// human coach being told, on To handle and in the morning brief, of the
+    /// planned sessions they missed (carnet#1792), stamped `now` when the
+    /// value changes. Scoped to the member's own row and cross-tenant, as
+    /// [`Self::set_coach_consents`]. Returns the membership as it now stands,
+    /// or `None` when `user_id` is not a live member.
+    async fn set_coach_missed_session_check(
+        &self,
+        group_id: &str,
+        user_id: Uuid,
+        on: bool,
+        now: Timestamp,
+    ) -> AppResult<Option<GroupMember>>;
+
     /// [`Self::set_coach_consents`], in the same statement as the live
     /// member sharing (`Some((true, until))`) or no longer sharing
     /// (`Some((false, _))`) their health records (T2) with their coach,

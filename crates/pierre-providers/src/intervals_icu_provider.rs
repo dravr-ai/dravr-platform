@@ -108,8 +108,8 @@ use crate::intervals_icu_self_report::{
 use crate::intervals_icu_settings::thresholds_from_settings;
 use crate::intervals_icu_streams::{streams_to_time_series, IntervalsIcuStream};
 use crate::models::{
-    Activity, ActivityComment, Athlete, CalendarEventRef, LibraryWorkoutRef, PlannedSession,
-    PlannedWorkout, ProviderThresholds, SportType, TimeSeriesData,
+    Activity, ActivityComment, Athlete, CalendarEventRef, LibraryWorkoutRef, PlannedCalendar,
+    PlannedSession, PlannedWorkout, ProviderThresholds, SportType, TimeSeriesData,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::request_budget;
@@ -1066,6 +1066,14 @@ impl FitnessProvider for IntervalsIcuProvider {
         before: CivilDate,
     ) -> AppResult<Vec<PlannedWorkout>> {
         self.planned_workouts(after, before).await
+    }
+
+    async fn read_planned_calendar(
+        &self,
+        after: CivilDate,
+        before: CivilDate,
+    ) -> AppResult<PlannedCalendar> {
+        self.planned_calendar(after, before).await
     }
 
     async fn push_planned_session(&self, session: &PlannedSession) -> AppResult<String> {

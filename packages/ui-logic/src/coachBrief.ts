@@ -4,7 +4,14 @@
 // ABOUTME: The coach's morning brief on both clients — its status line, its hours, and the lists its settings replace in full (carnet#1791)
 // ABOUTME: Pure over the client's own t(): the status reads the last run's outcome, a paused brief says so, and a change is the brief the server will answer
 
-import type { CoachAttentionKind, CoachBrief, CoachBriefOutcome, CoachBriefState, CoachBriefUpdate } from '@pierre/shared-types';
+import type {
+  CoachAttentionKind,
+  CoachBrief,
+  CoachBriefOutcome,
+  CoachBriefRun,
+  CoachBriefState,
+  CoachBriefUpdate,
+} from '@pierre/shared-types';
 import { COACH_BRIEF_REASON_LABEL_KEY } from '@pierre/shared-constants';
 import { formatInstant, type Translate } from './homeFormat';
 
@@ -43,6 +50,8 @@ export function isCoachBrief(value: unknown): value is CoachBrief {
       typeof run.items === 'number' &&
       typeof run.not_sharing === 'number' &&
       typeof run.unreadable === 'number' &&
+      typeof run.missed_unreadable === 'number' &&
+      typeof run.missed_off === 'number' &&
       BRIEF_OUTCOMES.includes(run.outcome as CoachBriefOutcome));
   return (
     BRIEF_STATES.includes(brief.state as CoachBriefState) &&
@@ -70,12 +79,26 @@ export interface BriefStatusWords {
 }
 
 /**
+ * The athletes a run did not check for missed planned sessions, as the clauses
+ * its status line closes on: those whose calendar could not be read, then
+ * those who switched the check off. They are not left out of the brief (any
+ * other reason still lists them), so they never join its left-out count.
+ */
+function missedCheckClauses(t: Translate, run: CoachBriefRun): string {
+  const clauses: string[] = [];
+  if (run.missed_unreadable > 0) clauses.push(t('coachHome.brief.missed_unreadable', { count: run.missed_unreadable }));
+  if (run.missed_off > 0) clauses.push(t('coachHome.brief.missed_off', { count: run.missed_off }));
+  return clauses.map((clause) => ` · ${clause}`).join('');
+}
+
+/**
  * The brief's status in words. A paused brief says only that it is paused:
  * a schedule beside it would promise a run that will not come. Otherwise the
  * last run speaks: nothing to report (with how many it could not judge, when
  * any), sent with how many to handle, or held back (`held`, `withheld` and
  * `skipped` all mean it ran and sent nothing the coach asked for), each at
- * the time it ran on this device's clock.
+ * the time it ran on this device's clock. A run that sent or found nothing
+ * also says for how many it did not check missed planned sessions.
  */
 export function briefStatusWords(t: Translate, language: string, brief: CoachBrief): BriefStatusWords {
   if (brief.state === 'paused') return { status: t('coachHome.brief.status_paused'), schedule: null };
@@ -87,12 +110,17 @@ export function briefStatusWords(t: Translate, language: string, brief: CoachBri
     case 'empty': {
       // Nothing to report is not "all fine" when some athletes were not read.
       const leftOut = run.not_sharing + run.unreadable;
-      return leftOut > 0
-        ? { status: t('coachHome.brief.status_empty_left_out', { time, count: leftOut }), schedule }
-        : { status: t('coachHome.brief.status_empty', { time }), schedule };
+      const status =
+        leftOut > 0
+          ? t('coachHome.brief.status_empty_left_out', { time, count: leftOut })
+          : t('coachHome.brief.status_empty', { time });
+      return { status: `${status}${missedCheckClauses(t, run)}`, schedule };
     }
     case 'posted':
-      return { status: t('coachHome.brief.status_posted', { time, count: run.items }), schedule };
+      return {
+        status: `${t('coachHome.brief.status_posted', { time, count: run.items })}${missedCheckClauses(t, run)}`,
+        schedule,
+      };
     case 'held':
     case 'withheld':
     case 'skipped':

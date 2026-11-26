@@ -74,6 +74,12 @@ pub struct BriefRun {
     pub not_sharing: u32,
     /// How many it left out because their data could not be read.
     pub unreadable: u32,
+    /// How many it did not check for missed sessions because a calendar
+    /// could not be read (carnet#1792).
+    pub missed_unreadable: u32,
+    /// How many it did not check for missed sessions because they switched
+    /// the check off.
+    pub missed_off: u32,
 }
 
 impl From<RoutineRun> for BriefRun {
@@ -84,6 +90,8 @@ impl From<RoutineRun> for BriefRun {
             items: run.items,
             not_sharing: run.left_out.not_sharing,
             unreadable: run.left_out.unreadable,
+            missed_unreadable: run.left_out.missed_unreadable,
+            missed_off: run.left_out.missed_off,
         }
     }
 }

@@ -45,6 +45,9 @@ function coachConsents(overrides: Partial<CoachConsentsResponse> = {}): CoachCon
     assistant_read: false,
     assistant_read_at: null,
     assistant_read_supported: false,
+    missed_session_check: true,
+    missed_session_check_at: null,
+    missed_session_check_supported: false,
     sensitive_t2_read: false,
     sensitive_t2_read_at: null,
     sensitive_t2_read_until: null,
@@ -911,6 +914,53 @@ describe('GroupInfoPanel', () => {
 
     expect(await screen.findByTestId('coach-sharing-switch')).toBeInTheDocument();
     expect(screen.queryByTestId('coach-assistant-read-switch')).toBeNull();
+  });
+
+  it('offers the missed-session check after the assistant opt-in, on until the member turns it off, with no confirm', async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
+    );
+    vi.mocked(groupsApi.getCoachConsents).mockResolvedValue(
+      coachConsents({ assistant_read_supported: true, missed_session_check_supported: true }),
+    );
+    vi.mocked(groupsApi.updateCoachConsents).mockResolvedValue(
+      coachConsents({
+        assistant_read_supported: true,
+        missed_session_check_supported: true,
+        missed_session_check: false,
+        missed_session_check_at: '2026-11-26T09:00:00Z',
+      }),
+    );
+    renderPanel();
+
+    const toggle = (await screen.findByTestId('coach-missed-session-check-switch')) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    // In the sharing block, right after the assistant opt-in, naming the coach.
+    const row = screen.getByTestId('coach-missed-session-check-row');
+    expect(screen.getByTestId('coach-assistant-read-row').nextElementSibling).toBe(row);
+    expect(row).toHaveTextContent('Tell Casey Coach when planned sessions are missed');
+    expect(row).toHaveTextContent('Turn this off and Casey Coach sees nothing about missed sessions.');
+    fireEvent.click(toggle);
+
+    await waitFor(() => {
+      expect(groupsApi.updateCoachConsents).toHaveBeenCalledWith(GROUP_ID, { missed_session_check: false });
+    });
+    expect(groupsApi.updateCoachConsents).toHaveBeenCalledTimes(1);
+    // Turned off at once, with no dialog in between, and the switch shows the answer.
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => expect(toggle.checked).toBe(false));
+    expect(groupsApi.updateCoachSharing).not.toHaveBeenCalled();
+  });
+
+  it('offers no missed-session check where the server says there is no coach to tell', async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
+    );
+    vi.mocked(groupsApi.getCoachConsents).mockResolvedValue(coachConsents({ assistant_read_supported: true }));
+    renderPanel();
+
+    expect(await screen.findByTestId('coach-assistant-read-switch')).toBeInTheDocument();
+    expect(screen.queryByTestId('coach-missed-session-check-row')).toBeNull();
   });
 
   it('offers coach sharing in a group with no coach yet, since joining granted it', async () => {

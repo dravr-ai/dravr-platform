@@ -159,6 +159,8 @@ macro_rules! impl_coaching_group_repository {
                     wellness_read_at: column(r, "coach_wellness_read_at")?,
                     assistant_read: column(r, "coach_assistant_read")?,
                     assistant_read_at: column(r, "coach_assistant_read_at")?,
+                    missed_session_check: column(r, "coach_missed_session_check")?,
+                    missed_session_check_at: column(r, "coach_missed_session_check_at")?,
                     sensitive_t2_read: column(r, "coach_sensitive_t2_read")?,
                     sensitive_t2_read_at: column(r, "coach_sensitive_t2_read_at")?,
                     sensitive_t2_read_until: column(r, "coach_sensitive_t2_read_until")?,
@@ -646,6 +648,31 @@ macro_rules! impl_coaching_group_repository {
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to set a member's coach consents: {e}"))
+                    })?;
+                if result.rows_affected() == 0 {
+                    return Ok(None);
+                }
+                self.get_member(group_id, user_id).await
+            }
+
+            async fn set_coach_missed_session_check(
+                &self,
+                group_id: &str,
+                user_id: Uuid,
+                on: bool,
+                now: Timestamp,
+            ) -> AppResult<Option<GroupMember>> {
+                let result = sqlx::query(SET_COACH_MISSED_SESSION_CHECK_SQL)
+                    .bind(on)
+                    .bind(now)
+                    .bind($ids::bind_text(group_id)?)
+                    .bind($ids::bind(user_id))
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to set a member's missed-session check: {e}"
+                        ))
                     })?;
                 if result.rows_affected() == 0 {
                     return Ok(None);

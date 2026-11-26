@@ -81,7 +81,7 @@ beforeEach(() => {
     hour: 7,
     reasons_off: [],
     muted: ['camille'],
-    last_run: { ran_at: `${day(0)}T11:00:00Z`, outcome: 'posted', items: 3, not_sharing: 0, unreadable: 0 },
+    last_run: { ran_at: `${day(0)}T11:00:00Z`, outcome: 'posted', items: 3, not_sharing: 0, unreadable: 0, missed_unreadable: 0, missed_off: 0 },
     next_run: null,
   };
   mockGetBrief.mockReset();
@@ -269,8 +269,12 @@ describe('À traiter', () => {
       'coach-queue-row-julien',
       'coach-queue-row-lea',
     ]);
-    expect(week.getAllByTestId(/^coach-queue-row-/).map((n) => n.props.testID)).toEqual(['coach-queue-row-mathieu']);
-    expect(screen.getByTestId('coach-views-queue-count').props.children).toBe(5);
+    // Émilie's missed planned sessions (110) lead the week, before Mathieu's draft (120).
+    expect(week.getAllByTestId(/^coach-queue-row-/).map((n) => n.props.testID)).toEqual([
+      'coach-queue-row-emilie',
+      'coach-queue-row-mathieu',
+    ]);
+    expect(screen.getByTestId('coach-views-queue-count').props.children).toBe(6);
   });
 
   it('names "To handle" once: the tab carries the count, the queue no second title', async () => {

@@ -47,7 +47,7 @@ use tracing::warn;
 
 use crate::constants::oauth::INTERVALS_ICU;
 use crate::intervals_icu_calendar::event_sport;
-use crate::models::{CalendarKey, PlannedWorkout, PlannedWorkoutBuilder};
+use crate::models::{CalendarKey, PlannedWorkout, PlannedWorkoutBuilder, PushedEventPairing};
 
 /// The `fields` a pairing read asks `GET /activities` for: the activity's id
 /// and the planned event it completed.
@@ -275,6 +275,50 @@ impl PlannedEvent {
         )
         .completed_activity_id_opt(completed.get(&self.id).cloned())
         .build()
+    }
+}
+
+/// One event of a planned read's raw `GET /events` array that Dravr pushed
+/// itself: its id, its key and its civil date.
+#[derive(Debug)]
+pub(crate) struct PushedEvent {
+    id: i64,
+    external_id: String,
+    date: CivilDate,
+}
+
+/// The events of a raw `GET /events` array that Dravr pushed under its own keys.
+///
+/// In the order they arrived (carnet#1792). A planned read leaves them out
+/// ([`planned_events`]); the missed-session check reads whether the calendar
+/// paired them. An entry that is not an event, has no id or no civil date,
+/// or sits outside [`PLANNED_CATEGORIES`] is left out.
+pub(crate) fn pushed_events(entries: &[Value]) -> Vec<PushedEvent> {
+    entries
+        .iter()
+        .filter_map(|entry| serde_json::from_value::<IntervalsIcuPlannedEvent>(entry.clone()).ok())
+        .filter_map(|event| {
+            Entry::of(event.category.as_deref())?;
+            let external_id = event
+                .external_id
+                .filter(|key| CalendarKey::is_dravr_key(key))?;
+            Some(PushedEvent {
+                id: event.id?,
+                external_id,
+                date: civil_date(event.start_date_local.as_deref())?,
+            })
+        })
+        .collect()
+}
+
+impl PushedEvent {
+    /// The event with the activity `completed` names for its id, if any.
+    pub(crate) fn into_pairing(self, completed: &HashMap<i64, String>) -> PushedEventPairing {
+        PushedEventPairing {
+            completed_activity_id: completed.get(&self.id).cloned(),
+            external_id: self.external_id,
+            date: self.date,
+        }
     }
 }
 
@@ -591,6 +635,52 @@ mod tests {
         assert_eq!(
             completed,
             HashMap::from([(42, "i101".to_owned()), (43, "i105".to_owned())])
+        );
+    }
+
+    #[test]
+    fn only_dravrs_own_pushes_carry_their_pairing_for_the_missed_session_check() {
+        let entries = vec![
+            json!({ "id": 50, "category": "WORKOUT", "name": "Coach's ride",
+                    "start_date_local": "2026-10-01T00:00:00" }),
+            json!({ "id": 51, "category": "WORKOUT", "name": "Dravr ride",
+                    "start_date_local": "2026-10-02T00:00:00",
+                    "external_id": "dravr:plan:4b0f3c1e-8a2d-4f6b-9c3e-2d1a7e5f9b10:2026-10-02:0" }),
+            json!({ "id": 52, "category": "WORKOUT", "name": "Dravr ride, done",
+                    "start_date_local": "2026-10-03T00:00:00",
+                    "external_id": "dravr:rx:7d1e2f3a-0000-4000-8000-000000000001" }),
+            json!({ "id": 53, "category": "NOTE", "name": "Dravr week note",
+                    "start_date_local": "2026-10-01",
+                    "external_id": "dravr:plan:4b0f3c1e-8a2d-4f6b-9c3e-2d1a7e5f9b10:week:2026-09-28" }),
+            json!({ "category": "WORKOUT", "start_date_local": "2026-10-04T00:00:00",
+                    "external_id": "dravr:rx:no-id" }),
+        ];
+        let completed = HashMap::from([(52, "i900".to_owned())]);
+        let pairings: Vec<PushedEventPairing> = pushed_events(&entries)
+            .into_iter()
+            .map(|event| event.into_pairing(&completed))
+            .collect();
+        assert_eq!(
+            pairings,
+            [
+                PushedEventPairing {
+                    external_id: "dravr:plan:4b0f3c1e-8a2d-4f6b-9c3e-2d1a7e5f9b10:2026-10-02:0"
+                        .to_owned(),
+                    date: day(2),
+                    completed_activity_id: None,
+                },
+                PushedEventPairing {
+                    external_id: "dravr:rx:7d1e2f3a-0000-4000-8000-000000000001".to_owned(),
+                    date: day(3),
+                    completed_activity_id: Some("i900".to_owned()),
+                },
+            ],
+            "the coach's own event, a note and an event with no id carry none"
+        );
+        assert_eq!(
+            planned_events(entries, PlannedReader::Coach).len(),
+            1,
+            "the planned read still leaves every push out"
         );
     }
 

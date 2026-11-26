@@ -37,8 +37,8 @@ use pierre_core::models::provider_context::{
     ProviderGear, ProviderPersonalRecord, ProviderWeight,
 };
 use pierre_core::models::{
-    Activity, Athlete, CalendarEventRef, LibraryWorkoutRef, PlannedSession, PlannedWorkout,
-    ProviderThresholds, SportType, TenantId, TimeSeriesData,
+    Activity, Athlete, CalendarEventRef, LibraryWorkoutRef, PlannedCalendar, PlannedSession,
+    PlannedWorkout, ProviderThresholds, SportType, TenantId, TimeSeriesData,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_providers::core::{
@@ -373,6 +373,14 @@ impl FitnessProvider for GrantByIdFallback {
         before: CivilDate,
     ) -> AppResult<Vec<PlannedWorkout>> {
         self.session.list_planned_workouts(after, before).await
+    }
+
+    async fn read_planned_calendar(
+        &self,
+        after: CivilDate,
+        before: CivilDate,
+    ) -> AppResult<PlannedCalendar> {
+        self.session.read_planned_calendar(after, before).await
     }
 
     async fn read_coach_roster(&self) -> AppResult<CoachRoster> {

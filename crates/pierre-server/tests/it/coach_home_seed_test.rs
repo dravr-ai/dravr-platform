@@ -85,6 +85,7 @@ mod coach_home_seed_tests {
                 "nothing_received",
                 "plan_draft_waiting",
                 "plan_ended",
+                "planned_sessions_missed",
                 "provider_reconnect",
                 "unverified_figure",
             ]),

@@ -47,7 +47,7 @@ const RAN_AT = '2026-11-24T12:04:00Z';
 
 describe('briefStatusWords', () => {
   it('says paused, with no schedule beside it, whatever the last run was', () => {
-    const words = briefStatusWords(echo, 'en', brief({ state: 'paused', last_run: { ran_at: RAN_AT, outcome: 'posted', items: 3, not_sharing: 0, unreadable: 0 } }));
+    const words = briefStatusWords(echo, 'en', brief({ state: 'paused', last_run: { ran_at: RAN_AT, outcome: 'posted', items: 3, not_sharing: 0, unreadable: 0, missed_unreadable: 0, missed_off: 0 } }));
     expect(words).toEqual({ status: 'coachHome.brief.status_paused', schedule: null });
     expect(briefStatusLine(words)).toBe('coachHome.brief.status_paused');
   });
@@ -60,33 +60,61 @@ describe('briefStatusWords', () => {
   });
 
   it('names an empty run with the local time it ran', () => {
-    const words = briefStatusWords(echo, 'en', brief({ last_run: { ran_at: RAN_AT, outcome: 'empty', items: 0, not_sharing: 0, unreadable: 0 } }));
+    const words = briefStatusWords(echo, 'en', brief({ last_run: { ran_at: RAN_AT, outcome: 'empty', items: 0, not_sharing: 0, unreadable: 0, missed_unreadable: 0, missed_off: 0 } }));
     expect(words.status).toBe(`coachHome.brief.status_empty{"time":"${localTime(RAN_AT)}"}`);
   });
 
   it('names an empty run that left athletes out with how many, never as all fine', () => {
-    const words = briefStatusWords(echo, 'en', brief({ last_run: { ran_at: RAN_AT, outcome: 'empty', items: 0, not_sharing: 2, unreadable: 1 } }));
+    const words = briefStatusWords(echo, 'en', brief({ last_run: { ran_at: RAN_AT, outcome: 'empty', items: 0, not_sharing: 2, unreadable: 1, missed_unreadable: 0, missed_off: 0 } }));
     expect(words.status).toBe(`coachHome.brief.status_empty_left_out{"time":"${localTime(RAN_AT)}","count":3}`);
   });
 
   it('names a posted run with its time and how many it named', () => {
-    const words = briefStatusWords(echo, 'en', brief({ last_run: { ran_at: RAN_AT, outcome: 'posted', items: 3, not_sharing: 0, unreadable: 0 } }));
+    const words = briefStatusWords(echo, 'en', brief({ last_run: { ran_at: RAN_AT, outcome: 'posted', items: 3, not_sharing: 0, unreadable: 0, missed_unreadable: 0, missed_off: 0 } }));
     expect(words.status).toBe(`coachHome.brief.status_posted{"time":"${localTime(RAN_AT)}","count":3}`);
     expect(briefStatusLine(words)).toBe(`${words.status} · coachHome.brief.schedule{"time":"07:00"}`);
   });
 
   it('reads held, withheld and skipped alike: held back at the time it ran', () => {
     for (const outcome of ['held', 'withheld', 'skipped'] as const) {
-      const words = briefStatusWords(echo, 'en', brief({ last_run: { ran_at: RAN_AT, outcome, items: 2, not_sharing: 0, unreadable: 0 } }));
+      const words = briefStatusWords(echo, 'en', brief({ last_run: { ran_at: RAN_AT, outcome, items: 2, not_sharing: 0, unreadable: 0, missed_unreadable: 0, missed_off: 0 } }));
       expect(words.status).toBe(`coachHome.brief.status_held{"time":"${localTime(RAN_AT)}"}`);
     }
+  });
+
+  it('closes a posted run on whom it did not check for missed sessions: an unread calendar, then a check switched off', () => {
+    const words = briefStatusWords(echo, 'en', brief({ last_run: { ran_at: RAN_AT, outcome: 'posted', items: 3, not_sharing: 0, unreadable: 0, missed_unreadable: 2, missed_off: 1 } }));
+    expect(words.status).toBe(
+      `coachHome.brief.status_posted{"time":"${localTime(RAN_AT)}","count":3}` +
+        ' · coachHome.brief.missed_unreadable{"count":2}' +
+        ' · coachHome.brief.missed_off{"count":1}',
+    );
+    expect(briefStatusLine(words)).toBe(`${words.status} · coachHome.brief.schedule{"time":"07:00"}`);
+  });
+
+  it('names each count on its own and never adds it to the athletes an empty run left out', () => {
+    const offOnly = briefStatusWords(echo, 'en', brief({ last_run: { ran_at: RAN_AT, outcome: 'empty', items: 0, not_sharing: 0, unreadable: 0, missed_unreadable: 0, missed_off: 4 } }));
+    expect(offOnly.status).toBe(`coachHome.brief.status_empty{"time":"${localTime(RAN_AT)}"} · coachHome.brief.missed_off{"count":4}`);
+    const unreadOnly = briefStatusWords(echo, 'en', brief({ last_run: { ran_at: RAN_AT, outcome: 'empty', items: 0, not_sharing: 1, unreadable: 0, missed_unreadable: 1, missed_off: 0 } }));
+    expect(unreadOnly.status).toBe(
+      `coachHome.brief.status_empty_left_out{"time":"${localTime(RAN_AT)}","count":1} · coachHome.brief.missed_unreadable{"count":1}`,
+    );
+  });
+
+  it('reads the missed-session clauses in the catalogue words, after the run they close', () => {
+    const lookup = (key: string): unknown =>
+      key.split('.').reduce<unknown>((node, part) => (node !== null && typeof node === 'object' ? (node as Record<string, unknown>)[part] : undefined), en);
+    const t = (key: string, options?: Record<string, unknown>) =>
+      String(lookup(key) ?? key).replace(/\{\{(\w+)\}\}/g, (_m, name: string) => String(options?.[name] ?? ''));
+    const words = briefStatusWords(t, 'en', brief({ last_run: { ran_at: RAN_AT, outcome: 'posted', items: 1, not_sharing: 0, unreadable: 0, missed_unreadable: 1, missed_off: 2 } }));
+    expect(words.status.endsWith(' · missed sessions not checked for 1: a calendar couldn’t be read · missed sessions not checked for 2: switched off on their side')).toBe(true);
   });
 });
 
 describe('isCoachBrief', () => {
   it('takes a brief, with or without a last run', () => {
     expect(isCoachBrief(brief())).toBe(true);
-    expect(isCoachBrief(brief({ state: 'paused', last_run: { ran_at: RAN_AT, outcome: 'skipped', items: 0, not_sharing: 0, unreadable: 0 } }))).toBe(true);
+    expect(isCoachBrief(brief({ state: 'paused', last_run: { ran_at: RAN_AT, outcome: 'skipped', items: 0, not_sharing: 0, unreadable: 0, missed_unreadable: 0, missed_off: 0 } }))).toBe(true);
   });
 
   it('refuses what a fallback page, an older server or a newer outcome answers', () => {
@@ -96,9 +124,11 @@ describe('isCoachBrief', () => {
     expect(isCoachBrief({ ...brief(), state: 'sleeping' })).toBe(false);
     expect(isCoachBrief({ ...brief(), muted: undefined })).toBe(false);
     expect(isCoachBrief({ ...brief(), last_run: undefined })).toBe(false);
-    expect(isCoachBrief({ ...brief(), last_run: { ran_at: RAN_AT, outcome: 'exploded', items: 0, not_sharing: 0, unreadable: 0 } })).toBe(false);
+    expect(isCoachBrief({ ...brief(), last_run: { ran_at: RAN_AT, outcome: 'exploded', items: 0, not_sharing: 0, unreadable: 0, missed_unreadable: 0, missed_off: 0 } })).toBe(false);
     expect(isCoachBrief({ ...brief(), last_run: { ran_at: RAN_AT, outcome: 'empty', items: 0 } })).toBe(false);
     expect(isCoachBrief({ ...brief(), last_run: { ran_at: RAN_AT, outcome: 'empty', items: 0, not_sharing: 1 } })).toBe(false);
+    expect(isCoachBrief({ ...brief(), last_run: { ran_at: RAN_AT, outcome: 'empty', items: 0, not_sharing: 1, unreadable: 0 } })).toBe(false);
+    expect(isCoachBrief({ ...brief(), last_run: { ran_at: RAN_AT, outcome: 'empty', items: 0, not_sharing: 1, unreadable: 0, missed_unreadable: 0 } })).toBe(false);
   });
 });
 
@@ -145,10 +175,19 @@ describe('the lists a change replaces', () => {
         'nothing_received',
         'plan_draft_waiting',
         'plan_ended',
+        'planned_sessions_missed',
         'provider_reconnect',
         'unverified_figure',
       ],
     );
+  });
+
+  it('draws the missed-session switch after the fatigue streak and before the plan states, as the queue ranks them', () => {
+    const at = (kind: (typeof BRIEF_REASON_KINDS)[number]) => BRIEF_REASON_KINDS.indexOf(kind);
+    expect(at('planned_sessions_missed')).toBe(at('deep_fatigue_streak') + 1);
+    expect(at('plan_draft_waiting')).toBe(at('planned_sessions_missed') + 1);
+    expect(withReason([], 'planned_sessions_missed', false)).toEqual(['planned_sessions_missed']);
+    expect(withReason(['plan_ended'], 'planned_sessions_missed', false)).toEqual(['planned_sessions_missed', 'plan_ended']);
   });
 
   it('lists the left-out athletes the roster names, in the order they were left out', () => {
@@ -294,6 +333,8 @@ describe('the catalogue behind the brief', () => {
       'status_posted',
       'status_held',
       'status_paused',
+      'missed_unreadable',
+      'missed_off',
       'pause',
       'resume',
       'settings',

@@ -40,6 +40,7 @@ import {
   countdownBars,
   daysBetween,
   describeLine,
+  describeEvidence,
   describeReasonTitle,
   describeSource,
   queueWhen,
@@ -54,6 +55,7 @@ import {
   sourceChips,
   threadState,
 } from '../src/coachHome';
+import { civilShortDate, sportLabel } from '../src/homeFormat';
 
 const echo = (key: string, options?: Record<string, unknown>) =>
   options === undefined ? key : `${key}${JSON.stringify(options)}`;
@@ -411,6 +413,87 @@ describe('reasonTitle', () => {
   it('gives a key outside the reason catalogue no title', () => {
     expect(reasonTitle(reason({ id: 'r', key: 'coachHome.evidence.formMorning' }), 'A', 'en')).toBeNull();
     expect(describeReasonTitle(echo, 'en', reason({ id: 'r', key: 'coachHome.evidence.formMorning' }), 'A')).toBeNull();
+  });
+});
+
+describe('missed planned sessions', () => {
+  const lookup = (catalogue: unknown, key: string): unknown =>
+    key.split('.').reduce<unknown>((node, part) => (node !== null && typeof node === 'object' ? (node as Record<string, unknown>)[part] : undefined), catalogue);
+  const t = (catalogue: unknown) => (key: string, options?: Record<string, unknown>) =>
+    String(lookup(catalogue, key) ?? key).replace(/\{\{(\w+)\}\}/g, (_m, name: string) => String(options?.[name] ?? ''));
+
+  const NOTE = 'Legs <b>heavy</b> & sore, skipped the intervals';
+  function missed(count: number): CoachAttentionReason {
+    return reason({
+      id: 'planned_sessions_missed',
+      kind: 'planned_sessions_missed',
+      horizon: 'week',
+      key: 'coachHome.reason.plannedSessionsMissed',
+      params: { count, missed: 3, planned: 5, date: '2026-11-17' },
+      evidence: [
+        {
+          key: 'coachHome.evidence.plannedSessionsUnmatched',
+          params: { missed: 3, planned: 5, date: '2026-11-17' },
+          source: { kind: 'plan', providers: ['intervals_icu'] },
+          at: '2026-11-26T05:00:00Z',
+        },
+        {
+          key: 'coachHome.evidence.plannedSessionUnmatched',
+          params: { date: '2026-11-24', sport: 'run' },
+          source: { kind: 'provider', providers: ['intervals_icu'] },
+          at: '2026-11-26T05:00:00Z',
+        },
+        {
+          key: 'coachHome.evidence.wellnessNote',
+          params: { date: '2026-11-25', note: NOTE },
+          source: { kind: 'wellness', providers: [] },
+          at: '2026-11-26T05:00:00Z',
+        },
+      ],
+    });
+  }
+
+  it('reads one planned day missed in the singular, and a run of them in the plural, on the label and the title alike', () => {
+    expect(lineKey('coachHome.reason.plannedSessionsMissed', { count: 1 }, 'en')).toBe('coachHome.reason.plannedSessionsMissedOne');
+    expect(lineKey('coachHome.reason.plannedSessionsMissed', { count: 2 }, 'en')).toBe('coachHome.reason.plannedSessionsMissed');
+    expect(reasonTitle(missed(1), 'A', 'fr')?.key).toBe('coachHome.reasonTitle.plannedSessionsMissedOne');
+    expect(reasonTitle(missed(3), 'A', 'fr')).toEqual({
+      key: 'coachHome.reasonTitle.plannedSessionsMissed',
+      params: { count: 3, missed: 3, planned: 5, date: '2026-11-17', name: 'A' },
+    });
+  });
+
+  it('writes the label and the title in the catalogue words, naming the athlete', () => {
+    expect(describeLine(t(en), 'en', 'coachHome.reason.plannedSessionsMissed', missed(3).params)).toBe(
+      'No matching activity on 3 planned days in a row',
+    );
+    expect(describeLine(t(en), 'en', 'coachHome.reason.plannedSessionsMissed', missed(1).params)).toBe(
+      'No matching activity on the last planned day',
+    );
+    expect(describeReasonTitle(t(en), 'en', missed(3), 'Chloé')).toBe(
+      'Chloé has no activity matching the sessions planned on their last 3 planned days.',
+    );
+    expect(describeReasonTitle(t(en), 'en', missed(1), 'Chloé')).toBe(
+      'Chloé has no activity matching the sessions planned on their last planned day.',
+    );
+  });
+
+  it('prints each evidence line with its counts, its day, the sport by name and the athlete note word for word', () => {
+    const lines = describeEvidence(t(en), 'en', missed(3).evidence).map((line) => line.text);
+    expect(lines).toEqual([
+      `3 of the 5 sessions planned since ${civilShortDate('2026-11-17', 'en')} have no matching activity`,
+      `Planned on ${civilShortDate('2026-11-24', 'en')}: ${sportLabel(t(en), 'run')}, no matching activity`,
+      // The note is the athlete's own text: nothing here rewrites or escapes it, the view prints it as text.
+      `Last wellness note (${civilShortDate('2026-11-25', 'en')}): “${NOTE}”`,
+    ]);
+    expect(sportLabel(t(en), 'run')).not.toBe('run');
+  });
+
+  it('names the wellness source of the note and the calendar the plan was read from', () => {
+    const [count, , note] = missed(3).evidence;
+    expect(describeSource(echo, 'en', note.source, null)).toBe('coachHome.source.wellness');
+    expect(describeSource(echo, 'en', count.source, null)).toBe('Intervals.icu · coachHome.source.plan');
+    expect(describeSource(t(en), 'en', note.source, null)).toBe('Wellness');
   });
 });
 
