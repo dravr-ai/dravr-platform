@@ -19,11 +19,11 @@
 //!   under a digest of that selection, and an unticked stream stays refused.
 
 use crate::common;
-use crate::helpers::axum_test::AxumTestRequest;
+use crate::helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use crate::helpers::consent_form::hidden_field;
 use crate::oauth2_grant_details_test::{
-    access_detail, app, approve_with, code_of, constraints_detail, exchange, live_grants, register,
-    tokens, world, Client, World,
+    access_detail, app, approve_with, challenge, code_of, constraints_detail, exchange,
+    fresh_state, live_grants, register, tokens, world, Client, World, REDIRECT,
 };
 use crate::oauth2_step_up_test::{
     allow_health_records, approve_asking, authorize_asking, challenged_scope, children,
@@ -117,7 +117,7 @@ async fn approve_screen(
     client: &Client,
     cookie: &str,
     (page, scope): (&str, &str),
-) -> crate::helpers::axum_test::AxumTestResponse {
+) -> AxumTestResponse {
     let digest = hidden_field(page, "review_digest").expect("the screen carries its digest");
     approve_asking(world, client, (cookie, &digest), &[("scope", scope)]).await
 }
@@ -350,12 +350,7 @@ async fn planned_workouts(world: &World, bearer: &str) -> String {
 /// Step `client` up for labs and workouts under a sleep-coach parent (which
 /// holds no workouts), the claim seen first, posting `ticked` checkbox
 /// fields: the redirect.
-async fn choose(
-    world: &World,
-    client: &Client,
-    token: &str,
-    ticked: &[&str],
-) -> crate::helpers::axum_test::AxumTestResponse {
+async fn choose(world: &World, client: &Client, token: &str, ticked: &[&str]) -> AxumTestResponse {
     let (status, _) = ask_labs(world, token, Some("T2")).await;
     assert_eq!(status, 403, "the claim is seen");
     let details = labs_and_workouts(world);
@@ -384,12 +379,12 @@ async fn choose(
         .csrf_manager
         .generate_token(world.user.id)
         .unwrap();
-    let challenge = crate::oauth2_grant_details_test::challenge();
-    let state = crate::oauth2_grant_details_test::fresh_state();
+    let challenge = challenge();
+    let state = fresh_state();
     let mut form: Vec<(&str, &str)> = vec![
         ("response_type", "code"),
         ("client_id", client.id.as_str()),
-        ("redirect_uri", crate::oauth2_grant_details_test::REDIRECT),
+        ("redirect_uri", REDIRECT),
         ("state", state.as_str()),
         ("code_challenge", challenge.as_str()),
         ("code_challenge_method", "S256"),
