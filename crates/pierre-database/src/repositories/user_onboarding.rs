@@ -159,13 +159,28 @@ macro_rules! personal_conversation {
 }
 pub(crate) use personal_conversation;
 
+/// The literal of [`STEP_AGENT_CONSENT_PROMPT`], for the statements that
+/// name it.
+macro_rules! agent_consent_prompt_step {
+    () => {
+        "agent_consent_prompt"
+    };
+}
+
+/// The `user_onboarding` step recording that the athlete answered the
+/// one-time question about what Dravr's own agent may read (carnet#1544):
+/// a consent decision kept beside the wizard's steps, never one of them.
+pub const STEP_AGENT_CONSENT_PROMPT: &str = agent_consent_prompt_step!();
+
 /// The onboarding half of a reset, as `(label, statement)` pairs.
 ///
 /// Each binds the
 /// user id as text to `$1` (every `user_id` here is `TEXT`, `VARCHAR` or
 /// `uuid` depending on table and engine, and each renders the id the same).
 ///
-/// - `user_onboarding`: every step record, so each wizard step is pending.
+/// - `user_onboarding`: every step record, so each wizard step is pending,
+///   except [`STEP_AGENT_CONSENT_PROMPT`]: the athlete answered a one-time
+///   consent question there, and a reset does not ask it again.
 /// - `user_facts`: what onboarding wrote — the about-you and pillar answers
 ///   (`source = 'onboarding'`), anything placed under a pillar, the North Star,
 ///   and the PAR-Q medical flags — so pillar coverage reads zero again.
@@ -181,7 +196,11 @@ pub(crate) use personal_conversation;
 pub const ONBOARDING_RESET_STATEMENTS: &[(&str, &str)] = &[
     (
         "user_onboarding",
-        "DELETE FROM user_onboarding WHERE CAST(user_id AS TEXT) = $1",
+        concat!(
+            "DELETE FROM user_onboarding WHERE CAST(user_id AS TEXT) = $1 AND step_id <> '",
+            agent_consent_prompt_step!(),
+            "'"
+        ),
     ),
     (
         "user_facts (onboarding)",

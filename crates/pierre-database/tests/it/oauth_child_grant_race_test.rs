@@ -163,9 +163,7 @@ async fn a_step_up_racing_its_parents_revoke_leaves_no_live_child() {
             .await
             .unwrap();
         let (stored, ()) = tokio::join!(
-            repos
-                .oauth2_server
-                .store_child_grant(&child, &approval),
+            repos.oauth2_server.store_child_grant(&child, &approval),
             async {
                 sleep(HOLD).await;
                 revoke.commit().await.unwrap();
@@ -208,7 +206,9 @@ async fn a_withdrawal_racing_a_step_up_ends_the_child_it_commits() {
             "UPDATE oauth_client_grants SET revoked_at = revoked_at WHERE id = $1"
         }
         #[cfg(feature = "postgresql")]
-        DatabaseBackend::PostgreSQL(_) => "SELECT id FROM oauth_client_grants WHERE id = $1 FOR UPDATE",
+        DatabaseBackend::PostgreSQL(_) => {
+            "SELECT id FROM oauth_client_grants WHERE id = $1 FOR UPDATE"
+        }
     };
     let withdrawn = on_pool!(db, |pool| {
         let mut step_up = pool.begin().await.unwrap();
@@ -218,12 +218,9 @@ async fn a_withdrawal_racing_a_step_up_ends_the_child_it_commits() {
             .await
             .unwrap();
         let (withdrawn, ()) = tokio::join!(
-            repos.oauth2_server.withdraw_client_access(
-                &user_id,
-                TENANT,
-                &client.client_id,
-                SCOPE
-            ),
+            repos
+                .oauth2_server
+                .withdraw_client_access(&user_id, TENANT, &client.client_id, SCOPE),
             async {
                 sleep(HOLD).await;
                 sqlx::query(INSERT_CHILD)

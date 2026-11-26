@@ -30,8 +30,7 @@ use uuid::Uuid;
 use crate::intake::{STATUS_COMPLETE, STATUS_SKIPPED};
 use crate::provider_notice;
 
-/// The `user_onboarding` step that records the question was answered.
-pub const STEP_AGENT_CONSENT_PROMPT: &str = "agent_consent_prompt";
+use pierre_database::repositories::STEP_AGENT_CONSENT_PROMPT;
 
 /// What the app shows for the question, and the athlete's standing answers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

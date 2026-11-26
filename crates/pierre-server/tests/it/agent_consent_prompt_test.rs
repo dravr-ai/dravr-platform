@@ -238,3 +238,50 @@ async fn a_support_session_cannot_answer_for_the_athlete() {
         "bug: a support session answered for the athlete"
     );
 }
+
+/// An admin's onboarding reset returns the wizard to its start, and the
+/// question stays answered: it is a consent decision, not an onboarding
+/// step, and asking it again would put a one-time question twice. Both
+/// scopes of the reset, and the answer (a dismissal) survives with them.
+#[tokio::test]
+async fn an_onboarding_reset_never_asks_the_answered_question_again() {
+    use pierre_database::repositories::OnboardingResetScope;
+
+    for scope in [
+        OnboardingResetScope::OnboardingOnly,
+        OnboardingResetScope::WithMemory,
+    ] {
+        let a = athlete(&format!("prompt-reset-{scope:?}").to_lowercase()).await;
+        let (status, body) = a.answer(&json!({"dismissed": true})).await;
+        assert_eq!(status, 200, "{body}");
+        let repos = &a.resources.common.repos;
+        let user = a.user.id.to_string();
+        let tenant = a.tenant_id.to_string();
+        repos
+            .user_onboarding
+            .set_onboarding_step(&user, "profile_type", "complete", None, Some(&tenant))
+            .await
+            .unwrap();
+
+        repos
+            .user_onboarding
+            .reset_onboarding(&user, scope)
+            .await
+            .unwrap();
+
+        let steps = repos
+            .user_onboarding
+            .get_onboarding_steps(&user)
+            .await
+            .unwrap();
+        assert!(
+            steps.iter().all(|step| step.step_id != "profile_type"),
+            "premise: the reset ({scope:?}) clears the wizard's steps"
+        );
+        assert_eq!(
+            a.read().await["due"],
+            false,
+            "bug: an onboarding reset ({scope:?}) asks the answered tier-consent question again"
+        );
+    }
+}

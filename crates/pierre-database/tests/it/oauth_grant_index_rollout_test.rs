@@ -165,7 +165,10 @@ async fn the_previous_and_the_current_consent_upsert_both_run_on_the_migrated_sc
 
     let first = Uuid::new_v4().to_string();
     let held = previous_store(&db, &first, user, &client.client_id).await;
-    assert_eq!(held, first, "premise: the previous binary inserts a new row");
+    assert_eq!(
+        held, first,
+        "premise: the previous binary inserts a new row"
+    );
 
     store_child(repos, user, &client.client_id, &held).await;
 
