@@ -167,9 +167,11 @@ macro_rules! agent_consent_prompt_step {
     };
 }
 
-/// The `user_onboarding` step recording that the athlete answered the
-/// one-time question about what Dravr's own agent may read (carnet#1544):
-/// a consent decision kept beside the wizard's steps, never one of them.
+/// The step recording the agent tier-consent question was answered.
+///
+/// The one-time question about what Dravr's own agent may read
+/// (carnet#1544): a consent decision kept beside the wizard's steps, never
+/// one of them.
 pub const STEP_AGENT_CONSENT_PROMPT: &str = agent_consent_prompt_step!();
 
 /// The onboarding half of a reset, as `(label, statement)` pairs.
