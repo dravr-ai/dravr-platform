@@ -30,6 +30,7 @@ use pierre_auth::auth::{Claims, DelegatedGrant, TokenLineage};
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::security::cookies::auth_cookie_name;
+use pierre_config::environment::ServerConfig;
 use pierre_contremaitre::messaging_strings::format_template;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::html::escape_html_attribute;
@@ -75,7 +76,7 @@ pub(crate) async fn world() -> World {
 }
 
 /// [`world`] on a server built from `config`.
-pub(crate) async fn world_with(config: pierre_config::environment::ServerConfig) -> World {
+pub(crate) async fn world_with(config: ServerConfig) -> World {
     common::init_server_config();
     common::init_test_http_clients();
     let resources = common::create_test_server_resources_with_config(config)

@@ -533,7 +533,7 @@ async fn a_global_admins_list_follows_the_grant_on_mcp() {
     );
     // Every call of these reads T3, which no outside client is served,
     // an admin's key included (carnet#1544): the rest are listed to it.
-    const READ_T3: [&str; 3] = [
+    let read_t3 = [
         "remember_fact",
         "forget_playbook",
         "list_coaching_playbooks",
@@ -541,7 +541,7 @@ async fn a_global_admins_list_follows_the_grant_on_mcp() {
     for hidden in HIDDEN_TOOLS {
         assert_eq!(
             with_key.contains(hidden),
-            !READ_T3.contains(&hidden),
+            !read_t3.contains(&hidden),
             "{hidden}: listed to an admin's key exactly when some call of it reads below T3"
         );
     }
