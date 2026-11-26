@@ -202,7 +202,7 @@ function PlanTab({
   return (
     <>
       <ScrollView
-        contentContainerClassName="gap-5 pb-10 pt-4"
+        contentContainerClassName="gap-8 pb-10 pt-4"
         accessibilityLabel={t(PLAN_WORKSPACE_KEYS.calendar)}
         testID="workspace-plan"
       >

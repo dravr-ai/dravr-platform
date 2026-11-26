@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The athlete workspace's two weeks on the phone — one list of dates, each session a press to its editor, each date a « + Séance »
-// ABOUTME: A date the draft changes is « Proposé » with Accepter and Refuser; a session kept as the coach's call says so and offers its withdrawal (carnet#1818)
+// ABOUTME: The athlete workspace's two weeks on the phone — each week a section, each date a group of hairline rows: its sessions, then « + Séance »
+// ABOUTME: A date the draft changes sits on a faint primary wash with « Proposé », Accepter and Refuser; a session kept as the coach's call offers its withdrawal (carnet#1818)
 
 import React from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useTranslation } from '@pierre/i18n';
 import type { PlanDay } from '@pierre/shared-types';
@@ -28,6 +28,14 @@ import { DayRow, WeekHeading, type SessionEditorTarget } from '../../chat/Workou
 /** The long date a screen reader hears for a date's heading: « lundi 23 novembre ». */
 const LONG_DATE: Intl.DateTimeFormatOptions = { weekday: 'long', day: 'numeric', month: 'long' };
 
+/**
+ * The wash a proposed date sits on: it marks where the draft changes the
+ * plan, under content that keeps its own ink (DESIGN.md "Alerts", "A wash is
+ * not an alert") — faint, no edge. The phone has no wash table of its own,
+ * so the class is the /5 step of the one accent.
+ */
+const PROPOSED_WASH = 'bg-primary/5';
+
 interface WorkspaceCalendarProps {
   weeks: PlanCalendarWeek[];
   /** Whether the coach accepted the proposal on a date this visit (decision W1). */
@@ -46,12 +54,30 @@ interface WorkspaceCalendarProps {
 }
 
 /**
+ * One row of a date's group: the pane's 16 inset outside, the faint hairline
+ * on the inner column so it insets to the text, none under the group's last
+ * row (DESIGN.md "Phone").
+ */
+function GroupRow({ last, children }: { last: boolean; children: React.ReactNode }) {
+  return (
+    <View className="px-4">
+      <View
+        className={last ? undefined : 'border-b border-border-faint'}
+        style={last ? undefined : { borderBottomWidth: StyleSheet.hairlineWidth }}
+      >
+        {children}
+      </View>
+    </View>
+  );
+}
+
+/**
  * One session of a date: a press opening its editor, drawn as the plan
  * card's row is — sport, length, marks, the coach's call — then, when the
  * coach kept it as their call, the line that withdraws it. Past or ahead, a
  * session keeps the row's own inks; only the date's heading goes quieter.
  */
-function SessionBlock({
+function SessionRow({
   day,
   position,
   entries,
@@ -71,7 +97,7 @@ function SessionBlock({
   const title = day.rest ? t('chat.restDay') : day.workout;
   const kept = day.coach_call === true && !day.rest;
   return (
-    <View>
+    <GroupRow last={false}>
       <Pressable
         onPress={() => onEdit({ day, entries, mode: 'edit' })}
         accessibilityRole="button"
@@ -80,7 +106,7 @@ function SessionBlock({
           date: formatCivilDate(day.date, language, ROW_DATE),
         })}
         // A rest day is one line: the press keeps the 44 pt floor all the same.
-        className="min-h-11 flex-row items-start gap-2"
+        className="min-h-11 flex-row items-start gap-2 pb-2"
         testID={`workspace-session-${day.date}-${position}`}
       >
         <View className="flex-1">
@@ -105,12 +131,17 @@ function SessionBlock({
           <Text className="text-sm font-medium text-primary">{t(COACH_CALL_KEYS.undo)}</Text>
         </Pressable>
       ) : null}
-    </View>
+    </GroupRow>
   );
 }
 
-/** One date: its name, « Proposé » when the draft changes it, its sessions, the proposal's two answers and « + Séance ». */
-function DateCell({
+/**
+ * One date, read like a section: its heading, « Proposé » when the draft
+ * changes it, its sessions as hairline rows, the proposal's two answers and
+ * the « + Séance » row last. No box: a proposed date sits on the faint
+ * primary wash, today's heading is in the accent, a past date's is quieter.
+ */
+function DateGroup({
   day,
   accepted,
   onAccept,
@@ -138,7 +169,6 @@ function DateCell({
   // Where the proposal stands, said with the date's heading, so a screen
   // reader moving heading by heading hears which dates are proposed.
   const proposal = day.proposed ? t(accepted ? PLAN_WORKSPACE_KEYS.accepted : PLAN_WORKSPACE_KEYS.proposed) : null;
-  const edge = day.proposed ? 'border-dashed border-primary' : today ? 'border-primary' : 'border-border-faint';
   // The editor joins a new session to the date: its last entry, or a blank
   // session on a date the plan holds nothing on.
   const addTarget: SessionEditorTarget = {
@@ -147,15 +177,12 @@ function DateCell({
     mode: 'add',
   };
   return (
-    <View
-      className={`rounded-xl border px-3 pb-2 pt-2.5 ${edge}`}
-      testID={`workspace-date-${day.date}`}
-    >
-      <View className="flex-row flex-wrap items-center justify-between gap-2">
+    <View className={`py-2 ${day.proposed ? PROPOSED_WASH : ''}`} testID={`workspace-date-${day.date}`}>
+      <View className="min-h-8 flex-row flex-wrap items-center justify-between gap-2 px-4">
         <Text
           accessibilityRole="header"
           accessibilityLabel={`${formatCivilDate(day.date, language, LONG_DATE)}${proposal !== null ? `, ${proposal}` : ''}`}
-          className={`font-mono text-sm tabular-nums ${today ? 'font-semibold text-primary' : past ? 'text-text-tertiary' : 'text-text-secondary'}`}
+          className={`font-mono text-sm tabular-nums ${today ? 'font-semibold text-primary' : past ? 'text-text-tertiary' : 'font-semibold text-text-primary'}`}
         >
           {rowDate}
         </Text>
@@ -179,7 +206,7 @@ function DateCell({
         ) : null}
       </View>
       {day.entries.map((entry, position) => (
-        <SessionBlock
+        <SessionRow
           key={`${entry.date}-${position}`}
           day={entry}
           position={position}
@@ -190,57 +217,62 @@ function DateCell({
         />
       ))}
       {day.proposed ? (
-        <View className="mt-1 flex-row gap-x-5">
-          {!accepted ? (
+        <GroupRow last={false}>
+          <View className="flex-row gap-x-5">
+            {!accepted ? (
+              <Pressable
+                onPress={onAccept}
+                accessibilityRole="button"
+                accessibilityHint={rowDate}
+                hitSlop={10}
+                className="min-h-11 justify-center"
+                testID={`workspace-accept-${day.date}`}
+              >
+                <Text className="text-sm font-semibold text-primary">{t(PLAN_WORKSPACE_KEYS.accept)}</Text>
+              </Pressable>
+            ) : null}
+            {/* Held back while the date is put back: a second press would ask twice. */}
             <Pressable
-              onPress={onAccept}
+              onPress={() => {
+                if (!refusing) onRefuse();
+              }}
               accessibilityRole="button"
               accessibilityHint={rowDate}
+              accessibilityState={{ disabled: refusing, busy: refusing }}
               hitSlop={10}
-              className="min-h-11 justify-center"
-              testID={`workspace-accept-${day.date}`}
+              className={`min-h-11 justify-center ${refusing ? 'opacity-50' : ''}`}
+              testID={`workspace-refuse-${day.date}`}
             >
-              <Text className="text-sm font-semibold text-primary">{t(PLAN_WORKSPACE_KEYS.accept)}</Text>
+              <Text className="text-sm font-semibold text-text-secondary">{t(PLAN_WORKSPACE_KEYS.refuse)}</Text>
             </Pressable>
-          ) : null}
-          {/* Held back while the date is put back: a second press would ask twice. */}
-          <Pressable
-            onPress={() => {
-              if (!refusing) onRefuse();
-            }}
-            accessibilityRole="button"
-            accessibilityHint={rowDate}
-            accessibilityState={{ disabled: refusing, busy: refusing }}
-            hitSlop={10}
-            className={`min-h-11 justify-center ${refusing ? 'opacity-50' : ''}`}
-            testID={`workspace-refuse-${day.date}`}
-          >
-            <Text className="text-sm font-semibold text-text-secondary">{t(PLAN_WORKSPACE_KEYS.refuse)}</Text>
-          </Pressable>
-        </View>
+          </View>
+        </GroupRow>
       ) : null}
-      <Pressable
-        onPress={() => onEdit(addTarget)}
-        disabled={full}
-        accessibilityRole="button"
-        accessibilityLabel={t(SESSION_EDITOR_KEYS.addTitle, { date: rowDate })}
-        accessibilityHint={full ? t(SESSION_EDITOR_KEYS.dateFull, { date: rowDate, max: MAX_SESSIONS_PER_DATE }) : undefined}
-        accessibilityState={{ disabled: full }}
-        className={`mt-2 h-11 flex-row items-center justify-center gap-1 self-start rounded-lg border border-dashed border-primary/45 px-4 ${full ? 'opacity-50' : ''}`}
-        testID={`workspace-add-${day.date}`}
-      >
-        <Feather name="plus" size={14} color={colors.tokens.primary} />
-        <Text className="text-sm font-semibold text-primary">{t(PLAN_WORKSPACE_KEYS.addShort)}</Text>
-      </Pressable>
+      <GroupRow last>
+        <Pressable
+          onPress={() => onEdit(addTarget)}
+          disabled={full}
+          accessibilityRole="button"
+          accessibilityLabel={t(SESSION_EDITOR_KEYS.addTitle, { date: rowDate })}
+          accessibilityHint={full ? t(SESSION_EDITOR_KEYS.dateFull, { date: rowDate, max: MAX_SESSIONS_PER_DATE }) : undefined}
+          accessibilityState={{ disabled: full }}
+          className={`min-h-11 flex-row items-center gap-1 self-start ${full ? 'opacity-50' : ''}`}
+          testID={`workspace-add-${day.date}`}
+        >
+          <Feather name="plus" size={14} color={colors.tokens.primary} />
+          <Text className="text-sm font-semibold text-primary">{t(PLAN_WORKSPACE_KEYS.addShort)}</Text>
+        </Pressable>
+      </GroupRow>
     </View>
   );
 }
 
 /**
- * The fortnight as the coach works it on the phone: one list of dates under
- * each week's heading, every date of the week included. Today is outlined,
- * a past date drawn quieter, and a date the draft changes is dashed and says
- * « Proposé » until the coach accepts or refuses it.
+ * The fortnight as the coach works it on the phone: each week a section under
+ * its heading, its dates groups separated by space, never by a box. Today's
+ * heading is in the accent, a past date's quieter, and a date the draft
+ * changes sits on a faint wash and says « Proposé » until the coach accepts
+ * or refuses it.
  */
 export function WorkspaceCalendar({
   weeks,
@@ -254,23 +286,27 @@ export function WorkspaceCalendar({
 }: WorkspaceCalendarProps) {
   const currentIndex = weeks.findIndex((week) => week.week.current);
   return (
-    <View className="gap-5 px-4" testID="workspace-calendar">
+    <View className="gap-8" testID="workspace-calendar">
       {weeks.map((week, index) => (
-        <View key={week.week.week_start} className="gap-2" testID={`workspace-week-${week.week.week_start}`}>
-          <WeekHeading week={week.week} index={index} currentIndex={currentIndex} />
-          {week.days.map((day) => (
-            <DateCell
-              key={day.date}
-              day={day}
-              accepted={isAccepted(day)}
-              onAccept={() => onAccept(day)}
-              onRefuse={() => onRefuse(day.date)}
-              refusing={refusing === day.date}
-              onWithdrawCall={onWithdrawCall}
-              callSaving={callSaving}
-              onEdit={onEdit}
-            />
-          ))}
+        <View key={week.week.week_start} className="gap-3" testID={`workspace-week-${week.week.week_start}`}>
+          <View className="px-4">
+            <WeekHeading week={week.week} index={index} currentIndex={currentIndex} />
+          </View>
+          <View className="gap-2">
+            {week.days.map((day) => (
+              <DateGroup
+                key={day.date}
+                day={day}
+                accepted={isAccepted(day)}
+                onAccept={() => onAccept(day)}
+                onRefuse={() => onRefuse(day.date)}
+                refusing={refusing === day.date}
+                onWithdrawCall={onWithdrawCall}
+                callSaving={callSaving}
+                onEdit={onEdit}
+              />
+            ))}
+          </View>
         </View>
       ))}
     </View>

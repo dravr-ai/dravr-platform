@@ -371,6 +371,13 @@ describe('the plan', () => {
     // A screen reader hears the proposal with the date's heading.
     expect(within(dateCell('2026-11-25')).getByRole('header')).toHaveProp('accessibilityLabel', 'Wednesday, November 25, Proposed');
     expect(within(dateCell('2026-11-24')).getByRole('header')).toHaveProp('accessibilityLabel', 'Tuesday, November 24');
+    // A date is a group, never a box: a proposed one sits on the faint
+    // primary wash, every other on the paper (DESIGN.md "Phone", "A wash is not an alert").
+    expect(dateCell('2026-11-25').props.className).toContain('bg-primary/5');
+    expect(dateCell('2026-11-24').props.className).not.toContain('bg-primary/5');
+    for (const id of dateIds()) {
+      expect(screen.getByTestId(id).props.className).not.toMatch(/\bborder\b|\brounded/);
+    }
     expect(screen.getByTestId('workspace-accept-2026-11-25')).toHaveTextContent('Accept');
     expect(screen.getByTestId('workspace-refuse-2026-11-25')).toHaveTextContent('Decline');
     expect(screen.queryByTestId('workspace-accept-2026-11-24')).toBeNull();
@@ -463,6 +470,9 @@ describe('the plan', () => {
     const check = within(await screen.findByTestId('workspace-prepublish'));
 
     expect(check.getByText('Before you publish')).toBeTruthy();
+    // What keeping a session means is said once, under the section's title.
+    expect(check.getByText('You keep this session as it is: Dravr will describe it as your call, without arguing it.')).toBeTruthy();
+    expect(screen.getByTestId('workspace-prepublish').props.className).not.toMatch(/\bborder\b|\brounded/);
     // The past date and the session already kept as the coach's call are not asked about.
     expect(screen.queryByTestId('workspace-check-2026-11-23-0')).toBeNull();
     expect(screen.queryByTestId('workspace-check-2026-12-05-0')).toBeNull();
