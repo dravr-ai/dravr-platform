@@ -34,9 +34,10 @@ use super::OAuthClientGrant;
 /// minutes).
 pub const STEP_UP_MAX_AGE_SECS: i64 = 300;
 
-/// The oldest a per-request Host Profile claim may be when the athlete
-/// approves a step-up standing on it (`declared_request`), in seconds: the
-/// host's round trip from the challenge to a fresh sign-in and the approval.
+/// How old a per-request Host Profile claim may be at a step-up approval, in seconds.
+///
+/// A `declared_request` basis stands on it: the host's round trip from the
+/// challenge to a fresh sign-in and the approval.
 pub const HOST_PROFILE_CLAIM_MAX_AGE_SECS: i64 = 900;
 
 /// A per-request Host Profile claim `/mcp` saw on a call a step-up would
