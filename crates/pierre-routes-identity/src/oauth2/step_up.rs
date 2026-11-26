@@ -65,6 +65,34 @@ const HOST_PROFILE_MISSING: &str =
 pub(super) const STEP_UP_SIGN_IN_STALE: &str =
     "approving health records needs a sign-in on Dravr within the last five minutes";
 
+/// The hosts Dravr has assessed for Host Profile T2 (owl §6.2, basis
+/// `assessed`): a client id and the tier it was assessed at. None is listed:
+/// who assesses a host and signs its entry is ChefFamille's open question
+/// (carnet#1544), and until an entry is listed every step-up stands on the
+/// host's own metadata declaration (`declared_cimd`).
+const ASSESSED_HOSTS: &[(&str, &str)] = &[];
+
+/// The Host Profile a step-up of `client_id` stands on, and its tier: Dravr's
+/// assessment when `assessed` lists the client at T2, else the T2 its
+/// metadata document `declared`; `None` when neither reaches T2.
+fn host_basis(
+    assessed: &[(&str, &str)],
+    client_id: &str,
+    declared: Option<&str>,
+) -> Option<(HostProfileBasis, String)> {
+    let t2 = |tier: &str| tier.eq_ignore_ascii_case("T2");
+    if let Some((_, tier)) = assessed
+        .iter()
+        .find(|(listed, tier)| *listed == client_id && t2(tier))
+    {
+        return Some((HostProfileBasis::Assessed, tier.to_ascii_uppercase()));
+    }
+    declared
+        .and_then(host_profile_tier)
+        .filter(|tier| t2(tier))
+        .map(|tier| (HostProfileBasis::DeclaredCimd, tier.to_ascii_uppercase()))
+}
+
 /// Whether `details` ask for a step-up: a one-off question.
 pub(super) fn asks_step_up(details: Option<&ResolvedDetails>) -> bool {
     details.is_some_and(|details| details.preset().requires_step_up())
@@ -189,14 +217,12 @@ impl OAuth2Routes {
         if !scope.split_whitespace().all(|asked| held.contains(&asked)) {
             return Err(OAuth2Error::access_denied(STEP_UP_WIDER_SCOPE));
         }
-        let host_tier = context
+        let declared = context
             .oauth2_server
             .client_host_profile(client_id)
             .await
-            .map_err(failed)?
-            .as_deref()
-            .and_then(host_profile_tier)
-            .filter(|tier| tier.eq_ignore_ascii_case("T2"))
+            .map_err(failed)?;
+        let (host_basis, host_tier) = host_basis(ASSESSED_HOSTS, client_id, declared.as_deref())
             .ok_or_else(|| {
                 warn!(
                     client_id,
@@ -223,8 +249,8 @@ impl OAuth2Routes {
                 parent_grant_id: parent.id.clone(),
                 auth_time,
                 acr: OWNER_VERIFIED_ACR.to_owned(),
-                host_profile_basis: HostProfileBasis::DeclaredCimd,
-                host_profile_tier: host_tier.to_ascii_uppercase(),
+                host_profile_basis: host_basis,
+                host_profile_tier: host_tier,
             },
         };
         let stored = context
@@ -249,6 +275,37 @@ impl OAuth2Routes {
 mod tests {
     use super::*;
     use pierre_auth::oauth2_server::authorization_details::{preset_defaults, Preset};
+
+    #[test]
+    fn an_assessment_outranks_the_declaration_and_nothing_below_t2_stands() {
+        let declared_t2 = r#"{"tier_max":"t2","version":1}"#;
+        let declared_t1 = r#"{"tier_max":"T1","version":1}"#;
+        let assessed = [("https://assessed.example/cimd", "T2")];
+        assert_eq!(
+            host_basis(
+                &assessed,
+                "https://assessed.example/cimd",
+                Some(declared_t1)
+            ),
+            Some((HostProfileBasis::Assessed, "T2".to_owned())),
+            "bug: an assessed host"
+        );
+        assert_eq!(
+            host_basis(&assessed, "https://other.example/cimd", Some(declared_t2)),
+            Some((HostProfileBasis::DeclaredCimd, "T2".to_owned())),
+            "bug: a declared host"
+        );
+        assert_eq!(
+            host_basis(&assessed, "https://other.example/cimd", Some(declared_t1)),
+            None,
+            "bug: a T1 host stood for a step-up"
+        );
+        assert_eq!(
+            host_basis(ASSESSED_HOSTS, "https://other.example/cimd", None),
+            None,
+            "bug: a host declaring nothing stood for a step-up"
+        );
+    }
 
     #[test]
     fn only_a_one_off_question_asks_step_up() {

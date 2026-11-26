@@ -47,6 +47,8 @@ pub enum HostProfileBasis {
     /// The per-request `_meta` host-profile extension, seen on the request
     /// that triggered consent and checked again on every call (carrier B)
     DeclaredRequest,
+    /// Dravr's own assessment of the host, which outranks its declaration
+    Assessed,
 }
 
 impl HostProfileBasis {
@@ -56,6 +58,7 @@ impl HostProfileBasis {
         match self {
             Self::DeclaredCimd => "declared_cimd",
             Self::DeclaredRequest => "declared_request",
+            Self::Assessed => "assessed",
         }
     }
 
@@ -66,6 +69,7 @@ impl HostProfileBasis {
         match value {
             "declared_cimd" => Some(Self::DeclaredCimd),
             "declared_request" => Some(Self::DeclaredRequest),
+            "assessed" => Some(Self::Assessed),
             _ => None,
         }
     }
@@ -164,6 +168,7 @@ mod tests {
         for basis in [
             HostProfileBasis::DeclaredCimd,
             HostProfileBasis::DeclaredRequest,
+            HostProfileBasis::Assessed,
         ] {
             assert_eq!(
                 HostProfileBasis::parse(basis.as_str()),
@@ -172,9 +177,9 @@ mod tests {
             );
         }
         assert_eq!(
-            HostProfileBasis::parse("assessed"),
+            HostProfileBasis::parse("verified_somehow"),
             None,
-            "bug: an unbuilt basis read"
+            "bug: a basis this server never writes read"
         );
     }
 
