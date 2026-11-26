@@ -22,6 +22,7 @@
 use anyhow::Result;
 use dravr_cageux::algorithms::lthr::max_hr_fraction_at_vo2max_fraction;
 use dravr_cageux::training_load::TrainingLoadCalculator;
+use dravr_cageux::zones::HrZones;
 use dravr_tronc::dates::{Elapsed, Timestamp, Zone};
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::zones::HrZonesUnavailable;
@@ -549,22 +550,29 @@ async fn the_fitness_score_reads_the_ftp_saved_with_set_physiology() -> Result<(
     let executor = create_executor().await?;
     let (user_id, tenant_id) = create_test_user(&executor).await?;
     let rides = power_rides();
-    let config = &executor.cageux_config().algorithms;
-    let ctl = |inputs: &AthleteInputs| match calculate_fitness_metrics(
+    let config = executor.cageux_config();
+    // The CTL the fitness score reports beside the score, which needs zones
+    // to give one.
+    let ctl = async |inputs: &AthleteInputs| match calculate_fitness_metrics(
         &rides,
         "month",
         inputs,
-        config,
+        Ok(HrZones::for_athlete(None, 50, 190).expect("zones for 50/190")),
+        &config,
         &Zone::utc(),
         providers(),
-    ) {
+    )
+    .await
+    {
         FitnessScoreResult::Scored(detail) => detail.metrics.ctl,
         FitnessScoreResult::NoData(empty) => panic!("21 rides score: {}", empty.message),
     };
 
-    let before = ctl(&stored_athlete_inputs(&executor.resources, Some(&tenant_id), user_id).await?);
+    let before =
+        ctl(&stored_athlete_inputs(&executor.resources, Some(&tenant_id), user_id).await?).await;
     set_physiology(&executor, user_id, &tenant_id, json!({"ftp_watts": 250})).await?;
-    let after = ctl(&stored_athlete_inputs(&executor.resources, Some(&tenant_id), user_id).await?);
+    let after =
+        ctl(&stored_athlete_inputs(&executor.resources, Some(&tenant_id), user_id).await?).await;
 
     assert_same_ctl(
         after,

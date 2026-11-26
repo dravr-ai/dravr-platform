@@ -211,11 +211,11 @@ impl ReadSubject {
 /// record, before it reads it ([`ReadSubject::record_wellness_read`]).
 ///
 /// A training tool reads a coached athlete's wellness only under their grant:
-/// the sleep `sleep_provider` adds (`analyze_training_load`,
-/// `calculate_fitness_score`), the weight and medical flag of the nutrition
-/// mode (`generate_recommendations`), the weight `estimate_vo2max` defaults
-/// to, the resting heart rate `calculate_metrics` reads a heart rate against
-/// and `calculate_personalized_zones` echoes, the wellness overrides
+/// the sleep `sleep_provider` adds (`analyze_training_load`), the weight and
+/// medical flag of the nutrition mode (`generate_recommendations`), the
+/// weight `estimate_vo2max` defaults to, the resting heart rate
+/// `calculate_metrics` reads a heart rate against and
+/// `calculate_personalized_zones` echoes, the wellness overrides
 /// `get_user_configuration` shows. Each calls here once its grant check has
 /// let that read through and before it is made. Nothing on the caller's own
 /// read, which no record covers.

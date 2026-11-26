@@ -742,28 +742,12 @@ pub mod mcp_transport {
     pub const NOTIFICATION_CHANNEL_SIZE: usize = 100;
 }
 
-/// Sleep analysis and recovery constants
+/// Sleep tool constants. The sleep science (trend window and thresholds,
+/// sleep target, wind-down) is dravr-cageux's `SleepRecoveryConfig`
+/// (carnet#1803).
 pub mod sleep_recovery {
     /// Number of recent activities to fetch for sleep/recovery analysis
     pub const ACTIVITY_LIMIT: u32 = 42;
-    /// Minimum number of days of sleep history required for trend analysis
-    pub const TREND_MIN_DAYS: usize = 7;
-    /// Sleep trend improving threshold: points of 0-100 sleep quality the
-    /// recent period's mean must rise above the previous period's
-    pub const TREND_IMPROVING_THRESHOLD: f64 = 5.0;
-    /// Sleep trend declining threshold: points of 0-100 sleep quality the
-    /// recent period's mean must fall below the previous period's
-    pub const TREND_DECLINING_THRESHOLD: f64 = 5.0;
-    /// Additional sleep hours recommended when athlete is fatigued (TSB negative)
-    pub const FATIGUE_BONUS_HOURS: f64 = 0.5;
-    /// ATL (Acute Training Load) threshold indicating high training load
-    pub const HIGH_LOAD_ATL_THRESHOLD: f64 = 100.0;
-    /// Additional sleep hours recommended during high training load periods
-    pub const HIGH_LOAD_BONUS_HOURS: f64 = 0.25;
-    /// Buffer time in minutes before target sleep time for wind-down routine
-    pub const WIND_DOWN_MINUTES: i64 = 15;
-    /// Minutes per day constant for time calculations and day wrapping
-    pub const MINUTES_PER_DAY: i64 = 1440;
 }
 
 /// Goal management and feasibility constants

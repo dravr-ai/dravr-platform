@@ -273,26 +273,14 @@ impl McpTool<dyn ToolRuntime> for CalculateFitnessScoreTool {
             },
         );
         properties.insert(
-            "sleep_provider".to_owned(),
-            PropertySchema {
-                property_type: "string".to_owned(),
-                description: Some(
-                    "Sleep provider (e.g., 'whoop'): last night's sleep adjusts the score, from \
-                     +5% (excellent recovery) to -10% (poor)."
-                        .to_owned(),
-                ),
-                ..Default::default()
-            },
-        );
-        properties.insert(
             "timeframe".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
                 description: Some(
-                    "Period scored for consistency and pace: 'month' (30 days, the default), \
-                     'quarter' (90), 'year' (365) or 'all_time'. Set it to the period the \
-                     athlete named; the default cannot answer a question about three months or \
-                     a season. Chronic training load always uses the full history."
+                    "Window scored: 'month' (30 days, the default), 'quarter' (90), 'year' (365) \
+                     or 'all_time'. Set it to the period the athlete named; the default cannot \
+                     answer a question about three months or a season. The trend compares it \
+                     with the window of equal length before it; 'all_time' has none."
                         .to_owned(),
                 ),
                 ..Default::default()
@@ -301,10 +289,11 @@ impl McpTool<dyn ToolRuntime> for CalculateFitnessScoreTool {
         let schema = object_schema_with_format(properties, None);
         answers_with::<Formatted<FitnessScoreResult>>(task_capable(tool_definition(
             "calculate_fitness_score",
-            "Calculate a fitness score (0-100): chronic training load 40% (sessions scored \
-             against the FTP and threshold heart rate saved with set_physiology, as \
-             analyze_training_load does), consistency 30% (share of weeks with 3+ activities) \
-             and pace improvement 30%, over the `timeframe` period.",
+            "Calculate a fitness score (0-100) over the `timeframe` window: aerobic fitness 40% \
+             and strength endurance 30%, both read on the heart-rate zones from the resting and \
+             maximum heart rate saved with set_physiology, and consistency 30% (sessions per \
+             week), with its trend against the window of equal length before. No score without \
+             those two heart rates.",
             schema,
             annotations(
                 "Calculate fitness score",

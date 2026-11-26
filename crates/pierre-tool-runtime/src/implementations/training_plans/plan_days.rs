@@ -6,6 +6,7 @@
 
 use std::collections::BTreeSet;
 
+use dravr_cageux::nutrition_calculator::MAX_PLAUSIBLE_CARBOHYDRATE_G_PER_HOUR;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::WorkoutStep;
 use pierre_memory::training_plans::{session_positions, PlannedDay, MAX_SESSIONS_PER_DATE};
@@ -15,11 +16,6 @@ use crate::implementations::calendar::{
     bounded, validate_step, TargetRule, MAX_SESSION_STEPS, MAX_SHORT_TEXT_LEN,
 };
 use crate::implementations::training_plan_vision::validate_day_template;
-
-/// The carbohydrate ceiling a save enforces, so a rate no gut can absorb never
-/// reaches the athlete's calendar. Fluid and sodium have no save-time ceiling
-/// (carnet#1801).
-const MAX_CARBS_G_PER_H: f32 = 150.0;
 
 /// Validate one week payload (dates, day dates inside the week, the entries
 /// each date holds, each day's bounds through [`validate_day`]), and put its
@@ -128,11 +124,16 @@ pub(crate) fn validate_day(day: &mut PlannedDay, position: u32) -> AppResult<()>
         // ceiling: Phil decided on 2026-11-24 (carnet#1801) that fluid and
         // sodium have none at save time. Sodium is a sweat-loss estimate the
         // 2026-08-30 race-fuelling decision leaves unbounded, and the
-        // race-fuelling eval judges fluid against its own 4 L/h.
+        // race-fuelling eval judges fluid against its own 4 L/h. The
+        // carbohydrate ceiling is cageux's plausibility bound, so a rate no
+        // gut can absorb never reaches the athlete's calendar (carnet#1819).
         let carbs = fuel.carbs_g_per_h;
-        if !carbs.is_finite() || !(0.0..=MAX_CARBS_G_PER_H).contains(&carbs) {
+        if !carbs.is_finite()
+            || !(0.0..=MAX_PLAUSIBLE_CARBOHYDRATE_G_PER_HOUR).contains(&f64::from(carbs))
+        {
             return Err(AppError::invalid_input(format!(
-                "{session} fueling.carbs_g_per_h {carbs} is outside 0..={MAX_CARBS_G_PER_H}"
+                "{session} fueling.carbs_g_per_h {carbs} is outside \
+                 0..={MAX_PLAUSIBLE_CARBOHYDRATE_G_PER_HOUR}"
             )));
         }
         for (field, value) in [

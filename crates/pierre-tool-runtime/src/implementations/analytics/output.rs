@@ -406,45 +406,34 @@ pub struct RacePrediction {
 // calculate_fitness_score
 // ----------------------------------------------------------------------------
 
-/// What `calculate_fitness_score` answers with.
+/// What `calculate_fitness_score` answers with: dravr-cageux's fitness score
+/// (carnet#1807).
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 #[serde(untagged)]
 pub enum FitnessScoreResult {
-    /// A score, and the three components behind it.
+    /// A score, its three components and its trend.
     Scored(Box<FitnessScoreDetail>),
-    /// No activities in the window, so no score.
+    /// No score: nothing in the window, or no heart-rate zones to read the
+    /// sessions against.
     NoData(NoFitnessScore),
 }
 
-/// The answer when there is nothing in the window to score.
+/// The answer when there is no score to give. The score is absent rather
+/// than guessed.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct NoFitnessScore {
-    /// Days the score's consistency and pace components cover, or `null` when
-    /// every fetched activity was scored.
+    /// Days the score covers, or `null` when every fetched activity is
+    /// scored.
     pub window_days: Option<u32>,
-    /// Days of history the chronic training load was computed from — always the
-    /// full fetched span, never the window. Stated so a reply names the period
-    /// it analysed instead of inferring one (registre#415).
+    /// Days of history fetched.
     pub history_span_days: u32,
     /// The window requested, echoed back.
     pub timeframe: String,
-    /// Always zero: reported rather than omitted so a client charting the
-    /// score over time has a point rather than a gap.
-    pub fitness_score: i32,
-    /// Always `Beginner`, the level a zero score classifies to.
-    pub level: String,
-    /// Which of the two empty cases this is — no activities at all, or none
-    /// inside the window.
+    /// Why there is no score: no activities, none inside the window, or no
+    /// heart-rate zones because a resting or maximum heart rate is not saved.
     pub message: String,
-    /// The score before the recovery adjustment, present only when one ran.
-    /// Zero either way here, and reported for the same reason `fitness_score`
-    /// is: a client charting both lines wants a point, not a gap.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fitness_score_unadjusted: Option<i32>,
-    /// The sleep-derived adjustment, present only when a sleep provider was
-    /// named and answered.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub recovery_adjustment: Option<RecoveryAdjustment>,
+    /// How many activities were in the window.
+    pub activities_analyzed: usize,
     /// Which providers the answer was built from.
     pub providers_used: ProvidersUsed,
 }
@@ -452,51 +441,36 @@ pub struct NoFitnessScore {
 /// A fitness score and what produced it.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct FitnessScoreDetail {
-    /// Days the score's consistency and pace components cover, or `null` when
-    /// every fetched activity was scored.
+    /// Days the score covers, or `null` when every fetched activity is
+    /// scored.
     pub window_days: Option<u32>,
-    /// Days of history the chronic training load was computed from — always the
-    /// full fetched span, never the window. Stated so a reply names the period
-    /// it analysed instead of inferring one (registre#415).
+    /// Days of history fetched. The training load reads all of it, and the
+    /// trend needs a window's worth before the scored one.
     pub history_span_days: u32,
     /// The window requested, echoed back.
     pub timeframe: String,
-    /// The score, 0 to 100, rounded to a whole number.
+    /// The score, 0 to 100, rounded: aerobic fitness 40%, strength endurance
+    /// 30% and consistency 30%.
     pub fitness_score: i32,
-    /// Beginner, Intermediate, Advanced, Elite or Very High.
-    pub level: String,
-    /// Whether the score is rising, flat or falling across the window.
-    pub trend: String,
+    /// The score computed the same way over the window of equal length before
+    /// this one, rounded; `null` when that window held no activity, and for
+    /// `all_time`.
+    pub previous_fitness_score: Option<i32>,
+    /// `improving` or `declining` when the score moved more than 5 points from
+    /// the previous window's, `stable` otherwise; `null` without a previous
+    /// score.
+    pub trend: Option<String>,
     /// The three weighted parts of the score.
     pub components: FitnessComponents,
-    /// The training-load numbers the CTL component came from.
+    /// The athlete's training load today, beside the score: the score does not
+    /// read it.
     pub metrics: FitnessLoadMetrics,
     /// How many activities were in the window.
     pub activities_analyzed: usize,
-    /// What each component means, so the number is readable without docs.
+    /// What each part means, so the number is readable without docs.
     pub interpretation: FitnessInterpretation,
-    /// The score before the recovery adjustment, present only when one ran.
-    /// Both numbers ship so a client can show what sleep cost or bought.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fitness_score_unadjusted: Option<i32>,
-    /// The sleep-derived adjustment, present only when a sleep provider was
-    /// named and answered.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub recovery_adjustment: Option<RecoveryAdjustment>,
     /// Which providers the answer was built from.
     pub providers_used: ProvidersUsed,
-}
-
-/// What a night's sleep did to the score.
-#[derive(Debug, Serialize, schemars::JsonSchema)]
-pub struct RecoveryAdjustment {
-    /// The sleep quality score the adjustment was derived from, 0 to 100.
-    pub recovery_score: f64,
-    /// The multiplier applied: 1.05 above 90, 1.0 above 70, 0.95 above 50,
-    /// 0.90 below that.
-    pub adjustment_factor: f64,
-    /// The sleep provider that supplied the night.
-    pub sleep_provider: String,
 }
 
 /// The providers behind an answer, named so a client can say where a number
@@ -512,15 +486,17 @@ pub struct ProvidersUsed {
 /// The three components of a fitness score, each 0 to 100 and rounded.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct FitnessComponents {
-    /// Chronic training load, normalised. Weighted 40%.
-    pub ctl_score: f64,
-    /// Share of weeks with three or more sessions. Weighted 30%.
-    pub consistency_score: f64,
-    /// Pace improvement across the window. Weighted 30%.
-    pub performance_score: f64,
+    /// Sessions above zone 1, by how far their average heart rate sat above
+    /// the athlete's zone 1 ceiling and for how long. Weighted 40%.
+    pub aerobic_fitness: f64,
+    /// Sessions in zone 3 and above, by average heart rate and duration.
+    /// Weighted 30%.
+    pub strength_endurance: f64,
+    /// Sessions per week in the window against a weekly target. Weighted 30%.
+    pub consistency: f64,
 }
 
-/// The training-load numbers behind the CTL component, rounded.
+/// The training load beside the score, rounded.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct FitnessLoadMetrics {
     /// Chronic training load — long-run fitness.
@@ -532,15 +508,18 @@ pub struct FitnessLoadMetrics {
     pub tsb: f64,
 }
 
-/// Plain-language definitions of the three components.
+/// Plain-language definitions of the score's components and of the training
+/// load beside it.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct FitnessInterpretation {
-    /// What CTL measures.
-    pub ctl: String,
+    /// What the aerobic fitness component measures.
+    pub aerobic_fitness: String,
+    /// What the strength endurance component measures.
+    pub strength_endurance: String,
     /// What the consistency component measures.
     pub consistency: String,
-    /// What the performance component measures.
-    pub performance: String,
+    /// What CTL measures.
+    pub ctl: String,
 }
 
 // ----------------------------------------------------------------------------

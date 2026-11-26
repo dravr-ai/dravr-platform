@@ -646,17 +646,10 @@ export FITNESS_PR_PACE_IMPROVEMENT_THRESHOLD="5.0"
 # ============================================================================
 # SLEEP RECOVERY TOOL CONFIGURATION
 # ============================================================================
-# All have sensible defaults from constants. Override only if needed.
+# How many recent activities a sleep tool fetches. The sleep science
+# (trend window and thresholds, sleep target, wind-down) is dravr-cageux's.
 
 # export SLEEP_RECOVERY_ACTIVITY_LIMIT=""
-# export SLEEP_RECOVERY_TREND_MIN_DAYS=""
-# export SLEEP_RECOVERY_TREND_IMPROVING_THRESHOLD=""
-# export SLEEP_RECOVERY_TREND_DECLINING_THRESHOLD=""
-# export SLEEP_RECOVERY_FATIGUE_BONUS_HOURS=""
-# export SLEEP_RECOVERY_HIGH_LOAD_ATL_THRESHOLD=""
-# export SLEEP_RECOVERY_HIGH_LOAD_BONUS_HOURS=""
-# export SLEEP_RECOVERY_WIND_DOWN_MINUTES=""
-# export SLEEP_RECOVERY_MINUTES_PER_DAY=""
 
 # ============================================================================
 # GOAL MANAGEMENT CONFIGURATION

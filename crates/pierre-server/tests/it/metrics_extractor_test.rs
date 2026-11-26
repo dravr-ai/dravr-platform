@@ -68,6 +68,11 @@ fn test_metric_type_extraction() {
     assert_eq!(MetricType::Duration.extract_value(&activity), Some(3600.0));
     assert_eq!(MetricType::HeartRate.extract_value(&activity), Some(150.0));
     assert_eq!(MetricType::Speed.extract_value(&activity), Some(2.78));
+    // Pace is seconds per kilometre from the average speed (carnet#1804).
+    let pace = MetricType::Pace
+        .extract_value(&activity)
+        .expect("a pace from the average speed");
+    assert!((pace - 1000.0 / 2.78).abs() < 1e-9, "pace {pace} s/km");
     assert_eq!(MetricType::Elevation.extract_value(&activity), Some(100.0));
     assert_eq!(MetricType::Power.extract_value(&activity), Some(200.0));
 }
@@ -81,6 +86,7 @@ fn test_metric_type_properties() {
     assert_eq!(MetricType::Distance.unit(), "meters");
     assert_eq!(MetricType::HeartRate.unit(), "bpm");
     assert_eq!(MetricType::Speed.unit(), "m/s");
+    assert_eq!(MetricType::Pace.unit(), "s/km");
 
     assert_eq!(MetricType::Distance.display_name(), "Distance");
     assert_eq!(MetricType::HeartRate.display_name(), "Heart Rate");

@@ -18,6 +18,7 @@
 //! leaving the evidence-retrieval layer to deal with the subtle cases.
 
 use crate::claim_extractor::ExtractedClaim;
+use dravr_cageux::nutrition_calculator::MAX_PLAUSIBLE_CARBOHYDRATE_G_PER_HOUR;
 use pierre_memory::ClaimCategory;
 
 /// A bound that was violated by a claim, with the reason that should be
@@ -274,8 +275,9 @@ fn check_nutrition(lower: &str) -> Option<BoundViolation> {
     // Carbohydrate during exercise. Exogenous oxidation is capped by intestinal
     // transport, not by appetite: glucose alone saturates SGLT1 near 60 g/h and
     // a glucose-fructose mix reaches roughly 90 g/h, with trained field cases
-    // reported to 120 g/h. Anything past 150 g/h is not a target an athlete can
-    // absorb, so it is nonsense rather than an aggressive prescription.
+    // reported to 120 g/h. Anything past cageux's plausibility bound (150 g/h)
+    // is not a target an athlete can absorb, so it is nonsense rather than an
+    // aggressive prescription (carnet#1819).
     for kw in [
         "g per hour",
         "g/hour",
@@ -285,7 +287,7 @@ fn check_nutrition(lower: &str) -> Option<BoundViolation> {
         "g/heure",
     ] {
         if let Some(v) = extract_number_near_lowercased(lower, kw) {
-            if v > 150.0 {
+            if v > MAX_PLAUSIBLE_CARBOHYDRATE_G_PER_HOUR {
                 return Some(BoundViolation {
                     reason: format!(
                         "{v} g/hour is beyond any documented intake rate during exercise"

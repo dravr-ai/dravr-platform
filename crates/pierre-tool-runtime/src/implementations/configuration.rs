@@ -59,7 +59,7 @@ use pierre_config::catalog::CatalogBuilder;
 use pierre_core::config::profiles::ProfileTemplates;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::zones::HrZoneModel;
-use pierre_core::models::{TenantId, UserPhysiologicalProfile};
+use pierre_core::models::{PhysiologicalSex, TenantId, UserPhysiologicalProfile};
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_runtime_context::ConfigLookupScope;
 use pierre_services::athlete_vdot::vdot_beyond_tables_warning;
@@ -172,10 +172,14 @@ fn extract_zone_parameters(
         // `estimated_max_hr` returns the stored max HR when there is one, so
         // reaching here means it can only come from age.
         if let Some(estimated) = stored.and_then(|p| p.estimated_max_hr(max_hr_algorithm)) {
+            // The formula cageux applied for the saved sex, not the selection:
+            // under Gulati an athlete saved as male is given Tanaka's
+            // (carnet#1812).
+            let sex = stored.and_then(|p| p.sex).map(PhysiologicalSex::as_str);
             sources.insert("max_hr".to_owned(), json!("estimated_from_age"));
             sources.insert(
                 "max_hr_algorithm".to_owned(),
-                json!(max_hr_algorithm.name()),
+                json!(max_hr_algorithm.applied_for(sex).name()),
             );
             max_hr = Some(u64::from(estimated));
         }
@@ -1133,3 +1137,47 @@ crate::declare_security!(
     ValidateConfigurationTool => empty; first_party_only,
     reads: ToolData::own(&[]),
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pierre_core::models::SportType;
+
+    fn aged_40(sex: PhysiologicalSex) -> UserPhysiologicalProfile {
+        let mut profile = UserPhysiologicalProfile::new(Uuid::new_v4(), SportType::Run);
+        profile.age = Some(40);
+        profile.sex = Some(sex);
+        profile
+    }
+
+    #[test]
+    fn an_estimated_maximum_names_the_formula_applied_for_the_saved_sex() {
+        let man = aged_40(PhysiologicalSex::Male);
+        let his = extract_zone_parameters(&json!({}), Some(&man), MaxHrAlgorithm::Gulati);
+        // Gulati's is a women's equation: a man is given Tanaka's, 208 - 0.7 x 40.
+        assert_eq!(
+            his.max_hr,
+            Some(180),
+            "bug: a man under Gulati is not given Tanaka's estimate"
+        );
+        assert_eq!(
+            his.sources["max_hr_algorithm"],
+            json!("tanaka"),
+            "bug: a man's estimate is labelled with the selected Gulati, not the Tanaka applied"
+        );
+
+        let woman = aged_40(PhysiologicalSex::Female);
+        let hers = extract_zone_parameters(&json!({}), Some(&woman), MaxHrAlgorithm::Gulati);
+        // 206 - 0.88 x 40 = 170.8, rounded.
+        assert_eq!(
+            hers.max_hr,
+            Some(171),
+            "bug: a woman under Gulati is not given Gulati's estimate"
+        );
+        assert_eq!(
+            hers.sources["max_hr_algorithm"],
+            json!("gulati"),
+            "bug: a woman's estimate is not labelled with Gulati's equation"
+        );
+    }
+}

@@ -2532,12 +2532,10 @@ fn each_analytics_schema_is_attached_to_the_tool_it_names() {
 /// The score answer says where every number came from, and both of its arms
 /// carry that.
 ///
-/// A fitness score assembled from two providers reads as one number, and the
-/// sleep half can move it by ten percent. `providers_used` is required rather
-/// than optional for that reason: a client showing the score can always say
-/// what produced it. `recovery_adjustment` and `fitness_score_unadjusted`
-/// appear only when a sleep provider actually answered, so their absence
-/// means "no adjustment ran", not "adjustment unknown".
+/// `providers_used` is required rather than optional so a client showing the
+/// score can always say what produced it. The answer without a score carries
+/// no score field at all: a score without the athlete's heart-rate zones is
+/// absent rather than reported as zero (carnet#1807).
 #[test]
 fn the_fitness_score_names_the_providers_behind_it() {
     let schema = output_schema_for::<FitnessScoreResult>();
@@ -2565,10 +2563,11 @@ fn the_fitness_score_names_the_providers_behind_it() {
             required.contains(&"providers_used"),
             "every arm must name its providers: {body:#}"
         );
-        assert!(
-            !required.contains(&"recovery_adjustment"),
-            "the adjustment is absent when no sleep provider answered, so \
-             requiring it would make the common answer invalid: {body:#}"
+        let has_message = required.contains(&"message");
+        assert_eq!(
+            required.contains(&"fitness_score"),
+            !has_message,
+            "only the scored arm carries a score; the other says why: {body:#}"
         );
     }
 }

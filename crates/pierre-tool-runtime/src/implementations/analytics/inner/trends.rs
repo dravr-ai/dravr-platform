@@ -231,11 +231,7 @@ fn compute_trend_statistics(
         slope_threshold,
     );
 
-    let trend_direction = match trend_direction_enum {
-        TrendDirection::Improving => "improving",
-        TrendDirection::Stable => "stable",
-        TrendDirection::Declining => "declining",
-    };
+    let trend_direction = trend_name(trend_direction_enum);
 
     // Generate insights
     let insights = generate_trend_insights(
@@ -263,6 +259,15 @@ fn compute_trend_statistics(
             percent_change: calculate_percent_change(data_points_with_timestamp),
         }),
         insights,
+    }
+}
+
+/// A trend direction's wire name, shared by the analytics tools that report one.
+pub(super) const fn trend_name(trend: TrendDirection) -> &'static str {
+    match trend {
+        TrendDirection::Improving => "improving",
+        TrendDirection::Stable => "stable",
+        TrendDirection::Declining => "declining",
     }
 }
 
@@ -483,6 +488,62 @@ mod tests {
                 .all(|line| !line.contains("confidence")),
             "bug: R² is presented as a confidence: {:?}",
             result.insights
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_faster_runner_reads_as_an_improving_pace() -> Result<(), Box<dyn Error>> {
+        use pierre_core::models::{ActivityBuilder, SportType};
+
+        let now = Timestamp::now();
+        // Average speed rising over five weeks (with noise, as in real
+        // sessions), delivered newest-first as providers do.
+        let activities: Vec<Activity> = [
+            (0, 3.4),
+            (7, 3.31),
+            (14, 3.27),
+            (21, 3.15),
+            (28, 3.12),
+            (35, 3.0),
+        ]
+        .into_iter()
+        .map(|(days_ago, speed)| {
+            ActivityBuilder::new(
+                format!("run-{days_ago}"),
+                "Run",
+                SportType::Run,
+                now - Elapsed::days(days_ago),
+                3600,
+                "test_provider",
+            )
+            .average_speed(speed)
+            .build()
+        })
+        .collect();
+
+        let result = analyze_performance_trend(&activities, "pace", "quarter");
+
+        // cageux reads pace as seconds per kilometre, lower being faster
+        // (carnet#1804), so a runner whose speed rises reads as improving.
+        assert_eq!(
+            result.trend, "improving",
+            "bug: a runner getting faster reads as a declining pace"
+        );
+        let statistics = result.statistics.ok_or("a fitted trend")?;
+        let start = statistics.start_value.ok_or("a start")?;
+        let end = statistics.end_value.ok_or("an end")?;
+        assert!(
+            (start - 1000.0 / 3.0).abs() < 1e-6,
+            "bug: the oldest pace is not 3.0 m/s in s/km: {start}"
+        );
+        assert!(
+            (end - 1000.0 / 3.4).abs() < 1e-6,
+            "bug: the newest pace is not 3.4 m/s in s/km: {end}"
+        );
+        assert!(
+            statistics.slope < 0.0,
+            "bug: a faster pace has a rising slope"
         );
         Ok(())
     }

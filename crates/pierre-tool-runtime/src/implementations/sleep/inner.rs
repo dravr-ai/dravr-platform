@@ -4,7 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -21,10 +20,10 @@ use crate::protocol::sleep_helpers::{hrv_trend, latest_sleep_data, sleep_history
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use dravr_cageux::algorithms::RecoveryAggregationAlgorithm;
-use dravr_cageux::config::intelligence::IntelligenceConfig;
+use dravr_cageux::config::intelligence::{IntelligenceConfig, SleepScheduleConfig};
 use dravr_cageux::recovery_calculator::RecoveryCalculator;
 use dravr_cageux::sleep_analysis::{SleepAnalyzer, SleepData};
-use pierre_core::models::FormBand;
+use dravr_cageux::sleep_guidance::{ScoredNight, SleepNeed};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 
 use crate::implementations::sleep::output::{
@@ -667,7 +666,11 @@ pub(crate) fn handle_track_sleep_trends(
             }
         };
 
-        let trend_min_days = executor.resources.config().sleep_tool_params.trend_min_days;
+        // The trend, its window and its thresholds are cageux's (carnet#1803):
+        // a window is also the fewest nights a trend is read from.
+        let cageux_config = executor.cageux_config();
+        let config = &cageux_config.sleep_recovery;
+        let trend_min_days = config.sleep_trend.window_nights;
         if sleep_history.len() < trend_min_days {
             return Err(ProtocolError::InvalidRequest(format!(
                 "At least {trend_min_days} days of sleep data required for trend analysis"
@@ -696,61 +699,26 @@ pub(crate) fn handle_track_sleep_trends(
             0.0
         };
 
-        // Get sleep/recovery config
-        let cageux_config = executor.cageux_config();
-        let config = &cageux_config.sleep_recovery;
-
-        // Calculate quality scores for each day
-        let mut quality_scores = Vec::new();
-        for sleep in &sleep_history {
-            if let Ok(quality) = SleepAnalyzer::calculate_sleep_quality(sleep, config) {
-                quality_scores.push((sleep.date, quality.overall_score));
-            }
-        }
-
-        // Detect trends
-        let recent_n_days = &quality_scores[quality_scores.len().saturating_sub(trend_min_days)..];
-        let previous_n_days = if quality_scores.len() >= trend_min_days * 2 {
-            &quality_scores[quality_scores.len().saturating_sub(trend_min_days * 2)
-                ..quality_scores.len().saturating_sub(trend_min_days)]
-        } else {
-            recent_n_days
-        };
-
-        #[allow(clippy::cast_precision_loss)]
-        // Safe: len() is config trend_min_days, well within f64 precision
-        let recent_avg = recent_n_days.iter().map(|(_, score)| score).sum::<f64>()
-            / recent_n_days.len().max(1) as f64;
-        #[allow(clippy::cast_precision_loss)]
-        // Safe: len() is config trend_min_days, well within f64 precision
-        let previous_avg = previous_n_days.iter().map(|(_, score)| score).sum::<f64>()
-            / previous_n_days.len().max(1) as f64;
-
-        let improving_threshold = executor
-            .resources
-            .config()
-            .sleep_tool_params
-            .trend_improving_threshold;
-        let declining_threshold = executor
-            .resources
-            .config()
-            .sleep_tool_params
-            .trend_declining_threshold;
-        let trend = if recent_avg > previous_avg + improving_threshold {
-            "improving"
-        } else if recent_avg < previous_avg - declining_threshold {
-            "declining"
-        } else {
-            "stable"
-        };
-
-        // Identify best and worst nights
-        let best_night = quality_scores
+        // Each night's quality, then cageux's trend across them: the latest
+        // window's mean against the window before it.
+        let nights: Vec<ScoredNight> = sleep_history
             .iter()
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
-        let worst_night = quality_scores
-            .iter()
-            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
+            .filter_map(|sleep| {
+                SleepAnalyzer::calculate_sleep_quality(sleep, config)
+                    .ok()
+                    .map(|quality| ScoredNight {
+                        date: sleep.date,
+                        score: quality.overall_score,
+                    })
+            })
+            .collect();
+        let quality_trend =
+            SleepAnalyzer::quality_trend(&nights, &config.sleep_trend).map_err(|e| {
+                ProtocolError::InvalidRequest(format!(
+                    "No night's sleep quality could be scored for trend analysis: {e}"
+                ))
+            })?;
+        let trend = quality_trend.direction.as_str();
 
         // Generate insights
         let mut insights = Vec::new();
@@ -773,21 +741,21 @@ pub(crate) fn handle_track_sleep_trends(
                 average_duration_hours: avg_duration,
                 average_efficiency_percent: avg_efficiency,
                 quality_trend: trend.to_owned(),
-                recent_7day_avg: recent_avg,
-                previous_7day_avg: previous_avg,
+                recent_7day_avg: quality_trend.recent_average,
+                previous_7day_avg: quality_trend.previous_average,
             },
             highlights: SleepHighlights {
-                best_night: best_night.map(|(date, score)| SleepNight {
-                    date: *date,
-                    score: *score,
+                best_night: quality_trend.best_night.map(|night| SleepNight {
+                    date: night.date,
+                    score: night.score,
                 }),
-                worst_night: worst_night.map(|(date, score)| SleepNight {
-                    date: *date,
-                    score: *score,
+                worst_night: quality_trend.worst_night.map(|night| SleepNight {
+                    date: night.date,
+                    score: night.score,
                 }),
             },
             insights,
-            data_points: quality_scores.len(),
+            data_points: nights.len(),
         };
         let result = UniversalResponse {
             success: true,
@@ -870,41 +838,13 @@ pub(crate) fn handle_optimize_sleep_schedule(
             .and_then(serde_json::Value::as_str)
             .unwrap_or("moderate");
 
-        // Calculate recommended sleep duration
-        let base_recommendation = config.sleep_duration.athlete_optimal_hours;
-        // Fatigue vs this athlete's own base: -10 absolute flagged CTL-150 at -7%.
-        let band = FormBand::from_training_load(&training_load);
-        let carrying_fatigue = matches!(band, FormBand::DeepFatigue | FormBand::HeavyBlock);
-
-        let recommended_hours = if carrying_fatigue {
-            // High fatigue: add extra sleep
-            base_recommendation
-                + executor
-                    .resources
-                    .config()
-                    .sleep_tool_params
-                    .fatigue_bonus_hours
-        } else if training_load.atl
-            > executor
-                .resources
-                .config()
-                .sleep_tool_params
-                .high_load_atl_threshold
-        {
-            // High acute load: prioritize recovery
-            base_recommendation
-                + executor
-                    .resources
-                    .config()
-                    .sleep_tool_params
-                    .high_load_bonus_hours
-        } else if upcoming_workout_intensity == "high" {
-            // Hard workout tomorrow: ensure quality sleep
-            base_recommendation
-        } else {
-            // Normal conditions
-            base_recommendation
-        };
+        // cageux's sleep target for this load (carnet#1803): the athlete
+        // optimum, plus its fatigue bonus when form is in the deep-fatigue or
+        // heavy-block band (below -20% of CTL), else its high-load bonus when
+        // ATL is high.
+        let target = SleepAnalyzer::sleep_target(&training_load, config);
+        let recommended_hours = target.hours;
+        let carrying_fatigue = target.need == SleepNeed::CarryingFatigue;
 
         // Calculate recommended sleep window
         let wake_time = request
@@ -913,20 +853,7 @@ pub(crate) fn handle_optimize_sleep_schedule(
             .and_then(serde_json::Value::as_str)
             .unwrap_or("06:00");
 
-        let bedtime = calculate_bedtime(
-            wake_time,
-            recommended_hours,
-            executor
-                .resources
-                .config()
-                .sleep_tool_params
-                .wind_down_minutes,
-            executor
-                .resources
-                .config()
-                .sleep_tool_params
-                .minutes_per_day,
-        );
+        let bedtime = bedtime(wake_time, recommended_hours, &config.sleep_schedule);
 
         // Generate recommendations
         let mut recommendations = Vec::new();
@@ -973,8 +900,12 @@ pub(crate) fn handle_optimize_sleep_schedule(
     })
 }
 
+/// The wake time used when one is not given as `"HH:MM"`: 06:00, in minutes
+/// after midnight
+const DEFAULT_WAKE_MINUTES: u32 = 6 * 60;
+
 /// Parse hour component from wake time string
-fn parse_hour(hour_str: &str) -> i64 {
+fn parse_hour(hour_str: &str) -> u32 {
     match hour_str.parse() {
         Ok(h) if (0..24).contains(&h) => h,
         Ok(h) => {
@@ -993,7 +924,7 @@ fn parse_hour(hour_str: &str) -> i64 {
 }
 
 /// Parse minute component from wake time string
-fn parse_minute(minute_str: &str) -> i64 {
+fn parse_minute(minute_str: &str) -> u32 {
     match minute_str.parse() {
         Ok(m) if (0..60).contains(&m) => m,
         Ok(m) => {
@@ -1011,41 +942,75 @@ fn parse_minute(minute_str: &str) -> i64 {
     }
 }
 
-/// Helper function to calculate recommended bedtime
-// Cognitive complexity reduced by extracting parse_hour and parse_minute helper functions
-fn calculate_bedtime(
-    wake_time: &str,
-    target_hours: f64,
-    wind_down_minutes: i64,
-    minutes_per_day: i64,
-) -> String {
-    // Parse wake time (format: "HH:MM")
+/// The wake time `"HH:MM"` in minutes after midnight: 06:00 when it is not
+/// that shape, and an hour or minute out of range reads as 6 or 0
+fn wake_minutes(wake_time: &str) -> u32 {
     let parts: Vec<&str> = wake_time.split(':').collect();
-    if parts.len() != 2 {
+    let [hour, minute] = parts.as_slice() else {
         warn!(
             wake_time = wake_time,
             "Invalid wake_time format (expected HH:MM), using default 06:00"
         );
-        return "22:00".to_owned(); // Default fallback
+        return DEFAULT_WAKE_MINUTES;
+    };
+    parse_hour(hour) * 60 + parse_minute(minute)
+}
+
+/// The bedtime, `"HH:MM"`, that gives `sleep_hours` and cageux's wind-down
+/// before `wake_time` ([`SleepAnalyzer::bedtime_minutes`])
+fn bedtime(wake_time: &str, sleep_hours: f64, schedule: &SleepScheduleConfig) -> String {
+    let minutes = SleepAnalyzer::bedtime_minutes(wake_minutes(wake_time), sleep_hours, schedule);
+    format!("{:02}:{:02}", minutes / 60, minutes % 60)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dravr_cageux::config::intelligence::SleepRecoveryConfig;
+
+    fn schedule() -> SleepScheduleConfig {
+        SleepRecoveryConfig::default().sleep_schedule
     }
 
-    let wake_hour = parse_hour(parts[0]);
-    let wake_minute = parse_minute(parts[1]);
+    #[test]
+    fn the_bedtime_leaves_the_sleep_and_the_wind_down_before_waking() {
+        // 06:00 less 8 hours and cageux's 15-minute wind-down: the evening before.
+        assert_eq!(
+            bedtime("06:00", 8.0, &schedule()),
+            "21:45",
+            "bug: the bedtime does not leave 8 h and the wind-down before 06:00"
+        );
+        // Just before midnight: 08:30 less 8.5 h and 15 min.
+        assert_eq!(
+            bedtime("08:30", 8.5, &schedule()),
+            "23:45",
+            "bug: the bedtime does not leave 8.5 h and the wind-down before 08:30"
+        );
+        // After midnight, the hour is written with two digits: 10:00 less 8 h
+        // and 15 min.
+        assert_eq!(
+            bedtime("10:00", 8.0, &schedule()),
+            "01:45",
+            "bug: a bedtime after midnight is not written as HH:MM"
+        );
+    }
 
-    // Calculate bedtime (wake time - target hours - wind-down minutes)
-    #[allow(clippy::cast_precision_loss)] // Safe: target_hours is sleep duration (7-9h), well within f64→i64 range
-    #[allow(clippy::cast_possible_truncation)]
-    // Safe: target_hours * 60.0 is sleep minutes (420-540), no truncation
-    let total_minutes =
-        (wake_hour * 60 + wake_minute) - ((target_hours * 60.0) as i64) - wind_down_minutes;
-    let bedtime_minutes = if total_minutes < 0 {
-        minutes_per_day + total_minutes // Wrap to previous day
-    } else {
-        total_minutes
-    };
-
-    let bedtime_hour = bedtime_minutes / 60;
-    let bedtime_min = bedtime_minutes % 60;
-
-    format!("{bedtime_hour:02}:{bedtime_min:02}")
+    #[test]
+    fn a_wake_time_not_given_as_hours_and_minutes_reads_as_six() {
+        assert_eq!(
+            wake_minutes("6am"),
+            DEFAULT_WAKE_MINUTES,
+            "bug: a wake time without a colon does not read as 06:00"
+        );
+        assert_eq!(
+            wake_minutes("25:00"),
+            DEFAULT_WAKE_MINUTES,
+            "bug: an hour past 23 does not read as 6"
+        );
+        assert_eq!(
+            bedtime("6am", 8.0, &schedule()),
+            "21:45",
+            "bug: the bedtime for an unreadable wake time is not counted back from 06:00"
+        );
+    }
 }
