@@ -25,7 +25,7 @@
 //! The Host Profile basis ([`step_up_basis`]) is the client's metadata
 //! declaration (`mcp_host_profile`, `declared_cimd`) or, for a client
 //! registered by DCR with no metadata document, its own T2 claim `/mcp` saw
-//! on the call that asked for the step-up (`declared_request`, ChefFamille
+//! on the call that asked for the step-up (`declared_request`, JF
 //! 2026-11-26); a client with neither is refused. The per-request claim is
 //! checked on every call besides (the stricter carrier wins), and the
 //! athlete's `sensitive_t2` switch at every read. T3 never opens.

@@ -5,7 +5,7 @@
 -- Copyright (c) 2026 dravr.ai
 
 -- Owl phase 5 slice 4b (carnet#1544, owl PDPP §6.2 basis declared_request,
--- ChefFamille 2026-11-26). A client registered by DCR has no metadata
+-- JF 2026-11-26). A client registered by DCR has no metadata
 -- document, so it has no Host Profile on carrier A. It may still reach T2
 -- on its own per-request claim (carrier B: the MCP client extension
 -- app.dravr.vault/host-profile), which owl requires be "seen on the request

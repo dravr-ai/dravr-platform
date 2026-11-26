@@ -14,7 +14,7 @@
 //!   document is fetched. A document declaring a lower tier, or none, never
 //!   stands for a step-up: the declaration a client publishes is the
 //!   stricter carrier, and its own requests cannot raise it.
-//! - **`declared_request`** (carrier B; ChefFamille 2026-11-26): a client
+//! - **`declared_request`** (carrier B; JF 2026-11-26): a client
 //!   registered by DCR has no metadata document, so it declares on its own
 //!   requests, in the MCP client extension [`HOST_PROFILE_EXTENSION`]. owl
 //!   requires the claim be seen on the request that triggered consent:

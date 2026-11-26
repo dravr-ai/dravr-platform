@@ -7,7 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-//! # Step-up choices (owl phase 5, slice 4b; ChefFamille 2026-11-26)
+//! # Step-up choices (owl phase 5, slice 4b; JF 2026-11-26)
 //!
 //! - **`declared_request`.** A client registered by DCR has no metadata
 //!   document. It reaches T2 on its own per-request Host Profile claim, seen
