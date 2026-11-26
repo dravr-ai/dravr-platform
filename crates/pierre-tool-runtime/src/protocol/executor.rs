@@ -670,8 +670,7 @@ impl UniversalExecutor {
                 .resources
                 .tool_registry()
                 .tool_data(&request.tool_name)
-                .map(|data| data.required_streams().collect())
-                .unwrap_or_default();
+                .map_or_default(|data| data.required_streams().collect());
             ceiling.for_streams(&streams)
         });
         // Captured before `request` is torn apart: the charge and the admin

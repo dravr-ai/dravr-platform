@@ -79,8 +79,7 @@ impl UniversalExecutor {
         if let (Some(Withheld::Tier(_) | Withheld::Stream), Some(ceiling)) = (answer, ceiling) {
             let streams: Vec<Stream> = registry
                 .tool_data(tool_name)
-                .map(|data| data.required_streams().collect())
-                .unwrap_or_default();
+                .map_or_default(|data| data.required_streams().collect());
             if ceiling.step_up_cures(&streams)
                 && step_up_worded(self.resources.messaging_strings_registry())
             {
