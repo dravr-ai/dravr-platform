@@ -458,9 +458,10 @@ pub trait OAuth2ServerRepository: Send + Sync {
         now: Timestamp,
     ) -> AppResult<bool>;
 
-    /// Record the Host Profile public client `client_id`'s metadata document
+    /// Record the Host Profile client `client_id`'s metadata document
     /// declares (owl §6.2 carrier A, `{"tier_max", "version"}` as JSON), or
-    /// `None` when it declares none. A confidential client is never written.
+    /// `None` when it declares none. Only the metadata document resolver
+    /// calls it, so a client registered by DCR never has one.
     async fn set_client_host_profile(
         &self,
         client_id: &str,

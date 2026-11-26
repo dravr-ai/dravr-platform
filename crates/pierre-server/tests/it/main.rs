@@ -650,6 +650,7 @@ mod oauth2_security_test;
 mod oauth2_server_from_config_test;
 mod oauth2_server_test;
 mod oauth2_state_validation_test;
+mod oauth2_step_up_test;
 mod oauth2_token_kind_test;
 mod oauth2_token_revocation_test;
 mod oauth2_token_user_limit_test;
