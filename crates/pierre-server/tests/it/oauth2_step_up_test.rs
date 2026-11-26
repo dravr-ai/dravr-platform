@@ -36,9 +36,11 @@ use pierre_core::models::{
 };
 use pierre_database::repositories::{ClinicalRecordWrite, RecordFiling};
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
+use pierre_mcp_server::routes::oauth_grants::OAuthGrantsRoutes;
 use pierre_services::provider_notice::grant_consent;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 use url::Url;
 use uuid::Uuid;
 
@@ -1087,5 +1089,57 @@ async fn a_host_reauthorizing_with_the_challenge_gets_a_child_its_token_names_th
         step_up["authorization_details"][0]["selection_preset"],
         json!("one_off_question"),
         "bug: {step_up}"
+    );
+}
+
+// ============================================================================
+// Connected apps
+// ============================================================================
+
+/// The athlete's Connected apps, as the web and mobile lists read them.
+async fn connected_apps(world: &World) -> Vec<Value> {
+    let session = common::generate_test_token(&world.resources, &world.user).await;
+    let listed: Value = AxumTestRequest::get("/api/me/oauth-grants")
+        .header("Authorization", &format!("Bearer {session}"))
+        .send(OAuthGrantsRoutes::routes(Arc::clone(&world.resources)))
+        .await
+        .json();
+    listed["grants"]
+        .as_array()
+        .unwrap_or_else(|| panic!("a listing: {listed}"))
+        .clone()
+}
+
+#[tokio::test]
+async fn connected_apps_list_the_child_under_its_app_and_revoke_it_alone() {
+    let (world, _client, parent, child) = stepped_up().await;
+    let apps = connected_apps(&world).await;
+    assert_eq!(
+        apps.len(),
+        1,
+        "bug: the child is listed as an app: {apps:?}"
+    );
+    assert_eq!(apps[0]["id"], json!(parent), "bug: {apps:?}");
+    assert_eq!(
+        apps[0]["step_up"]["id"],
+        json!(child),
+        "bug: the child is not under its app: {apps:?}"
+    );
+    assert!(
+        apps[0]["step_up"]["expires_at"].is_string(),
+        "bug: the child's end is not listed: {apps:?}"
+    );
+
+    let session = common::generate_test_token(&world.resources, &world.user).await;
+    let revoked = AxumTestRequest::delete(&format!("/api/me/oauth-grants/{child}"))
+        .header("Authorization", &format!("Bearer {session}"))
+        .send(OAuthGrantsRoutes::routes(Arc::clone(&world.resources)))
+        .await;
+    assert_eq!(revoked.status(), 204, "bug: {}", revoked.body_text());
+    let apps = connected_apps(&world).await;
+    assert_eq!(apps.len(), 1, "bug: revoking the child ended its app");
+    assert!(
+        apps[0]["step_up"].is_null(),
+        "bug: a revoked child is still listed: {apps:?}"
     );
 }

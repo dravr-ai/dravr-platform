@@ -73,6 +73,19 @@ struct GrantView {
     /// expires. A past value is an expired grant, listed so it can be
     /// revoked.
     expires_at: Option<String>,
+    /// The grant's live one-off T2 question (a step-up child, carnet#1544
+    /// slice 4b), listed under its app and revocable on its own; `None`
+    /// when it has none.
+    step_up: Option<StepUpChildView>,
+}
+
+/// A connected app's live step-up child.
+#[derive(Serialize)]
+struct StepUpChildView {
+    /// The child's grant id (used to revoke it alone).
+    id: String,
+    /// When it ends (RFC 3339).
+    expires_at: Option<String>,
 }
 
 /// The preset and tier `grant`'s stored details name, `(None, None)` for a
@@ -117,8 +130,21 @@ async fn handle_list_grants(
         .oauth2_server
         .list_client_grants(&auth.user_id.to_string(), &tenant_id)
         .await?;
+    let children = resources
+        .common
+        .repos
+        .oauth2_server
+        .list_live_child_grants(&auth.user_id.to_string(), &tenant_id)
+        .await?;
     let mut views = Vec::with_capacity(grants.len());
     for grant in grants {
+        let step_up = children
+            .iter()
+            .find(|child| child.terms.parent_grant_id == grant.id)
+            .map(|child| StepUpChildView {
+                id: child.grant.id.clone(),
+                expires_at: child.grant.expires_at.map(Timestamp::to_rfc3339),
+            });
         let client = resources
             .common
             .repos
@@ -138,6 +164,7 @@ async fn handle_list_grants(
             preset,
             max_tier,
             expires_at: grant.expires_at.map(Timestamp::to_rfc3339),
+            step_up,
         });
     }
     Ok(Json(GrantsResponse { grants: views }).into_response())
@@ -157,13 +184,22 @@ async fn handle_revoke_grant(
     let user_id = auth.user_id.to_string();
     let repository = &resources.common.repos.oauth2_server;
     // Named before the revocation: the resource servers hold the client's
-    // standing by client, and a revoked grant no longer lists.
-    let client_id = repository
+    // standing by client, and a revoked grant no longer lists. A step-up
+    // child is revoked alone, its parent standing.
+    let mut client_id = repository
         .list_client_grants(&user_id, &tenant_id)
         .await?
         .into_iter()
         .find(|grant| grant.id == id)
         .map(|grant| grant.client_id);
+    if client_id.is_none() {
+        client_id = repository
+            .list_live_child_grants(&user_id, &tenant_id)
+            .await?
+            .into_iter()
+            .find(|child| child.grant.id == id)
+            .map(|child| child.grant.client_id);
+    }
     let revoked = repository
         .revoke_client_grant(&id, &user_id, &tenant_id, GrantActor::User)
         .await?;

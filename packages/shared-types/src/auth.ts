@@ -805,6 +805,19 @@ export interface OAuthGrant {
   max_tier: 'T0' | 'T1' | 'T2' | 'T3' | null;
   /** When the grant stops admitting a token (RFC 3339); `null` never expires. A past value is an expired grant. */
   expires_at: string | null;
+  /**
+   * The grant's live one-off T2 question (a step-up child): listed under its app and revocable on its
+   * own, by its own id; `null` when it has none. Absent from a server that predates it.
+   */
+  step_up?: OAuthGrantStepUp | null;
+}
+
+/** A connected app's live one-off T2 question, approved after a fresh sign-in on Dravr's page. */
+export interface OAuthGrantStepUp {
+  /** The child grant's id — pass to the revoke endpoint to end it alone. */
+  id: string;
+  /** When it ends (RFC 3339). */
+  expires_at: string | null;
 }
 
 /**
@@ -828,8 +841,12 @@ export interface OAuthStandingPolicy {
   created_at: string;
 }
 
-/** What happened to a grant: given (or re-consented to), ended early, or reached its expiry. */
-export type OAuthGrantEventKind = 'issue' | 'revoke' | 'expire';
+/**
+ * What happened to a grant: given (or re-consented to), ended early, reached its expiry, used by the one
+ * call a single-use grant allows (`consume`), or approved as a one-off question after a fresh sign-in
+ * (`step_up`).
+ */
+export type OAuthGrantEventKind = 'issue' | 'revoke' | 'expire' | 'consume' | 'step_up';
 
 /** Who caused a grant event: the athlete, the client (RFC 7009, its owner deleting it), or Dravr itself (a standing policy, a sweep). */
 export type OAuthGrantActor = 'user' | 'client' | 'auto';

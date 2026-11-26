@@ -614,6 +614,42 @@ describe('UserSettings Component', () => {
       expect(screen.getByText('fitness:read')).toBeInTheDocument();
     });
 
+    // A one-off T2 question (a step-up child) is listed under its app and
+    // revoked alone, by its own id; the app stands (carnet#1544 slice 4b).
+    it('lists a one-off question under its app and revokes it alone', async () => {
+      const user = userEvent.setup();
+      const app = {
+        id: 'parent-1',
+        client_id: 'client-claude',
+        client_name: 'Claude',
+        client_host: 'claude.ai',
+        scope: 'fitness:read',
+        granted_at: '2026-11-01T10:00:00Z',
+        preset: 'training_coach',
+        max_tier: 'T1',
+        expires_at: null,
+        step_up: { id: 'child-1', expires_at: '2026-11-25T11:00:00Z' },
+      };
+      listConnectedApps.mockResolvedValueOnce([app]).mockResolvedValue([{ ...app, step_up: null }]);
+
+      await act(async () => {
+        renderUserSettings({ initialTab: 'account' });
+      });
+
+      const line = await screen.findByTestId('connected-app-step-up-parent-1');
+      const worded = i18n.t('tokens.connectedAppsStepUpChild', { time: 'TIME' });
+      expect(worded).not.toEqual('tokens.connectedAppsStepUpChild');
+      expect(line).toHaveTextContent(worded.split('TIME')[0].trim());
+      await user.click(screen.getByTestId('connected-app-step-up-revoke-parent-1'));
+
+      await waitFor(() => expect(revokeConnectedApp).toHaveBeenCalledWith('child-1'));
+      expect(revokeConnectedApp).not.toHaveBeenCalledWith('parent-1');
+      await waitFor(() =>
+        expect(screen.queryByTestId('connected-app-step-up-parent-1')).not.toBeInTheDocument(),
+      );
+      expect(screen.getByText('Claude')).toBeInTheDocument();
+    });
+
     it("shows a grant whose end has passed as expired, muted, with Revoke kept", async () => {
       vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-22T00:00:00Z'));
       listConnectedApps.mockResolvedValueOnce([

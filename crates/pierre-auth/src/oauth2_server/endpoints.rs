@@ -136,7 +136,7 @@ pub struct OAuth2AuthorizationServer {
     /// Whether the step-up screen is offered, so a step-up preset's request
     /// (`one_off_question`) is resolved rather than refused "step-up is not
     /// offered yet"; off until [`Self::with_step_up_offered`] says the
-    /// catalogue words the screen (carnet#1544 slice 4b, dark launch)
+    /// catalogue words the screen (carnet#1544 slice 4b)
     step_up_offered: bool,
 }
 
