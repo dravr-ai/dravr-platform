@@ -582,16 +582,6 @@ variable "meta_whatsapp_phone_number_id" {
   type        = string
 }
 
-variable "meta_whatsapp_verify_token" {
-  description = "Token Meta echoes when it verifies the WhatsApp webhook subscription (META_WHATSAPP_VERIFY_TOKEN). Set in the private var-file."
-  type        = string
-}
-
-variable "meta_messenger_verify_token" {
-  description = "Token Meta echoes when it verifies the Messenger webhook subscription (META_MESSENGER_VERIFY_TOKEN). Set in the private var-file."
-  type        = string
-}
-
 variable "backend_sciotte_iam" {
   description = "Enforce Cloud Run IAM on the session-read service (allow_unauthenticated=false + run.invoker for the app SA). Flip to true only after both the session-read service and the API are deployed with identity-token auth — before that, Cloud Run would reject an API that is still sending the old shared bearer."
   type        = bool

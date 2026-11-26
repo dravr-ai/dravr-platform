@@ -605,15 +605,10 @@ module "backend" {
       # exceeded" page.
       STRAVA_OAUTH_SEAT_CAP = tostring(var.strava_oauth_seat_cap)
 
-      # WhatsApp config held as plain environment values: the phone number ID
-      # of the account's WhatsApp number, never a Meta test number (those
-      # deliver only to the recipients on their allow-list), and the token
-      # Meta echoes when it verifies the webhook subscription.
+      # The phone number ID of the account's WhatsApp number, never a Meta
+      # test number: those deliver only to the recipients on their allow-list.
+      # The webhook verify tokens are secrets, in the secret map below.
       META_WHATSAPP_PHONE_NUMBER_ID = var.meta_whatsapp_phone_number_id
-      META_WHATSAPP_VERIFY_TOKEN    = var.meta_whatsapp_verify_token
-
-      # Messenger's webhook verification token, held the same way.
-      META_MESSENGER_VERIFY_TOKEN = var.meta_messenger_verify_token
 
       # Admin email for messaging channel seeding (resolves tenant on startup)
       ADMIN_EMAIL = var.admin_email
@@ -838,6 +833,8 @@ module "backend" {
     META_WHATSAPP_ACCESS_TOKEN       = module.secrets.secret_ids["meta_whatsapp_access_token"]
     META_MESSENGER_APP_SECRET        = module.secrets.secret_ids["meta_messenger_app_secret"]
     META_MESSENGER_PAGE_ACCESS_TOKEN = module.secrets.secret_ids["meta_messenger_page_access_token"]
+    META_WHATSAPP_VERIFY_TOKEN       = module.secrets.secret_ids["meta_whatsapp_verify_token"]
+    META_MESSENGER_VERIFY_TOKEN      = module.secrets.secret_ids["meta_messenger_verify_token"]
     DISCORD_BOT_TOKEN                = module.secrets.secret_ids["discord_bot_token"]
     DISCORD_PUBLIC_KEY               = module.secrets.secret_ids["discord_public_key"]
     DISCORD_APPLICATION_ID           = module.secrets.secret_ids["discord_application_id"]

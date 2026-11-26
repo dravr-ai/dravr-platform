@@ -784,6 +784,55 @@ resource "google_secret_manager_secret" "meta_messenger_page_access_token" {
   }
 }
 
+# META_WHATSAPP_VERIFY_TOKEN and META_MESSENGER_VERIFY_TOKEN — the
+# hub.verify_token Meta presents when a webhook subscription is saved in the App
+# Dashboard. They are ours to choose, so each is generated here and real from
+# the first apply (the server's env references them at "latest"), one per
+# channel and never the App Secret, which signs every payload (carnet#1822).
+# Copy one into the dashboard's webhook settings with `gcloud secrets versions
+# access latest --secret=<id>`.
+resource "random_password" "meta_whatsapp_verify_token" {
+  length  = 48
+  special = false
+}
+
+resource "google_secret_manager_secret" "meta_whatsapp_verify_token" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-meta-whatsapp-verify-token"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "meta_whatsapp_verify_token" {
+  secret      = google_secret_manager_secret.meta_whatsapp_verify_token.id
+  secret_data = random_password.meta_whatsapp_verify_token.result
+}
+
+resource "random_password" "meta_messenger_verify_token" {
+  length  = 48
+  special = false
+}
+
+resource "google_secret_manager_secret" "meta_messenger_verify_token" {
+  project   = var.project_id
+  secret_id = "${var.service_name}-meta-messenger-verify-token"
+
+  labels = var.labels
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "meta_messenger_verify_token" {
+  secret      = google_secret_manager_secret.meta_messenger_verify_token.id
+  secret_data = random_password.meta_messenger_verify_token.result
+}
+
 resource "google_secret_manager_secret" "discord_bot_token" {
   project   = var.project_id
   secret_id = "${var.service_name}-discord-bot-token"
