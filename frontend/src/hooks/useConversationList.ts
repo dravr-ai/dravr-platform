@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The one query behind the unified conversation list — paged rows, search, and the row mutations
+// ABOUTME: The one query behind the unified conversation list — paged rows, newest activity first, and the row mutations
 // ABOUTME: Every web reader of GET /api/chat/conversations goes through here so the cache has one shape
 
 import { useCallback, useMemo } from 'react';
@@ -17,7 +17,6 @@ import {
   buildConversationRow,
   conversationRowLabels,
   deriveKind,
-  filterRows,
   scopeOfKind,
   sortRowsByActivity,
   type ConversationRowModel,
@@ -93,7 +92,7 @@ export function patchCachedConversation(
 
 /** What the list and the thread header read. */
 export interface ConversationListState {
-  /** The rows to draw, newest activity first, narrowed by `query`. */
+  /** The rows to draw, newest activity first; a search box narrows them with `filterRows`. */
   rows: ConversationRowModel[];
   /** The raw rows the server sent, across every loaded page. */
   conversations: Conversation[];
@@ -112,12 +111,8 @@ export interface ConversationListState {
 /**
  * The unified list: every conversation the athlete takes part in, whatever
  * created it, as one flat set of rows sorted by last activity.
- *
- * `query` narrows the rows the way the search box does — title, agent handle
- * or preview — without touching what is cached, so clearing the box costs no
- * request.
  */
-export function useConversationList(query = ''): ConversationListState {
+export function useConversationList(): ConversationListState {
   const result = useConversationsQuery();
 
   const conversations = useMemo(
@@ -138,11 +133,8 @@ export function useConversationList(query = ''): ConversationListState {
 
   const rows = useMemo(() => {
     const now = new Date();
-    const built = sortRowsByActivity(
-      conversations.map((conversation) => buildConversationRow(conversation, labels, now)),
-    );
-    return filterRows(built, query);
-  }, [conversations, labels, query]);
+    return sortRowsByActivity(conversations.map((conversation) => buildConversationRow(conversation, labels, now)));
+  }, [conversations, labels]);
 
   const { fetchNextPage, refetch } = result;
   const loadMore = useCallback(() => {

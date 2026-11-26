@@ -268,7 +268,7 @@ impl GroupSummarizationStrategy for WeeklyDigestSummarizer {
                     _ => String::new(),
                 };
                 // Append total ascent when the source carries it (Strava /
-                // sciotte / Coros populate it; HR-only / treadmill stay
+                // session reads / Coros populate it; HR-only / treadmill stay
                 // elevation-less). Lets the LLM answer "combien de dénivelé"
                 // with a real shared total instead of abstaining.
                 let elev_seg = match act.elevation_gain_m {

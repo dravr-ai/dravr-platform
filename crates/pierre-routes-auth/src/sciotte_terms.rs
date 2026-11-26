@@ -18,7 +18,7 @@ use crate::AuthRoutesContext;
 /// acceptance this attempt carries. A backend with no notice, or an account
 /// the `provider_exposure_notice` flag leaves off, passes.
 ///
-/// TrainingPeaks and COROS offer no API Pierre can use, so the sciotte service reads
+/// TrainingPeaks and COROS offer no API Pierre can use, so the session-read service reads
 /// through the user's own signed-in session — access their terms prohibit for
 /// third parties, putting the account at risk. Every connect surface (web,
 /// mobile, the hosted page, the channel picker) states this before the

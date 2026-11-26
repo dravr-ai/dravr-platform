@@ -5,7 +5,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 #
-# The API mounts no bucket (only the sciotte services mount dravr-dev-sciotte-scripts
+# The API mounts no bucket (only the session-read services mount dravr-dev-sciotte-scripts
 # via gcsfuse). Any plain-text line, from a sidecar or the runtime, arrives as
 # `textPayload`; the dravr binary logs via tracing -> `jsonPayload`.
 # So filtering on `jsonPayload:*` keeps every app line and discards every plain-text line,

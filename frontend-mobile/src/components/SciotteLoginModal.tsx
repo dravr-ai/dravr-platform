@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Sciotte credential login modal for mobile — collects email/password for headless Chrome login
+// ABOUTME: Session-read credential login modal for mobile — collects email/password for headless Chrome login
 // ABOUTME: Supports Google/Apple/email methods with 2FA (OTP, phone tap, number match) and a provider robot check's takeover
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -290,7 +290,7 @@ export function SciotteLoginModal({
   const [matchNumber, setMatchNumber] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   // Toggles the BYO Strava OAuth-app setup modal. Strava-only — Garmin doesn't
-  // expose a public OAuth app for end users (only sciotte's headless login).
+  // expose a public OAuth app for end users (only the session-read headless login).
   const [showStravaBYO, setShowStravaBYO] = useState(false);
 
   const preset = SCIOTTE_LOGIN_PRESETS[target];
@@ -335,7 +335,7 @@ export function SciotteLoginModal({
   // After the BYO setup modal saves, kick off the official Strava OAuth dance
   // through ASWebAuthenticationSession. Mirrors the web flow in
   // `SciotteLoginModal.onSaved` (see frontend/) — credentials persisted on
-  // the server, OAuth consent screen handles the rest. The Sciotte modal
+  // the server, OAuth consent screen handles the rest. The sign-in modal
   // closes as soon as Strava redirects back with success.
   const launchStravaOAuthFromBYO = useCallback(async () => {
     setShowStravaBYO(false);

@@ -187,6 +187,7 @@ async fn test_oauth_authorization_url_generation() {
                 blobs: None,
                 lab_reader: None,
                 pdf_text_bin: None,
+                contremaitre: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -297,7 +298,7 @@ async fn test_oauth_authorization_url_generation() {
     // A `return_redirect` option embeds the post-OAuth return URL as the third
     // (base64) state segment so the session-less callback bounces success/
     // failure there — the channel-initiated hosted connect flow relies on this
-    // to send a failed Strava OAuth back to the picker's Sciotte fallback.
+    // to send a failed Strava OAuth back to the picker's session sign-in fallback.
     let return_url = "http://localhost:8081/providers/connect?token=abc.def";
     let with_return = oauth_routes
         .get_auth_url(
@@ -325,7 +326,7 @@ async fn test_oauth_authorization_url_generation() {
     assert_eq!(decoded, return_url, "embedded return URL round-trips");
 
     // Direct `garmin` OAuth was removed in a3ecd1b6's provider cleanup —
-    // Garmin data now flows through Sciotte's headless login (`sciotte_garmin`).
+    // Garmin data now flows through the headless session sign-in (`sciotte_garmin`).
     // The Strava block above is the canonical OAuth-URL-generation check
     // for this test's intent.
 }
@@ -478,6 +479,7 @@ async fn test_oauth_state_validation() {
                 blobs: None,
                 lab_reader: None,
                 pdf_text_bin: None,
+                contremaitre: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -680,6 +682,7 @@ async fn test_connection_status_no_providers() {
                 blobs: None,
                 lab_reader: None,
                 pdf_text_bin: None,
+                contremaitre: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -862,6 +865,7 @@ async fn test_invalid_provider_error() {
                 blobs: None,
                 lab_reader: None,
                 pdf_text_bin: None,
+                contremaitre: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -1037,6 +1041,7 @@ async fn test_disconnect_provider() {
                 blobs: None,
                 lab_reader: None,
                 pdf_text_bin: None,
+                contremaitre: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -1343,6 +1348,7 @@ async fn test_oauth_urls_contain_required_parameters() {
                 blobs: None,
                 lab_reader: None,
                 pdf_text_bin: None,
+                contremaitre: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -1373,6 +1379,6 @@ async fn test_oauth_urls_contain_required_parameters() {
     assert!(strava_params.contains_key("state"));
 
     // Direct `garmin` OAuth was removed in a3ecd1b6's provider cleanup —
-    // Garmin flows through Sciotte's headless login (`sciotte_garmin`).
+    // Garmin flows through the headless session sign-in (`sciotte_garmin`).
     // The Strava parameter coverage above is the canonical check.
 }

@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use axum::{
@@ -21,13 +22,14 @@ use pierre_auth::auth::AuthResult;
 use pierre_chat_pipeline::agent_welcome::{post_agent_welcome, WelcomeTarget};
 use pierre_chat_pipeline::SurfaceId;
 use pierre_core::errors::{AppError, ErrorCode};
-use pierre_core::models::{ConversationRecord, TenantId};
+use pierre_core::models::{ConversationRecord, ConversationSummary, TenantId};
 use pierre_database::repositories::NewConversation;
 use pierre_middleware::AuthenticatedUser;
 use pierre_providers::ai_scope;
 use pierre_runtime_context::AdminConfigLookup;
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
 use pierre_services::agents::{require_bindable_agent, require_room_agent};
+use pierre_services::coached_athlete::{solo_athletes_coached_by, SoloAthleteResponse};
 use pierre_services::conversation_forge::{
     counterpart_title, create_conversation_slot, open_group_room_slot, resolve_conversation_model,
     selected_or_system_agent, RoomOrigin, SlotQuota,
@@ -272,6 +274,37 @@ pub(super) async fn create_for(
     Ok((conversation_response(resources, conv).await, origin))
 }
 
+/// The group a list row could name its room's one athlete through: a room's
+/// own group, or the group a coach's plan thread is bound through
+/// (carnet#1070).
+fn athlete_group(row: &ConversationSummary) -> Option<Uuid> {
+    match (&row.group_id, row.subject_user_id, row.subject_group_id) {
+        (Some(group), _, _) => Uuid::parse_str(group).ok(),
+        (None, Some(_), group) => group,
+        (None, None, _) => None,
+    }
+}
+
+/// Every group the page's rows could name an athlete through.
+fn athlete_groups(rows: &[ConversationSummary]) -> HashSet<Uuid> {
+    rows.iter().filter_map(athlete_group).collect()
+}
+
+/// The athlete whose workspace `row` opens for the coach reading the list
+/// (carnet#1817): the room's one athlete, or that athlete when the row is
+/// the coach's plan thread on them. `solo_athletes` holds only the rooms the
+/// reader coaches, so every other reader's rows name nobody.
+fn row_solo_athlete(
+    row: &ConversationSummary,
+    solo_athletes: &HashMap<Uuid, SoloAthleteResponse>,
+) -> Option<SoloAthleteResponse> {
+    let athlete = solo_athletes.get(&athlete_group(row)?)?;
+    match row.subject_user_id {
+        Some(subject) if row.group_id.is_none() && athlete.user_id != subject.to_string() => None,
+        _ => Some(athlete.clone()),
+    }
+}
+
 /// List every conversation the caller takes part in — whatever surface opened
 /// it — newest activity first, one page at a time.
 ///
@@ -304,12 +337,19 @@ pub(super) async fn list_conversations(
             listed_subjects(&auth),
         )
         .await?;
+    let solo_athletes = solo_athletes_coached_by(
+        &resources.common.repos,
+        auth.user_id,
+        &athlete_groups(&page.items),
+    )
+    .await?;
 
     let response = ConversationListResponse {
         conversations: page
             .items
             .into_iter()
             .map(|c| ConversationSummaryResponse {
+                solo_athlete: row_solo_athlete(&c, &solo_athletes),
                 id: c.id,
                 title: c.title,
                 model: c.model,

@@ -41,7 +41,7 @@ jest.mock('../../../services/api', () => ({
     disconnectIntervalsIcu: jest.fn(),
   },
 }));
-// Render the Sciotte modal as a visible marker carrying its target so a fallback
+// Render the sign-in modal as a visible marker carrying its target so a fallback
 // (target="strava") is observable.
 jest.mock('../../../components/SciotteLoginModal', () => {
   const React = require('react');
@@ -155,13 +155,13 @@ describe('ConnectionsScreen — TrainingPeaks', () => {
   });
 });
 
-describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
+describe('ConnectionsScreen — OAuth-first with sign-in fallback', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     initMobileOAuth.mockResolvedValue({ authorization_url: 'https://www.strava.com/oauth/authorize' });
   });
 
-  it('launches Strava OAuth (not Sciotte) while seats remain', async () => {
+  it('launches Strava OAuth (not the sign-in modal) while seats remain', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [stravaCard('oauth')] });
     // Keep the browser session pending so we only assert the launch.
     openAuthSessionAsync.mockReturnValue(new Promise(() => {}));
@@ -174,7 +174,7 @@ describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
     expect(screen.queryByText('sciotte-modal:strava')).toBeNull();
   });
 
-  it('opens the Sciotte modal directly (no OAuth) once the pool is exhausted', async () => {
+  it('opens the sign-in modal directly (no OAuth) once the pool is exhausted', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [stravaCard('mirror')] });
 
     render(<ConnectionsScreen />, { wrapper: queryWrapper() });
@@ -208,7 +208,7 @@ describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
     expect(initMobileOAuth).not.toHaveBeenCalled();
   });
 
-  it('falls back to the Sciotte modal when the Strava OAuth callback returns an error', async () => {
+  it('falls back to the sign-in modal when the Strava OAuth callback returns an error', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [stravaCard('oauth')] });
     openAuthSessionAsync.mockResolvedValue({ type: 'success', url: 'dravr://oauth-callback?success=false&error=cap_exceeded' });
     linkingParse.mockReturnValue({ queryParams: { success: 'false', error: 'cap_exceeded' } });
@@ -295,7 +295,7 @@ describe('ConnectionsScreen — OAuth-first with Sciotte fallback', () => {
     });
   });
 
-  it('offers to start fresh, never the Sciotte fallback, when the account was a deleted account\'s', async () => {
+  it('offers to start fresh, never the sign-in fallback, when the account was a deleted account\'s', async () => {
     const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
     getProvidersStatus.mockResolvedValue({ providers: [stravaCard('oauth')] });
     openAuthSessionAsync.mockResolvedValue({

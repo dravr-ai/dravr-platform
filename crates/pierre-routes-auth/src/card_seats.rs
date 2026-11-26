@@ -95,7 +95,7 @@ impl CardSeats {
     /// The `recommended_backend` and `seats_left` of `provider_name`'s card,
     /// for an athlete whose card asks for a `reconnect`.
     ///
-    /// The Sciotte entries are the user-facing "Strava" and "Garmin" cards:
+    /// The session sign-in entries are the user-facing "Strava" and "Garmin" cards:
     /// `oauth` (the card's provider's authorization) only while the
     /// admin's order puts the OAuth first ([`ConnectOrder::OAuthFirst`])
     /// and a seat remains, else `mirror`. A card asking for a reconnect

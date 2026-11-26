@@ -1,5 +1,5 @@
 // ABOUTME: Pins pierre-providers' hand-written Debug impls that hide signing secrets and sessions
-// ABOUTME: A future derive(Debug) on the Terra validator or the sciotte provider fails here
+// ABOUTME: A future derive(Debug) on the Terra validator or the session-read provider fails here
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai

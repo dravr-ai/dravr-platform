@@ -1,4 +1,4 @@
-// ABOUTME: Unit tests for ProviderConnectionCards OAuth-first-with-Sciotte-fallback behavior
+// ABOUTME: Unit tests for ProviderConnectionCards OAuth-first-with-sign-in-fallback behavior
 // ABOUTME: Covers the seat-gated OAuth default (Strava, Garmin) in this tab, the mirror path, refused grants, the history sign-in a grant chains into, export links, own-app setup and Intervals.icu
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -44,7 +44,7 @@ vi.mock('../../services/api', () => ({
 
 vi.mock('../../services/analytics', () => ({ track: vi.fn() }));
 
-// Render the Sciotte modal as a testid carrying its target so a fallback that
+// Render the sign-in modal as a testid carrying its target so a fallback that
 // opens it (target="strava" or "garmin") is observable.
 vi.mock('../SciotteLoginModal', () => ({
   default: ({
@@ -295,7 +295,7 @@ describe('ProviderConnectionCards — TrainingPeaks', () => {
   });
 });
 
-describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => {
+describe('ProviderConnectionCards — OAuth-first with sign-in fallback', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
@@ -303,7 +303,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     stubNavigation();
   });
 
-  it('launches Strava OAuth (not the Sciotte modal) while seats remain', async () => {
+  it('launches Strava OAuth (not the sign-in modal) while seats remain', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [stravaCard('oauth')] });
     const user = userEvent.setup();
     renderCards();
@@ -318,7 +318,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
   });
 
-  it('opens the Sciotte modal directly (no OAuth) once the pool is exhausted', async () => {
+  it('opens the sign-in modal directly (no OAuth) once the pool is exhausted', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [stravaCard('mirror')] });
     const user = userEvent.setup();
     renderCards();
@@ -368,7 +368,7 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
     expect(sessionStorage.getItem('pierre_oauth_return')).toBe('/settings/connections');
   });
 
-  it('falls back to the Sciotte modal when a Strava OAuth attempt fails', async () => {
+  it('falls back to the sign-in modal when a Strava OAuth attempt fails', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [stravaCard('oauth')] });
     renderCards();
     await screen.findByLabelText('Connect to Strava');

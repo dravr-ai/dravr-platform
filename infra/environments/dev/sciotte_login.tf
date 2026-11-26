@@ -1,4 +1,4 @@
-# ABOUTME: The sciotte sign-in service, apart from the read service, and the container settings the two share
+# ABOUTME: The session-read sign-in service, apart from the read service, and the container settings the two share
 # ABOUTME: A sign-in parks its browser in one instance's memory, so sign-ins run on a service that never exceeds one (carnet#1504)
 #
 # Why two services
@@ -13,11 +13,11 @@
 # they spread over module.sciotte's read services, each one instance, with
 # every call naming a session sent to the service its id picks.
 #
-# Same image, same settings: one sciotte binary serves both, and the platform
+# Same image, same settings: one session-read binary serves both, and the platform
 # sends each step to the right one (DRAVR_SCIOTTE_LOGIN_URL beside
 # DRAVR_SCIOTTE_REMOTE_URL on the API).
 #
-# Every sciotte service carries `component = "sciotte"`: the deploy lane and
+# Every session-read service carries `component = "sciotte"`: the deploy lane and
 # the rollout quiesce find them by that label, so a service an apply creates
 # is released and waited on from then on, and one an apply removes is not.
 #
@@ -41,7 +41,7 @@
 # instance at about CA$65/mo, 2026-11-15, carnet#1504).
 
 locals {
-  # Hot-swappable extraction scripts / prompt overrides. Only the sciotte
+  # Hot-swappable extraction scripts / prompt overrides. Only the session-read
   # services mount the bucket: the API pod runs no session reader.
   sciotte_gcs_volumes = {
     sciotte-scripts = {
@@ -76,7 +76,7 @@ locals {
     DRAVR_SCIOTTE_CLOSED_RETRY_AFTER_SECS = "60"
     # Reads run over HTTP with a per-session cookie jar, not in a browser, so
     # they are admitted apart from the Chrome logins above. Required from
-    # sciotte 1.0.0; the 0.28 image ignores it.
+    # the service's 1.0.0; the 0.28 image ignores it.
     DRAVR_SCIOTTE_MAX_CONCURRENT_READS = tostring(var.sciotte_max_concurrent_reads)
 
     # Interactive-login windows — one source of truth with the API pod's
@@ -118,7 +118,7 @@ locals {
     DRAVR_BROWSER_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36"
 
     # Credential sign-ins launch without a display, because this container
-    # has none. Unset, sciotte opens a windowed Chrome for them, and the
+    # has none. Unset, the service opens a windowed Chrome for them, and the
     # sign-in page then never became usable here (2026-10-09 to 10-16); with
     # this set a sign-in reaches the emailed-code step in 1.5 s (carnet#1035).
     DRAVR_SCIOTTE_CREDENTIAL_LOGIN_HEADLESS = "true"
@@ -130,7 +130,7 @@ locals {
     # connects through the sign-in extension first, then the credentials
     # form, then OAuth when that fails (carnet#1617). Turning this on puts
     # the verification step back inside the service, where an athlete could
-    # not complete it. Needs sciotte >= 3339af3, which reads the flag.
+    # not complete it. Needs the service at >= 3339af3, which reads the flag.
     DRAVR_SCIOTTE_TAKEOVER = "false"
   }
 
@@ -182,8 +182,8 @@ module "sciotte_login" {
     "serviceAccount:${module.service_accounts.app_service_account_email}"
   ] : []
 
-  # The read service's audience: the API holds one sciotte audience, and the
-  # takeover websocket upgrade is refused with a 401 before sciotte sees it
+  # The read service's audience: the API holds one session-read audience, and
+  # the takeover websocket upgrade is refused with a 401 before the service sees it
   # when the token's audience is not one this service declares.
   custom_audiences = [local.sciotte_audience]
 

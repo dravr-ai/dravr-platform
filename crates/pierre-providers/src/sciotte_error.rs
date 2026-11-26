@@ -1,13 +1,13 @@
-// ABOUTME: The one mapping from the sciotte client's ClientError to the platform's AppError, by variant and operation
+// ABOUTME: The one mapping from the session-read client's ClientError to the platform's AppError, by variant and operation
 // ABOUTME: Holds the details keys callers branch on: the athlete refusal marker and a load-shed's retry window
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! What a failed call to the sciotte service is, in the platform's
+//! What a failed call to the session-read service is, in the platform's
 //! error vocabulary.
 //!
-//! The sciotte service is called through `dravr-sciotte`'s own client, whose
+//! The service is called through `dravr-sciotte`'s own client, whose
 //! [`ClientError`] names what the service answered. [`to_app_error`] is the
 //! only place that names it in the platform's [`ErrorCode`]s:
 //!
@@ -66,7 +66,7 @@ mod login_answer;
 pub use login_answer::is_login_flow_lost;
 use login_answer::unexpected_error;
 
-/// The provider slug an auth-shaped sciotte error names. The provider layer
+/// The provider slug an auth-shaped session-read error names. The provider layer
 /// replaces it with the backend that owns the session.
 const AUTH_PROVIDER: &str = "sciotte";
 
@@ -94,7 +94,7 @@ pub const COACH_ACCOUNT_REFUSAL: &str = "This account is a coach account, and a 
      no training calendar of its own. To read an athlete's workouts, link each athlete from a \
      group you coach; the athlete confirms the link.";
 
-/// The platform error for a failed call to the sciotte service, its
+/// The platform error for a failed call to the session-read service, its
 /// words naming no provider. A caller that knows which provider the session
 /// signed in to uses [`to_app_error_as`].
 #[must_use]
@@ -118,7 +118,7 @@ pub fn to_app_error_for(error: ClientError, backend: &str, brand: &str) -> AppEr
     }
 }
 
-/// The platform error for a failed call to the sciotte service,
+/// The platform error for a failed call to the session-read service,
 /// worded about `brand`, the provider the athlete signed in to ("Garmin").
 ///
 /// Both matches are exhaustive on purpose: a variant added to the client
@@ -129,7 +129,7 @@ pub fn to_app_error_as(error: ClientError, brand: &str) -> AppError {
     match error {
         ClientError::NotConfigured => AppError::internal(
             "DRAVR_SCIOTTE_REMOTE_URL must be set (with DRAVR_SCIOTTE_AUDIENCE \
-             for a non-loopback service) — the in-process sciotte session-read path \
+             for a non-loopback service) — the in-process session-read path \
              was removed in the ADR-021 Phase 4 cutover",
         ),
         ClientError::Config(config) => AppError::internal(config.to_string()),
@@ -138,7 +138,7 @@ pub fn to_app_error_as(error: ClientError, brand: &str) -> AppError {
             AppError::provider_auth_required(AUTH_PROVIDER)
         }
         lost @ ClientError::SessionLostOnResend { .. } => {
-            warn!(error = %lost, "sciotte lost the session when the read was re-sent");
+            warn!(error = %lost, "the service lost the session when the read was re-sent");
             AppError::new(
                 ErrorCode::ExternalServiceUnavailable,
                 format!(
@@ -150,7 +150,7 @@ pub fn to_app_error_as(error: ClientError, brand: &str) -> AppError {
         ClientError::AthleteRequired { .. } => coach_account_error(COACH_ACCOUNT_REFUSAL),
         ClientError::AthleteNotAccessible { .. } => athlete_not_accessible(),
         challenge @ ClientError::LoginChallenge { .. } => {
-            warn!(error = %challenge, "sciotte login stopped at a provider challenge");
+            warn!(error = %challenge, "a session-read login stopped at a provider challenge");
             with_refusal_marker(
                 AppError::new(
                     ErrorCode::ExternalAuthFailed,
@@ -205,7 +205,7 @@ fn service_error(error: ServiceError, operation: Option<Operation>, brand: &str)
         } => reworded(
             ErrorCode::ResourceUnavailable,
             &format!(
-                "sciotte shed the request ({})",
+                "the session-read service shed the request ({})",
                 reason.as_deref().unwrap_or(UNNAMED_SHED_REASON)
             ),
             format!("{brand} is busy right now; retry after {retry_after_secs}s"),
@@ -223,7 +223,7 @@ fn service_error(error: ServiceError, operation: Option<Operation>, brand: &str)
 /// An error under `code` worded for the athlete, the service's own words
 /// (`said`, naming the service and the request id) logged for an admin.
 fn reworded(code: ErrorCode, said: &str, message: String) -> AppError {
-    warn!(error = %said, "sciotte call failed; reported under the provider's name");
+    warn!(error = %said, "session-read call failed; reported under the provider's name");
     AppError::new(code, message)
 }
 
@@ -365,8 +365,8 @@ pub fn is_coach_account_refusal(error: &AppError) -> bool {
     sciotte_refusal(error) == Some(ATHLETE_REQUIRED)
 }
 
-/// The server's sciotte client, or the not-configured error a call that needs
-/// the sciotte service reports when the server started without one.
+/// The server's session-read client, or the not-configured error a call that
+/// needs the service reports when the server started without one.
 ///
 /// # Errors
 ///

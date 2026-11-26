@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! jf@dravr.ai's sciotte capture stopped after 2026-08-28 02:59Z and was still
+//! jf@dravr.ai's session-read capture stopped after 2026-08-28 02:59Z and was still
 //! stopped two days later. Three real activities never landed. Nothing noticed,
 //! because `activity_fetch_freshness` — which held the honest time of the last
 //! successful provider fetch the whole time — was read by nothing except a
@@ -283,7 +283,7 @@ async fn the_snapshot_pairs_a_connection_with_its_fetch_mark() {
     let sciotte = snapshot
         .iter()
         .find(|c| c.provider == "sciotte")
-        .expect("the sciotte connection is in the snapshot");
+        .expect("the session-read connection is in the snapshot");
     assert_eq!(sciotte.user_id, user_id.to_string());
     assert_eq!(sciotte.tenant_id, tenant.to_string());
     assert!(
@@ -312,7 +312,7 @@ async fn the_snapshot_pairs_a_connection_with_its_fetch_mark() {
     );
 
     // And the divergence rule turns that snapshot into exactly one finding: the
-    // sciotte row is 50h past its last fetch, the whoop row never fetched at all.
+    // `sciotte` row is 50h past its last fetch, the whoop row never fetched at all.
     let (judged, stale) = partition_stale_captures(
         &snapshot,
         Timestamp::now(),
@@ -809,7 +809,7 @@ async fn a_serve_from_the_elected_providers_own_cache_touches_its_connection() {
 }
 
 // ---------------------------------------------------------------------------
-// Sciotte first, OAuth as fallback (carnet#1494): one fallback, the grant first
+// Session first, OAuth as fallback (carnet#1494): one fallback, the grant first
 // ---------------------------------------------------------------------------
 
 /// The session reader stand-in answers the session's activity list with its ride.

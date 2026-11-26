@@ -1,10 +1,10 @@
-// ABOUTME: Pins a delegated TrainingPeaks read against a loopback stand-in for the sciotte service
+// ABOUTME: Pins a delegated TrainingPeaks read against a loopback stand-in for the session-read service
 // ABOUTME: The athlete named on every read, the detail-id fence, the roster profile, and the coach's dead session kept off the reader
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Sciotte delegated-read contract.
+//! Delegated session-read contract.
 //
 // This `//!` must precede the crate-level `#![cfg]`: when the feature is off the
 // cfg empties the crate (dropping any inner `#![allow(missing_docs)]`), so without
@@ -313,7 +313,7 @@ async fn own(
             revoke_url: None,
             default_scopes: vec![],
         })
-        .expect("sciotte provider construction is infallible"); // Safe: factory returns Ok unconditionally
+        .expect("session-read provider construction is infallible"); // Safe: factory returns Ok unconditionally
     provider
         .set_credentials(credentials(session_id))
         .await
@@ -694,7 +694,7 @@ async fn a_saved_sign_in_that_cannot_be_used_names_the_brand_never_the_backend()
             revoke_url: None,
             default_scopes: vec![],
         })
-        .expect("sciotte provider construction is infallible"); // Safe: factory returns Ok unconditionally
+        .expect("session-read provider construction is infallible"); // Safe: factory returns Ok unconditionally
     for stored in [None, Some(""), Some("not a session")] {
         let mut stored_credentials = credentials(COACH_SESSION);
         stored_credentials.access_token = stored.map(SecretString::from);

@@ -1,5 +1,5 @@
 // ABOUTME: Garmin Connect athlete self-report mapping — RPE written ×10 (10..100) and the 0..100 "How did you feel?" score
-// ABOUTME: Pure functions the sciotte conversion calls so a Garmin encoding never leaves this module
+// ABOUTME: Pure functions the session-read conversion calls so a Garmin encoding never leaves this module
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,9 +9,9 @@
 //! After an activity the watch (or Connect) asks for a self-evaluation: a
 //! perceived effort and how the athlete felt (Garmin manuals, "Evaluating an
 //! Activity"). Garmin Connect's activity JSON keeps both in `summaryDTO`:
-//! `directWorkoutRpe` and `directWorkoutFeel`. dravr-sciotte carries them
-//! unconverted — the RPE as its decimal string, the feel as its rank — and
-//! this module turns them into the platform's scales.
+//! `directWorkoutRpe` and `directWorkoutFeel`. The session-read satellite
+//! carries them unconverted — the RPE as its decimal string, the feel as its
+//! rank — and this module turns them into the platform's scales.
 //!
 //! ## Perceived effort: 10–100, the CR-10 rating ×10
 //!

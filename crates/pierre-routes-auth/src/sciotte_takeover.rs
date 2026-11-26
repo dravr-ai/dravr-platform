@@ -1,4 +1,4 @@
-// ABOUTME: The login takeover relay: the athlete's viewer on one side, sciotte's takeover socket on the other
+// ABOUTME: The login takeover relay: the athlete's viewer on one side, the service's takeover socket on the other
 // ABOUTME: Verifies the takeover token, binds the caller's own parked flow, and concludes the sign-in as an HTTP step does
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -14,9 +14,9 @@
 //!   caller to their own parked flow through the remembered flow
 //!   (`require_remote_flow`): the token never names a flow id, so a caller
 //!   can only ever reach the browser parked for them;
-//! - opens sciotte's takeover socket under the service's identity token, and
+//! - opens the service's takeover socket under its identity token, and
 //!   only then upgrades, so a flow that is gone answers as an HTTP refusal;
-//! - relays frames out, and the viewer's input in, read as sciotte's own
+//! - relays frames out, and the viewer's input in, read as the service's own
 //!   [`TakeoverInput`] (no second schema), at most [`MAX_INPUT_BYTES`] each and
 //!   [`MAX_INPUTS_PER_SECOND`] a second;
 //! - intercepts the step's outcome: the sign-in concludes as an HTTP step
@@ -25,7 +25,7 @@
 //!   the viewer receives what `POST /api/providers/sciotte/login` would have
 //!   answered — never the service's session id;
 //! - cancels the attempt when either side ends without an outcome: closing
-//!   the viewer ends the sign-in, and there is no reconnect. Sciotte sends
+//!   the viewer ends the sign-in, and there is no reconnect. The service sends
 //!   the outcome and closes at once while the viewer may still be sending
 //!   input, so the service's messages are read before the viewer's, and a
 //!   forward that fails reads what the service already sent before the
@@ -154,7 +154,7 @@ pub(crate) async fn handle_sciotte_takeover_ws(
         // second page on the same link must not unbind the first one's
         // sign-in, and an entry for a flow that is gone ages out with it.
         Err(refused @ ClientError::Unexpected { .. }) => {
-            info!(user_id = %caller.user_id, error = %refused, "Sciotte refused the takeover socket");
+            info!(user_id = %caller.user_id, error = %refused, "The sign-in service refused the takeover socket");
             return Err(AppError::invalid_input(
                 "This sign-in check has ended. Try connecting again.",
             ));
@@ -162,7 +162,7 @@ pub(crate) async fn handle_sciotte_takeover_ws(
         // No answer at all is the service's failure, not the athlete's.
         Err(e) => return Err(to_app_error(e)),
     };
-    info!(user_id = %caller.user_id, provider = %provider, "Sciotte takeover opened");
+    info!(user_id = %caller.user_id, provider = %provider, "Sign-in takeover opened");
     Ok(upgrade
         .max_message_size(MAX_INPUT_BYTES)
         .on_upgrade(move |viewer| async move {
@@ -198,7 +198,7 @@ pub(crate) async fn takeover_required(
     else {
         forget_remote_flow(&resources.cache, tenant_id, user_id).await;
         return Err(AppError::internal(
-            "sciotte parked a takeover the platform did not ask for",
+            "the sign-in service parked a takeover the platform did not ask for",
         ));
     };
     remember_remote_flow(&resources.cache, tenant_id, user_id, flow_id, provider).await;
@@ -219,7 +219,7 @@ pub(crate) async fn takeover_required(
     info!(
         user_id = %user_id,
         provider = %provider,
-        "Sciotte login parked at a provider challenge; handing the athlete the takeover"
+        "Session sign-in parked at a provider challenge; handing the athlete the takeover"
     );
     Ok(Json(serde_json::json!({
         "status": "takeover_required",
@@ -297,7 +297,7 @@ impl Relay {
     async fn run(self, mut viewer: WebSocket, mut service: ServiceWebSocket) {
         let ended = relay_until_end(&mut viewer, &mut service).await;
         if let Err(e) = service.close(None).await {
-            debug!(error = %e, "Sciotte takeover socket was already closed");
+            debug!(error = %e, "Sign-in takeover socket was already closed");
         }
         self.finish(ended, &mut viewer).await;
         if let Err(e) = viewer.send(Message::Close(None)).await {
@@ -342,7 +342,7 @@ impl Relay {
             info!(
                 user_id = %caller.user_id,
                 status_code,
-                "Sciotte ended the takeover with a refusal"
+                "The sign-in service ended the takeover with a refusal"
             );
             forget_remote_flow(cache, caller.tenant_id, caller.user_id).await;
             return takeover_ended().await;
@@ -369,7 +369,7 @@ impl Relay {
     /// End the attempt the takeover was for: its browser and its slot free.
     async fn cancel(&self) {
         let caller = &self.caller;
-        info!(user_id = %caller.user_id, "Sciotte takeover ended without an outcome; cancelling the sign-in");
+        info!(user_id = %caller.user_id, "Sign-in takeover ended without an outcome; cancelling the sign-in");
         if let Err(e) = cancel_attempt(
             &self.resources,
             caller.tenant_id,
@@ -378,7 +378,7 @@ impl Relay {
         )
         .await
         {
-            warn!(user_id = %caller.user_id, error = %e, "Sciotte takeover cancel failed");
+            warn!(user_id = %caller.user_id, error = %e, "Sign-in takeover cancel failed");
         }
     }
 }
@@ -470,7 +470,7 @@ async fn from_service_to_viewer<E>(
                     .is_err()
                     .then_some(Ended::ViewerLeft),
                 Err(e) => {
-                    debug!(error = %e, "Sciotte sent a takeover message this build does not read");
+                    debug!(error = %e, "The sign-in service sent a takeover message this build does not read");
                     None
                 }
             }
@@ -480,7 +480,7 @@ async fn from_service_to_viewer<E>(
     }
 }
 
-/// `text` as the input sciotte reads, when it is one and the viewer's budget
+/// `text` as the input the service reads, when it is one and the viewer's budget
 /// has room for it; anything else is dropped here.
 fn admitted(text: &str, budget: &mut InputBudget) -> Option<String> {
     if !budget.take() {

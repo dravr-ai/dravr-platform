@@ -4,12 +4,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Sciotte TrainingPeaks plan → cageux `PlannedWorkout` conversion contract.
+//! Session-read TrainingPeaks plan → cageux `PlannedWorkout` conversion contract.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! The three structures are the shapes sciotte's planned extract reads off
+//! The three structures are the shapes the service's planned extract reads off
 //! the captured TrainingPeaks calendar (`tests/fixtures/trainingpeaks/
-//! workouts-v7.json` in dravr-sciotte, pinned there by
+//! workouts-v7.json` in the session-read satellite, pinned there by
 //! `trainingpeaks_planned_extract.rs`): a ride by duration in percent of FTP
 //! with one-step blocks, a run by duration in RPE ranges with a 4× repetition
 //! block, and a swim by distance in percent of threshold pace whose rests are
@@ -29,7 +29,7 @@ fn day(y: i32, m: u32, d: u32) -> CivilDate {
     CivilDate::from_ymd(y, m, d).expect("valid date literal") // Safe: literal calendar date
 }
 
-/// A sciotte step: its name, role, length and target bounds.
+/// A session-read step: its name, role, length and target bounds.
 fn tp_step(
     name: &str,
     intensity_class: IntensityClass,
@@ -543,7 +543,7 @@ fn a_target_the_grammar_cannot_hold_leaves_the_step_untargeted() {
         ),
         vec!["", ""]
     );
-    // A metric and a target kind sciotte has not named.
+    // A metric and a target kind the service has not named.
     assert_eq!(
         targets(
             IntensityMetric::Other("percentOfMaxHr".to_owned()),

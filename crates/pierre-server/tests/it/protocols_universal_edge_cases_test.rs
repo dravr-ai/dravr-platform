@@ -143,6 +143,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 blobs: None,
                 lab_reader: None,
                 pdf_text_bin: None,
+                contremaitre: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -183,6 +184,7 @@ async fn create_executor_no_oauth() -> Result<UniversalToolExecutor> {
                 blobs: None,
                 lab_reader: None,
                 pdf_text_bin: None,
+                contremaitre: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },

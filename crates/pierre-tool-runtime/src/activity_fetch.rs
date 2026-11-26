@@ -6,7 +6,7 @@
 
 //! Provider activity fetching shared across route crates.
 //!
-//! Authenticating a provider (refreshing OAuth tokens, resolving sciotte
+//! Authenticating a provider (refreshing OAuth tokens, resolving session-read
 //! mirrors) and pulling activities is identical whether the caller is the
 //! group analytics snapshot builder or the agent recommender. This module
 //! owns that single path so neither re-implements it.
@@ -251,7 +251,7 @@ pub fn historical_head_slice(
 /// How far back a stale-head refresh re-reads from the provider.
 ///
 /// Thirty days, not the served window. The covered gate exists so a sixteen-week
-/// ask is not re-read on every turn — a sciotte read is a headless browser
+/// ask is not re-read on every turn — a session read is a headless browser
 /// session costing tens of seconds — and the only thing a stale head can be
 /// missing is recent. Deep history is immutable once backfilled.
 const STALE_HEAD_REFRESH_DAYS: i64 = 30;

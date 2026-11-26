@@ -105,7 +105,7 @@ pub(crate) const PHIL_ALIAS_DISPLAY: &str = "Phil";
 /// one with a credential behind it (see `seed_fixture`).
 pub(crate) const ATHLETE_CONNECTIONS: &[&str] = &["whoop", "strava", "sciotte"];
 /// The one connection the fixture holds a credential for: the athlete's
-/// sciotte session, seeded against the session reader stand-in.
+/// signed-in session, seeded against the session reader stand-in.
 pub(crate) const ATHLETE_LIVE_CONNECTION: &str = "sciotte";
 /// The connections each peer-side roster identity holds — Philippe and his
 /// «Phil» alias alike — none with a token behind it.
@@ -1053,7 +1053,7 @@ pub(crate) async fn seed_fixture(resources: &Arc<ServerContext>) -> Fixture {
     // honestly reporting it cannot reach fresh data. The first clean ACP run
     // produced two findings that were exactly that: «la connexion semble
     // buggée» and «Essaie de reconnecter ton compte Strava», both correct,
-    // both about the fixture. Seeding a live sciotte session against the
+    // both about the fixture. Seeding a live signed-in session against the
     // mock session reader gives the fetch path something that actually succeeds, so
     // an episode asking for a chart is testing the chart and not the absence
     // of a credential.
@@ -1069,11 +1069,11 @@ pub(crate) async fn seed_fixture(resources: &Arc<ServerContext>) -> Fixture {
     // honesty look like invention.
     seed_sciotte_session(resources, athlete, tenant).await;
 
-    // The athlete's sciotte connection is registered LAST, and that position
+    // The athlete's session-read connection is registered LAST, and that position
     // is load-bearing. The activity-source election orders by `last_used_at DESC
     // NULLS LAST, connected_at DESC`, and nothing here has been touched, so
     // the last registration is the primary every data read resolves to.
-    // sciotte is the only one of the three this fixture holds a token for; a
+    // `sciotte` is the only one of the three this fixture holds a token for; a
     // token-less primary makes `create_authenticated_provider` signal reauth
     // on every fetch, the tool loop short-circuits, and the athlete gets one
     // deterministic reconnect sentence for every question in the corpus —

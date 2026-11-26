@@ -6,7 +6,7 @@
 
 //! # A provider connect, announced once
 //!
-//! Every path that connects an athlete to a provider (OAuth, a sciotte
+//! Every path that connects an athlete to a provider (OAuth, a session
 //! sign-in, a confirmed delegated link, an intervals.icu key) calls
 //! [`announce`] once the connection is stored. It raises the one
 //! `provider.connected` notify event and appends a `connect` entry to the
@@ -29,7 +29,7 @@ use uuid::Uuid;
 pub enum ConnectVia {
     /// A provider's OAuth grant.
     OAuth,
-    /// A sciotte sign-in on the provider's own pages.
+    /// A session sign-in on the provider's own pages.
     SignIn,
     /// A link their coach proposed, confirmed by the athlete.
     Delegated,

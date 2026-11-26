@@ -107,7 +107,7 @@ async fn spawn_session_reader() -> (Arc<SessionReader>, String) {
     (reader, format!("http://{addr}"))
 }
 
-/// One athlete whose Strava is served by the sciotte mirror, flagged as the
+/// One athlete whose Strava is served by the session-read mirror, flagged as the
 /// incident left it, plus a bearer for their Home page.
 struct Fixture {
     resources: Arc<ServerContext>,

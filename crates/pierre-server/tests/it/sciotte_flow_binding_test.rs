@@ -1,4 +1,4 @@
-// ABOUTME: Integration tests pinning that a sciotte 2FA continuation must name the caller's own parked login flow
+// ABOUTME: Integration tests pinning that a session sign-in 2FA continuation must name the caller's own parked login flow
 // ABOUTME: Covers the refusal when no live flow exists, tenant scoping, TTL expiry, and recall across pods
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -85,7 +85,7 @@ async fn test_cache() -> Cache {
     .expect("build cache")
 }
 
-/// A sciotte-scoped provider link-token — the hosted login page's credential,
+/// A sign-in-scoped provider link-token — the hosted login page's credential,
 /// and the cheapest way to authenticate these handlers in-process.
 fn sciotte_token(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: TenantId) -> String {
     mint_link_token(
@@ -99,7 +99,7 @@ fn sciotte_token(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: Tenan
         },
         &resources.auth.admin_jwt_secret,
     )
-    .expect("mint sciotte link token")
+    .expect("mint sign-in link token")
 }
 
 // ── HTTP surface: a continuation with no flow of the caller's own ───────────
@@ -315,7 +315,7 @@ async fn a_login_method_outside_the_closed_set_is_refused_before_the_handler() {
     }
 }
 
-/// Store a sciotte session written moments ago, so a login inside the reuse
+/// Store a signed-in session written moments ago, so a login inside the reuse
 /// window short-circuits instead of reaching the service.
 async fn seed_fresh_session(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: TenantId) {
     let now = Timestamp::now();
@@ -346,7 +346,7 @@ async fn seed_fresh_session(resources: &Arc<ServerContext>, user_id: Uuid, tenan
             updated_at: now,
         })
         .await
-        .expect("seed stored sciotte session");
+        .expect("seed stored signed-in session");
 }
 
 // ── The gate itself: live vs expired vs absent vs another tenant's ──────────

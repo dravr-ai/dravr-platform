@@ -1,13 +1,13 @@
-// ABOUTME: A TrainingPeaks planned workout, as sciotte reads it from the athlete's session, in the periodization step grammar
+// ABOUTME: A TrainingPeaks planned workout, as read from the athlete's session, in the periodization step grammar
 // ABOUTME: Blocks become numbered sets, each step's target a RelativeIntensity label, or none when the grammar cannot hold it
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Sciotte's `PlannedWorkout` → cageux's [`PlannedWorkout`].
+//! The session read's `PlannedWorkout` → cageux's [`PlannedWorkout`].
 //!
-//! Sciotte keeps a `TrainingPeaks` structure as the provider states it: blocks
-//! of steps, each block with its repeat count, and every target a number in
+//! The service keeps a `TrainingPeaks` structure as the provider states it:
+//! blocks of steps, each block with its repeat count, and every target a number in
 //! the structure's one intensity metric. The platform's shape is the
 //! periodization kernel's flat step list, whose sets are runs of steps that
 //! share a `repeat` and a `repeat_group`, and whose targets are labels in the
@@ -26,8 +26,8 @@
 //!   threshold heart rate; `rpe` becomes an RPE band, rounded to the whole
 //!   ratings the scale holds. A target the grammar cannot state — a percent
 //!   outside the band it accepts (a swim rest's 0 %), an RPE outside 1–10, a
-//!   bound the step does not carry, a metric or target kind sciotte has not
-//!   named — leaves `target_zone` empty. The kernel reads an empty or
+//!   bound the step does not carry, a metric or target kind the service has
+//!   not named — leaves `target_zone` empty. The kernel reads an empty or
 //!   unparseable label as prose, so the step stays timed and untargeted
 //!   rather than carrying a target the coach never set.
 //!
@@ -47,14 +47,14 @@ use crate::models::{PlannedWorkout, PlannedWorkoutBuilder, RelativeIntensity, Wo
 use crate::sciotte_provider::convert_sport_type;
 
 /// The spelling `TrainingPeaks` gives a structure measured in percent of
-/// threshold heart rate. Sciotte has no variant for it and hands it through
+/// threshold heart rate. The service has no variant for it and passes it on
 /// as `IntensityMetric::Other`, the provider's own spelling.
 const PERCENT_OF_THRESHOLD_HR: &str = "percentOfThresholdHr";
 
-/// Convert one planned workout sciotte read from a `TrainingPeaks` calendar.
+/// Convert one planned workout the service read from a `TrainingPeaks` calendar.
 ///
 /// The provider is `trainingpeaks`, the name the athlete knows it by, and
-/// the workout keeps sciotte's id (`athleteId:workoutId`), the same id the
+/// the workout keeps the service's id (`athleteId:workoutId`), the same id the
 /// activity list gives the workout once it is done — which is also what
 /// `completed_activity_id` names.
 #[must_use]
@@ -155,7 +155,7 @@ fn target_zone(metric: &IntensityMetric, kind: Option<&TargetKind>, step: &Plann
 /// range step missing its upper one has no target. `TrainingPeaks` leaves the
 /// kind off some structures (the captured swim set states none), and then the
 /// step's own bounds say which it is: two bounds are a range, one is a value.
-/// A kind sciotte has not named says nothing about how to read the bounds.
+/// A kind the service has not named says nothing about how to read the bounds.
 fn target_bounds(kind: Option<&TargetKind>, step: &PlannedStep) -> Option<(f64, f64)> {
     let low = step.target_min?;
     match kind {

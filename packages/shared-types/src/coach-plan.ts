@@ -47,6 +47,13 @@ export interface SubjectPlanResponse {
   live: WorkoutPlan | null;
   draft: WorkoutPlan | null;
   draft_state: DraftState | null;
+  /**
+   * The dates whose sessions the draft changes over the live plan,
+   * `YYYY-MM-DD`, ascending: the dates the workspace marks « Proposé » and a
+   * publish announces in the room, by the server's one rule (carnet#1816).
+   * Empty with no draft.
+   */
+  proposed_dates: string[];
 }
 
 /**
@@ -274,6 +281,21 @@ function nullablePlan(value: unknown): WorkoutPlan | null | undefined {
   return isWorkoutPlan(value) ? value : undefined;
 }
 
+/**
+ * The read's proposed dates: none when the field is absent, as a server
+ * from before it answers; `null` for anything but a list of civil dates.
+ */
+function parseProposedDates(value: unknown): string[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) return null;
+  const dates: string[] = [];
+  for (const date of value) {
+    if (typeof date !== 'string' || !CIVIL_DATE.test(date)) return null;
+    dates.push(date);
+  }
+  return dates;
+}
+
 /** The subject-plan read, or `null` when the body breaks its contract. */
 export function parseSubjectPlanResponse(body: unknown): SubjectPlanResponse | null {
   if (!isRecord(body) || typeof body.today !== 'string' || !CIVIL_DATE.test(body.today)) {
@@ -284,15 +306,17 @@ export function parseSubjectPlanResponse(body: unknown): SubjectPlanResponse | n
   const draft = nullablePlan(body.draft);
   const stateOmitted = body.draft_state === null || body.draft_state === undefined;
   const draftState = stateOmitted ? null : parseDraftState(body.draft_state);
+  const proposedDates = parseProposedDates(body.proposed_dates);
   if (
     athlete === null ||
     live === undefined ||
     draft === undefined ||
-    (!stateOmitted && draftState === null)
+    (!stateOmitted && draftState === null) ||
+    proposedDates === null
   ) {
     return null;
   }
-  return { athlete, today: body.today, live, draft, draft_state: draftState };
+  return { athlete, today: body.today, live, draft, draft_state: draftState, proposed_dates: proposedDates };
 }
 
 /** The coach's read-only athlete plan, or `null` when the body breaks its contract. */

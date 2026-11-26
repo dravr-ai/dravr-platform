@@ -72,7 +72,7 @@ use pierre_llm::{ChatProvider, LlmProvider};
 /// (`OAuth2Context`) and do not flow through this trait.
 ///
 /// When additional identity surfaces are extracted (credential login,
-/// provider-OAuth-callback handling, Sciotte hosted-login) the trait will
+/// provider-OAuth-callback handling, session hosted-login) the trait will
 /// grow new accessors; today those routes are still tangled with
 /// `pierre_auth::firebase::FirebaseAuth`, `crate::services::auth::*`, and the
 /// focused-context wrappers in `crate::context::*` and remain in

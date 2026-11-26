@@ -401,7 +401,7 @@ export function ConnectionsScreen() {
   const renderProvider = (provider: ExtendedProviderStatus, last: boolean) => {
     const id = provider.provider;
     const isConnected = provider.connected;
-    // A connected-but-dead session (dead sciotte signed-in session / failed OAuth
+    // A connected-but-dead session (dead signed-in session / failed OAuth
     // refresh): the row says "Expiré" and its action reconnects, instead of a
     // healthy-looking "Connecté" with only a disconnect affordance.
     // What the row shows, from the one decision web reads too: a WHOOP that

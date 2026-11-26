@@ -10,7 +10,7 @@
 //! disconnect through the chat tool loop or the `/mcp` surface was
 //! invisible to `PostHog` — connects and disconnects were counted on different
 //! surfaces. Worse, `/mcp` hand-rolled a raw-name token delete: it
-//! never resolved the sciotte mirror backend and never removed the
+//! never resolved the session-read mirror backend and never removed the
 //! `provider_connections` row, so a chat user who disconnected kept a row
 //! claiming the provider was still connected.
 //!
@@ -189,7 +189,7 @@ async fn service_disconnect_cleans_both_rows_and_emits() {
 // Chat tool loop (registry DisconnectProviderTool)
 // ============================================================================
 
-/// The chat tool resolves the sciotte mirror ("garmin" → `sciotte_garmin`),
+/// The chat tool resolves the session-read mirror ("garmin" → `sciotte_garmin`),
 /// cleans both rows for the mirror backend, and emits the event under the
 /// user-facing provider name — the same name `provider.connected` uses, so
 /// the connect/disconnect pair is measured on one axis.

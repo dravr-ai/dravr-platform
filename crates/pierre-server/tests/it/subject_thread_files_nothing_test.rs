@@ -460,7 +460,7 @@ impl Fixture {
         Self::over(test_server_config()).await
     }
 
-    /// The fixture with the server's sciotte client pointed at `reader`
+    /// The fixture with the server's session-read client pointed at `reader`
     /// ([`stand_in_session_reader`]).
     async fn with_session_reader(reader: &str) -> Self {
         Self::over(test_server_config_with_sciotte(reader)).await
@@ -868,7 +868,7 @@ impl Fixture {
 }
 
 /// A local stand-in session reader that serves one ride from yesterday to
-/// whichever session asks, and the URL the server's sciotte client is built to
+/// whichever session asks, and the URL the server's session-read client is built to
 /// reach it at.
 async fn stand_in_session_reader() -> String {
     let ride_start =

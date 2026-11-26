@@ -117,7 +117,7 @@ async fn connected_provider(base_url: &str) -> Box<dyn FitnessProvider> {
     let client = startup_reads(&[String::from(base_url)], None).expect("loopback client");
     let provider = SciotteProviderFactory::new(Some(client))
         .create(config)
-        .expect("sciotte provider construction is infallible");
+        .expect("session-read provider construction is infallible");
     let session = AuthSession {
         session_id: "stub-session".to_owned(),
         cookies: vec![],

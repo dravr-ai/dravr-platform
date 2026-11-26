@@ -31,10 +31,10 @@ const PASSWORD_ENV: &str = "SCIOTTE_CANARY_PASSWORD";
 #[non_exhaustive]
 #[derive(Subcommand)]
 pub(crate) enum CanaryCommand {
-    /// Sign the canary account in through the deployed sciotte service and
+    /// Sign the canary account in through the deployed session-read service and
     /// report whether the provider let the login through.
     SciotteLogin {
-        /// The provider to sign in to, as the sciotte service names it.
+        /// The provider to sign in to, as the session-read service names it.
         #[arg(long, default_value = "garmin")]
         provider: String,
     },
@@ -57,7 +57,7 @@ async fn sciotte_login(provider: &str) -> AppResult<()> {
     let email = required_env(EMAIL_ENV)?;
     let password = required_env(PASSWORD_ENV)?;
     let client = SciotteClient::require_from_env()
-        .map_err(|e| AppError::config(format!("sciotte service is not configured: {e}")))?;
+        .map_err(|e| AppError::config(format!("session-read service is not configured: {e}")))?;
 
     info!(provider, account = %mask_email(&email), "Starting the credential-login canary");
     let verdict = run_login_canary(&client, provider, &email, &password).await;
@@ -87,7 +87,7 @@ fn report(provider: &str, verdict: CanaryVerdict) -> AppResult<()> {
         CanaryVerdict::Infra { detail } => {
             error!(
                 provider,
-                detail, "Credential-login canary could not reach the sciotte service"
+                detail, "Credential-login canary could not reach the session-read service"
             );
             Err(AppError::external_service("sciotte", detail))
         }

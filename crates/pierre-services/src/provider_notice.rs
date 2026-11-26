@@ -17,7 +17,7 @@
 //! account connects without them, and armed per tenant or per user for the
 //! athletes an admin onboards.
 //!
-//! [`require_notice_accepted`] is the one precondition: the sciotte credential
+//! [`require_notice_accepted`] is the one precondition: the session credential
 //! login and every path that begins a WHOOP OAuth flow call it before anything
 //! leaves the server. [`outstanding_notice`] is the read the connect cards and
 //! health sync share, so what a surface shows, what a connect refuses and what

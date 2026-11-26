@@ -26,7 +26,7 @@ const POOL_SECRET: &str = "poolsecretvaluewithlength30chr";
 ///
 /// `compute_providers_status` reads `strava_seat_summary` to decide whether to
 /// keep offering Strava OAuth (`recommended_backend: oauth`) or fall back to the
-/// Sciotte mirror. Adding a pool app must raise the total capacity by its
+/// session-read mirror. Adding a pool app must raise the total capacity by its
 /// `seat_cap` without changing how many seats are already used — that is the
 /// whole point of the pool.
 #[tokio::test]

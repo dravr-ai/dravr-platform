@@ -500,7 +500,7 @@ impl ProviderToolRouter {
             // archives each through the owner's own delete.
             admin_context.group_service = Some(Arc::clone(&resources.common.group_service));
             // The admin clone stores a signed-in session through the same
-            // write and data warm-up a sciotte login runs.
+            // write and data warm-up a session sign-in runs.
             #[cfg(all(feature = "provider-sciotte", feature = "protocol-rest"))]
             {
                 admin_context.session_installer = Some(Arc::new(resources.auth_routes_context()));

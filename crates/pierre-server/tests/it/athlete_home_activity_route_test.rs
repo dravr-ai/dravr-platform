@@ -11,8 +11,8 @@
 //! and streams read, so "the second read does no provider fetch" is a count,
 //! not a hope. Geometry assertions are on real coordinates: a handler that
 //! drew the untrimmed track, an empty line or another tenant's route fails.
-//! The mirror-backend cases point the sciotte provider at a local stand-in
-//! for the dravr-sciotte service (`DRAVR_SCIOTTE_REMOTE_URL`) that counts its
+//! The mirror-backend cases point the session-read provider at a local stand-in
+//! for the session-read service (`DRAVR_SCIOTTE_REMOTE_URL`) that counts its
 //! detail reads the same way.
 //
 // This `//!` must precede the crate-level `#![cfg]`: when a feature is off the
@@ -642,7 +642,7 @@ async fn link_oauth(resources: &Arc<ServerContext>, athlete: &Athlete, provider:
 }
 
 // ---------------------------------------------------------------------------
-// A stand-in for the dravr-sciotte service a mirror backend reads through
+// A stand-in for the session-read service a mirror backend reads through
 // ---------------------------------------------------------------------------
 
 /// A session reader stand-in answering one activity's detail read. The first

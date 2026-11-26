@@ -9,10 +9,10 @@
 //! A segment's history is the efforts of the athlete's stored activities,
 //! and only a detail read of an activity carries its efforts. The live path
 //! details the last days through whichever backend answers, and a session's
-//! answer that carries the efforts key (sciotte 2.1, even an empty list)
-//! stamps the row's segments as read like a grant's; one read before that
-//! mapper, or by a backend that read none, has no key and stays a walk
-//! candidate. A detail walk reads them for a window: a
+//! answer that carries the efforts key (the session-read service's 2.1, even
+//! an empty list) stamps the row's segments as read like a grant's; one read
+//! before that mapper, or by a backend that read none, has no key and stays a
+//! walk candidate. A detail walk reads them for a window: a
 //! [`BackfillJobKind::DetailWalk`] job, recorded before it runs, leased while
 //! it runs, resumed by the sweep.
 //!

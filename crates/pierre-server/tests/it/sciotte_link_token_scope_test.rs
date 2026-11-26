@@ -1,4 +1,4 @@
-// ABOUTME: A hosted-login link-token reaches only the Sciotte login flow, for the platform it was minted for
+// ABOUTME: A hosted-login link-token reaches only the session sign-in flow, for the platform it was minted for
 // ABOUTME: No route mints one over HTTP or connects/disconnects with one; a garmin token cannot sign in to TrainingPeaks
 
 // SPDX-License-Identifier: MIT OR Apache-2.0

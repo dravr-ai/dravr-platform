@@ -74,7 +74,7 @@ const SESSION: &str = "sciotte";
 const TRAILHEAD: (f64, f64) = (45.6012, -73.8044);
 
 /// What the session reader stand-in answers for a ride's detail read. Every answer
-/// carries the ride's segment block, as sciotte 2.1 reads it: a re-read
+/// carries the ride's segment block, as the service's 2.1 reads it: a re-read
 /// keeps the ride's efforts read.
 #[derive(Clone)]
 enum Detail {
@@ -202,7 +202,7 @@ async fn session_server(reader_url: &str) -> Arc<ServerContext> {
     with_window(&resources, 400)
 }
 
-/// An athlete, in a tenant of their own, holding a live sciotte session.
+/// An athlete, in a tenant of their own, holding a live signed-in session.
 pub(crate) async fn session_athlete(
     resources: &Arc<ServerContext>,
     label: &str,

@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 //! Garmin's SSO may ask for a human check (a captcha) at a sign-in, and
-//! the sciotte service stops there without answering it: `403
+//! the sign-in service stops there without answering it: `403
 //! {"error":"login_challenge"}`. Read as an unrecognised login answer, that
 //! paged an admin for a check only the athlete can answer and told the
 //! athlete nothing useful. The platform now answers it with its own copy and
@@ -15,7 +15,7 @@
 //! the sign-in continues from the athlete's own earlier session on that
 //! device — but only once the platform has observed that session dead: its expiry is
 //! past, or a read the provider refused flagged the athlete's connection
-//! `needs_reauth`. Sciotte sessions carry no expiry in practice, so the flag
+//! `needs_reauth`. Signed-in sessions carry no expiry in practice, so the flag
 //! is what makes the case reachable. One not observed dead (no past expiry,
 //! an `active` connection), however old, is never sent: its live cookies
 //! could sign the browser in to the account a coach is switching away from.
@@ -338,7 +338,7 @@ impl Athlete {
     }
 
     /// Store a Garmin session for this athlete, written an hour ago (past the
-    /// reuse window) and carrying no expiry at all: what sciotte stores.
+    /// reuse window) and carrying no expiry at all: what a session sign-in stores.
     async fn store_old_session_without_expiry(&self, session_id: &str) {
         self.store_old_blob(session_blob(session_id, None)).await;
     }
@@ -649,7 +649,7 @@ async fn a_re_login_after_expiry_sends_the_stored_session_as_prior() {
 
 #[tokio::test]
 async fn a_session_without_expiry_whose_connection_needs_reauth_is_sent_as_prior() {
-    // What production stores: sciotte never sets `expires_at`. A session read
+    // What production stores: a session sign-in never sets `expires_at`. A session read
     // the provider answered `session_expired` flagged the connection, so the
     // session's sign-in cookies are dead and only its device trust is left.
     let athlete = Athlete::new().await;

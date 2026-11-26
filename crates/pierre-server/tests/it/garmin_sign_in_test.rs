@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Garmin sign-ins under sciotte first (carnet#1494).
+//! Garmin sign-ins under session first (carnet#1494).
 //
 // This `//!` precedes the module-level `#![cfg]` so the docs survive a build
 // without the features.
@@ -135,7 +135,7 @@ pub(crate) fn workout(id: &str, sport: &str, start: &str) -> Value {
     })
 }
 
-/// A stand-in for the dravr-sciotte service over a Garmin account holding a 2012
+/// A stand-in for the session-read service over a Garmin account holding a 2012
 /// run, a 2019 ride and a ride three days old. `expired` makes every read of
 /// the account answer that the session expired, as the ~2 h Garmin web
 /// session does mid-copy.

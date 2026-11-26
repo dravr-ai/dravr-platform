@@ -132,6 +132,7 @@ async fn context_over(
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 lab_reader: Some(model),
                 pdf_text_bin: Some(pdf_text_bin),
+                contremaitre: None,
                 blobs: Some(Ok(blobs)),
                 ..ServerContextOptions::testing(common::offline_adapters())
             },

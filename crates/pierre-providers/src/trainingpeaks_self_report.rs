@@ -1,5 +1,5 @@
 // ABOUTME: TrainingPeaks athlete self-report mapping — the feeling rank (1 is the best face) and RPE as its decimal string
-// ABOUTME: Pure functions the sciotte conversion calls so a TrainingPeaks encoding never leaves this module
+// ABOUTME: Pure functions the session-read conversion calls so a TrainingPeaks encoding never leaves this module
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,7 +8,7 @@
 //!
 //! What the athlete said about a workout, as opposed to what the sensors
 //! recorded: the "How did you feel?" rating (`feeling` on the wire) and the
-//! rating of perceived exertion (`rpe`). Sciotte carries both as
+//! rating of perceived exertion (`rpe`). The service carries both as
 //! `TrainingPeaks` encodes them — the feeling rank unconverted, the RPE as its
 //! decimal string — and this module turns them into the platform's scales.
 //!

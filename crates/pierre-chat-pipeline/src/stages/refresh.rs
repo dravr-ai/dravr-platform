@@ -47,7 +47,7 @@ pub struct RefreshDeps<'a> {
     /// `RefreshService`.
     pub auth_repos: &'a AuthRepos,
     /// Activity cache, source of truth for on-demand providers' freshness
-    /// (sciotte's `synced_at`). Cloned into the `RefreshService`.
+    /// (a session read's `synced_at`). Cloned into the `RefreshService`.
     pub activity_cache: Arc<dyn ActivityCacheRepository>,
     /// The repository registry the refresh reads the user's connections and
     /// coach consents through, and whether their wellness reaches them by

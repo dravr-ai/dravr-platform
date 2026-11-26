@@ -1,4 +1,4 @@
-// ABOUTME: Regression tests pinning that a sciotte service load-shed is backpressure, not a system failure
+// ABOUTME: Regression tests pinning that a sign-in service load-shed is backpressure, not a system failure
 // ABOUTME: Asserts the 503 + Retry-After answer and that no admin alert or sync.failed event is emitted
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -16,7 +16,7 @@
 //! `sync.failed` business event, precisely while the service was saturated,
 //! and the `retry_after_secs` the service had computed was discarded.
 //!
-//! The sciotte client names the shed (pinned in dravr-sciotte's own client
+//! The service's client names the shed (pinned in the satellite's own client
 //! tests) and `sciotte_error` maps it (pinned in that module's unit tests).
 //! These tests pin the route layer: the login routes answer a mapped shed with
 //! the service's own `503` + `Retry-After` while emitting neither the admin
@@ -38,7 +38,7 @@ use serde_json::{json, Value};
 use tracing::Level;
 use uuid::Uuid;
 
-/// One attempt of `operation`, as the sciotte client reports it.
+/// One attempt of `operation`, as the service's client reports it.
 fn exchange(operation: Operation) -> Exchange {
     Exchange {
         service: "sciotte".to_owned(),
@@ -49,7 +49,7 @@ fn exchange(operation: Operation) -> Exchange {
     }
 }
 
-/// The platform error for the service shedding a login step, as the sciotte
+/// The platform error for the service shedding a login step, as the service's
 /// client reports its `503` with `SERVICE_BUSY` and a `retry_after_secs`.
 fn login_shed(retry_after_secs: u64) -> AppError {
     to_app_error(ClientError::Service(ServiceError::Shed {

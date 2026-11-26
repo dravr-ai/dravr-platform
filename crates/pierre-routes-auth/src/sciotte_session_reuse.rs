@@ -1,4 +1,4 @@
-// ABOUTME: Decides whether a Sciotte credential login is answered from the session stored moments before
+// ABOUTME: Decides whether a session credential login is answered from the session stored moments before
 // ABOUTME: Only a double tap or refresh-after-connect reuses it; only one observed dead seeds the sign-in's browser
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -17,7 +17,7 @@ use uuid::Uuid;
 use crate::trainingpeaks_account::spawn_role_probe_if_unread;
 use crate::AuthRoutesContext;
 
-/// How recently a stored Sciotte session must have been written for a login to
+/// How recently a stored signed-in session must have been written for a login to
 /// reuse it instead of signing in again.
 ///
 /// The reuse exists for one case: the login that stored the session was
@@ -87,7 +87,7 @@ fn has_expired(session: &AuthSession) -> bool {
 /// `(user_id, tenant, provider_name)` so only the caller's own connection to
 /// that provider can count.
 ///
-/// Sciotte sessions carry no `expires_at` in practice, so the connection is
+/// Signed-in sessions carry no `expires_at` in practice, so the connection is
 /// what records a session the provider refused: a session read answered
 /// `session_expired` flags it `needs_reauth`.
 ///
@@ -130,7 +130,7 @@ fn answers_login(
         info!(
             %user_id,
             provider = %provider_name,
-            "Stored Sciotte session predates the reuse window — running a fresh login"
+            "Stored signed-in session predates the reuse window — running a fresh login"
         );
         return false;
     }
@@ -145,14 +145,14 @@ fn answers_login(
         info!(
             %user_id,
             provider = %provider_name,
-            "Stored Sciotte session is observed dead — falling through to fresh login"
+            "Stored signed-in session is observed dead — falling through to fresh login"
         );
         return false;
     }
     true
 }
 
-/// Decide what a credential login does with the caller's stored Sciotte
+/// Decide what a credential login does with the caller's stored signed-in
 /// session for `provider_name`.
 ///
 /// A session written within [`SESSION_REUSE_WINDOW`] answers the login — the
@@ -207,7 +207,7 @@ pub(crate) async fn stored_session_use(
         warn!(
             %user_id,
             provider = %provider_name,
-            "Stored Sciotte session blob is not deserialisable — falling through to fresh login"
+            "Stored signed-in session blob is not deserialisable — falling through to fresh login"
         );
         return Ok(StoredSessionUse::SignIn {
             prior_session: None,
@@ -226,7 +226,7 @@ pub(crate) async fn stored_session_use(
     info!(
         %user_id,
         provider = %provider_name,
-        "Reusing stored Sciotte session — short-circuiting login"
+        "Reusing stored signed-in session — short-circuiting login"
     );
     // A TrainingPeaks connection made before account roles were recorded is
     // probed now, with the session it already holds.

@@ -1,4 +1,4 @@
-// ABOUTME: Storing an athlete's signed-in sciotte session for a user, and an admin cloning one account's session onto another
+// ABOUTME: Storing an athlete's signed-in provider session for a user, and an admin cloning one account's session onto another
 // ABOUTME: One write path for the hosted login and the admin clone; the clone refuses OAuth grants and dead sessions
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,20 +7,20 @@
 //! Persistence of an athlete's signed-in provider session, and the admin
 //! clone.
 //!
-//! A sciotte login ends with an [`AuthSession`] — the athlete's signed-in
-//! provider session, which sciotte reads their own data through with their
-//! consent — which the platform stores as a `session` token row and
-//! registers as a manual connection. [`persist_sciotte_session`] is that write,
-//! and the only one: the hosted login calls it, and so does the admin
-//! clone through [`SessionInstaller`], which the auth route crate
-//! implements because the activity prefetch and health backfill that follow a
-//! store live there.
+//! A session sign-in ends with an [`AuthSession`] — the athlete's signed-in
+//! provider session, which the session-read service reads their own data
+//! through with their consent — which the platform stores as a `session`
+//! token row and registers as a manual connection.
+//! [`persist_sciotte_session`] is that write, and the only one: the hosted
+//! login calls it, and so does the admin clone through [`SessionInstaller`],
+//! which the auth route crate implements because the activity prefetch and
+//! health backfill that follow a store live there.
 //!
 //! The clone ([`find_clone_source`] then [`SessionInstaller`]) lets an
 //! admin give another account — a fresh test account, or one they
 //! impersonate — a working Garmin or Strava-mirror connection without a second
 //! provider login: the source account's session is copied verbatim, same
-//! `session_id`, so both accounts read through the one session the sciotte
+//! `session_id`, so both accounts read through the one session the session-read
 //! service holds. Disconnecting one of them is safe for the other: the
 //! service's session delete only drops its in-memory copy, and every read
 //! imports the stored jar again first (`read_imported`), so nothing upstream

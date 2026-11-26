@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: A scripted stand-in for the dravr-sciotte session-read service, speaking its REST contract and error shapes over real HTTP
+// ABOUTME: A scripted stand-in for the session-read service, speaking its REST contract and error shapes over real HTTP
 // ABOUTME: The real-backend specs point the Pierre server at it (DRAVR_SCIOTTE_REMOTE_URL), script each answer, stop and restart it
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -21,7 +21,7 @@ export const SCIOTTE_DOUBLE_PORT = Number(process.env.SCIOTTE_DOUBLE_PORT ?? '80
  * - `dies_under_a_detail` — the 2026-09-29 incident: the list walk waits for
  *   a detail read on the same session to finish (that read closes the browser
  *   the walk shares), then answers `count: 0`, `head_complete: true` as a
- *   success, which is what dravr-sciotte v0.19.0 sent. While this script
+ *   success, which is what the service sent at v0.19.0. While this script
  *   plays, a detail read waits for a list read to be in flight first, so the
  *   two always overlap.
  */
@@ -49,7 +49,7 @@ export type DetailScript = 'route' | 'no_route' | 'empty_route' | 'fails' | 'han
  * - `code` — the provider asks for a one-time code: `otp_required` with a
  *   fresh flow, which `POST /auth/submit-otp` continues. A code other than
  *   {@link SciotteDouble.acceptedCode} is refused the way the service refuses
- *   it (dravr-sciotte v0.22.0): `otp_required` naming the same flow, with
+ *   it (at v0.22.0): `otp_required` naming the same flow, with
  *   `rejected: "code_rejected"`, and the flow stays pending.
  * - `rejected` — the provider turned the sign-in down: `200 {"status":
  *   "failed", "reason": <SciotteDouble.rejectionReason>}`, the shape the

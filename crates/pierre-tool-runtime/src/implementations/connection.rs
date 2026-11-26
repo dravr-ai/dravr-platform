@@ -845,7 +845,7 @@ impl McpTool<dyn ToolRuntime> for DisconnectProviderTool {
             let tenant_id = ctx.require_tenant()?;
 
             // The domain chokepoint: `OAuthService::disconnect_provider`
-            // resolves the sciotte mirror backend, deletes the token + the
+            // resolves the session-read mirror backend, deletes the token + the
             // connection row in lockstep, and emits the catalogued
             // `provider.disconnected` notify event. The disconnect never uses
             // the notification sender, so `None` is the correct third arg.

@@ -166,7 +166,7 @@ fn covered_floor_clamps_to_oldest_when_the_session_read_overshoots_the_floor() {
 
 #[test]
 fn coverage_written_by_an_older_capture_is_not_covered() {
-    // 2026-09-18: the sciotte Strava capture lost elevation for two weeks, the
+    // 2026-09-18: the Strava session capture lost elevation for two weeks, the
     // athlete's whole history was backfilled in that period, and the coverage
     // row went on vouching for it. Deep enough, and written by a capture that
     // could not read the field — it has to re-capture, not serve.
@@ -226,7 +226,7 @@ fn coverage_at_the_current_capture_is_judged_on_depth_alone() {
 
 #[test]
 fn only_corrected_captures_sit_above_the_baseline() {
-    // The version is per provider: bumping sciotte's Strava capture must not
+    // The version is per provider: bumping the Strava session capture must not
     // send every OAuth athlete back through a backfill their rows never needed.
     assert_eq!(
         current_capture_version(SCIOTTE),

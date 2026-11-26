@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: A coach's Home — "Mes athlètes": À traiter, the team table and the season, behind the switch to their own training when they train too
-// ABOUTME: One roster read feeds the three views; every figure states its scope, form is the server's band, and a non-sharer shows status only
+// ABOUTME: A coach's Home — "Mes athlètes": À traiter, the team table and the season, behind the switch to their own training when they train too, and one athlete's workspace
+// ABOUTME: One roster read feeds the views; every figure states its scope, form is the server's band, and a non-sharer shows status only
 
-import { useMemo, useState } from 'react';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import { clsx } from 'clsx';
 import { useTranslation } from '@pierre/i18n';
 import { COACH_SCOPE_KEYS, countKey } from '@pierre/shared-constants';
@@ -19,6 +19,10 @@ import { CoachRosterTable } from './CoachRosterTable';
 import { CoachSeasonView } from './CoachSeasonView';
 import { coachHomeRoute, type CoachHomeRoute } from './coachHomeRoute';
 import { useCoachDestinations } from './useCoachDestinations';
+
+// The workspace loads when a coach first opens one athlete's plan: it draws
+// the calendar, the day editor and two threads that the rest of Home does not.
+const AthleteWorkspace = lazy(() => import('./workspace/AthleteWorkspace'));
 
 interface CoachHomeProps {
   route: Exclude<CoachHomeRoute, { view: 'me' }>;
@@ -61,6 +65,25 @@ export default function CoachHome({ route, onNavigate, trains = true }: CoachHom
   const go = (next: CoachHomeRoute) => onNavigate(coachHomeRoute(next));
   const openAthlete = (athleteId: string | null) => go({ view: 'queue', athleteId });
 
+  // One athlete's workspace is their page and takes the whole of Home, its
+  // header included. An athlete the roster does not hold reads as À traiter
+  // opened on them, below.
+  const workspaceAthlete =
+    route.view === 'workspace' ? (roster?.athletes.find((athlete) => athlete.user_id === route.athleteId) ?? null) : null;
+  if (workspaceAthlete !== null) {
+    return (
+      <Suspense
+        fallback={
+          <div className="flex h-full items-center justify-center" role="status" aria-label={t('common.loading')}>
+            <div className="pierre-spinner" />
+          </div>
+        }
+      >
+        <AthleteWorkspace athlete={workspaceAthlete} onNavigate={onNavigate} destinations={destinations} />
+      </Suspense>
+    );
+  }
+
   let body: React.ReactNode;
   if (isLoading) {
     body = (
@@ -78,7 +101,7 @@ export default function CoachHome({ route, onNavigate, trains = true }: CoachHom
     // Nobody has joined yet: the athletes the coach invited wait as rows, or
     // the empty state stands when no invite still works.
     body = <CoachPendingInvites groups={roster.groups} onNavigate={onNavigate} />;
-  } else if (route.view === 'queue') {
+  } else if (route.view === 'queue' || route.view === 'workspace') {
     body = (
       <CoachQueueView
         athletes={athletes}

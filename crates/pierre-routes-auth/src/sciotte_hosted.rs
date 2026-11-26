@@ -1,10 +1,10 @@
-// ABOUTME: Hosted Sciotte login page for channel-initiated provider connection
-// ABOUTME: Serves an HTML page that runs the full Sciotte login state machine
+// ABOUTME: Hosted session sign-in page for channel-initiated provider connection
+// ABOUTME: Serves an HTML page that runs the full session sign-in state machine
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Hosted Sciotte login for channel-initiated flows.
+//! Hosted session sign-in for channel-initiated flows.
 //!
 //! This module implements the two public-facing pages the user sees when a
 //! chat channel (Slack, Discord, Telegram, ...) hands them a login URL:
@@ -105,7 +105,7 @@ async fn validate_and_burn_link_token(
 
     // SECURITY: Burn the jti on the first page load so the URL can't be replayed.
     // The token remains valid for the login, 2FA and OTP POSTs within its TTL
-    // (`PROVIDER_LINK_TOKEN_TTL_MINUTES`) so the multi-step Sciotte flow
+    // (`PROVIDER_LINK_TOKEN_TTL_MINUTES`) so the multi-step sign-in flow
     // (credentials -> 2FA -> OTP) can complete.
     if let Err(e) = resources.nonce_store.burn(&claims.jti).await {
         warn!(jti = %claims.jti, error = %e, "Hosted-login page: link already consumed");
@@ -122,7 +122,7 @@ async fn validate_and_burn_link_token(
 
 /// GET `/providers/signin?token=...` (and the earlier `/providers/sciotte/login`)
 ///
-/// Renders the hosted Sciotte login page in the locale of the athlete the
+/// Renders the hosted session sign-in page in the locale of the athlete the
 /// link-token names. Validates the link-token up-front so a user with an
 /// invalid/expired link sees the error page instead of a broken-looking form.
 pub(crate) async fn handle_sciotte_hosted_login_page(
@@ -152,7 +152,7 @@ pub(crate) async fn handle_sciotte_hosted_login_page(
         channel = %claims.channel,
         target = %target,
         locale = %locale,
-        "Rendered Sciotte hosted-login page"
+        "Rendered hosted session sign-in page"
     );
 
     // A provider whose exposure notice is in force for this account asks for

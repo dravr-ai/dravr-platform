@@ -9,6 +9,7 @@ import { Users } from 'lucide-react';
 import { avatarSlot, deriveKind, initialsFor, scopeOfKind } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 import { COACH_SEAT_SUBTITLE_KEY } from '@pierre/shared-constants';
+import { PLAN_WORKSPACE_KEYS } from '@pierre/ui-logic';
 import { chatApi } from '../services/api';
 import { ChatComposeMenu, NewGroupDialog } from './chat';
 import ChatShell from './chat/ChatShell';
@@ -30,6 +31,7 @@ import { NotificationBell } from './notifications/NotificationBell';
 import { GroupChatAppOffer } from './chatApp/GroupChatAppOffer';
 import { useGroupChatAppOffer } from './chatApp/useGroupChatAppOffer';
 import { ChatAppSheet } from './chatApp/ChatAppSheet';
+import { coachHomeRoute } from './coach-home/coachHomeRoute';
 
 interface ChatTabProps {
   selectedConversation: string | null;
@@ -82,6 +84,16 @@ export default function ChatTab({
   // end of the thread (carnet#1525); the sheet it opens sits over the page.
   const { group: activeGroup } = useGroup(activeConversation?.group_id ?? '');
   const chatAppOffer = useGroupChatAppOffer(activeConversation?.group_id ? (activeGroup ?? null) : null);
+  // The athlete the server names on the open room or plan thread to the
+  // room's coach. Only a coach with roster access has the coach Home the
+  // workspace sits in, the same reader the list folds the athlete's row for.
+  const workspaceAthlete = user?.manages_roster === true ? (activeConversation?.solo_athlete ?? null) : null;
+  // A trifecta athlete's room and plan thread lead to their workspace under
+  // Home (carnet#1817): the Groups row opens it, and so does the open
+  // thread's header when a link or a notification opened the thread itself.
+  const openWorkspace = onNavigate
+    ? (athleteId: string) => onNavigate(coachHomeRoute({ view: 'workspace', athleteId }))
+    : undefined;
   const [chatAppSheet, setChatAppSheet] = useState<{ channel: string } | null>(null);
 
   // A link that names a thread's info opens its drawer once that thread is on
@@ -155,6 +167,7 @@ export default function ChatTab({
       seatViewer={user}
       selectedConversation={selectedConversation}
       onSelectConversation={onSelectConversation}
+      onOpenWorkspace={openWorkspace}
       compose={
         <>
           {composeMenu(Boolean(selectedConversation))}
@@ -190,7 +203,21 @@ export default function ChatTab({
         avatarShape={activeConversation?.group_id ? 'square' : 'circle'}
         onOpenInfo={() => info.show(false)}
         onBack={isDesktop ? undefined : () => onSelectConversation(null)}
-        actions={composeMenu(true)}
+        actions={
+          <>
+            {workspaceAthlete !== null && openWorkspace && (
+              <Button
+                size="sm"
+                variant="secondary"
+                data-testid="thread-open-workspace"
+                onClick={() => openWorkspace(workspaceAthlete.user_id)}
+              >
+                {t(PLAN_WORKSPACE_KEYS.open)}
+              </Button>
+            )}
+            {composeMenu(true)}
+          </>
+        }
       />
       <ChatThread
         thread={thread}

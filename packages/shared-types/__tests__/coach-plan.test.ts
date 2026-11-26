@@ -103,30 +103,44 @@ describe('parseSubjectPlanResponse', () => {
     live: plan,
     draft: plan,
     draft_state: draftState,
+    proposed_dates: ['2026-10-16', '2026-10-17'],
   };
 
-  it('reads the live plan, the draft and where the draft stands', () => {
+  it('reads the live plan, the draft, where the draft stands and the dates it proposes', () => {
     const read = parseSubjectPlanResponse(body);
     expect(read?.athlete.display_name).toBe('Alice Runner');
     expect(read?.live?.goal_race.name).toBe('Harricana 65K');
     expect(read?.draft_state?.conflicts).toHaveLength(1);
+    expect(read?.proposed_dates).toEqual(['2026-10-16', '2026-10-17']);
   });
 
   it('reads an athlete with no plan and no draft open', () => {
-    expect(parseSubjectPlanResponse({ ...body, live: null, draft: null, draft_state: null })).toEqual({
+    expect(
+      parseSubjectPlanResponse({ ...body, live: null, draft: null, draft_state: null, proposed_dates: [] }),
+    ).toEqual({
       athlete: body.athlete,
       today: '2026-10-16',
       live: null,
       draft: null,
       draft_state: null,
+      proposed_dates: [],
     });
   });
 
-  it('refuses a body whose plan or draft state breaks its shape', () => {
+  it('reads no proposed date from a server that sends none', () => {
+    const older: Record<string, unknown> = { ...body };
+    delete older.proposed_dates;
+    expect(parseSubjectPlanResponse(older)?.proposed_dates).toEqual([]);
+  });
+
+  it('refuses a body whose plan, draft state or proposed dates break their shape', () => {
     expect(parseSubjectPlanResponse({ ...body, live: { weeks: [] } })).toBeNull();
     expect(parseSubjectPlanResponse({ ...body, draft_state: { draft_id: 'x' } })).toBeNull();
     expect(parseSubjectPlanResponse({ ...body, today: 'today' })).toBeNull();
     expect(parseSubjectPlanResponse({ ...body, athlete: null })).toBeNull();
+    expect(parseSubjectPlanResponse({ ...body, proposed_dates: '2026-10-16' })).toBeNull();
+    expect(parseSubjectPlanResponse({ ...body, proposed_dates: ['Wednesday'] })).toBeNull();
+    expect(parseSubjectPlanResponse({ ...body, proposed_dates: null })).toBeNull();
   });
 });
 

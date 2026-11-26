@@ -49,6 +49,22 @@ export GATE_BASE_REF="$BASE_REF"
 
 CHANGED_FILES=$(git diff --name-only "$BASE_REF" HEAD 2>/dev/null || echo "")
 
+# Branch CI proof (scripts/ci/branch-ci-proof.sh, the one definition). A compile tier
+# whose work a CI job already did, green, on a push run of a commit holding HEAD's exact
+# tree skips here: the usual case is a squash of a branch that merged current main and went
+# green, which lands the branch's tree. Every tier it covers prints one line naming the
+# proof (sha, run, job) or why there is none; any doubt runs the tier as before. The cache
+# holds the API answers and one shared lookup budget for this run only.
+BRANCH_CI_PROOF_CACHE="$(mktemp -d)"
+export BRANCH_CI_PROOF_CACHE
+trap 'rm -rf "$BRANCH_CI_PROOF_CACHE"' EXIT
+branch_ci_proof() { # $1 = tier; prints the proof line, returns 0 only when proven
+    local out code=0
+    out="$("$PROJECT_ROOT/scripts/ci/branch-ci-proof.sh" check "$1" 2>&1)" || code=$?
+    echo "  branch CI (tier $1): $out"
+    return "$code"
+}
+
 HAS_RUST_SRC_CHANGES=false
 HAS_CARGO_CHANGES=false
 HAS_FRONTEND_CHANGES=false
@@ -216,7 +232,7 @@ fi
 # closed when shellcheck is absent rather than reading as clean, because a
 # scan that ran nothing is not a pass. The pattern set below mirrors the
 # workflow step in .github/workflows/ci-backend.yml — extend both together.
-SHELL_LINT_PATTERNS='^bin/[^/]+\.sh$|^scripts/ci/[^/]+\.test\.sh$|^scripts/ci/mobile-e2e-batch\.sh$|^scripts/ci/wait-cloud-run-service-ready\.sh$|^scripts/ci/tag-deployed-digest\.sh$|^scripts/ci/carry-forward-frontend-assets\.sh$|^scripts/ci/sweep-landed-branches\.sh$|^scripts/ci/strip-carnet-footer\.sh$|^scripts/ci/check-keep-warm-traffic\.sh$|^scripts/setup/setup-claude-code-mcp\.sh$|^scripts/setup/check-gh-cli\.sh$|^scripts/sciotte-local\.sh$'
+SHELL_LINT_PATTERNS='^bin/[^/]+\.sh$|^scripts/ci/[^/]+\.test\.sh$|^scripts/ci/mobile-e2e-batch\.sh$|^scripts/ci/wait-cloud-run-service-ready\.sh$|^scripts/ci/tag-deployed-digest\.sh$|^scripts/ci/carry-forward-frontend-assets\.sh$|^scripts/ci/sweep-landed-branches\.sh$|^scripts/ci/strip-carnet-footer\.sh$|^scripts/ci/check-keep-warm-traffic\.sh$|^scripts/ci/branch-ci-proof\.sh$|^scripts/setup/setup-claude-code-mcp\.sh$|^scripts/setup/check-gh-cli\.sh$|^scripts/sciotte-local\.sh$'
 SHELL_LINT_FILES=$(echo "$CHANGED_FILES" | grep -E "$SHELL_LINT_PATTERNS" || true)
 SHELL_LINT_FILES=$(for f in $SHELL_LINT_FILES; do if [[ -f "$PROJECT_ROOT/$f" ]]; then echo "$f"; fi; done)
 if [[ -n "$SHELL_LINT_FILES" ]]; then
@@ -321,8 +337,9 @@ fi
 # ============================================================================
 # TIER 1b-name: Backend name exposure (compile-free, ~1s)
 # ============================================================================
-# carnet#1207: "SCIOTTE must not be visible to the user/athlete/coach". The
-# provider ids are spelled sciotte_* all through the code, so the name kept
+# carnet#1207: the session-read backend's name must not be visible to the
+# user/athlete/coach. The provider ids are spelled sciotte_* all through the
+# code, so the name kept
 # reaching athletes through edits that had no reason to think about it — a
 # Settings dialog label, the hosted sign-in page's comments. This fails when a
 # translation value or a served template names the backend. Every push, like
@@ -507,14 +524,19 @@ if [[ "$HAS_RUST_SRC_CHANGES" == "true" || -n "$(git diff --name-only --diff-fil
     # A cloud clippy run (the remote-work skill) that returned CLEAN for the whole workspace
     # on exactly HEAD's tree has already linted every one of these targets, so the local
     # compile would repeat it. Only an exact tree match counts; anything else compiles here.
-    if [[ -n "$CHANGED_SERVER_TESTS" ]] && COVERED="$("$PROJECT_ROOT/scripts/ci/remote-clippy-verdict.sh" check 2>&1)"; then
+    # A branch CI run whose full-workspace clippy step passed on HEAD's tree is the other
+    # proof: it linted every target this would.
+    if [[ -n "$CHANGED_SERVER_TESTS" ]]; then
         echo "Tier 1e: Changed server-test clippy"
         echo "------------------------------------"
+    fi
+    if [[ -n "$CHANGED_SERVER_TESTS" ]] && COVERED="$("$PROJECT_ROOT/scripts/ci/remote-clippy-verdict.sh" check 2>&1)"; then
         echo "  skipped: $COVERED"
         echo ""
+    elif [[ -n "$CHANGED_SERVER_TESTS" ]] && { echo "  cloud clippy: $COVERED"; branch_ci_proof 1e; }; then
+        echo "  skipped: branch CI linted the whole workspace on this tree"
+        echo ""
     elif [[ -n "$CHANGED_SERVER_TESTS" ]]; then
-        echo "Tier 1e: Changed server-test clippy"
-        echo "------------------------------------"
         require_build_warnings
         while IFS= read -r target; do
             echo "  cargo clippy -p pierre_mcp_server --test $target"
@@ -604,8 +626,20 @@ if [[ "$HAS_RUST_SRC_CHANGES" == "true" ]]; then
     if [[ -n "$TIER1F_CRATES" ]]; then
         echo "Tier 1f: --no-default-features probe"
         echo "------------------------------------"
+        # CI's no-default-features job checks pierre_mcp_server with every feature off, so
+        # it compiles each crate of that graph exactly as this probe does; an optional
+        # dependency (pierre-routes-agents) is absent from that graph and still runs here.
+        TIER1F_PROVEN=false
+        if branch_ci_proof 1f; then TIER1F_PROVEN=true; fi
         require_build_warnings
         for c in $TIER1F_CRATES; do
+            if [[ "$TIER1F_PROVEN" == "true" ]]; then
+                if UNIT="$("$PROJECT_ROOT/scripts/ci/branch-ci-proof.sh" no-default-unit "$c" 2>&1)"; then
+                    echo "  skipped $c: $UNIT"
+                    continue
+                fi
+                echo "  $c runs here: $UNIT"
+            fi
             echo "  CARGO_BUILD_WARNINGS=deny cargo check -p $c --no-default-features"
             if ! CARGO_BUILD_WARNINGS=deny cargo check -p "$c" --no-default-features; then
                 echo ""
@@ -1015,17 +1049,21 @@ if [[ "$HAS_SHARED_PACKAGE_CHANGES" == "true" ]]; then
         exit 1
     fi
     echo "  $PACKAGE_TEST_FILES test file(s)"
-    if ! (cd "$PROJECT_ROOT" && bun run typecheck:packages); then
-        echo "FAIL: shared package type-check failed!"
-        exit 1
-    fi
-    if ! (cd "$PROJECT_ROOT" && bun run lint:packages); then
-        echo "FAIL: shared package lint failed!"
-        exit 1
-    fi
-    if ! (cd "$PROJECT_ROOT" && bun run test:packages); then
-        echo "FAIL: shared package tests failed!"
-        exit 1
+    if branch_ci_proof 4; then
+        echo "  skipped: branch CI type-checked, linted and tested the shared packages on this tree"
+    else
+        if ! (cd "$PROJECT_ROOT" && bun run typecheck:packages); then
+            echo "FAIL: shared package type-check failed!"
+            exit 1
+        fi
+        if ! (cd "$PROJECT_ROOT" && bun run lint:packages); then
+            echo "FAIL: shared package lint failed!"
+            exit 1
+        fi
+        if ! (cd "$PROJECT_ROOT" && bun run test:packages); then
+            echo "FAIL: shared package tests failed!"
+            exit 1
+        fi
     fi
     echo ""
 fi
@@ -1036,7 +1074,9 @@ fi
 if [[ "$RUN_WEB_TIER" == "true" ]]; then
     echo "Tier 5: Frontend Validation"
     echo "---------------------------"
-    if [[ -f "$PROJECT_ROOT/scripts/ci/pre-push-frontend-tests.sh" ]]; then
+    if branch_ci_proof 5; then
+        echo "  skipped: branch CI type-checked, linted and tested the frontend on this tree"
+    elif [[ -f "$PROJECT_ROOT/scripts/ci/pre-push-frontend-tests.sh" ]]; then
         if ! "$PROJECT_ROOT/scripts/ci/pre-push-frontend-tests.sh"; then
             echo "FAIL: Frontend validation failed!"
             exit 1
@@ -1073,7 +1113,9 @@ fi
 if [[ "$RUN_SDK_TIER" == "true" ]]; then
     echo "Tier 6: SDK Validation"
     echo "----------------------"
-    if [[ -d "$PROJECT_ROOT/sdk/node_modules" ]]; then
+    if branch_ci_proof 6; then
+        echo "  skipped: branch CI built and unit-tested the SDK on this tree"
+    elif [[ -d "$PROJECT_ROOT/sdk/node_modules" ]]; then
         # Build first: several unit tests assert against dist/ (the published
         # bin's shebang, --version, the shipped declarations), so a stale build
         # reports failures the source does not have — and, worse, could pass an
@@ -1137,7 +1179,19 @@ fi
 if [[ "$RUN_MOBILE_TIER" == "true" ]]; then
     echo "Tier 7: Mobile Validation"
     echo "-------------------------"
-    if [[ -f "$PROJECT_ROOT/scripts/ci/pre-push-mobile-tests.sh" ]]; then
+    if branch_ci_proof 7; then
+        # The compile-free checks of the mobile tier still run: they cost seconds, and the
+        # Maestro assertion check is not part of the CI job that proved the rest.
+        echo "  skipped: branch CI type-checked, linted and tested the app on this tree"
+        if ! "$PROJECT_ROOT/scripts/ci/check-eas-submit-config.sh"; then
+            echo "FAIL: EAS submit config check failed!"
+            exit 1
+        fi
+        if ! "$PROJECT_ROOT/scripts/ci/check-maestro-assertions.sh"; then
+            echo "FAIL: Maestro assertion check failed!"
+            exit 1
+        fi
+    elif [[ -f "$PROJECT_ROOT/scripts/ci/pre-push-mobile-tests.sh" ]]; then
         if ! "$PROJECT_ROOT/scripts/ci/pre-push-mobile-tests.sh"; then
             echo "FAIL: Mobile validation failed!"
             exit 1
@@ -1310,7 +1364,8 @@ if [[ "$HAS_RUST_CHANGES" == "true" ]]; then
     # Clippy runs in a cloud session, not on this machine (the remote-work skill), so the
     # advice names that run, and stays quiet when a workspace CLEAN already covers HEAD's tree.
     if { [[ -n "$ADVISORY_CRATES" ]] || [[ -n "$ADVISORY_TARGETS" ]]; } \
-        && ! "$PROJECT_ROOT/scripts/ci/remote-clippy-verdict.sh" check >/dev/null 2>&1; then
+        && ! "$PROJECT_ROOT/scripts/ci/remote-clippy-verdict.sh" check >/dev/null 2>&1 \
+        && ! "$PROJECT_ROOT/scripts/ci/branch-ci-proof.sh" check 1e >/dev/null 2>&1; then
         echo "NOT COVERED HERE — clippy (deliberate: CPU). CI runs it; a cloud run catches it sooner:"
         echo "  .claude/skills/remote-work/remote-work.sh prepare   (whole workspace, as CI lints it)"
         echo "  this push reaches: $(echo "$ADVISORY_CRATES" $ADVISORY_TARGETS | tr '\n' ' ' | xargs)"

@@ -37,7 +37,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use dravr_tronc::dates::Timestamp;
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{
@@ -217,6 +217,30 @@ pub struct CoachPlanView {
     pub live: Option<PlanWithWeeks>,
     /// The coach's open draft, or `None` when the coach holds none.
     pub draft: Option<DraftView>,
+}
+
+impl CoachPlanView {
+    /// The dates whose sessions the draft changes over the live plan.
+    ///
+    /// Sorted, and empty with no draft. Each week of the draft is compared
+    /// with the live week of the same `week_start`, by the rule the publish's
+    /// room post and the plan's change history name changed days with
+    /// ([`plan_change_history::dates_changed`]), so the workspace proposes
+    /// exactly the dates a publish announces. The draft's weeks are the live
+    /// ones with the drafted ones in their place, so a week the coach never
+    /// drafted compares equal and proposes nothing; with no live plan, every
+    /// date the drafted weeks hold is proposed.
+    #[must_use]
+    pub fn proposed_dates(&self) -> Vec<CivilDate> {
+        let Some(draft) = &self.draft else {
+            return Vec::new();
+        };
+        let live = self
+            .live
+            .as_ref()
+            .map_or(&[][..], |season| season.weeks.as_slice());
+        plan_change_history::dates_changed(live, &draft.weeks)
+    }
 }
 
 /// The athlete's live season and the coach's draft over it.
@@ -585,7 +609,7 @@ fn overlay(live: &[PlanWeek], drafted: Vec<PlanWeek>) -> Vec<PlanWeek> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pierre_memory::training_plans::WeekStatus;
+    use pierre_memory::training_plans::{self, WeekStatus};
 
     fn week(plan: &str, week_start: &str, focus: &str) -> PlanWeek {
         PlanWeek {
@@ -655,6 +679,105 @@ mod tests {
                 "conflicts": [{ "week_start": "2026-07-13", "reason": "athlete_changed_week" }],
                 "season_relaid": true,
             })
+        );
+    }
+
+    fn with_days(mut held: PlanWeek, days: &[(&str, &str)]) -> PlanWeek {
+        held.days = days
+            .iter()
+            .map(|(date, workout)| {
+                serde_json::from_value(
+                    serde_json::json!({ "date": date, "sport": "run", "workout": workout }),
+                )
+                .unwrap()
+            })
+            .collect();
+        held
+    }
+
+    fn outline(id: &str, status: &str) -> TrainingPlan {
+        serde_json::from_value(serde_json::json!({
+            "id": id,
+            "tenant_id": "tenant",
+            "user_id": "athlete",
+            "goal_race": { "name": "Race", "date": "2027-05-16", "discipline": "trail", "priority": "A" },
+            "races": [],
+            "strategy": "",
+            "phases": [],
+            "status": status,
+            "created_at": "2026-11-16T00:00:00Z",
+            "updated_at": "2026-11-16T00:00:00Z",
+        }))
+        .unwrap()
+    }
+
+    /// The coach's draft over `live`, with `drafted` written in it.
+    fn draft_over_weeks(live: &[PlanWeek], drafted: Vec<PlanWeek>) -> DraftView {
+        DraftView {
+            plan: outline("draft", "draft"),
+            drafted_weeks: drafted.iter().map(|w| w.week_start.clone()).collect(),
+            weeks: overlay(live, drafted),
+            state: DraftState {
+                draft_id: "draft".to_owned(),
+                updated_at: Timestamp::now(),
+                conflicts: Vec::new(),
+                season_relaid: false,
+            },
+        }
+    }
+
+    fn civil(text: &str) -> CivilDate {
+        training_plans::parse_plan_date(text).unwrap()
+    }
+
+    /// The workspace proposes the dates whose sessions the draft changes
+    /// over the live plan: none with no draft, none in a week the coach
+    /// never drafted, and every drafted date over no live plan.
+    #[test]
+    fn the_proposed_dates_are_those_the_draft_changes_over_the_live_plan() {
+        let live_weeks = vec![
+            with_days(
+                week("live", "2026-11-16", "build"),
+                &[("2026-11-17", "Easy"), ("2026-11-19", "Tempo")],
+            ),
+            with_days(
+                week("live", "2026-11-23", "build"),
+                &[("2026-11-24", "Long")],
+            ),
+        ];
+        let rewritten = || {
+            vec![with_days(
+                week("draft", "2026-11-16", "build"),
+                &[("2026-11-17", "Easy"), ("2026-11-19", "Hills")],
+            )]
+        };
+        let mut view = CoachPlanView {
+            draft: None,
+            live: Some(PlanWithWeeks {
+                plan: outline("live", "active"),
+                weeks: live_weeks.clone(),
+            }),
+        };
+        assert!(
+            view.proposed_dates().is_empty(),
+            "bug: with no draft open, no date is proposed"
+        );
+
+        view.draft = Some(draft_over_weeks(&live_weeks, rewritten()));
+        assert_eq!(
+            view.proposed_dates(),
+            [civil("2026-11-19")],
+            "bug: only the date whose session the draft rewrote is proposed, and nothing of the week it never drafted"
+        );
+
+        let laid = CoachPlanView {
+            live: None,
+            draft: Some(draft_over_weeks(&[], rewritten())),
+        };
+        assert_eq!(
+            laid.proposed_dates(),
+            [civil("2026-11-17"), civil("2026-11-19")],
+            "bug: over no live plan, every date the draft holds is proposed"
         );
     }
 }

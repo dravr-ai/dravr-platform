@@ -1,4 +1,4 @@
-// ABOUTME: The per-athlete sciotte session-read caps as admin parameters, one per cap per tier
+// ABOUTME: The per-athlete session-read caps as admin parameters, one per cap per tier
 // ABOUTME: Registers sciotte_reads.<cap>.<tier> with the compiled SessionReadCaps as defaults (carnet#1661)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -9,7 +9,7 @@
 //! JF, 2026-11-19: "We must be able to change those caps using pierre-cli."
 //!
 //! Every read of an athlete's signed-in session at Strava, Garmin, COROS or
-//! `TrainingPeaks` (sciotte) is counted per athlete and per backend. Each
+//! `TrainingPeaks` is counted per athlete and per backend. Each
 //! number of [`SessionReadCaps`] is one parameter per tier,
 //! `sciotte_reads.<cap>.<tier>`, so an override of one tier never flattens
 //! the others:

@@ -101,6 +101,7 @@ async fn create_test_auth_routes_with_database() -> Result<(AuthService, Arc<Dat
                 blobs: None,
                 lab_reader: None,
                 pdf_text_bin: None,
+                contremaitre: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -322,6 +323,7 @@ async fn create_test_oauth_routes() -> Result<(OAuthService, TenantId, Arc<Datab
                 blobs: None,
                 lab_reader: None,
                 pdf_text_bin: None,
+                contremaitre: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -608,6 +610,7 @@ async fn test_user_login_success() -> Result<()> {
                 blobs: None,
                 lab_reader: None,
                 pdf_text_bin: None,
+                contremaitre: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -867,6 +870,7 @@ async fn test_token_refresh_success() -> Result<()> {
                 blobs: None,
                 lab_reader: None,
                 pdf_text_bin: None,
+                contremaitre: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -1111,6 +1115,7 @@ async fn test_token_refresh_suspended_user() -> Result<()> {
                 blobs: None,
                 lab_reader: None,
                 pdf_text_bin: None,
+                contremaitre: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -1602,6 +1607,7 @@ async fn test_complete_auth_flow() -> Result<()> {
                 blobs: None,
                 lab_reader: None,
                 pdf_text_bin: None,
+                contremaitre: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },
@@ -1913,6 +1919,7 @@ async fn test_concurrent_logins() -> Result<()> {
                 blobs: None,
                 lab_reader: None,
                 pdf_text_bin: None,
+                contremaitre: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },

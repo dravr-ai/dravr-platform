@@ -6,7 +6,7 @@
 
 //! Integration tests for `response_failure_log_middleware`.
 //!
-//! These pin the two behaviours that make a Sciotte backpressure storm both
+//! These pin the two behaviours that make a session-read backpressure storm both
 //! non-paging and debuggable:
 //!
 //! * **Fix A** — a `503` carrying `Retry-After` is graceful load-shedding, so it

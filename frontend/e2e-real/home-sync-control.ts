@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Runs the sciotte double behind a small control API, so a flow that cannot start processes (Maestro) can script it
+// ABOUTME: Runs the session-read service double behind a small control API, so a flow that cannot start processes (Maestro) can script it
 // ABOUTME: Scripts the Home sync flow's service double, makes fresh coaches and coach plan-thread pairs, and mints the seeded sessions flows start signed in with
 
 import { Database } from 'bun:sqlite';
@@ -18,7 +18,7 @@ import { isControlHost } from './control-host';
 // (SCIOTTE_DOUBLE_PORT, 8097). The mobile Home sync flow
 // (frontend-mobile/.maestro/home-sync/) calls it over HTTP from its
 // `runScript` steps: Maestro runs on the host, so 127.0.0.1 reaches it on both
-// platforms. The athlete is the one the flow signs in as; its sciotte state is
+// platforms. The athlete is the one the flow signs in as; its service state is
 // reset on every setup, so a retried attempt starts where the first did.
 // The onboarding group flow (frontend-mobile/.maestro/onboarding/) asks the
 // same process for a fresh coach (`POST /onboarding-coach`), whose Strava is
@@ -194,7 +194,7 @@ async function setup(): Promise<Record<string, unknown>> {
   );
   if (!connected.ok) {
     throw new Error(
-      `sciotte login failed (${connected.status}): is the server started with DRAVR_SCIOTTE_REMOTE_URL naming the double? ${await connected.text()}`,
+      `credential login failed (${connected.status}): is the server started with DRAVR_SCIOTTE_REMOTE_URL naming the double? ${await connected.text()}`,
     );
   }
   await recentUntil(
@@ -305,5 +305,5 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 createServer((req, res) => {
   handle(req, res).catch((error: unknown) => reply(res, 500, { error: String(error) }));
 }).listen(CONTROL_PORT, '127.0.0.1', () => {
-  console.log(`home sync control on ${CONTROL_PORT}, the sciotte double beside it, Pierre at ${PIERRE_URL}`);
+  console.log(`home sync control on ${CONTROL_PORT}, the service double beside it, Pierre at ${PIERRE_URL}`);
 });

@@ -7,8 +7,8 @@
 //! Short-lived provider link-tokens for channel-initiated hosted login.
 //!
 //! A link-token is a JWT that authorizes a user's browser to call a specific
-//! provider's hosted-login endpoints (e.g. Sciotte) without an existing
-//! Pierre session cookie.
+//! provider's hosted-login endpoints (e.g. a session sign-in) without an
+//! existing Pierre session cookie.
 //!
 //! ## Flow
 //!
@@ -20,7 +20,7 @@
 //! 3. The hosted-login URL (with `?token=...`) is posted to the user in their channel.
 //! 4. User's browser opens the URL. Server validates the token, embeds it in the page.
 //! 5. The page's JS calls `/api/providers/{provider}/*` with `Authorization: Bearer <token>`.
-//! 6. The sciotte login, 2FA and OTP handlers accept the link-token as an
+//! 6. The session sign-in's login, 2FA and OTP handlers accept the link-token as an
 //!    alternative to normal cookie/JWT auth (via [`verify_link_token`]) and
 //!    extract user_id + tenant_id from the claims. No other route accepts one.
 //!
@@ -40,7 +40,7 @@
 //! - **One-time page load**: each token's `jti` is burned on the first
 //!   `GET` of the hosted sign-in page ([`HOSTED_SIGNIN_PATH`]) (see [`NonceStore`]);
 //!   subsequent page loads receive an error. The token remains valid for the
-//!   login, 2FA and OTP POST endpoints within its TTL so the multi-step Sciotte flow
+//!   login, 2FA and OTP POST endpoints within its TTL so the multi-step sign-in flow
 //!   (credentials -> 2FA -> OTP) can complete.
 //! - **Minted in-process only**: no HTTP route mints a provider or connect
 //!   token, so there is no caller to rate-limit; every mint follows a platform
@@ -70,7 +70,7 @@ use pierre_core::errors::{AppError, AppResult};
 /// These tokens back the channel reconnect nudges a user reads whenever they
 /// next open their chat app — often hours after the nudge was sent — so the
 /// validity window must outlast a single sitting. The earlier 20-minute value
-/// (sized to the sciotte hosted-login completion timeout) expired stale clicks
+/// (sized to the session sign-in's hosted-login completion timeout) expired stale clicks
 /// and served the "Link error" page instead of the reconnect form. The
 /// hosted-login page burns the token's nonce on first load and the token is
 /// scoped to one (user, tenant, provider) in the user's own DM, so the longer
@@ -123,7 +123,7 @@ pub const CONNECT_OAUTH_INIT_PATH: &str = "/api/providers/connect/oauth-init";
 ///
 /// A token minted with this provider carries the scope `provider:connect:login`
 /// and authorizes the whole hosted connect picker — both the credential
-/// (Sciotte) endpoints and the OAuth-init endpoint — rather than a single
+/// (session sign-in) endpoints and the OAuth-init endpoint — rather than a single
 /// provider's login. The concrete provider is chosen by the user on the hosted
 /// page. [`verify_link_token`] accepts a connect-scoped token wherever a
 /// provider-specific token is accepted (the connect scope is a superset), while
@@ -280,7 +280,7 @@ fn mint_link_token_with_ttl(
 /// own messaging pipeline (which already resolved `user_id` + `tenant_id` for
 /// the turn) — there is no admin-authed HTTP round-trip. The resulting token
 /// carries the [`CONNECT_PROVIDER`] scope, so the hosted page can route the user
-/// to either the credential (Sciotte) flow or the OAuth flow for whichever
+/// to either the credential (session sign-in) flow or the OAuth flow for whichever
 /// provider they pick.
 ///
 /// `tgt` is set to [`CONNECT_PROVIDER`] (the concrete platform is decided on the

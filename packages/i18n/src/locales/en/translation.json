@@ -1502,7 +1502,6 @@
       "muted_none": "Nobody is left out.",
       "save_failed": "Couldn't save. Try again.",
       "reason": {
-        "consentRevoked": "Stopped sharing",
         "unverifiedFigure": "Unverified figure in an agent reply",
         "providerReconnect": "A service to reconnect",
         "nothingReceived": "Nothing received",
@@ -2967,6 +2966,8 @@
       "tapYes": "Tap Yes on the notification",
       "tapNumber": "Tap this number on your phone",
       "checkNotification": "Check the notification on your device",
+      "useAnotherMethod": "Use another method",
+      "noPromptHint": "No notification? On an iPhone, open the Gmail or Google app signed in to this Google account. Only the newest prompt counts.",
       "waitingAria": "Waiting",
       "otpTitle": "Verification Code",
       "otpLabelNamed": "Enter the 6-digit code {0} sent you",
@@ -4689,7 +4690,21 @@
         "t3Label": "Let AI read my intimate health records (cycle tracking, mental and reproductive health)",
         "allowed": "Allowed. Your agent reads these records from now on.",
         "withdrawn": "Withdrawn. Your agent no longer reads these records.",
-        "t3Hint": "Also lets AI apps you connect to Dravr, such as Claude or ChatGPT, read your notes and your agent's memory. Your Dravr agent and your human coach read those either way."
+        "t3Hint": "Also lets AI apps you connect to Dravr, such as Claude or ChatGPT, read your notes and your agent's memory. Your Dravr agent and your human coach read those either way.",
+        "agentBlurb": "Your health records (your medical screening answers, injuries, lab results, clinical records, blood glucose), your intimate health records (cycle tracking, mental and reproductive health), your notes and your agent's memory stay off limits to AI, your Dravr agent included, until you allow them here. Your human coach reads your health records only when you also share them in your group, and never your intimate health records. You still see everything in the app. Withdrawing stops AI use at once.",
+        "agentT2Label": "Let my AI agent read my health records (medical screening answers, injuries, lab results, clinical records, blood glucose)",
+        "agentT3Label": "Let AI read my notes, my agent's memory and my intimate health records (cycle tracking, mental and reproductive health)",
+        "agentT3Hint": "Covers your Dravr agent and the AI apps you connect to Dravr, such as Claude or ChatGPT. Without it, your agent does not remember what you told it in earlier conversations."
+      },
+      "agentPrompt": {
+        "title": "Should your agent remember you?",
+        "body": "Your Dravr agent now asks before it uses its memory of you or your health records. Until you allow it, it works without them and asks you again for anything it needs. You can change this at any time in Privacy & Data settings.",
+        "memoryLabel": "Let my agent use its memory and my notes: what I told it, my goals and preferences. This also lets AI read my intimate health records (cycle tracking, mental and reproductive health), including the AI apps I connect to Dravr, such as Claude or ChatGPT.",
+        "medicalLabel": "Let my agent read my health records: my medical screening (PAR-Q) answers, my injuries, lab results, clinical records and blood glucose.",
+        "save": "Save my choice",
+        "notNow": "Not now",
+        "saved": "Saved. You can change this at any time in Privacy & Data settings.",
+        "failed": "Your choice could not be saved. Try again."
       }
     },
     "garminConsent": {
@@ -5214,6 +5229,8 @@
     "sciotteGarminAccount": "Garmin Account",
     "sciotteGoogleAccount": "Google Account",
     "sciotteGoogleNotificationHint": "Check the Google notification on your device",
+    "sciotteUseAnotherMethod": "Use another method",
+    "sciotteNoPromptHint": "No notification? On an iPhone, open the Gmail or Google app signed in to this Google account. Only the newest prompt counts.",
     "sciotteLoadingStatus": "Loading...",
     "sciotteLogIn": "Log In",
     "sciotteLoggingIn": "Logging in...",

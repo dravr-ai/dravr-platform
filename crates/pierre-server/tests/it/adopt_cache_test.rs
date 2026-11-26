@@ -429,7 +429,7 @@ async fn only_a_super_admin_adopts() {
 }
 
 /// Every key the platform caches activities under is one the store keeps:
-/// a sciotte capture, and the synthetic provider the dev seeds read through.
+/// a session-read capture, and the synthetic provider the dev seeds read through.
 #[tokio::test]
 async fn every_key_the_platform_caches_under_is_kept_by_the_store() {
     let resources = resources().await;

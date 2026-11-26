@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Sciotte TrainingPeaks → cageux `Activity` conversion contract.
+//! Session-read TrainingPeaks → cageux `Activity` conversion contract.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! TrainingPeaks is the one session-read source whose rows carry the coach's load
@@ -97,7 +97,7 @@ fn activity_body(id: &str) -> Option<Value> {
                 "intensity_factor": 0.82,
             }),
         ),
-        // The shape sciotte gives a rated workout: the two single-field
+        // The shape the service gives a rated workout: the two single-field
         // notes first, attributed by role and untimed, then the thread,
         // oldest first, under each commenter's display name.
         REPORTED_WORKOUT_ID => session_row(
@@ -231,7 +231,7 @@ async fn connected(
             revoke_url: None,
             default_scopes: vec![],
         })
-        .expect("sciotte provider construction is infallible"); // Safe: factory returns Ok unconditionally
+        .expect("session-read provider construction is infallible"); // Safe: factory returns Ok unconditionally
     let session = AuthSession {
         session_id: session_id.to_owned(),
         cookies: vec![],

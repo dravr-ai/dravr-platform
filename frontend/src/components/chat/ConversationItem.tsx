@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: One row of the conversation list — avatar, kind glyph, title, archived label, preview, time, unread pill, messenger-style
-// ABOUTME: Bold while unread; a hover or right-click menu holds rename, mark-unread and delete; the rename is an inline ui Input
+// ABOUTME: Bold while unread; a hover or right-click menu holds rename, mark-unread and delete, the rename an inline ui Input — none on a coach's trifecta athlete row, which opens their workspace (carnet#1817)
 
 import { memo, useState } from 'react';
 import { clsx } from 'clsx';
@@ -22,6 +22,13 @@ interface ConversationItemProps {
    * « Tu es le coach · depuis … » (carnet#1521).
    */
   seatLine?: string | null;
+  /**
+   * The row is a trifecta athlete's place — their room and the coach's plan
+   * thread on them — and selecting it opens their workspace (carnet#1817). It
+   * is a person, not one conversation, so it carries no rename, mark-unread
+   * or delete.
+   */
+  opensWorkspace?: boolean;
   isEditing: boolean;
   editedTitleValue: string;
   onSelect: () => void;
@@ -98,8 +105,24 @@ function RowMenu({
 }
 
 /** What the glyph before the title says, for the rows that carry one. */
-function KindGlyph({ row }: { row: ConversationRowModel }) {
+function KindGlyph({ row, opensWorkspace }: { row: ConversationRowModel; opensWorkspace: boolean }) {
   const { t } = useTranslation();
+  // A coach's plan thread for one athlete: the clipboard the Group info
+  // action that opens it carries, so the row and the way in read as one. A
+  // trifecta athlete's row carries it too, since their plan is where it leads.
+  if (opensWorkspace || row.kind === 'subject') {
+    return (
+      <span
+        className="inline-flex items-center flex-shrink-0 text-on-surface-variant"
+        data-testid="conversation-kind-glyph"
+        data-kind={opensWorkspace ? 'athlete' : 'subject'}
+        title={t(PLAN_THREAD_KEYS.kindLabel)}
+        aria-label={t(PLAN_THREAD_KEYS.kindLabel)}
+      >
+        <Clipboard className="w-3.5 h-3.5" aria-hidden="true" />
+      </span>
+    );
+  }
   if (row.kind === 'group') {
     return (
       <span
@@ -110,21 +133,6 @@ function KindGlyph({ row }: { row: ConversationRowModel }) {
         aria-label={t('chat.groupChatBadge')}
       >
         <Users className="w-3.5 h-3.5" aria-hidden="true" />
-      </span>
-    );
-  }
-  // A coach's plan thread for one athlete: the clipboard the Group info
-  // action that opens it carries, so the row and the way in read as one.
-  if (row.kind === 'subject') {
-    return (
-      <span
-        className="inline-flex items-center flex-shrink-0 text-on-surface-variant"
-        data-testid="conversation-kind-glyph"
-        data-kind="subject"
-        title={t(PLAN_THREAD_KEYS.kindLabel)}
-        aria-label={t(PLAN_THREAD_KEYS.kindLabel)}
-      >
-        <Clipboard className="w-3.5 h-3.5" aria-hidden="true" />
       </span>
     );
   }
@@ -149,6 +157,7 @@ const ConversationItem = memo(function ConversationItem({
   row,
   isSelected,
   seatLine = null,
+  opensWorkspace = false,
   isEditing,
   editedTitleValue,
   onSelect,
@@ -166,14 +175,15 @@ const ConversationItem = memo(function ConversationItem({
   // `z-index: auto` is painted in DOM order, which put the next row on top.
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // A room's avatar is a square, an agent's a circle; the glyph and the
-  // accessible name beside it carry the same fact in words. On the selected
-  // row's tint a hairline keeps its edge, since the primary slot is that tint.
+  // A room's avatar is a square, an agent's or an athlete's a circle; the
+  // glyph and the accessible name beside it carry the same fact in words. On
+  // the selected row's tint a hairline keeps its edge, since the primary slot
+  // is that tint.
   const avatar = (
     <div
       className={clsx(
         'flex h-9 w-9 flex-shrink-0 select-none items-center justify-center text-xs font-semibold',
-        avatarShapeClass(row.kind === 'group' ? 'square' : 'circle'),
+        avatarShapeClass(row.kind === 'group' && !opensWorkspace ? 'square' : 'circle'),
         avatarSlotClass(row.avatarSlot),
         isSelected && !isEditing && 'border ghost-border-strong',
       )}
@@ -227,10 +237,15 @@ const ConversationItem = memo(function ConversationItem({
       data-testid="conversation-row"
       data-conversation-id={row.id}
       data-unread={unread ? 'true' : undefined}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        setMenuOpen(true);
-      }}
+      data-opens-workspace={opensWorkspace ? 'true' : undefined}
+      onContextMenu={
+        opensWorkspace
+          ? undefined
+          : (event) => {
+              event.preventDefault();
+              setMenuOpen(true);
+            }
+      }
     >
       <button
         type="button"
@@ -243,10 +258,16 @@ const ConversationItem = memo(function ConversationItem({
       >
         {avatar}
         {/* The right padding clears the actions trigger: 28px at `right-2` with
-            a fine pointer, and 44px, always shown, on a coarse one. */}
-        <div className="flex min-h-[60px] min-w-0 flex-1 flex-col justify-center gap-0.5 border-b ghost-border-faint pr-8 group-last:border-b-0 [@media(pointer:coarse)]:pr-12">
+            a fine pointer, and 44px, always shown, on a coarse one. A row with
+            no menu keeps the list's own inset. */}
+        <div
+          className={clsx(
+            'flex min-h-[60px] min-w-0 flex-1 flex-col justify-center gap-0.5 border-b ghost-border-faint group-last:border-b-0',
+            opensWorkspace ? 'pr-0' : 'pr-8 [@media(pointer:coarse)]:pr-12',
+          )}
+        >
           <div className="flex items-center gap-2 min-w-0">
-            <KindGlyph row={row} />
+            <KindGlyph row={row} opensWorkspace={opensWorkspace} />
             <p
               className={clsx(
                 'min-w-0 flex-1 truncate text-sm',
@@ -322,13 +343,15 @@ const ConversationItem = memo(function ConversationItem({
           </div>
         </div>
       </button>
-      <RowMenu
-        open={menuOpen}
-        setOpen={setMenuOpen}
-        onStartRename={onStartRename}
-        onMarkUnread={onMarkUnread}
-        onDelete={onDelete}
-      />
+      {!opensWorkspace && (
+        <RowMenu
+          open={menuOpen}
+          setOpen={setMenuOpen}
+          onStartRename={onStartRename}
+          onMarkUnread={onMarkUnread}
+          onDelete={onDelete}
+        />
+      )}
     </li>
   );
 });

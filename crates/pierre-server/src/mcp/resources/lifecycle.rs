@@ -92,7 +92,6 @@ use dravr_canot::commands::CommandRegistry;
 #[cfg(feature = "client-messaging")]
 use dravr_canot::ChannelRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
-use pierre_contremaitre::ContremaitreConfig;
 use pierre_core::billing::dummy::DummyProvider;
 use pierre_core::constants::oauth_providers;
 use pierre_core::errors::AppResult;
@@ -262,6 +261,9 @@ impl ServerContext {
         if let Some(reason) = pdf_child.missing() {
             warn!(reason = %reason, "No lab report can be read: the PDF child binary is missing");
         }
+        // The overlay the binary read from its environment, or none: the
+        // context itself reads no contremaitre variable.
+        let contremaitre_config = options.contremaitre;
         let lab_reader = match options.lab_reader {
             Some(model) => model,
             None => LabReaderModel::from_env().await,
@@ -271,7 +273,7 @@ impl ServerContext {
 
         // Create the provider registry once, over the deployment's endpoint
         // overrides, admitting every provider call against the signing app's
-        // budget, and holding the server's sciotte clients: the read services
+        // budget, and holding the server's session-read service clients: the read services
         // (a session's calls on the one its id picks) and the sign-in client
         // every step of a sign-in shares (carnet#1504)
         let sciotte = &config.external_services.sciotte;
@@ -393,7 +395,7 @@ impl ServerContext {
         // This provides runtime-configurable parameters via admin API
         let admin_config = Self::init_admin_config_service(&database_arc).await;
 
-        // Each athlete's sciotte session reads are held to their tier's caps,
+        // Each athlete's session reads are held to their tier's caps,
         // as the admin config's sciotte_reads.* parameters set them, each
         // answer kept a minute (carnet#1661). Bound even when the admin
         // config could not start, so the compiled caps still apply by tier.
@@ -469,7 +471,11 @@ impl ServerContext {
             evidence: contremaitre_evidence_registry,
             messaging_strings: contremaitre_messaging_strings_registry,
             training_catalogue: contremaitre_training_catalogue_registry,
-        } = init_contremaitre_registries(&cageux_config_registry, &persona_contract_registry);
+        } = init_contremaitre_registries(
+            contremaitre_config.clone(),
+            &cageux_config_registry,
+            &persona_contract_registry,
+        );
 
         // Create and populate tool registry with all built-in tools. Any
         // `extra_tools` supplied via `ServerContextOptions` (used by
@@ -747,7 +753,7 @@ impl ServerContext {
             // The coach's first post, installed post-`Arc` the same way.
             #[cfg(feature = "protocol-rest")]
             first_sync: Arc::new(OnceLock::new()),
-            contremaitre_config: ContremaitreConfig::from_env(),
+            contremaitre_config,
         };
 
         Ok(Self {

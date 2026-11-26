@@ -32,7 +32,7 @@ on:
   repository_dispatch:
     types: [photograveur-released]
   schedule:
-    # Weekly safety net, on the same cadence as sciotte: a missed or failed dispatch
+    # Weekly safety net, on the same cadence as the enforme lane: a missed or failed dispatch
     # still gets the release integrated rather than silently dropped.
     - cron: "30 13 * * 1"
   workflow_dispatch:

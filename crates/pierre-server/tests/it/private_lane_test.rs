@@ -1,5 +1,5 @@
 // ABOUTME: A coach's private lane in a one-athlete room (carnet#1249): work-thread turns stay out of the room, quotes are verified
-// ABOUTME: Also the room's solo athlete, the line a publish leaves in the room and its bound chat, and that nothing else reaches the chat
+// ABOUTME: Also the room's solo athlete on the group and on the coach's list rows, the publish line in the room and its bound chat, and that nothing else reaches the chat
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -19,6 +19,7 @@
 use crate::common;
 use crate::helpers;
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -1379,6 +1380,102 @@ async fn the_room_names_its_one_athlete_to_its_coach_alone() {
         owner_coach["solo_athlete"]["user_id"],
         fx.subject.id.to_string(),
         "the coach's own membership is not an athlete: {owner_coach}"
+    );
+}
+
+/// `who`'s conversation list, each row by its conversation id.
+async fn listed(fx: &Fixture, who: &Person) -> HashMap<String, Value> {
+    let (status, body) = fx
+        .request(
+            AxumTestRequest::get("/api/chat/conversations"),
+            &who.auth,
+            fx.chat(),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body["conversations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| (row["id"].as_str().unwrap().to_owned(), row.clone()))
+        .collect()
+}
+
+/// The coach's list names the room's one athlete on the room and on the
+/// coach's plan thread on her (carnet#1817) — what folds the two into one
+/// row that opens her workspace — nobody once the room holds two, and never
+/// her successor on the plan thread about her once she leaves.
+#[tokio::test]
+async fn the_coach_list_names_the_athlete_on_her_room_and_plan_thread() {
+    let fx = Fixture::new(None).await;
+    let (status, body) = fx
+        .request(
+            AxumTestRequest::post("/api/chat/conversations")
+                .json(&json!({ "title": "Squad room", "group_id": fx.group.id })),
+            &fx.coach.auth,
+            fx.chat(),
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "premise: the coach opens the room: {body}"
+    );
+    let room = body["id"].as_str().unwrap().to_owned();
+    let athlete = json!({ "user_id": fx.subject.id.to_string(), "display_name": SUBJECT_NAME });
+
+    let rows = listed(&fx, &fx.coach).await;
+    assert_eq!(rows[&room]["solo_athlete"], athlete, "{:?}", rows[&room]);
+    assert_eq!(
+        rows[&fx.thread]["solo_athlete"], athlete,
+        "{:?}",
+        rows[&fx.thread]
+    );
+
+    let athletes_room = fx.athletes_room().await;
+    let theirs = listed(&fx, &fx.subject).await;
+    assert!(
+        theirs[&athletes_room].get("solo_athlete").is_none(),
+        "never named to the athlete: {:?}",
+        theirs[&athletes_room]
+    );
+
+    // A second athlete joins: the room is no longer one coach and one athlete.
+    let other = person(&fx.res, "other", OTHER_NAME).await;
+    join(fx.repos(), &fx.group, &other, GroupRole::Member, true).await;
+    let rows = listed(&fx, &fx.coach).await;
+    assert!(
+        rows[&room].get("solo_athlete").is_none(),
+        "a room of two athletes named one: {:?}",
+        rows[&room]
+    );
+    assert!(
+        rows[&fx.thread].get("solo_athlete").is_none(),
+        "the plan thread through a room of two named an athlete: {:?}",
+        rows[&fx.thread]
+    );
+
+    // She leaves: the room is the newcomer's alone, and the coach's plan
+    // thread about her opens nobody else's workspace.
+    assert!(
+        fx.repos()
+            .groups
+            .remove_member(&fx.group.id.to_string(), fx.subject.id)
+            .await
+            .unwrap(),
+        "premise: the athlete leaves the group"
+    );
+    let rows = listed(&fx, &fx.coach).await;
+    assert_eq!(
+        rows[&room]["solo_athlete"],
+        json!({ "user_id": other.id.to_string(), "display_name": OTHER_NAME }),
+        "the room names its one remaining athlete: {:?}",
+        rows[&room]
+    );
+    assert!(
+        rows[&fx.thread].get("solo_athlete").is_none(),
+        "the plan thread about the athlete who left named the newcomer: {:?}",
+        rows[&fx.thread]
     );
 }
 

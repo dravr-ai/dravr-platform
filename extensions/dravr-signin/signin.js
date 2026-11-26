@@ -6,7 +6,7 @@
 
 /**
  * The domains this extension may read cookies under: the providers Dravr
- * reads through sciotte. The manifest's host permissions name these four and
+ * reads through a signed-in session. The manifest's host permissions name these four and
  * app.dravr.ai, where bridge.js runs; {@link signInRequest} refuses every
  * cookie domain but these four, app.dravr.ai's included.
  */

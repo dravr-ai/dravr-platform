@@ -134,7 +134,7 @@ dev_pid_is_ours() { # pid
     return 1
 }
 
-# True when `pid` is a sciotte service some checkout recorded: run from that
+# True when `pid` is a session-read service some checkout recorded: run from that
 # checkout, whose logs/sciotte.pid names it or its group with the same start
 # stamp. Identity by record, never by command name.
 dev_pid_is_recorded_sciotte() { # pid
@@ -239,7 +239,7 @@ dev_take_port() { # port label
     local listener remaining
     remaining="$(dev_port_listeners "$1")"
     [ -n "$remaining" ] || return 0
-    # A recorded sciotte on the port is a checkout whose Pierre calls it there;
+    # A recorded session-read service on the port is a checkout whose Pierre calls it there;
     # killing it would leave that Pierre calling ours (carnet#898).
     while IFS= read -r listener; do
         [ -n "$listener" ] || continue

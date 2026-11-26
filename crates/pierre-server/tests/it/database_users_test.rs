@@ -593,7 +593,7 @@ async fn test_get_provider_last_sync_never_synced_row_is_none() {
 
     // Token row exists but update_provider_last_sync was never called, so the
     // last_sync column is NULL. The read must return Ok(None), not a decode
-    // error ("unexpected null") — on-demand providers like sciotte sit in this
+    // error ("unexpected null") — on-demand session-read providers sit in this
     // state until their first successful fetch.
     let test_tenant_id = TenantId::generate();
     let token_data = UserOAuthToken::new(

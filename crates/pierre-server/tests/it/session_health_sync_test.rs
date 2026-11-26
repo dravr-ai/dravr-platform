@@ -1,5 +1,5 @@
 // ABOUTME: carnet#513 — health sync reaches session-connected Garmin and COROS athletes through their mirror sessions
-// ABOUTME: Roster, credentials, tenant, stored rows, dead sessions, the session-read cadence and the sciotte-service reader
+// ABOUTME: Roster, credentials, tenant, stored rows, dead sessions, the session-read cadence and the session-read service reader
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,7 +8,7 @@
 //! while a session-connected athlete's session lives on the mirror backend's
 //! token row (`sciotte_garmin`, `sciotte_coros`). Before this bridge the sync
 //! looked the athlete up under the provider name, found nobody, and wrote
-//! nothing — silently. These tests seed the rows exactly as the sciotte login
+//! nothing — silently. These tests seed the rows exactly as the session sign-in
 //! writes them and assert the values read back from storage.
 //
 // This `//!` must precede the crate-level `#![cfg]`: when a feature is off the
@@ -55,7 +55,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use uuid::Uuid;
 
-/// The session JSON the sciotte login stores as the token row's access token.
+/// The session JSON the session sign-in stores as the token row's access token.
 fn session() -> AuthSession {
     serde_json::from_str(
         r#"{"session_id":"sess-513","cookies":[{"name":"CPL-coros-token","value":"t",
@@ -140,7 +140,7 @@ fn window() -> (Timestamp, Timestamp) {
     )
 }
 
-/// Test double for the service: the summary sciotte's `provider` config
+/// Test double for the service: the summary the service's `provider` config
 /// returns for a day, as the service would serialize it. Records every
 /// (provider, day) it is asked for. The real reader is exercised against a
 /// stub service in `the_service_reader_*` below.
@@ -298,7 +298,7 @@ async fn a_coros_sync_stores_resting_hr_sleep_hrv_and_vo2max_as_coros() {
     assert_eq!(health[0].vo2_max, Some(49.0));
     assert_eq!(health[0].weight_kg, None);
 
-    // Every page was asked of sciotte's `coros` config, over two weeks.
+    // Every page was asked of the service's `coros` config, over two weeks.
     let asked = fake.asked.lock().unwrap().clone();
     assert!(asked.iter().all(|(p, _)| p == "coros"));
     assert!(asked.iter().any(|(_, d)| *d == yesterday()));
@@ -969,7 +969,7 @@ async fn a_push_only_garmin_athlete_stands_down_quietly() {
     );
 }
 
-/// carnet#1590: the sciotte login's backfill starts on the session, then the
+/// carnet#1590: the session sign-in's backfill starts on the session, then the
 /// Garmin OAuth callback stores the push grant while it runs. The sync's
 /// next cursor read still fails, so no day the push holds is written twice,
 /// but it says the wellness arrives by push, and that error — only that one —

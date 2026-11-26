@@ -1,4 +1,4 @@
-// ABOUTME: The per-athlete, per-backend windows every read of a signed-in sciotte session is counted in
+// ABOUTME: The per-athlete, per-backend windows every read of a signed-in session is counted in
 // ABOUTME: Asked and background caps by tier, resolved through a bound SessionReadLimits, and the refusal they give
 
 // SPDX-License-Identifier: MIT OR Apache-2.0

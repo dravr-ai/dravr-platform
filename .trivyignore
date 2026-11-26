@@ -22,7 +22,7 @@
 #
 # Scoping: the plain-text .trivyignore format understands an ID and an optional
 # `exp:` date, nothing else. It cannot scope an ignore to a package, a path, or
-# one of the three published images (server, frontend, sciotte), so every entry
+# one of the three published images (server, frontend, session-read), so every entry
 # applies to all three scans until it expires. Package/path scoping requires the
 # experimental .trivyignore.yaml format (purls / paths / expired_at), which the
 # --ignorefile call sites do not point at; Trivy selects the YAML parser by file
@@ -34,7 +34,7 @@
 # from the official nginx:alpine image (nginx.org's unpatched r1) to alpine's own
 # patched nginx — see docker/images/frontend/Dockerfile.
 
-# server + sciotte images: adm-zip 0.6.0 (HIGH, CVE-2026-77301 / GHSA-7q85-xj36-vmfc,
+# server + session-read images: adm-zip 0.6.0 (HIGH, CVE-2026-77301 / GHSA-7q85-xj36-vmfc,
 # fixed in 0.6.1) arrives with the GitHub Copilot CLI, pinned at 1.0.86 in
 # docker/images/server/Dockerfile. It is not inside the npm tarball; it lands
 # when the CLI materializes its sidecar tree at
@@ -49,7 +49,7 @@
 #
 # Exposure, stated plainly: on the server image the CLI is a chat provider
 # (the copilot_sdk tier of PIERRE_LLM_CHAIN), so it can spawn on any coaching
-# turn. On the sciotte image it spawns for the
+# turn. On the session-read image it spawns for the
 # vision-login LLM only.
 #
 # The suppression rests on adm-zip being unreachable, not on the CLI being

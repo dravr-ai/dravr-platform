@@ -151,7 +151,7 @@ fi
 # directory, command) and then that one pid is signalled. Never a name pattern:
 # "pierre-mcp-server" matches every worktree on the machine.
 dev_stop pierre-server "Pierre MCP Server"
-# A sciotte this server would call must not live on the port it is about to take.
+# A session-read service this server would call must not live on the port it is about to take.
 if ! "$PROJECT_ROOT/scripts/sciotte-local.sh" check-port "$HTTP_PORT"; then
     exit 1
 fi

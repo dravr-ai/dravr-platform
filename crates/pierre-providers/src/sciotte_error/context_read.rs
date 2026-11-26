@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The sciotte service answers a context read the provider refused with a `500` whose
+//! The session-read service answers a context read the provider refused with a `500` whose
 //! marker is the service's own error text. A `429` or `5xx` the provider
 //! answered (`network error: … answered HTTP 429`) is a refusal that may pass a
 //! moment later, so it is reported as one: [`ErrorCode::ExternalRateLimited`]

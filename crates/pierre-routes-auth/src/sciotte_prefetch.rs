@@ -1,4 +1,4 @@
-// ABOUTME: The activity pre-fetch a fresh sciotte session starts, and the registry every reader waits on
+// ABOUTME: The activity pre-fetch a fresh signed-in session starts, and the registry every reader waits on
 // ABOUTME: One session read per connection: later readers and the health backfill wait on it (carnet#736)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -47,7 +47,7 @@ fn cache_page_len() -> usize {
     usize::try_from(PREFETCH_CACHE_PAGE).unwrap_or(usize::MAX)
 }
 
-/// Register the activity pre-fetch of a fresh sciotte session and spawn it in
+/// Register the activity pre-fetch of a fresh signed-in session and spawn it in
 /// the background, so the agent has warm data on the first chat.
 ///
 /// Returns the wait on it, for the health backfill to start after. When a

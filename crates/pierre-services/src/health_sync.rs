@@ -313,7 +313,7 @@ impl PierreSyncStorage {
     /// storage for post-construction injection of the credential refresher.
     /// The orchestrator is ready to run the scheduler or handle webhook events.
     /// The session-read providers read their daily summaries on the dedicated
-    /// sciotte services (ADR-021) through `sciotte`, the server's read
+    /// session-read services (ADR-021) through `sciotte`, the server's read
     /// services: no browser runs in this pod.
     ///
     /// Intervals.icu and WHOOP wellness are read at `origins`, the APIs the

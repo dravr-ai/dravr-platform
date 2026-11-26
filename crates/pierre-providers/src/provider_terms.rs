@@ -20,7 +20,7 @@
 //! Strava's June 2026 terms bar AI use, but direct Strava data stays allowed
 //! by product decision (2026-10-02) until that question is settled on its own.
 //! Those terms also keep Strava data off every MCP and agent interface, so
-//! Strava — through its API or a sciotte session read — is served only to Dravr's
+//! Strava — through its API or a session read — is served only to Dravr's
 //! own surfaces ([`STRAVA_TRANSPORT`]). WHOOP's descriptor keeps its data
 //! first-party too ([`WHOOP_TRANSPORT`], carnet#766). Garmin, COROS and
 //! `TrainingPeaks` keep their data first-party; intervals.icu serves its own
@@ -82,7 +82,7 @@ pub const WHOOP: SourcePolicy = SourcePolicy {
 /// §2.3 lets Strava data be displayed only to the athlete it belongs to, and
 /// §5.10 says the athlete's consent does not lift either rule, so the
 /// athlete's own API key is no exception. Both the `strava` API provider and
-/// the sciotte Strava backend declare it: the session reader reads the same
+/// the session-read Strava backend declare it: the session reader reads the same
 /// data, under §5.5's stricter ban on automated collection besides
 /// (carnet#765).
 ///
@@ -373,9 +373,9 @@ mod tests {
         assert_eq!(registry.cross_athlete_learning_barred(), barred);
     }
 
-    /// The sciotte Strava backend is registered as `sciotte`, and every
-    /// sciotte backend stamps its items `sciotte` with the service it read as
-    /// `source`: each item is governed by the backend that read it.
+    /// The session-read Strava backend is registered as `sciotte`, and every
+    /// session-read backend stamps its items `sciotte` with the service it
+    /// read as `source`: each item is governed by the backend that read it.
     #[cfg(feature = "provider-sciotte")]
     #[test]
     fn a_session_read_item_is_governed_by_the_backend_that_read_it() {

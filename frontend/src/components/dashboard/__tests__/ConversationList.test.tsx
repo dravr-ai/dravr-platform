@@ -2,13 +2,14 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests for the scoped conversation list — Home's history or the Groups tab's rooms: rows, search, empty state, Load more, row actions
-// ABOUTME: Mocks chatApi and asserts what the list draws and which calls its actions make
+// ABOUTME: Mocks chatApi and asserts what the list draws and which calls its actions make; a coach's trifecta athlete reads as one row (carnet#1817)
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Conversation } from '@pierre/shared-types';
 import type { ConversationScope } from '@pierre/chat-utils';
+import type { CoachAccessViewer } from '@pierre/ui-logic';
 import ConversationList from '../ConversationList';
 import { CONVERSATION_PAGE_SIZE } from '../../../hooks/useConversationList';
 
@@ -24,6 +25,8 @@ vi.mock('../../../services/api', () => ({
     deleteConversation: (...a: unknown[]) => deleteConversation(...a),
     markConversationUnread: (...a: unknown[]) => markConversationUnread(...a),
   },
+  // The coach-seat lines read where the viewer's seat stands; it stands still here.
+  userApi: { getCoachAccessRequest: () => Promise.resolve({ request: null }) },
 }));
 
 function conversation(overrides: Partial<Conversation> = {}): Conversation {
@@ -51,6 +54,8 @@ function renderList(
     scope: ConversationScope;
     selectedConversation: string | null;
     onSelectConversation: (id: string | null) => void;
+    seatViewer: CoachAccessViewer | null;
+    onOpenWorkspace: (athleteId: string) => void;
   }> = {},
 ) {
   const queryClient = new QueryClient({
@@ -62,6 +67,8 @@ function renderList(
         scope={props.scope ?? 'personal'}
         selectedConversation={props.selectedConversation ?? null}
         onSelectConversation={props.onSelectConversation ?? vi.fn()}
+        seatViewer={props.seatViewer ?? null}
+        onOpenWorkspace={props.onOpenWorkspace}
       />
     </QueryClientProvider>,
   );
@@ -157,6 +164,8 @@ describe('ConversationList', () => {
 
     fireEvent.change(search, { target: { value: 'kettlebell' } });
     expect(await screen.findByText('No chats match')).toBeInTheDocument();
+    // The search narrows what is cached: no keystroke asks the server again.
+    expect(getConversations).toHaveBeenCalledTimes(1);
   });
 
   it('draws its filters as text tabs sized by the pointer, the underline under the chosen word alone', async () => {
@@ -271,5 +280,91 @@ describe('ConversationList', () => {
 
     await waitFor(() => expect(deleteConversation).toHaveBeenCalledWith('c1'));
     await waitFor(() => expect(onSelectConversation).toHaveBeenCalledWith(null));
+  });
+
+  describe("a coach's trifecta athlete (carnet#1817)", () => {
+    const COACH: CoachAccessViewer = { id: 'user-coach', manages_roster: true };
+    const HALINA = { user_id: 'user-halina', display_name: 'Halina Torresan' };
+    const room = conversation({
+      id: 'c-room',
+      title: 'Traka 200',
+      agent_id: null,
+      group_id: 'g-traka',
+      group_name: 'Traka 200',
+      solo_athlete: HALINA,
+      unread_count: 1,
+      last_message: { preview: 'See you Saturday', role: 'user', created_at: '2026-04-13T09:00:00Z' },
+      updated_at: '2026-04-13T09:00:00Z',
+    });
+    const plan = conversation({
+      id: 'c-plan',
+      title: 'Plan · Halina Torresan',
+      subject_user_id: HALINA.user_id,
+      subject_group_id: 'g-traka',
+      subject_display_name: HALINA.display_name,
+      solo_athlete: HALINA,
+      unread_count: 2,
+      last_message: { preview: 'Draft saved', role: 'assistant', created_at: '2026-04-13T11:00:00Z' },
+      updated_at: '2026-04-13T11:00:00Z',
+    });
+    const club = conversation({
+      id: 'c-club',
+      title: 'Club',
+      agent_id: null,
+      group_id: 'g-club',
+      last_message: { preview: 'Ride at 7', role: 'user', created_at: '2026-04-13T10:00:00Z' },
+      updated_at: '2026-04-13T10:00:00Z',
+    });
+
+    beforeEach(() => {
+      getConversations.mockResolvedValue(page([room, plan, club]));
+    });
+
+    it('reads their room and plan thread as one row that opens their workspace, with no row menu', async () => {
+      const onOpenWorkspace = vi.fn();
+      const onSelectConversation = vi.fn();
+      renderList({ scope: 'groups', seatViewer: COACH, onOpenWorkspace, onSelectConversation });
+
+      await waitFor(() => expect(screen.getAllByTestId('conversation-row')).toHaveLength(2));
+      const [athlete, other] = screen.getAllByTestId('conversation-row');
+      expect(athlete).toHaveAttribute('data-opens-workspace', 'true');
+      expect(within(athlete as HTMLElement).getByTestId('conversation-title')).toHaveTextContent('Halina Torresan');
+      expect(within(athlete as HTMLElement).getByTestId('conversation-preview')).toHaveTextContent('Draft saved');
+      expect(within(athlete as HTMLElement).getByTestId('conversation-unread-count')).toHaveTextContent('3');
+      expect(within(athlete as HTMLElement).queryByTestId('conversation-actions-trigger')).toBeNull();
+      expect(other).not.toHaveAttribute('data-opens-workspace');
+
+      fireEvent.click(within(athlete as HTMLElement).getByRole('button'));
+      expect(onOpenWorkspace).toHaveBeenCalledWith(HALINA.user_id);
+      expect(onSelectConversation).not.toHaveBeenCalled();
+    });
+
+    it('marks the row the open thread is part of, the plan thread included', async () => {
+      renderList({ scope: 'groups', seatViewer: COACH, onOpenWorkspace: vi.fn(), selectedConversation: 'c-plan' });
+      await waitFor(() => expect(screen.getAllByTestId('conversation-row')).toHaveLength(2));
+      expect(within(screen.getAllByTestId('conversation-row')[0] as HTMLElement).getByRole('button')).toHaveAttribute(
+        'aria-current',
+        'true',
+      );
+    });
+
+    it('finds the row by the athlete it is named after', async () => {
+      renderList({ scope: 'groups', seatViewer: COACH, onOpenWorkspace: vi.fn() });
+      await waitFor(() => expect(screen.getAllByTestId('conversation-row')).toHaveLength(2));
+      fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'halina' } });
+      await waitFor(() => expect(screen.getAllByTestId('conversation-row')).toHaveLength(1));
+      expect(screen.getByTestId('conversation-title')).toHaveTextContent('Halina Torresan');
+    });
+
+    it('keeps every conversation its own row for a reader without the coach Home the workspace sits in', async () => {
+      renderList({ scope: 'groups', seatViewer: { id: COACH.id }, onOpenWorkspace: vi.fn() });
+      await waitFor(() => expect(screen.getAllByTestId('conversation-row')).toHaveLength(3));
+      expect(document.querySelector('[data-opens-workspace]')).toBeNull();
+    });
+
+    it('keeps every conversation its own row where the host opens no workspace', async () => {
+      renderList({ scope: 'groups', seatViewer: COACH });
+      await waitFor(() => expect(screen.getAllByTestId('conversation-row')).toHaveLength(3));
+    });
   });
 });

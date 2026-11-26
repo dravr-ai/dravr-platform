@@ -7,8 +7,8 @@
 //! `sciotte_coros` backend contract.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! COROS is read through the dravr-sciotte service (its `coros` provider,
-//! released in dravr-sciotte v0.15.0) until the partner API of carnet#509 is
+//! COROS is read through the session-read service (its `coros` provider,
+//! released in the session-read satellite v0.15.0) until the partner API of carnet#509 is
 //! approved. The platform's `sciotte_coros` backend is one more
 //! [`SciotteTarget`]: its rows are named `sciotte_coros`, and every call it
 //! makes to the multi-provider service names the service's own
@@ -106,7 +106,7 @@ type Seen = Arc<Mutex<Vec<String>>>;
 
 /// Serve the service endpoints a single-activity fetch calls, recording each
 /// request: `POST /auth/import-session`, then `GET /api/activities/{id}`
-/// answered with a COROS detail as dravr-sciotte v0.15.0 returns it.
+/// answered with a COROS detail as the session-read satellite v0.15.0 returns it.
 fn spawn_session_reader_stub(listener: TcpListener, seen: Seen) {
     tokio::spawn(async move {
         while let Ok((mut stream, _)) = listener.accept().await {
@@ -175,7 +175,7 @@ async fn connected_provider(base_url: &str) -> Box<dyn FitnessProvider> {
         .expect("a loopback client needs no audience"); // Safe: loopback URL
     let provider = SciotteCorosProviderFactory::new(Some(client))
         .create(config)
-        .expect("sciotte provider construction is infallible"); // Safe: factory returns Ok unconditionally
+        .expect("session-read provider construction is infallible"); // Safe: factory returns Ok unconditionally
     let session = AuthSession {
         session_id: "stub-session".to_owned(),
         cookies: vec![],

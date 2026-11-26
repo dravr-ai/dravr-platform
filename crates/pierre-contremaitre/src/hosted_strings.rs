@@ -226,7 +226,7 @@ pub const KEY_INTERVALS_AUTHORIZE_ACTION: &str = "shell.intervalsAuthorizeAction
 /// Key: "Coaching athletes? Link with your API key" No format placeholders.
 pub const KEY_INTERVALS_COACH_KEY_ACTION: &str = "shell.intervalsCoachKeyAction";
 
-// ── Sciotte code-step strings the app dialog shares ──
+// ── Session sign-in code-step strings the app dialog shares ──
 //
 // The web and mobile sign-in dialog reads this same key, so a code the
 // provider refused is worded once on every surface.

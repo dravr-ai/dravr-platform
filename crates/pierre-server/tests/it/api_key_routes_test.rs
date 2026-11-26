@@ -223,6 +223,7 @@ async fn create_test_setup() -> (ApiKeyRoutes, Uuid, AuthResult) {
                 blobs: None,
                 lab_reader: None,
                 pdf_text_bin: None,
+                contremaitre: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: common::offline_adapters(),
             },

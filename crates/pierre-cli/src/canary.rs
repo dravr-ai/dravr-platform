@@ -1,4 +1,4 @@
-// ABOUTME: Credential-login canary: signs a dedicated account in through the deployed sciotte service
+// ABOUTME: Credential-login canary: signs a dedicated account in through the deployed session-read service
 // ABOUTME: Classifies the first decision point so a provider-side login regression surfaces before an athlete meets it
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,7 +7,7 @@
 //! Credential-login canary (carnet#1078).
 //!
 //! From about 2026-10-09 until 2026-10-16 no new athlete could connect Garmin:
-//! Garmin put a captcha in front of the sign-in and sciotte waited out its
+//! Garmin put a captcha in front of the sign-in and the service waited out its
 //! whole budget behind it (carnet#1035). The only signal was athletes failing.
 //! This canary runs the path an athlete takes — the platform's own
 //! [`SciotteClient::login_with_credentials`] against the deployed service, its
@@ -129,8 +129,8 @@ fn classify(result: Result<LoginOutcome, ClientError>) -> CanaryVerdict {
             detail: message.unwrap_or_default(),
         },
         // The service answers `401 session_expired` on a credential login that
-        // got no answer after the password was submitted (and, before sciotte
-        // v0.26, on one that exhausted its whole budget). The client names
+        // got no answer after the password was submitted (and, before the
+        // service's v0.26, on one that exhausted its whole budget). The client names
         // that marker only on a read, so on a login it arrives as `Unexpected`.
         Err(ClientError::Unexpected { status, body, .. })
             if status == StatusCode::UNAUTHORIZED

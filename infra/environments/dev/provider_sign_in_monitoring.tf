@@ -54,7 +54,7 @@ resource "google_monitoring_alert_policy" "provider_sign_in_rejected" {
   }
 
   conditions {
-    display_name = "Sciotte remote login rejected by provider"
+    display_name = "Session-read login rejected by provider"
 
     condition_matched_log {
       filter = <<-EOT

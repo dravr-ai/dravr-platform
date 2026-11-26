@@ -1,7 +1,7 @@
 // ABOUTME: Shared TypeScript types for common API structures
 // ABOUTME: Chat types, prompt suggestions, and common response patterns
 
-import type { CorrectedReply, TranscriptSpeaker } from './groups.js';
+import type { CorrectedReply, SoloAthlete, TranscriptSpeaker } from './groups.js';
 import type { RoomQuote } from './room-quote.js';
 import type { ChatMessageAction } from './turn.js';
 
@@ -78,6 +78,16 @@ export interface Conversation {
   subject_group_id?: string | null;
   /** The athlete's name as the server spells it, for the row and the header. */
   subject_display_name?: string | null;
+  /**
+   * For the group's human coach: the one athlete of the room this row is,
+   * or of the group this plan thread is bound through when the thread is
+   * about them (carnet#1817) — the athlete whose workspace the row opens.
+   * Absent for every other row and reader. List rows only.
+   *
+   * Mirrors `ConversationSummaryResponse.solo_athlete` in
+   * `crates/pierre-server/src/routes/chat/dto.rs`.
+   */
+  solo_athlete?: SoloAthlete;
   /** When conversation was created */
   created_at: string;
   /** When conversation was last updated */

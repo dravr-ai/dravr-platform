@@ -262,7 +262,7 @@ pub mod whoop_terms;
 /// The one row-level merge of stored activity copies into workouts, and the gates a read applies first
 pub mod workouts;
 
-/// Health sync's daily-summary reads, made on the dedicated sciotte service
+/// Health sync's daily-summary reads, made on the dedicated session-read service
 #[cfg(feature = "health-sync")]
 pub mod sciotte_health_reader;
 
@@ -534,7 +534,7 @@ pub mod user_approval;
 /// Admin removal of a user and of one provider grant, through the disconnect chokepoint.
 pub mod user_removal;
 
-/// Sciotte signed-in-session persistence, and the admin clone of one account's session onto another.
+/// Signed-in-session persistence, and the admin clone of one account's session onto another.
 pub mod signed_in_session;
 
 /// The doors a deleted account's identities are refused at, and the explicit clear that reopens them.

@@ -18,7 +18,7 @@ then reads their training with that session, as after any sign-in.
    and Firefox share: Firefox and Safari have no `externally_connectable`. The
    background closes any port that does not come from a tab of app.dravr.ai.
 2. The app asks Dravr for the provider's entry (`GET /api/providers/browser-signin`,
-   served by sciotte from its provider configs). The entry holds the sign-in
+   served by the session-read service from its provider configs). The entry holds the sign-in
    page, the URLs that say the athlete is signed in, and the cookie domain.
 3. Before the first sign-in, the extension shows its notice (`notice.html`):
    what it reads, where it goes, how to stop it. The notice also opens when the
@@ -33,7 +33,7 @@ then reads their training with that session, as after any sign-in.
    answers the page.
 6. The app posts the cookies to `POST /api/providers/browser-signin/{target}`.
    Dravr refuses any cookie outside the provider's domain, proves the session
-   with a read, and stores it exactly as a sciotte sign-in.
+   with a read, and stores it exactly as a credential sign-in stores its session.
 
 The page sends a keepalive every 20 s, so a sign-in that takes minutes
 outlives Chrome's service-worker idle timer.

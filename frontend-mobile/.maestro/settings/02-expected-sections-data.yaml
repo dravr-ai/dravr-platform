@@ -1,5 +1,5 @@
 # ABOUTME: The Connections pane lists the data providers — Settings → Connections → a provider row, then back to Settings
-# ABOUTME: Ids only: the pane row on Settings, the Connections root, the Strava-branded sciotte row the seeded stack always lists
+# ABOUTME: Ids only: the pane row on Settings, the Connections root, the Strava-branded session-read row the seeded stack always lists
 
 appId: ai.dravr.app
 
@@ -23,7 +23,7 @@ appId: ai.dravr.app
       id: "connections-screen"
     timeout: 5000
 
-# The seeded stack always lists the Strava-branded sciotte provider
+# The seeded stack always lists the Strava-branded session-read provider
 - assertVisible:
     id: "provider-row-sciotte"
 

@@ -177,7 +177,7 @@ pub enum PurgeReason {
     AthleteDeletedImport,
     /// The activities were another athlete's, filed under the user's account
     /// by a read that misread whose they were (a `TrainingPeaks` coach
-    /// account read before sciotte 0.14).
+    /// account read before the session-read service's 0.14).
     MisfiledActivities,
 }
 

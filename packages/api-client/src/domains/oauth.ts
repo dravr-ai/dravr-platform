@@ -22,12 +22,12 @@ import type {
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
-// Backpressure retry parameters for the sciotte provider. The platform
-// answers HTTP 503 + `Retry-After` when the dedicated sciotte session-read
+// Backpressure retry parameters for the session-read provider. The platform
+// answers HTTP 503 + `Retry-After` when the dedicated session-read
 // service sheds load; clients retry with jittered exponential backoff so a
 // thundering herd at t+Retry-After doesn't re-saturate the service on every
 // synchronized tick. Values are fixed per-release — admins tune the
-// limit on the sciotte service (DRAVR_SCIOTTE_MAX_CONCURRENT and friends),
+// limit on the service (DRAVR_SCIOTTE_MAX_CONCURRENT and friends),
 // not the client.
 const SCIOTTE_RETRY_MAX_ATTEMPTS = 3;
 const SCIOTTE_RETRY_BASE_MS = 1000;
@@ -42,7 +42,7 @@ interface SciotteBusyErrorShape {
   };
 }
 
-/** What a sciotte sign-in step carries beyond its body. */
+/** What a credential sign-in step carries beyond its body. */
 export interface SciotteRequestOptions {
   /**
    * Aborts the step: the window that started it was closed. The connection
@@ -85,7 +85,7 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 /**
- * POST wrapper that retries on HTTP 503 from the sciotte backpressure
+ * POST wrapper that retries on HTTP 503 from the session-read backpressure
  * limiter. Honours the server's `Retry-After` header as the lower bound
  * on the delay and adds random jitter so concurrent clients don't
  * synchronise their retries. Any non-503 error propagates immediately;
@@ -365,7 +365,7 @@ export function createOAuthApi(axios: AxiosInstance) {
     },
 
     /**
-     * Start Sciotte credential login flow (headless browser).
+     * Start the session-read credential login flow (headless browser).
      * Returns status: 'connected', 'two_factor_choice', 'otp_required', 'number_match', or failed.
      */
     async sciotteLogin(params: {
@@ -389,7 +389,7 @@ export function createOAuthApi(axios: AxiosInstance) {
     },
 
     /**
-     * Select a 2FA option during Sciotte login.
+     * Select a 2FA option during the credential login.
      */
     async sciotteSelect2FA(optionId: string, options: SciotteRequestOptions = {}): Promise<SciotteLoginResponse> {
       const response = await postWithSciotteBackpressureRetry<
@@ -405,7 +405,7 @@ export function createOAuthApi(axios: AxiosInstance) {
     },
 
     /**
-     * Submit OTP code during Sciotte login.
+     * Submit OTP code during the credential login.
      */
     async sciotteSubmitOTP(code: string, options: SciotteRequestOptions = {}): Promise<SciotteLoginResponse> {
       const response = await postWithSciotteBackpressureRetry<

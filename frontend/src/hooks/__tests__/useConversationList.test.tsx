@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests for the unified list query — activity order, search, paging, unread total, row mutations
+// ABOUTME: Tests for the unified list query — activity order, paging, unread total, row mutations
 // ABOUTME: Mocks chatApi and asserts the offsets requested and the invalidations each mutation triggers
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -88,25 +88,6 @@ describe('useConversationList', () => {
     expect(result.current.rows.map((row) => row.id)).toEqual(['fresh', 'mid', 'old']);
     expect(result.current.total).toBe(3);
     expect(result.current.hasMore).toBe(false);
-  });
-
-  it('narrows the rows to the search query without refetching', async () => {
-    getConversations.mockResolvedValue(
-      page([
-        conversation({ id: 'c1', title: 'Marathon plan' }),
-        conversation({ id: 'c2', title: 'Deadlift form', agent_handle: 'strength-coach' }),
-      ]),
-    );
-
-    const { result, rerender } = renderHook(({ query }) => useConversationList(query), {
-      wrapper: wrapperFor(newClient()),
-      initialProps: { query: '' },
-    });
-    await waitFor(() => expect(result.current.rows).toHaveLength(2));
-
-    rerender({ query: '@strength' });
-    expect(result.current.rows.map((row) => row.id)).toEqual(['c2']);
-    expect(getConversations).toHaveBeenCalledTimes(1);
   });
 
   it('offers Load more while the total exceeds the loaded rows and fetches the next offset', async () => {

@@ -126,12 +126,12 @@ pub const WAHOO_API_BASE_URL: &str = "https://api.wahooligan.com/v1";
 /// the workouts and plans the app scheduled.
 pub const WAHOO_DEAUTHORIZE_URL: &str = "https://api.wahooligan.com/v1/permissions";
 
-/// Sciotte session-read provider identifier.
+/// Strava session-read provider identifier.
 ///
 /// Browser-based data extraction, gated behind `provider-sciotte` feature.
 pub const SCIOTTE: &str = "sciotte";
 
-/// Sciotte Garmin session-read provider identifier.
+/// Garmin session-read provider identifier.
 ///
 /// Browser-based Garmin Connect data extraction, gated behind `provider-sciotte` feature.
 pub const SCIOTTE_GARMIN: &str = "sciotte_garmin";
@@ -144,19 +144,19 @@ pub const SCIOTTE_GARMIN: &str = "sciotte_garmin";
 /// hides `sciotte_garmin`.
 pub const TRAININGPEAKS: &str = "trainingpeaks";
 
-/// Sciotte TrainingPeaks session-read provider identifier.
+/// TrainingPeaks session-read provider identifier.
 ///
 /// Browser-based TrainingPeaks calendar extraction, gated behind `provider-sciotte` feature.
 pub const SCIOTTE_TRAININGPEAKS: &str = "sciotte_trainingpeaks";
 
-/// Sciotte COROS session-read provider identifier.
+/// COROS session-read provider identifier.
 ///
 /// Browser-based COROS Training Hub data extraction, gated behind
 /// `provider-sciotte` feature. The mirror of `coros` until the partner API
 /// (carnet#509) is approved.
 pub const SCIOTTE_COROS: &str = "sciotte_coros";
 
-/// Every mirror pair: a user-facing provider and its sciotte backend.
+/// Every mirror pair: a user-facing provider and its session-read backend.
 ///
 /// The one table routing, status, the hosted sign-in, the reconnect copy and
 /// the admin's connect order read (carnet#1494), so a provider added here
@@ -482,8 +482,8 @@ pub fn is_user_provided(provider: &str) -> bool {
 /// imported and what their phone's health store syncs are the device's
 /// record; a reading the athlete typed in is
 /// theirs. A session-read mirror ([`MIRROR_PAIRS`]) relays the service it mirrors,
-/// so its items take that service's class: Strava read through sciotte is the
-/// device's record, as Strava over `OAuth` is, and TrainingPeaks read the same
+/// so its items take that service's class: Strava read through a session is
+/// the device's record, as Strava over `OAuth` is, and TrainingPeaks read the same
 /// way is another application's. Everything else — a coaching platform, an
 /// aggregator, the synthetic providers, and any name not listed here — is
 /// another application's, the class that claims the least about where the
@@ -552,12 +552,12 @@ pub fn is_credential_free(provider: &str) -> bool {
     matches!(provider, SYNTHETIC | SYNTHETIC_SLEEP)
 }
 
-/// Token type recorded in `user_oauth_tokens.token_type` for sciotte
+/// Token type recorded in `user_oauth_tokens.token_type` for signed-in
 /// browser-session credentials.
 ///
 /// OAuth exchanges record the provider's own token type (`"Bearer"` in
 /// practice). A session row's `access_token` holds the serialized browser
-/// session JSON the sciotte session reader restores — it is unusable as a Bearer
+/// session JSON the session reader restores — it is unusable as a Bearer
 /// token, and a Bearer token is unusable as a session.
 pub const TOKEN_TYPE_SESSION: &str = "session";
 
@@ -722,7 +722,7 @@ mod tests {
         }
 
         /// A session-read mirror's items are the record of the service it
-        /// mirrors: Strava read through sciotte is labelled as Strava over
+        /// mirrors: Strava read through a session is labelled as Strava over
         /// `OAuth` is.
         #[test]
         fn a_session_read_mirror_takes_the_class_of_the_service_it_mirrors() {
@@ -736,7 +736,7 @@ mod tests {
             assert_eq!(
                 source_class_of(SCIOTTE),
                 SourceClass::Device,
-                "Strava read through sciotte is the device's record"
+                "Strava read through a session is the device's record"
             );
         }
 

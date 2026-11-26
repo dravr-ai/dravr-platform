@@ -1,5 +1,5 @@
 // ABOUTME: COROS athlete self-report mapping — the feeling the athlete picked (1 very easy .. 5 weak) as a named Feel
-// ABOUTME: A pure function the sciotte conversion calls so a COROS encoding never leaves this module
+// ABOUTME: A pure function the session-read conversion calls so a COROS encoding never leaves this module
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,8 +7,8 @@
 //! # COROS athlete self-report
 //!
 //! COROS asks the athlete how an activity felt and stores the pick as
-//! `sportFeelInfo.feelType`; dravr-sciotte carries it unconverted as the
-//! activity's `feel` rank, and only when the athlete picked one (it sends
+//! `sportFeelInfo.feelType`; the session-read satellite carries it unconverted
+//! as the activity's `feel` rank, and only when the athlete picked one (it sends
 //! nothing for `0`). COROS records no rating of perceived exertion.
 //!
 //! The scale is the Training Hub's own. Its `feeling` module

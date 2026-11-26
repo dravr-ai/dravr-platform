@@ -915,7 +915,7 @@ pub(crate) fn offline_config(config: Arc<ServerConfig>) -> Arc<ServerConfig> {
 /// could aim a request at a real host taken out.
 ///
 /// `ServerConfig::from_env()` reads whatever the developer's shell exports:
-/// provider endpoint overrides, the sciotte service's address, a Graph API
+/// provider endpoint overrides, the session-read service's address, a Graph API
 /// base that outranks the offline adapter factory on a `WhatsApp` link, and
 /// the deployment's real Slack bot token, which the ops card redraw and the
 /// feedback screenshot upload send with. Those calls go where the context's
@@ -1020,7 +1020,7 @@ pub(crate) fn test_server_config_with_api_base(provider: &str, api_base: &str) -
     config
 }
 
-/// [`test_server_config`] with the sciotte service at `url`, for a
+/// [`test_server_config`] with the session-read service at `url`, for a
 /// test that stands the service in on loopback (where no audience is needed).
 #[must_use]
 pub(crate) fn test_server_config_with_sciotte(url: &str) -> ServerConfig {
@@ -1033,7 +1033,7 @@ pub(crate) fn test_server_config_with_sciotte(url: &str) -> ServerConfig {
     config
 }
 
-/// [`test_server_config`] with the sciotte read service at `read_url` and the
+/// [`test_server_config`] with the session read service at `read_url` and the
 /// sign-in service at `login_url`, both on loopback: the two-service shape a
 /// deployment runs (carnet#1504).
 #[must_use]
@@ -1060,14 +1060,14 @@ pub(crate) fn test_server_config_usr_pwd_garmin() -> ServerConfig {
     config
 }
 
-/// [`test_server_config_usr_pwd_garmin`] with the sciotte service at `url`.
+/// [`test_server_config_usr_pwd_garmin`] with the session-read service at `url`.
 pub(crate) fn test_server_config_with_sciotte_usr_pwd_garmin(url: &str) -> ServerConfig {
     let mut config = test_server_config_with_sciotte(url);
     config.oauth.garmin = OAuthProviderConfig::default();
     config
 }
 
-/// [`create_test_server_resources_with_config`] with the sciotte
+/// [`create_test_server_resources_with_config`] with the session-read
 /// service at `url`.
 pub(crate) fn create_test_server_resources_with_sciotte(url: &str) -> BoxedServerContext {
     create_test_server_resources_with_config(test_server_config_with_sciotte(url))
@@ -1339,7 +1339,7 @@ pub(crate) async fn create_test_server_resources_with_archive_imports(
 
 /// [`create_test_server_resources_with_archive_imports`] over `config` when
 /// one is given: imports beside a connection the config stands in, such as
-/// the sciotte service of [`test_server_config_with_sciotte`].
+/// the session-read service of [`test_server_config_with_sciotte`].
 ///
 /// # Errors
 ///
@@ -1661,6 +1661,7 @@ async fn create_test_server_resources_over(
                 blobs,
                 lab_reader: None,
                 pdf_text_bin: None,
+                contremaitre: None,
                 #[cfg(feature = "client-messaging")]
                 channel_adapters: channel_adapters.unwrap_or_else(offline_adapters),
             },

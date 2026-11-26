@@ -1,4 +1,4 @@
-// ABOUTME: The admin's session clone onto a test account: a sciotte login's store and warm-up, unannounced
+// ABOUTME: The admin's session clone onto a test account: a session sign-in's store and warm-up, unannounced
 // ABOUTME: No provider.connected event, since copying a session is not an athlete connecting
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

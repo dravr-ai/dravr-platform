@@ -1,15 +1,15 @@
-// ABOUTME: A sciotte detail read that carries the ride's route stores it as the ride's track, trimmed, once
+// ABOUTME: A session-read detail read that carries the ride's route stores it as the ride's track, trimmed, once
 // ABOUTME: An empty route settles no_gps, a missing or failed one settles nothing, and the next places pass forms a place
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Sciotte detail tracks (carnet#1679).
+//! Session-read detail tracks (carnet#1679).
 //
 // This `//!` precedes the module-level `#![cfg]` so the docs survive a build
 // without the features.
 //
-// A sciotte list row carries no route overview: the ride's GPS line arrives
+// A session-read list row carries no route overview: the ride's GPS line arrives
 // only on a detail read, as the session-read detail's `route`. A detail read that
 // already happens — the activity view's, the detail walk's — keeps that line
 // as the ride's stored track, under the trimming the Home map applies, so the places pass
@@ -64,7 +64,7 @@ use uuid::Uuid;
 /// The trailhead every fixture ride starts at, far from any home.
 const TRAILHEAD: (f64, f64) = (45.6012, -73.8044);
 
-/// The key a sciotte session files its rides under.
+/// The key a signed-in session files its rides under.
 const SESSION: &str = "sciotte";
 
 /// What the session reader stand-in answers for a ride's detail read.
@@ -159,7 +159,7 @@ struct Athlete {
     token: String,
 }
 
-/// An athlete holding a live sciotte session for Strava.
+/// An athlete holding a live signed-in session for Strava.
 async fn sciotte_athlete(resources: &Arc<ServerContext>, label: &str) -> Athlete {
     let email = format!("{label}-{}@example.com", Uuid::new_v4());
     let (user_id, user, tenant) =
@@ -196,7 +196,7 @@ fn loop_track(phase: f64) -> Vec<(f64, f64)> {
         .collect()
 }
 
-/// A ride as the sciotte list read stores it: a raw start, no route overview.
+/// A ride as the session-read list read stores it: a raw start, no route overview.
 fn listed_ride(id: &str, started: Timestamp) -> Activity {
     ActivityBuilder::new(
         id,

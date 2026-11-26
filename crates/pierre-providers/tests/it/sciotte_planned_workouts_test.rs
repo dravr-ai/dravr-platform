@@ -1,10 +1,10 @@
-// ABOUTME: Pins the planned-workout read end to end against a loopback stand-in for the sciotte service
+// ABOUTME: Pins the planned-workout read end to end against a loopback stand-in for the session-read service
 // ABOUTME: The provider's request, the converted plan, the coach-account refusal kept apart from a dead session, and the capability flag
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Sciotte planned-workout read contract.
+//! Session-read planned-workout contract.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 //! `GET /api/planned-workouts` answers the plan, or one of the service's
@@ -19,7 +19,7 @@
 //! mock rule): it answers by the `X-Session-Id` each seeded session sends and
 //! records every request, so the test reads the bytes the provider put on
 //! the wire. The client's own request lines and the service's refusals are
-//! pinned in dravr-sciotte (`client_test`, `client_contract_test`), and the
+//! pinned in the session-read satellite (`client_test`, `client_contract_test`), and the
 //! code each refusal lands as in `sciotte_error`'s unit tests. The session-read
 //! scenarios share one test over one stand-in, which every provider reaches
 //! through a client built for it rather than through the environment.
@@ -217,7 +217,7 @@ async fn connected(
             revoke_url: None,
             default_scopes: vec![],
         })
-        .expect("sciotte provider construction is infallible"); // Safe: factory returns Ok unconditionally
+        .expect("session-read provider construction is infallible"); // Safe: factory returns Ok unconditionally
     let session = AuthSession {
         session_id: session_id.to_owned(),
         cookies: vec![],

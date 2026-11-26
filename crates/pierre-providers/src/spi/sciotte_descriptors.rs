@@ -1,11 +1,11 @@
-// ABOUTME: The four sciotte backends' descriptors: Strava, Garmin, TrainingPeaks and COROS read by signing in as the athlete
+// ABOUTME: The four session-read backends' descriptors: Strava, Garmin, TrainingPeaks and COROS read by signing in as the athlete
 // ABOUTME: No OAuth, browser sessions; each names the service it reads, whose terms and field set its data carries
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! The mirror backends' descriptors, one per service whose signed-in athlete
-//! session sciotte reads, with the athlete's consent.
+//! session the service reads, with the athlete's consent.
 
 use pierre_core::constants::oauth::providers::{COROS, GARMIN, STRAVA, TRAININGPEAKS};
 use pierre_core::transport::{AudiencePolicy, TransportPolicy};
@@ -18,22 +18,22 @@ use crate::provider_terms;
 /// A session-read route has no time axis and no sensor channel.
 const ROUTE: S = S::LATLNG.union(S::ALTITUDE);
 
-/// Sciotte session-read provider descriptor
+/// Strava session-read provider descriptor
 ///
-/// Sciotte signs in through a browser over CDP to capture session cookies
+/// The service signs in through a browser over CDP to capture session cookies
 /// and extract activity data from fitness platform HTML pages (Strava, Garmin, etc.).
 /// It does not use OAuth — authentication happens via a streamed browser login session.
 #[derive(Debug)]
 pub struct SciotteDescriptor;
 
 impl ProviderDescriptor for SciotteDescriptor {
-    /// What the pinned client reads from Strava's pages (sciotte 2.0): a
+    /// What the pinned client reads from Strava's pages (session-read satellite 2.0): a
     /// list row carries the athlete's description, the workout tag, the
     /// commute flag, the athlete's tags (the first page only) and the average
     /// heart rate; the detail page adds the private note, the trainer flag
     /// and the moving time (which only the newest list rows carry), the rest
     /// of the sensor summary, gear, device, laps, splits and the athlete's
-    /// exertion, every segment effort the activity crossed (sciotte 2.1, read
+    /// exertion, every segment effort the activity crossed (satellite 2.1, read
     /// off the detail's segment table beside the streams that date them), and
     /// the recorded streams on their time axis, Strava's own `grade_smooth`
     /// and `moving` among them.
@@ -75,16 +75,16 @@ impl ProviderDescriptor for SciotteDescriptor {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        // Sciotte uses browser login (not OAuth) and provides activity data
+        // Browser login (not OAuth), and it provides activity data
         ProviderCapabilities::ACTIVITIES.union(ProviderCapabilities::RECORDED_ACTIVITIES)
     }
 
     fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
-        None // Sciotte uses browser-based session cookies, not OAuth
+        None // Browser-based session cookies, not OAuth
     }
 
     fn oauth_params(&self) -> Option<OAuthParams> {
-        None // Sciotte uses browser-based session cookies, not OAuth
+        None // Browser-based session cookies, not OAuth
     }
 
     fn oauth_refresh(&self) -> Option<OAuthRefresh> {
@@ -92,7 +92,7 @@ impl ProviderDescriptor for SciotteDescriptor {
     }
 
     fn api_base_url(&self) -> &'static str {
-        // Sciotte runs in-process via dravr-sciotte — no external API
+        // Read through the session-read service — no external API
         ""
     }
 
@@ -106,7 +106,7 @@ impl ProviderDescriptor for SciotteDescriptor {
     }
 }
 
-/// Sciotte Garmin Connect session-read provider descriptor
+/// Garmin Connect session-read provider descriptor
 #[derive(Debug)]
 pub struct SciotteGarminDescriptor;
 
@@ -183,7 +183,7 @@ impl ProviderDescriptor for SciotteGarminDescriptor {
     }
 }
 
-/// Sciotte TrainingPeaks session-read provider descriptor.
+/// TrainingPeaks session-read provider descriptor.
 ///
 /// Activities and the calendar's planned workouts, and never
 /// `CHEAP_ACTIVITY_DETAIL`: a TrainingPeaks workout's detail is a browser
@@ -260,7 +260,7 @@ impl ProviderDescriptor for SciotteTrainingPeaksDescriptor {
     }
 }
 
-/// Sciotte COROS Training Hub session-read provider descriptor
+/// COROS Training Hub session-read provider descriptor
 #[derive(Debug)]
 pub struct SciotteCorosDescriptor;
 
@@ -339,7 +339,7 @@ mod tests {
     use crate::field_support::StreamChannels;
 
     /// The session-read Strava path fills Strava's own `grade_smooth` and `moving`
-    /// channels (sciotte 2.1), so its descriptor claims all eleven.
+    /// channels (session-read satellite 2.1), so its descriptor claims all eleven.
     #[test]
     fn the_session_read_strava_descriptor_claims_grade_smooth_and_moving() {
         let streams = SciotteDescriptor.activity_fields().streams;

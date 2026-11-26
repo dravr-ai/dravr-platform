@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: A coach's private lane in a one-athlete room on the Groups tab — the switch, Adjust plan from this, the private send (carnet#1249)
-// ABOUTME: Pins who sees the switch, that it starts at Everyone and stays put, where a private turn goes and what a refused quote leaves
+// ABOUTME: A coach's one-athlete room on the Groups tab — the private lane's switch, Adjust plan from this, the private send (carnet#1249), the header's « Open the plan » (carnet#1817)
+// ABOUTME: Pins who sees the switch, that it starts at Everyone and stays put, where a private turn goes, what a refused quote leaves, and who the header sends to the athlete's workspace
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -69,7 +69,7 @@ vi.mock('../../services/api', () => ({
 vi.mock('../groups/GroupInfoPanel', () => ({ default: () => <div data-testid="group-info-panel" /> }));
 vi.mock('../../services/analytics', () => ({ track: vi.fn() }));
 
-const viewer = vi.hoisted(() => ({ id: 'user-coach' }));
+const viewer = vi.hoisted(() => ({ id: 'user-coach', manages_roster: false }));
 vi.mock('../../hooks/useAuth', () => ({ useAuth: () => ({ token: 'test-token', user: viewer }) }));
 vi.mock('../../hooks/useUsageStatus', () => ({
   useUsageStatus: () => ({
@@ -200,14 +200,20 @@ function privateTurn(): TurnEnvelope {
   } as unknown as TurnEnvelope;
 }
 
-function renderRoom() {
+function renderRoom(
+  options: { conversationId?: string; onNavigate?: (route: string) => void } = {},
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <ChatTab selectedConversation={ROOM_CONVERSATION_ID} onSelectConversation={vi.fn()} />
+        <ChatTab
+          selectedConversation={options.conversationId ?? ROOM_CONVERSATION_ID}
+          onSelectConversation={vi.fn()}
+          onNavigate={options.onNavigate}
+        />
       </ToastProvider>
     </QueryClientProvider>,
   );
@@ -383,5 +389,85 @@ describe("a coach's private lane in a one-athlete room", () => {
     // Nothing reached the room.
     expect(api.sendTurn.mock.calls.every(([id]) => id === WORK_CONVERSATION_ID)).toBe(true);
     expect(screen.queryByTestId('private-lane-divider')).toBeNull();
+  });
+});
+
+describe("the header's way to a trifecta athlete's workspace (carnet#1817)", () => {
+  /** Camille as the server names her on the coach's room and plan thread rows. */
+  const camille = { user_id: ATHLETE_ID, display_name: 'Camille Roy' };
+
+  /** The coach's list, the room and plan thread named after Camille when `named`. */
+  function listsRows(named: boolean) {
+    const solo = named ? { solo_athlete: camille } : {};
+    api.getConversations.mockResolvedValue({
+      conversations: [
+        { ...roomConversation, ...solo },
+        { ...workConversation, ...solo },
+      ],
+      total: 2,
+    });
+  }
+
+  /** The open room's header, drawn from its list row: an absent button is that row's answer. */
+  async function headerDrawn() {
+    expect((await screen.findAllByText(roomConversation.title)).length).toBeGreaterThan(0);
+    await waitFor(() => expect(composer()).not.toBeNull());
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    viewer.id = COACH_ID;
+    // A coach with roster access: the coach Home the workspace sits in is theirs.
+    viewer.manages_roster = true;
+    api.getConversationVerdicts.mockResolvedValue({ verdicts: [] });
+    api.listParticipants.mockResolvedValue([]);
+    api.getGroup.mockResolvedValue(groupRecord());
+    api.readRoom.mockResolvedValue(roomEntries);
+    listsRows(true);
+    api.getConversationMessages.mockImplementation((id: string) =>
+      Promise.resolve({ messages: id === WORK_CONVERSATION_ID ? workMessages : roomMessages }),
+    );
+    api.openAthleteThread.mockResolvedValue(workConversation);
+  });
+
+  afterEach(() => {
+    viewer.manages_roster = false;
+  });
+
+  it("opens Camille's workspace from her room's header", async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    renderRoom({ onNavigate });
+
+    await user.click(await screen.findByTestId('thread-open-workspace'));
+    expect(onNavigate).toHaveBeenCalledWith(`home/athlete/${ATHLETE_ID}/plan`);
+  });
+
+  it("opens it from the coach's plan thread on her too", async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    renderRoom({ conversationId: WORK_CONVERSATION_ID, onNavigate });
+
+    const open = await screen.findByTestId('thread-open-workspace');
+    expect(open).toHaveTextContent('Open the plan');
+    await user.click(open);
+    expect(onNavigate).toHaveBeenCalledWith(`home/athlete/${ATHLETE_ID}/plan`);
+  });
+
+  it('offers nothing on a row the server names no athlete on — a room with other athletes, or the athlete\'s own', async () => {
+    listsRows(false);
+    renderRoom({ onNavigate: vi.fn() });
+
+    await headerDrawn();
+    expect(screen.queryByTestId('thread-open-workspace')).toBeNull();
+  });
+
+  it('offers nothing to the coach of her room without roster access, whose Home holds no workspace', async () => {
+    viewer.manages_roster = false;
+    renderRoom({ onNavigate: vi.fn() });
+
+    await headerDrawn();
+    expect(screen.queryByTestId('thread-open-workspace')).toBeNull();
   });
 });

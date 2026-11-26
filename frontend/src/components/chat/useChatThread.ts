@@ -137,6 +137,13 @@ export interface UseChatThreadOptions {
   pendingComposerAction?: PendingComposerAction | null;
   /** Called once the action above has been drafted or dispatched. */
   onPendingComposerActionConsumed?: () => void;
+  /**
+   * Whether a one-athlete room weaves its coach's private lane in (the
+   * default). The athlete workspace draws the room beside its own Dravr tab,
+   * which is that lane's thread, so there the room is the room alone: no
+   * switch, no private rows, every send to the room (carnet#1816).
+   */
+  privateLane?: boolean;
 }
 
 /** The thread's own rows as read so far, for a host that reads back to a point in them (Home's topics). */
@@ -268,6 +275,7 @@ export function useChatThread({
   openThread,
   pendingComposerAction,
   onPendingComposerActionConsumed,
+  privateLane = true,
 }: UseChatThreadOptions): ChatThreadState {
   const { t, language } = useTranslation();
   const queryClient = useQueryClient();
@@ -375,8 +383,13 @@ export function useChatThread({
   // that athlete drawn inline in the room, and the turn that goes there and
   // never to the room. The hook decides whether it exists — only the group's
   // coach, only while the server names one athlete — so every other thread
-  // and every other reader gets it switched off.
-  const lane = usePrivateLane({ group: activeGroup ?? null, viewerId: user?.id ?? null, conversations });
+  // and every other reader gets it switched off. A host that draws the lane's
+  // thread on its own hands it no group, and the room is the room alone.
+  const lane = usePrivateLane({
+    group: privateLane ? (activeGroup ?? null) : null,
+    viewerId: user?.id ?? null,
+    conversations,
+  });
   const {
     send: sendToLane,
     available: laneAvailable,

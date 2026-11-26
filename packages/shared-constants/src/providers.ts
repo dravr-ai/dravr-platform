@@ -173,9 +173,9 @@ export const SCIOTTE_LOGIN_PRESETS: Record<SciotteTarget, SciotteLoginPreset> = 
 };
 
 /**
- * `reason` of a sciotte `otp_required` answer to a code the provider refused
- * or did not take as complete: the same sign-in takes another code. Mirrors
- * the server's `CODE_REJECTED_REASON`.
+ * `reason` of a credential sign-in's `otp_required` answer to a code the
+ * provider refused or did not take as complete: the same sign-in takes
+ * another code. Mirrors the server's `CODE_REJECTED_REASON`.
  */
 export const SCIOTTE_CODE_REJECTED = 'code_rejected' as const;
 
@@ -188,7 +188,7 @@ export const SCIOTTE_CODE_REJECTED = 'code_rejected' as const;
 export const SCIOTTE_NUMBER_MATCH_REPOLL_MS = 2000;
 
 /**
- * `details.reason` of the refusal a sciotte sign-in step gets once its flow
+ * `details.reason` of the refusal a credential sign-in step gets once its flow
  * has lapsed: the sign-in has to start again. Mirrors the server's
  * `LOGIN_FLOW_EXPIRED_REASON`; read it with `refusalReason` from
  * `@pierre/ui-logic`.
@@ -196,7 +196,7 @@ export const SCIOTTE_NUMBER_MATCH_REPOLL_MS = 2000;
 export const SCIOTTE_LOGIN_FLOW_EXPIRED = 'login_flow_expired' as const;
 
 /**
- * `details.reason` of the refusal a sciotte sign-in gets when the provider
+ * `details.reason` of the refusal a credential sign-in gets when the provider
  * stopped it at a security check (a captcha) the service cannot answer: the
  * athlete retries later. Mirrors the server's `LOGIN_CHALLENGE_REASON`; read
  * it with `refusalReason` from `@pierre/ui-logic`.
@@ -211,7 +211,7 @@ export const SCIOTTE_LOGIN_CHALLENGE = 'login_challenge' as const;
 export const SCIOTTE_TAKEOVER_ENDED = 'takeover_ended' as const;
 
 /**
- * The most UTF-8 bytes one takeover `text` input may carry. Mirrors sciotte's
+ * The most UTF-8 bytes one takeover `text` input may carry. Mirrors the service's
  * `TAKEOVER_MAX_TEXT_BYTES`; longer text goes as several messages.
  */
 export const SCIOTTE_TAKEOVER_MAX_TEXT_BYTES = 1024;

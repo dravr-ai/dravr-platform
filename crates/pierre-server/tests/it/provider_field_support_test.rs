@@ -50,7 +50,7 @@ const API_ONLY: ActivityFields = ActivityFields::NORMALIZED_POWER
     .union(ActivityFields::SUMMARY_POLYLINE)
     .union(ActivityFields::SPORT_TYPE_DETAIL);
 
-/// What the session read of Strava's pages reads since sciotte 2.0, as the API
+/// What the session read of Strava's pages reads since the service's 2.0, as the API
 /// does: the athlete's words, the workout tag and the trainer and commute
 /// flags.
 const READ_BOTH_WAYS: ActivityFields = ActivityFields::DESCRIPTION

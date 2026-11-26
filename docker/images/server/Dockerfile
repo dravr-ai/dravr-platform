@@ -180,7 +180,7 @@ WORKDIR /app
 # 2026-11-03: chromium 156.0.8078.79-1~deb13u1 closes 40 HIGH still open in the
 # .73 layer (CVE-2026-119260..119271, CVE-2026-76024..76030 among them: use
 # after free and memory corruption in Frames, V8, Skia, Blink, Dawn). The
-# sciotte image gate refused sciotte v1.3.0 on them; mirrored there too.
+# session-read image gate refused its v1.3.0 on them; mirrored there too.
 # 2026-11-04: apt 3.0.3 -> 3.0.4 (CVE-2026-109518, HIGH, fixed in trixie):
 # the dev deploys of 892a6c569 and 9c335e371 were gated on it.
 # 2026-11-08: zlib 1:1.3.dfsg+really1.3.1-1+b1 -> +deb13u1 (CVE-2026-85091, HIGH,
@@ -202,8 +202,8 @@ ARG APT_SECURITY_EPOCH=2026-11-25
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)
 # git: required by copilot CLI subprocess
-# No browser: the platform reaches sciotte over HTTP (SciotteClient) and runs
-# no Chrome, so the layer ends by proving none was pulled in.
+# No browser: the platform reaches the session-read service over HTTP
+# (SciotteClient) and runs no Chrome, so the layer ends by proving none was pulled in.
 RUN echo "apt security epoch: ${APT_SECURITY_EPOCH}" \
     && apt-get update && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
@@ -254,7 +254,7 @@ ARG CLAUDE_CODE_CLI_VERSION=2.1.258
 # version is still there — or if there is no copy to swap: the version check
 # would then read nothing and pass, so a CLI that moved or renamed its copy
 # would ship the vulnerable one through a green build (carnet#992, the
-# pattern of dravr-sciotte's docker/swap-adm-zip.sh).
+# pattern of the session-read satellite's docker/swap-adm-zip.sh).
 ARG ADM_ZIP_VERSION=0.6.1
 # The copilot binary is a Node SEA bootstrap: on first run it extracts its
 # package (app.js + prebuilds/linux-x64/runtime.node, ~150 MB) into

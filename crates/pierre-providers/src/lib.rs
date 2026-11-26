@@ -24,7 +24,7 @@ pub mod activity_source;
 pub mod ai_scope;
 /// The terms descriptor of an imported archive (`strava_archive`)
 pub mod archive_descriptor;
-/// Backend resolver for routing user-facing provider names to OAuth vs sciotte mirror backends
+/// Backend resolver for routing user-facing provider names to OAuth vs session-read mirror backends
 pub mod backend_resolver;
 /// Activity reads answered from the activity cache, for providers read from Dravr's own stores
 mod cached_activity_reads;
@@ -106,7 +106,7 @@ mod intervals_icu_streams;
 /// Neutral session rendering for the calendars whose terms take rights over what Dravr writes.
 #[cfg(any(feature = "provider-wahoo", feature = "provider-garmin"))]
 mod neutral_session;
-/// Sciotte remote-service provider — routes session reads to the dedicated dravr-sciotte service
+/// Session-read provider — routes each read of a signed-in session to the dedicated service
 #[cfg(feature = "provider-sciotte")]
 pub mod sciotte_provider;
 /// The athlete's self-report on a session-read activity, read in the scale of the platform it came from.
@@ -119,13 +119,13 @@ pub mod coros_self_report;
 /// Garmin Connect athlete self-report: RPE stored ×10 and the 0–100 feel score, read off a session-read activity.
 #[cfg(feature = "provider-sciotte")]
 mod garmin_self_report;
-/// What a failed call to the dravr-sciotte service is, as a platform error
+/// What a failed call to the session-read service is, as a platform error
 #[cfg(feature = "provider-sciotte")]
 pub mod sciotte_error;
-/// The read error and busy wire value the dravr-sciotte crate names, under the platform's names
+/// The read error and busy wire value the session-read satellite names, under the platform's names
 #[cfg(feature = "provider-sciotte")]
 pub mod sciotte_names;
-/// Every read through a platform-held sciotte session, storing a session the provider rotated
+/// Every read through a platform-held signed-in session, storing a session the provider rotated
 #[cfg(feature = "provider-sciotte")]
 pub mod sciotte_session;
 /// Strava API provider implementation
