@@ -299,6 +299,23 @@ describe('ConnectedAppsScreen', () => {
     alertSpy.mockRestore();
   });
 
+  it('lists a one-off question under its app and revokes it alone, the app standing', async () => {
+    const stepped = { ...GRANT, step_up: { id: 'child-1', expires_at: '2026-11-25T11:00:00Z' } };
+    mockListConnectedApps.mockResolvedValueOnce([stepped]).mockResolvedValue([{ ...stepped, step_up: null }]);
+    renderScreen();
+
+    expect(await screen.findByTestId(`connected-app-step-up-${GRANT.id}`)).toBeTruthy();
+    const worded = i18n.t('tokens.connectedAppsStepUpChild', { time: 'TIME' });
+    expect(worded).not.toEqual('tokens.connectedAppsStepUpChild');
+    expect(screen.getByText(new RegExp(worded.split('TIME')[0].trim()))).toBeTruthy();
+    fireEvent.press(screen.getByTestId(`revoke-step-up-${GRANT.id}`));
+
+    await waitFor(() => expect(mockRevokeConnectedApp).toHaveBeenCalledWith('child-1'));
+    expect(mockRevokeConnectedApp).not.toHaveBeenCalledWith(GRANT.id);
+    await waitFor(() => expect(screen.queryByTestId(`connected-app-step-up-${GRANT.id}`)).toBeNull());
+    expect(screen.getByText('Claude Desktop')).toBeTruthy();
+  });
+
   it('says a refused revoke failed, from the catalogue', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => undefined);
     mockRevokeConnectedApp.mockRejectedValue(new Error('refused'));

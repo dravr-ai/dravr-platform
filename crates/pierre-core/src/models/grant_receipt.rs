@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use super::OAuthClientGrant;
+use super::{OAuthClientGrant, StepUpResult, StepUpTerms};
 use crate::errors::{AppError, AppResult};
 
 /// The payload format every receipt written here carries.
@@ -42,6 +42,11 @@ pub enum GrantEvent {
     Revoke,
     /// The grant reached its expiry (whoever ended it after that).
     Expire,
+    /// A single-use grant was consumed by the first call that read data
+    /// under it.
+    Consume,
+    /// A step-up child grant was approved under a live grant (owl §7.6).
+    StepUp,
 }
 
 impl GrantEvent {
@@ -52,6 +57,8 @@ impl GrantEvent {
             Self::Issue => "issue",
             Self::Revoke => "revoke",
             Self::Expire => "expire",
+            Self::Consume => "consume",
+            Self::StepUp => "step_up",
         }
     }
 
@@ -64,6 +71,8 @@ impl GrantEvent {
             "issue" => Ok(Self::Issue),
             "revoke" => Ok(Self::Revoke),
             "expire" => Ok(Self::Expire),
+            "consume" => Ok(Self::Consume),
+            "step_up" => Ok(Self::StepUp),
             other => Err(AppError::database(format!(
                 "oauth_grant_events.event holds an unknown event `{other}`"
             ))),
@@ -73,7 +82,7 @@ impl GrantEvent {
     /// Whether the event ends the grant (one per grant).
     #[must_use]
     pub const fn is_terminal(self) -> bool {
-        matches!(self, Self::Revoke | Self::Expire)
+        matches!(self, Self::Revoke | Self::Expire | Self::Consume)
     }
 
     /// The event, actor and time that record `grant` ended by `actor` at
@@ -201,6 +210,9 @@ pub struct ReceiptApproval<'approval> {
     /// Whether the receipt is a baseline: an `issue` written for a grant
     /// given before receipts were
     pub baseline: bool,
+    /// The step-up a child grant was approved with, on every receipt of a
+    /// child; `None` for an ordinary grant
+    pub step_up: Option<&'approval StepUpTerms>,
 }
 
 impl ReceiptApproval<'_> {
@@ -211,6 +223,18 @@ impl ReceiptApproval<'_> {
             actor,
             standing_policy: None,
             baseline: false,
+            step_up: None,
+        }
+    }
+}
+
+impl<'approval> ReceiptApproval<'approval> {
+    /// The same approval, for a child grant stepped up with `terms`.
+    #[must_use]
+    pub const fn stepped_up(self, terms: &'approval StepUpTerms) -> Self {
+        Self {
+            step_up: Some(terms),
+            ..self
         }
     }
 }
@@ -224,6 +248,7 @@ impl<'approval> ReceiptApproval<'approval> {
             actor: approval.actor,
             standing_policy: approval.standing_policy.as_ref(),
             baseline: false,
+            step_up: None,
         }
     }
 }
@@ -288,6 +313,10 @@ impl GrantReceipt<'_> {
             at: receipt_time(self.at),
             grant: PayloadGrant {
                 id: &grant.id,
+                parent_grant_id: self
+                    .approval
+                    .step_up
+                    .map(|terms| terms.parent_grant_id.as_str()),
                 subject: format!("urn:dravr:user:{}", grant.user_id),
                 client_id: &grant.client_id,
                 scope: &grant.scope,
@@ -305,15 +334,20 @@ impl GrantReceipt<'_> {
                 actor: self.approval.actor,
                 standing_policy_ref: self.approval.standing_policy,
                 baseline: self.approval.baseline,
+                step_up_result: self.approval.step_up.map(StepUpResult::of),
             },
             issue_receipt_id: if self.event.is_terminal() {
                 IssueReceiptRef::Ends(self.issue_receipt_id)
             } else {
                 IssueReceiptRef::Absent
             },
-            host_profile: HostProfile {
-                basis: "not_required",
-            },
+            host_profile: self
+                .approval
+                .step_up
+                .map_or(HostProfile::NOT_REQUIRED, |terms| HostProfile {
+                    basis: terms.host_profile_basis.as_str(),
+                    tier: Some(terms.host_profile_tier.as_str()),
+                }),
             dpv_purpose,
         };
         let text = serde_json::to_string(&payload)
@@ -363,7 +397,7 @@ struct Payload<'receipt> {
     /// Present (possibly null) on a terminal event, absent on an issue
     #[serde(skip_serializing_if = "IssueReceiptRef::is_absent")]
     issue_receipt_id: IssueReceiptRef<'receipt>,
-    host_profile: HostProfile,
+    host_profile: HostProfile<'receipt>,
     #[serde(skip_serializing_if = "Option::is_none")]
     dpv_purpose: Option<&'receipt str>,
 }
@@ -398,6 +432,9 @@ impl Serialize for IssueReceiptRef<'_> {
 #[derive(Serialize)]
 struct PayloadGrant<'receipt> {
     id: &'receipt str,
+    /// The grant a step-up child was approved under; absent on any other
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent_grant_id: Option<&'receipt str>,
     subject: String,
     client_id: &'receipt str,
     scope: &'receipt str,
@@ -424,13 +461,26 @@ struct PayloadApproval<'receipt> {
     standing_policy_ref: Option<&'receipt StandingPolicyRef>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     baseline: bool,
+    /// How the athlete stepped up, on a child's receipts (owl §4.2)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    step_up_result: Option<StepUpResult>,
 }
 
-/// The host attestation basis: every grant here reads at T0–T1, which
-/// requires none.
+/// The host attestation basis (owl §6.2): `not_required` for a grant at
+/// T0–T1, the child's own basis and declared tier for a step-up child.
 #[derive(Serialize)]
-struct HostProfile {
-    basis: &'static str,
+struct HostProfile<'receipt> {
+    basis: &'receipt str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tier: Option<&'receipt str>,
+}
+
+impl HostProfile<'_> {
+    /// The basis of a grant that reads no T2.
+    const NOT_REQUIRED: Self = Self {
+        basis: "not_required",
+        tier: None,
+    };
 }
 
 #[cfg(test)]
@@ -570,6 +620,7 @@ mod tests {
                 actor: GrantActor::Auto,
                 standing_policy: None,
                 baseline: true,
+                step_up: None,
             },
             issue_receipt_id: None,
         }
@@ -661,5 +712,79 @@ mod tests {
             "bug: an unknown actor reads"
         );
         Ok(())
+    }
+
+    #[test]
+    fn a_childs_receipt_names_its_parent_step_up_and_basis() -> AppResult<()> {
+        let grant = grant(None, None)?;
+        let terms = StepUpTerms {
+            parent_grant_id: "parent-1".to_owned(),
+            auth_time: at(1_700_000_000)?,
+            acr: super::super::OWNER_VERIFIED_ACR.to_owned(),
+            host_profile_basis: super::super::HostProfileBasis::DeclaredCimd,
+            host_profile_tier: "T2".to_owned(),
+        };
+        let (text, _) = GrantReceipt {
+            receipt_id: "receipt-1",
+            event: GrantEvent::StepUp,
+            at: grant.granted_at,
+            grant: &grant,
+            approval: ReceiptApproval::by(GrantActor::User).stepped_up(&terms),
+            issue_receipt_id: None,
+        }
+        .payload()?;
+        let payload = json(&text)?;
+        assert_eq!(payload["event"], "step_up", "bug: event");
+        assert_eq!(
+            payload["grant"]["parent_grant_id"], "parent-1",
+            "bug: the parent is not named"
+        );
+        assert_eq!(
+            payload["host_profile"]["basis"], "declared_cimd",
+            "bug: the child's basis is not stated"
+        );
+        assert_eq!(
+            payload["approval"]["step_up_result"]["acr"], "owner_verified",
+            "bug: the step-up result is not stated"
+        );
+        assert!(
+            payload["approval"]["step_up_result"]["device"].is_null(),
+            "bug: a device was claimed"
+        );
+        let plain = GrantReceipt {
+            receipt_id: "receipt-2",
+            event: GrantEvent::Issue,
+            at: grant.granted_at,
+            grant: &grant,
+            approval: ReceiptApproval::by(GrantActor::User),
+            issue_receipt_id: None,
+        }
+        .payload()?
+        .0;
+        assert!(
+            !plain.contains("parent_grant_id") && !plain.contains("step_up_result"),
+            "bug: an ordinary grant's receipt grew child members: {plain}"
+        );
+        assert!(
+            plain.contains(r#""host_profile":{"basis":"not_required"}"#),
+            "bug: an ordinary receipt's basis changed shape: {plain}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn consume_is_terminal_and_step_up_is_not() {
+        assert!(
+            GrantEvent::Consume.is_terminal(),
+            "bug: consume did not end"
+        );
+        assert!(!GrantEvent::StepUp.is_terminal(), "bug: step_up ended");
+        for event in [GrantEvent::Consume, GrantEvent::StepUp] {
+            assert_eq!(
+                GrantEvent::parse(event.as_str()).ok(),
+                Some(event),
+                "bug: round trip"
+            );
+        }
     }
 }

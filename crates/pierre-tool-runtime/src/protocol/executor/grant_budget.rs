@@ -14,21 +14,31 @@
 //! counts before it, so it may overshoot by its own size once, and its own
 //! counts are then added. The counters live in `usage_counters`, per tenant
 //! and user, under `grant_rows:<client_grant_id>` and
-//! `grant_raw_rows:<client_grant_id>`, in the UTC day.
+//! `grant_raw_rows:<client_grant_id>`, in the UTC day. A grant budgeted in
+//! rows over its whole life (a one-off question, owl §3.1 `total_rows`) counts
+//! them under `lifetime_grant_rows:<client_grant_id>`, which never resets. A
+//! budget the grant has no value for is not checked.
 
 use dravr_tronc::dates::Timestamp;
 use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
 use pierre_core::constants::time_constants;
 use pierre_providers::ai_scope::{self, ServedRows};
-use pierre_services::usage_counter::{current_counter, increment_counter};
+use pierre_services::usage_counter::{current_counter, increment_counter, LIFETIME_COUNTER_PREFIX};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::future::Future;
 use tracing::{info, warn};
 
+use dravr_tronc::mcp::schema::ToolResponse;
+use pierre_tools_core::ToolResult;
+
 use super::subject::Parties;
 use super::UniversalExecutor;
+use crate::conversions::tool_result_to_response;
 use crate::protocol::types::{UniversalResponse, GRANT_BLOCK};
+
+/// Seconds in the clock hour a step-up child's requests are counted over.
+const SECONDS_PER_HOUR: i64 = 3_600;
 
 /// The `error_code` of a call refused because its grant's day is spent.
 const BUDGET_EXHAUSTED: &str = "budget_exhausted";
@@ -43,6 +53,19 @@ fn raw_rows_counter(ceiling: &GrantCeiling) -> String {
     format!("grant_raw_rows:{}", ceiling.client_grant_id)
 }
 
+/// The counter of a grant's rows served over its whole life.
+fn total_rows_counter(ceiling: &GrantCeiling) -> String {
+    format!(
+        "{LIFETIME_COUNTER_PREFIX}grant_rows:{}",
+        ceiling.client_grant_id
+    )
+}
+
+/// Whether `served` has reached `limit`; a budget with no limit never has.
+fn spent(served: i64, limit: Option<u32>) -> bool {
+    limit.is_some_and(|limit| served >= i64::from(limit))
+}
+
 /// Seconds from `now` to the next UTC midnight, when the counters reset.
 fn seconds_to_utc_midnight(now: Timestamp) -> i64 {
     let day = i64::from(time_constants::SECONDS_PER_DAY);
@@ -50,26 +73,139 @@ fn seconds_to_utc_midnight(now: Timestamp) -> i64 {
 }
 
 impl UniversalExecutor {
-    /// The refusal of a call under a ceiling whose grant spent its rows or
-    /// its raw rows today; `None` when the call may run, outside a ceiling,
-    /// and on a call carrying no tenant. A counter that cannot be read
-    /// refuses the call, as a quota that cannot be read does.
+    /// The refusal of a call under `ceiling` whose single-use grant was
+    /// consumed, or whose grant spent its total rows, or its rows or raw
+    /// rows today; `None` when the call may run, outside a ceiling, and on a
+    /// call carrying no tenant. A counter that cannot be read refuses the
+    /// call, as a quota that cannot be read does.
     pub(super) async fn row_budget_refusal(
         &self,
         tool_name: &str,
         parties: Parties,
+        ceiling: Option<&GrantCeiling>,
     ) -> Option<UniversalResponse> {
-        let ceiling = self.ceiling.as_ref()?;
+        let ceiling = ceiling?;
         let tenant = parties.requester_tenant?.to_string();
         let user = parties.requester.to_string();
+        if ceiling.single_use && !self.single_use_live(ceiling, &user, &tenant).await {
+            info!(
+                tool_name,
+                client_grant_id = %ceiling.client_grant_id,
+                "tool call refused: its single-use grant was already consumed"
+            );
+            return Some(consumed(tool_name));
+        }
+        if let Some(refusal) = self
+            .child_hour_refusal(tool_name, ceiling, &user, &tenant)
+            .await
+        {
+            return Some(refusal);
+        }
+        if let Some(refusal) = self
+            .total_budget_refusal(tool_name, ceiling, &user, &tenant)
+            .await
+        {
+            return Some(refusal);
+        }
+        self.daily_budget_refusal(tool_name, ceiling, &user, &tenant)
+            .await
+    }
+
+    /// The refusal of a call under step-up child `ceiling` past its requests an hour.
+    ///
+    /// A one-off question's 30 (owl §3.1); `None` under a parent, whose hour
+    /// the auth middleware meters on the token's grant.
+    ///
+    /// The call is counted before it is admitted, in one increment, so two
+    /// calls arriving together cannot both take the last request. The hour
+    /// is the clock's (`grant_child_requests:<id>:<hour since the epoch>`),
+    /// a fixed window, where the parent's slides. A counter that cannot be
+    /// written refuses.
+    async fn child_hour_refusal(
+        &self,
+        tool_name: &str,
+        ceiling: &GrantCeiling,
+        user: &str,
+        tenant: &str,
+    ) -> Option<UniversalResponse> {
+        ceiling.step_up.as_ref()?;
+        let limit = ceiling.budgets.requests_per_hour;
+        let now = Timestamp::now();
+        let hour = now.epoch_seconds().div_euclid(SECONDS_PER_HOUR);
+        let counter = format!("grant_child_requests:{}:{hour}", ceiling.client_grant_id);
+        let repo = self.resources.repos().usage_counters.as_ref();
+        let over = increment_counter(repo, tenant, user, &counter, 1)
+            .await
+            .map_or_else(
+                |e| {
+                    warn!(
+                        tool_name,
+                        "a step-up grant's hourly requests could not be counted; refusing: {e}"
+                    );
+                    true
+                },
+                |made| made > i64::from(limit),
+            );
+        over.then(|| {
+            info!(
+                tool_name,
+                client_grant_id = %ceiling.client_grant_id,
+                "tool call refused: its step-up grant's requests this hour are spent"
+            );
+            let retry = SECONDS_PER_HOUR - now.epoch_seconds().rem_euclid(SECONDS_PER_HOUR);
+            hour_exhausted(tool_name, retry)
+        })
+    }
+
+    /// The refusal of a call under `ceiling` whose grant served every row it
+    /// may over its life; `None` for a grant with no total budget. A counter
+    /// that cannot be read refuses.
+    async fn total_budget_refusal(
+        &self,
+        tool_name: &str,
+        ceiling: &GrantCeiling,
+        user: &str,
+        tenant: &str,
+    ) -> Option<UniversalResponse> {
+        let limit = ceiling.budgets.total_rows?;
+        let repo = self.resources.repos().usage_counters.as_ref();
+        let total = current_counter(repo, tenant, user, &total_rows_counter(ceiling)).await;
+        let spent_total = total.as_ref().map_or_else(
+            |e| {
+                warn!(
+                    tool_name,
+                    "a grant's total row budget could not be read; refusing: {e}"
+                );
+                true
+            },
+            |total| spent(*total, Some(limit)),
+        );
+        spent_total.then(|| {
+            info!(
+                tool_name,
+                client_grant_id = %ceiling.client_grant_id,
+                "tool call refused: its consent grant's total row budget is spent"
+            );
+            total_exhausted(tool_name)
+        })
+    }
+
+    /// The refusal of a call under `ceiling` whose grant spent its rows or
+    /// raw rows today. A counter that cannot be read refuses.
+    async fn daily_budget_refusal(
+        &self,
+        tool_name: &str,
+        ceiling: &GrantCeiling,
+        user: &str,
+        tenant: &str,
+    ) -> Option<UniversalResponse> {
         let repo = self.resources.repos().usage_counters.as_ref();
         let budgets = ceiling.budgets;
-        let rows = current_counter(repo, &tenant, &user, &rows_counter(ceiling)).await;
-        let raw_rows = current_counter(repo, &tenant, &user, &raw_rows_counter(ceiling)).await;
-        let spent = match (rows, raw_rows) {
+        let rows = current_counter(repo, tenant, user, &rows_counter(ceiling)).await;
+        let raw_rows = current_counter(repo, tenant, user, &raw_rows_counter(ceiling)).await;
+        let day_spent = match (rows, raw_rows) {
             (Ok(rows), Ok(raw_rows)) => {
-                rows >= i64::from(budgets.rows_per_day)
-                    || raw_rows >= i64::from(budgets.raw_rows_per_day)
+                spent(rows, budgets.rows_per_day) || spent(raw_rows, budgets.raw_rows_per_day)
             }
             (Err(e), _) | (_, Err(e)) => {
                 warn!(
@@ -79,7 +215,7 @@ impl UniversalExecutor {
                 true
             }
         };
-        spent.then(|| {
+        day_spent.then(|| {
             info!(
                 tool_name,
                 client_grant_id = %ceiling.client_grant_id,
@@ -89,29 +225,124 @@ impl UniversalExecutor {
         })
     }
 
-    /// Run `body`, a call's, counting the rows its readers serve, and levy
-    /// them on its grant's counters ([`Self::levy_rows`]).
-    pub(super) async fn levied<F: Future>(&self, parties: Parties, body: F) -> F::Output {
+    /// Whether single-use grant `ceiling` is still live: the standing a
+    /// token was admitted on may be cached past the call that consumed it.
+    /// A grant that cannot be read is not.
+    async fn single_use_live(&self, ceiling: &GrantCeiling, user: &str, tenant: &str) -> bool {
+        match self
+            .resources
+            .repos()
+            .oauth2_server
+            .get_client_grant(&ceiling.client_grant_id, user, tenant)
+            .await
+        {
+            Ok(grant) => grant.is_some_and(|grant| grant.is_live_at(Timestamp::now())),
+            Err(e) => {
+                warn!("a single-use grant could not be read; refusing: {e}");
+                false
+            }
+        }
+    }
+
+    /// Run `body`, a call's, under `ceiling`, counting the rows its readers
+    /// serve, and levy them on its grant's counters ([`Self::levy_rows`]).
+    pub(super) async fn levied<F: Future>(
+        &self,
+        parties: Parties,
+        ceiling: Option<&GrantCeiling>,
+        body: F,
+    ) -> F::Output {
         let (output, served) = ai_scope::counting_rows(body).await;
-        self.levy_rows(served, parties).await;
+        self.levy_rows(served, parties, ceiling).await;
         output
+    }
+
+    /// Consume `ceiling`'s single-use grant for the call about to read under it.
+    ///
+    /// Past every gate (owl §3.1: consumed by the first call that reads data
+    /// under it): the refusal when it is not this call's to read, `None` when
+    /// the call may read, and for every other grant.
+    ///
+    /// The one statement that ends the grant decides, so of two calls
+    /// arriving together exactly one reads; the other, and every later one,
+    /// is refused `grant_consumed`. A call admitted here that then reads
+    /// nothing (its arguments refused) has still used the grant: the grant
+    /// is spent before the read, never after, so no read outlives it. A
+    /// failed write refuses the call.
+    pub(super) async fn single_use_claim(
+        &self,
+        tool_name: &str,
+        parties: Parties,
+        ceiling: Option<&GrantCeiling>,
+    ) -> Option<ToolResponse> {
+        let ceiling = ceiling.filter(|ceiling| ceiling.single_use)?;
+        let claimed = match parties.requester_tenant {
+            Some(tenant) => self
+                .resources
+                .repos()
+                .oauth2_server
+                .consume_child_grant(
+                    &ceiling.client_grant_id,
+                    &parties.requester.to_string(),
+                    &tenant.to_string(),
+                )
+                .await
+                .unwrap_or_else(|e| {
+                    warn!(
+                        client_grant_id = %ceiling.client_grant_id,
+                        "a single-use grant could not be consumed; refusing: {e}"
+                    );
+                    false
+                }),
+            None => false,
+        };
+        if claimed {
+            info!(
+                tool_name,
+                client_grant_id = %ceiling.client_grant_id,
+                "single-use grant consumed by the call reading under it"
+            );
+            return None;
+        }
+        info!(
+            tool_name,
+            client_grant_id = %ceiling.client_grant_id,
+            "tool call refused: its single-use grant was already consumed"
+        );
+        let refusal = consumed(tool_name);
+        Some(tool_result_to_response(Ok(ToolResult::error(json!({
+            "error_code": GRANT_CONSUMED,
+            "reason": GRANT_CONSUMED,
+            "error": refusal.error,
+        })))))
     }
 
     /// Add what a call under a ceiling served to its grant's counters today.
     /// Best effort: a failed write is logged, and the next call is admitted
     /// on the counts the store holds.
-    async fn levy_rows(&self, served: ServedRows, parties: Parties) {
-        let (Some(ceiling), Some(tenant)) = (self.ceiling.as_ref(), parties.requester_tenant)
-        else {
+    async fn levy_rows(
+        &self,
+        served: ServedRows,
+        parties: Parties,
+        ceiling: Option<&GrantCeiling>,
+    ) {
+        let (Some(ceiling), Some(tenant)) = (ceiling, parties.requester_tenant) else {
             return;
         };
         let tenant = tenant.to_string();
         let user = parties.requester.to_string();
         let repo = self.resources.repos().usage_counters.as_ref();
+        let total = ceiling
+            .budgets
+            .total_rows
+            .map(|_| (total_rows_counter(ceiling), served.rows));
         for (counter, amount) in [
             (rows_counter(ceiling), served.rows),
             (raw_rows_counter(ceiling), served.raw_rows),
-        ] {
+        ]
+        .into_iter()
+        .chain(total)
+        {
             if amount == 0 {
                 continue;
             }
@@ -138,6 +369,65 @@ fn budget_exhausted(tool_name: &str, retry_after_secs: i64) -> UniversalResponse
              all the data it may today. Retry in {retry_after_secs} seconds."
         )),
         // Stamped, so a transport can pass the refusal's data on.
+        metadata: Some(HashMap::from([(
+            "blocked_reason".to_owned(),
+            Value::from(GRANT_BLOCK),
+        )])),
+    }
+}
+
+/// The in-band refusal of `tool_name`: its step-up grant made every request
+/// it may this hour, the next one `retry_after_secs` away.
+fn hour_exhausted(tool_name: &str, retry_after_secs: i64) -> UniversalResponse {
+    let mut refusal = budget_exhausted(tool_name, retry_after_secs);
+    refusal.error = Some(format!(
+        "'{tool_name}' was not run: the one-off access the athlete gave this application has \
+         made all the requests it may this hour. Retry in {retry_after_secs} seconds."
+    ));
+    refusal
+}
+
+/// The `error_code` of a call refused because its single-use grant was
+/// consumed (owl §7.4 `grant_consumed`).
+const GRANT_CONSUMED: &str = "grant_consumed";
+
+/// The in-band refusal of `tool_name`: its single-use grant was consumed by
+/// an earlier call.
+fn consumed(tool_name: &str) -> UniversalResponse {
+    UniversalResponse {
+        success: false,
+        result: Some(json!({
+            "error_code": GRANT_CONSUMED,
+            "reason": GRANT_CONSUMED,
+        })),
+        error: Some(format!(
+            "'{tool_name}' was not run: the one-off access the athlete gave this application was \
+             used by an earlier call. Ask the athlete to approve a new question."
+        )),
+        metadata: Some(HashMap::from([(
+            "blocked_reason".to_owned(),
+            Value::from(GRANT_BLOCK),
+        )])),
+    }
+}
+
+/// The `error_code` of a call refused because its grant served every row it
+/// may over its life (owl §3.1: `health_budget_exhausted`).
+const TOTAL_BUDGET_EXHAUSTED: &str = "health_budget_exhausted";
+
+/// The in-band refusal of `tool_name`: its grant served all the rows it may
+/// ever serve; no retry helps, only a new grant.
+fn total_exhausted(tool_name: &str) -> UniversalResponse {
+    UniversalResponse {
+        success: false,
+        result: Some(json!({
+            "error_code": TOTAL_BUDGET_EXHAUSTED,
+            "reason": BUDGET_EXHAUSTED,
+        })),
+        error: Some(format!(
+            "'{tool_name}' was not run: the one-off access the athlete gave this application has \
+             served all the data it may. Ask the athlete to approve a new question."
+        )),
         metadata: Some(HashMap::from([(
             "blocked_reason".to_owned(),
             Value::from(GRANT_BLOCK),
@@ -177,6 +467,26 @@ mod tests {
         assert_eq!(
             result["retry_after_secs"], 60,
             "bug: the refusal does not say when to retry"
+        );
+    }
+
+    #[test]
+    fn a_budget_without_a_limit_is_never_spent() {
+        assert!(!spent(i64::MAX, None), "bug: an unlimited budget was spent");
+        assert!(spent(500, Some(500)), "bug: a reached limit was not spent");
+        assert!(!spent(499, Some(500)), "bug: a budget spent one row early");
+    }
+
+    #[test]
+    fn a_spent_total_names_health_budget_exhausted_and_no_retry() {
+        let result = total_exhausted("get_health_records").result.unwrap();
+        assert_eq!(
+            result["error_code"], TOTAL_BUDGET_EXHAUSTED,
+            "bug: the total refusal does not name health_budget_exhausted"
+        );
+        assert!(
+            result.get("retry_after_secs").is_none(),
+            "bug: a spent total offered a retry"
         );
     }
 }

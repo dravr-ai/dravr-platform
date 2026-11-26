@@ -216,6 +216,13 @@ impl ToolRegistry {
         self.tool_data.get(name)
     }
 
+    /// What one call to `name` with `args` reads: the declaration, narrowed
+    /// to the streams its arguments pick ([`ToolData::for_call`]).
+    #[must_use]
+    pub(crate) fn call_data(&self, name: &str, args: &serde_json::Value) -> Option<ToolData> {
+        self.tool_data(name).map(|data| data.for_call(args))
+    }
+
     /// Whose data a tool reads, as it declared; `None` for an unknown tool
     /// and for one that declared no class.
     #[must_use]

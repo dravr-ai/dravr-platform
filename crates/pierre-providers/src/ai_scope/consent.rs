@@ -28,7 +28,7 @@ use std::collections::BTreeSet;
 use std::future::Future;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use dravr_barrage::Tier;
+use dravr_barrage::{Stream, Tier};
 use pierre_core::ai_policy::Withheld;
 use pierre_core::constants::oauth_providers::{
     ai_consent_backends, consent_key, is_consent_class, NoticeKind, SENSITIVE_T2, SENSITIVE_T3,
@@ -189,34 +189,55 @@ pub fn consented_read(provider: &str) -> AppResult<()> {
 /// be read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TierRefusal {
-    /// A T2 record served over an external transport: a delegated grant's
-    /// ceiling for T2 is none until grants carry details (owl phase 5,
-    /// slice 3).
+    /// A T2 record served over an external transport without a grant that
+    /// reaches it, or a T3 record served over one at all: T3 never goes to
+    /// an outside client (JF 2026-11-25, carnet#1544 slice 4b).
     External,
-    /// A read the athlete has not allowed: a model's, a human coach's, or an
-    /// outside client's read of a T3 record.
+    /// A read the athlete has not allowed: a model's or a human coach's read
+    /// of a T2 or T3 record whose consent class they have not given.
     Withheld,
 }
 
-/// Why a `tier` record read now is refused, or `None` when it may be read.
+/// Why a `tier` record of `stream` read now is refused, or `None` when it
+/// may be read.
 ///
 /// T0 and T1 are always read (D1). Under any gate — a model read, a human
 /// coach's read ([`for_human_coach`](super::for_human_coach)), an external
 /// transport (MCP, A2A, an API key) — a T2 record is read only while the
 /// athlete gives [`SENSITIVE_T2`] and a T3 record only while they give
 /// [`SENSITIVE_T3`] ([`ai_consent_withheld`]), except that an external
-/// transport never reads T2, consent or not. Anywhere else — the athlete's
+/// transport never reads T2 or T3, consent or not: T3 never goes to an
+/// outside client, `sensitive_t3` given or not (JF 2026-11-25), and
+/// Dravr's own agent is no external transport. Anywhere else — the athlete's
 /// own screens — every tier is read.
-fn tier_refusal(tier: Tier) -> Option<TierRefusal> {
+///
+/// The one exception for an outside client is a T2 record of a `stream` its
+/// step-up child grant opens ([`GrantCeiling::opens_t2`](pierre_auth::oauth2_server::grant_ceiling::GrantCeiling::opens_t2),
+/// carnet#1544 slice 4b): `owner_verified`, a T2 host on both carriers, and
+/// the athlete's `sensitive_t2` switch, asked below like any model read's. A
+/// read that names no stream never opens T2 outside.
+fn tier_refusal(tier: Tier, stream: Option<Stream>) -> Option<TierRefusal> {
     let gate = exposure()?;
+    let ceiling = grant_ceiling();
     // A call under a detailed consent grant reads nothing above its
     // `max_tier`, whatever the athlete consented to (plan slice 3).
-    if grant_ceiling().is_some_and(|ceiling| !ceiling.reaches(tier)) {
+    if ceiling
+        .as_ref()
+        .is_some_and(|ceiling| !ceiling.reaches(tier))
+    {
         return Some(TierRefusal::External);
     }
+    let opened = |stream: Stream| {
+        ceiling
+            .as_ref()
+            .is_some_and(|ceiling| ceiling.opens_t2(stream))
+    };
     let class = match tier {
         Tier::T0 | Tier::T1 => return None,
-        Tier::T2 if gate.external => return Some(TierRefusal::External),
+        Tier::T2 if gate.external && !stream.is_some_and(opened) => {
+            return Some(TierRefusal::External);
+        }
+        Tier::T3 if gate.external => return Some(TierRefusal::External),
         Tier::T2 => SENSITIVE_T2,
         Tier::T3 => SENSITIVE_T3,
     };
@@ -244,7 +265,15 @@ fn tally_refusal(refusal: TierRefusal) {
 /// so the caller tallies each row it nulls ([`withhold_tier`]).
 #[must_use]
 pub fn tier_readable(tier: Tier) -> bool {
-    tier_refusal(tier).is_none()
+    tier_refusal(tier, None).is_none()
+}
+
+/// [`tier_readable`] for a record of `stream`: what a reader that knows the
+/// stream it serves asks, so a step-up child's T2 stream may open to an
+/// outside client.
+#[must_use]
+pub fn tier_readable_in(tier: Tier, stream: Stream) -> bool {
+    tier_refusal(tier, Some(stream)).is_none()
 }
 
 /// Whether a `tier` record may reach the AI a read made now feeds.
@@ -267,7 +296,14 @@ pub fn ai_reads_tier(tier: Tier) -> bool {
 /// field over an external transport counts as data not served over this
 /// interface.
 pub fn withhold_tier(tier: Tier) {
-    if let Some(refusal) = tier_refusal(tier) {
+    if let Some(refusal) = tier_refusal(tier, None) {
+        tally_refusal(refusal);
+    }
+}
+
+/// [`withhold_tier`] for a field of `stream`.
+pub fn withhold_tier_in(tier: Tier, stream: Stream) {
+    if let Some(refusal) = tier_refusal(tier, Some(stream)) {
         tally_refusal(refusal);
     }
 }
@@ -283,15 +319,21 @@ mod tests {
     use super::*;
 
     use crate::ai_scope::{
-        ai_read, filter_activities, for_display, for_human_coach, serve_over, tallied,
+        ai_read, filter_activities, for_display, for_human_coach, serve_over, tallied, under_grant,
     };
     use crate::provider_terms::WHOOP;
+    use dravr_tronc::dates::Zone;
+    use pierre_auth::oauth2_server::authorization_details::{
+        parse_authorization_details, preset_defaults, resolve, Preset, ResolvedDetails,
+    };
+    use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
+    use pierre_core::models::{HostProfileBasis, StepUpTerms, OWNER_VERIFIED_ACR};
 
     /// A sensitive read as a refusing reader asks it: [`tier_readable`],
     /// tallied once when refused, and answered as the read refusal a
     /// tool returns.
     fn consented_tier(tier: Tier) -> AppResult<()> {
-        let Some(refusal) = tier_refusal(tier) else {
+        let Some(refusal) = tier_refusal(tier, None) else {
             return Ok(());
         };
         tally_refusal(refusal);
@@ -561,31 +603,29 @@ mod tests {
         assert!(tally.is_empty(), "{tally:?}");
     }
 
+    /// T3 never goes to an outside client, `sensitive_t3` given or not
+    /// (JF 2026-11-25): the refusal is the interface's, not the
+    /// athlete's choice, so no switch is named as the cure.
     #[tokio::test]
-    async fn an_external_transport_reads_t3_only_under_its_class() {
+    async fn an_external_transport_never_reads_t3_even_with_consent() {
         for transport in [Transport::McpHttp, Transport::A2a, Transport::ApiKey] {
-            let (refused, tally) = serve_over(
-                transport,
-                with_ai_consent(t3_withheld(), ai_read(async { consented_tier(Tier::T3) })),
-            )
-            .await;
-            assert!(refused.is_err(), "bug: T3 needs its class ({transport:?})");
-            assert_eq!(
-                (tally.sensitive_reduced, tally.off_interface),
-                (1, 0),
-                "the athlete's choice, not the interface's ceiling ({transport:?}): {tally:?}"
-            );
-
-            let (given, tally) = serve_over(
-                transport,
-                with_ai_consent(BTreeSet::new(), ai_read(async { consented_tier(Tier::T3) })),
-            )
-            .await;
-            assert!(
-                given.is_ok(),
-                "T3 given: an outside client reads it ({transport:?})"
-            );
-            assert!(tally.is_empty(), "{transport:?}: {tally:?}");
+            for withheld in [t3_withheld(), BTreeSet::new()] {
+                let given = withheld.is_empty();
+                let (refused, tally) = serve_over(
+                    transport,
+                    with_ai_consent(withheld, ai_read(async { consented_tier(Tier::T3) })),
+                )
+                .await;
+                assert!(
+                    refused.is_err(),
+                    "bug: an outside client read T3 ({transport:?}, sensitive_t3 given: {given})"
+                );
+                assert_eq!(
+                    (tally.sensitive_reduced, tally.off_interface),
+                    (0, 1),
+                    "the interface's ceiling, not the athlete's choice ({transport:?}): {tally:?}"
+                );
+            }
         }
     }
 
@@ -873,6 +913,90 @@ mod tests {
         assert!(
             coach_screen,
             "bug: the coach's own screen keeps what is shared"
+        );
+    }
+
+    /// The ceiling of a training-coach parent with a one-off child holding
+    /// `labs.summary` at T2, stepped up `owner_verified` by a host declaring
+    /// T2 at consent, for a call whose own claim declares `request_tier`.
+    fn labs_child(request_tier: Option<Tier>) -> GrantCeiling {
+        const MCP: &str = "https://mcp.example.test/mcp";
+        let approved =
+            |details: &ResolvedDetails| details.freeze(Timestamp::now(), &Zone::utc()).unwrap().0;
+        let parent = GrantCeiling::of_details(
+            "parent",
+            &approved(&preset_defaults(Preset::TrainingCoach, MCP)),
+            &Zone::utc(),
+        )
+        .unwrap();
+        let raw = serde_json::json!([
+            {"type": "https://pdpp.dev/data-access", "source": {"id": MCP},
+             "selection_preset": "one_off_question", "streams": [{"name": "labs.summary"}]},
+            {"type": "https://dravr.ai/pdpp/health-profile/v0/health-constraints",
+             "applies_to": 0, "critical": true, "max_tier": "T2"},
+        ]);
+        let one_off = resolve(
+            &parse_authorization_details(&raw.to_string()).unwrap(),
+            &[MCP],
+        )
+        .unwrap();
+        let child = GrantCeiling::of_details("child", &approved(&one_off), &Zone::utc()).unwrap();
+        parent
+            .with_child(
+                child,
+                StepUpTerms {
+                    parent_grant_id: "parent".to_owned(),
+                    auth_time: Timestamp::now(),
+                    acr: OWNER_VERIFIED_ACR.to_owned(),
+                    host_profile_basis: HostProfileBasis::DeclaredCimd,
+                    host_profile_tier: "T2".to_owned(),
+                },
+            )
+            .with_request_host_tier(request_tier)
+            .for_streams(&[Stream::Labs])
+    }
+
+    /// Over MCP, under `ceiling` and consents `withheld`: whether labs (T2,
+    /// named and unnamed) and notes (T3) are readable.
+    async fn outside_reads(
+        ceiling: GrantCeiling,
+        withheld: BTreeSet<String>,
+    ) -> (bool, bool, bool) {
+        under_grant(
+            Some(ceiling),
+            serve_over(
+                Transport::McpHttp,
+                with_ai_consent(
+                    withheld,
+                    ai_read(async {
+                        (
+                            tier_readable_in(Tier::T2, Stream::Labs),
+                            tier_readable(Tier::T2),
+                            tier_readable_in(Tier::T3, Stream::RestrictedNotes),
+                        )
+                    }),
+                ),
+            ),
+        )
+        .await
+        .0
+    }
+
+    #[tokio::test]
+    async fn an_opened_child_reads_its_t2_stream_outside_only_under_sensitive_t2() {
+        let (labs, unnamed, notes) =
+            outside_reads(labs_child(Some(Tier::T2)), BTreeSet::new()).await;
+        assert!(labs, "bug: an opened child's labs stayed shut");
+        assert!(!unnamed, "bug: a T2 read naming no stream opened outside");
+        assert!(!notes, "bug: T3 reached an outside client");
+
+        let (labs, _, _) = outside_reads(labs_child(Some(Tier::T2)), t2_withheld()).await;
+        assert!(!labs, "bug: labs opened without the athlete's sensitive_t2");
+
+        let (labs, _, _) = outside_reads(labs_child(None), BTreeSet::new()).await;
+        assert!(
+            !labs,
+            "bug: labs opened on a call declaring no Host Profile"
         );
     }
 }

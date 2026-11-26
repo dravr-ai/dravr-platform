@@ -181,6 +181,7 @@ mod tests {
             client_name: None,
             consent_every_time: false,
             unstored_client: None,
+            client_host_profile: None,
             admin_grantable,
             details: None,
             preset_source: None,

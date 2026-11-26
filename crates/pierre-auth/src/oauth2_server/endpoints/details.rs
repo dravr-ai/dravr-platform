@@ -11,7 +11,8 @@ use super::OAuth2AuthorizationServer;
 use crate::oauth2_server::authorization_details::{
     parse_authorization_details, resolve, ResolvedDetails,
 };
-use crate::oauth2_server::models::OAuth2Error;
+use crate::oauth2_server::models::{AuthorizeRequest, OAuth2Error};
+use crate::oauth2_server::step_up_scope::{one_off_details, StepUpScope};
 
 impl OAuth2AuthorizationServer {
     /// The resources a preset grant on a request bound to `resource` may read
@@ -23,6 +24,43 @@ impl OAuth2AuthorizationServer {
             Some(_) => Vec::new(),
             None => self.resources.iter().map(String::as_str).collect(),
         }
+    }
+
+    /// The `authorization_details` a step-up scope asks for.
+    ///
+    /// Read from the first source a preset on `resource` reads; `None` for a
+    /// request naming no step-up scope.
+    ///
+    /// # Errors
+    /// `invalid_request` for a request naming both a step-up scope and its
+    /// own details, `invalid_scope` for a step-up on a resource no preset
+    /// reads (a satellite's).
+    pub(super) fn step_up_details(
+        &self,
+        step_up: Option<&StepUpScope>,
+        request: &AuthorizeRequest,
+        resource: Option<&str>,
+    ) -> Result<Option<String>, OAuth2Error> {
+        let Some(step_up) = step_up else {
+            return Ok(None);
+        };
+        if request
+            .authorization_details
+            .as_deref()
+            .is_some_and(|raw| !raw.is_empty())
+        {
+            return Err(OAuth2Error::invalid_request(
+                "a step-up scope and authorization_details cannot be asked together",
+            ));
+        }
+        let source = self
+            .preset_sources(resource)
+            .first()
+            .copied()
+            .ok_or_else(|| {
+                OAuth2Error::invalid_scope("a step-up is asked of the platform's own resource only")
+            })?;
+        Ok(Some(one_off_details(step_up, source)))
     }
 
     /// The request's `authorization_details`, parsed and resolved for tokens
@@ -41,6 +79,15 @@ impl OAuth2AuthorizationServer {
             return Ok(None);
         };
         let requested = parse_authorization_details(raw)?;
+        // A step-up preset is granted only as a child of a live grant, after
+        // a fresh sign-in (carnet#1544 slice 4b); while the step-up screen is
+        // not offered (its words are not in the catalogue) it is never
+        // resolved here, so no consent grants it.
+        if requested.requires_step_up() && !self.step_up_offered {
+            return Err(OAuth2Error::invalid_authorization_details(
+                "step-up is not offered yet",
+            ));
+        }
         resolve(&requested, &self.preset_sources(resource)).map(Some)
     }
 }

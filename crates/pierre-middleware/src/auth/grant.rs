@@ -93,7 +93,28 @@ impl McpAuthMiddleware {
             return Ok(None);
         };
         let zone = athlete_zone(user.timezone.as_deref());
+        // The grant's live step-up child, read whole or not at all: a child
+        // whose details do not read refuses the token as its parent would.
+        let child = held
+            .child
+            .as_ref()
+            .filter(|child| {
+                child
+                    .expires_at
+                    .is_none_or(|expires_at| Timestamp::now() < expires_at)
+            })
+            .map(|child| {
+                GrantCeiling::from_document(&child.id, &child.authorization_details, &zone)
+                    .map(|ceiling| (ceiling, child.terms.clone()))
+            })
+            .transpose();
         GrantCeiling::from_document(&held.id, document, &zone)
+            .and_then(|ceiling| {
+                Ok(match child? {
+                    Some((child, terms)) => ceiling.with_child(child, terms),
+                    None => ceiling,
+                })
+            })
             .map(Some)
             .map_err(|e| {
                 error!(

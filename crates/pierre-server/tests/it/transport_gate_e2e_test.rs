@@ -443,7 +443,7 @@ async fn the_profile_is_refused_externally_even_from_a_warm_cache() {
 // ── The REST routes, through the production HTTP app ─────────────────────
 
 /// A stored API key for `user_id`, and the full key to present.
-async fn api_key(resources: &Arc<ServerContext>, user_id: Uuid) -> String {
+pub(crate) async fn api_key(resources: &Arc<ServerContext>, user_id: Uuid) -> String {
     let data = ApiKeyManager::new().generate_api_key(false);
     let key = ApiKey {
         id: Uuid::new_v4().to_string(),
@@ -1091,11 +1091,11 @@ async fn a_stamped_message_is_withheld_and_an_unstamped_one_served_over_an_api_k
     );
 }
 
-/// The athlete's memory over REST is the agent's memory like the tool's: an
-/// API key reads it only once the athlete gives `sensitive_t3`, and their own
-/// session reads it either way (JF 2026-11-20, carnet#1544).
+/// The athlete's memory over REST is the agent's memory like the tool's, T3:
+/// an API key never reads it, `sensitive_t3` given or not (JF
+/// 2026-11-25, carnet#1544), and their own session reads it either way.
 #[tokio::test]
-async fn an_api_key_reads_the_memory_facts_only_under_sensitive_t3() {
+async fn an_api_key_never_reads_the_memory_facts_even_under_sensitive_t3() {
     let resources = server_with_relay().await;
     let rider = athlete_with_relay(&resources).await;
     let app = ProviderToolRouter::build_http_app(&resources);
@@ -1115,7 +1115,12 @@ async fn an_api_key_reads_the_memory_facts_only_under_sensitive_t3() {
     let (status, refused) = get(&app, "/api/memory/facts", &key).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{refused}");
     assert!(!refused.to_string().contains("morning runs"), "{refused}");
-    assert!(refused.to_string().contains("Privacy & Data"), "{refused}");
+    assert!(
+        refused
+            .to_string()
+            .contains("never served to outside AI apps"),
+        "no switch opens it, so none is named: {refused}"
+    );
     let (status, own) = get(&app, "/api/memory/facts", &session).await;
     assert_eq!(status, StatusCode::OK, "{own}");
     assert!(own.to_string().contains("morning runs"), "{own}");
@@ -1127,8 +1132,12 @@ async fn an_api_key_reads_the_memory_facts_only_under_sensitive_t3() {
     )
     .await;
     let (status, given) = get(&app, "/api/memory/facts", &key).await;
-    assert_eq!(status, StatusCode::OK, "{given}");
-    assert!(given.to_string().contains("morning runs"), "{given}");
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "bug: sensitive_t3 opened T3 to an API key: {given}"
+    );
+    assert!(!given.to_string().contains("morning runs"), "{given}");
 }
 
 #[tokio::test]
@@ -1163,25 +1172,41 @@ async fn facts_and_the_plan_derived_from_the_relay_are_withheld_and_the_rest_ser
     )
     .await;
 
+    // The memory is T3, never an outside client's whatever its provenance
+    // (ChefFamille 2026-11-25): the key reads neither fact, the session both.
     let (status, external) = get(&app, "/api/memory/facts", &key).await;
-    assert_eq!(status, StatusCode::OK, "{external}");
+    assert_eq!(status, StatusCode::FORBIDDEN, "{external}");
     let text = external.to_string();
-    assert!(text.contains("morning runs"), "{text}");
+    assert!(!text.contains("morning runs"), "{text}");
     assert!(!text.contains("Garmin Hills"), "{text}");
     let (_, own) = get(&app, "/api/memory/facts", &session).await;
     assert!(own.to_string().contains("Garmin Hills"), "{own}");
 
-    for (transport, sees_relay) in [(Transport::McpHttp, false), (Transport::WebApp, true)] {
-        let recall = call(&resources, &rider, Some(transport), "recall_user_memory").await;
-        assert!(recall.success, "{transport:?}: {:?}", recall.error);
-        let text = payload_text(&recall);
-        assert!(text.contains("morning runs"), "{transport:?}: {text}");
-        assert_eq!(
-            text.contains("Garmin Hills"),
-            sees_relay,
-            "{transport:?}: {text}"
-        );
-    }
+    let refused = call(
+        &resources,
+        &rider,
+        Some(Transport::McpHttp),
+        "recall_user_memory",
+    )
+    .await;
+    let text = payload_text(&refused);
+    assert!(
+        !text.contains("morning runs") && !text.contains("Garmin Hills"),
+        "bug: an outside client recalled T3: {text}"
+    );
+    let recall = call(
+        &resources,
+        &rider,
+        Some(Transport::WebApp),
+        "recall_user_memory",
+    )
+    .await;
+    assert!(recall.success, "{:?}", recall.error);
+    let text = payload_text(&recall);
+    assert!(
+        text.contains("morning runs") && text.contains("Garmin Hills"),
+        "Dravr's own surface recalls both: {text}"
+    );
 
     // No plan yet: the key is told so, like the app.
     let (status, _) = get(&app, "/api/me/training-plan", &key).await;
@@ -1319,7 +1344,10 @@ async fn a_turn_that_served_the_relay_stamps_what_its_tools_write() {
         "bug: an external turn must not write the athlete's memory: {drafts:?}"
     );
 
-    // An open fact the athlete's own surfaces wrote is what the key reads back.
+    // Even an open fact the athlete's own surfaces wrote stays off an
+    // outside client: the memory is T3 (ChefFamille 2026-11-25). The
+    // athlete's own surface recalls it, and never the relay-stamped one over
+    // a stamped turn's write.
     write_fact(
         &resources,
         &rider,
@@ -1327,16 +1355,30 @@ async fn a_turn_that_served_the_relay_stamps_what_its_tools_write() {
         TransportPolicy::AnyTransport,
     )
     .await;
-    let recall = call(
+    let outside = call(
         &resources,
         &rider,
         Some(Transport::McpHttp),
         "recall_user_memory",
     )
     .await;
-    let text = payload_text(&recall);
-    assert!(text.contains("short intervals"), "{text}");
-    assert!(!text.contains("long climbs"), "{text}");
+    let text = payload_text(&outside);
+    assert!(
+        !text.contains("short intervals") && !text.contains("long climbs"),
+        "bug: an outside client recalled T3: {text}"
+    );
+    let own = call(
+        &resources,
+        &rider,
+        Some(Transport::WebApp),
+        "recall_user_memory",
+    )
+    .await;
+    assert!(
+        payload_text(&own).contains("short intervals"),
+        "{}",
+        payload_text(&own)
+    );
 }
 
 #[tokio::test]
@@ -1443,18 +1485,12 @@ async fn stamped_rows_filling_the_first_page_still_leave_an_external_page_full()
         .await;
         sleep(StdDuration::from_millis(5)).await;
     }
+    // The memory is T3, never an outside client's page (ChefFamille
+    // 2026-11-25); the threads below keep the paging property.
     let (status, external) = get(&app, "/api/memory/facts?limit=3", &key).await;
-    assert_eq!(status, StatusCode::OK, "{external}");
-    let objects: Vec<&str> = external["facts"]
-        .as_array()
-        .map_or_default(|facts| facts.iter().filter_map(|f| f["object"].as_str()).collect());
-    assert_eq!(
-        objects.len(),
-        3,
-        "the key's page holds `limit` readable facts: {external}"
-    );
+    assert_eq!(status, StatusCode::FORBIDDEN, "{external}");
     assert!(
-        objects.iter().all(|o| o.starts_with("open fact")),
+        !external.to_string().contains("open fact") && !external.to_string().contains("relay fact"),
         "{external}"
     );
     let (_, own) = get(&app, "/api/memory/facts?limit=3", &session).await;
@@ -2029,24 +2065,17 @@ async fn an_external_callers_unread_count_leaves_out_first_party_only_rows() {
 async fn an_athlete_without_a_first_party_only_connection_keeps_api_key_access() {
     let resources = server_with_relay().await;
     let email = format!("open-{}@example.com", Uuid::new_v4());
-    let (user_id, _, tenant) =
+    let (user_id, _, _tenant) =
         create_test_user_with_plan(&resources.agent.database, &email, "starter")
             .await
             .unwrap();
-    // Memory over a key also needs the athlete's sensitive_t3 (carnet#1544).
-    allow_memory_to_ai(
-        resources.agent.database.repositories(),
-        tenant.as_uuid(),
-        user_id,
-    )
-    .await;
     let app = ProviderToolRouter::build_http_app(&resources);
     let key = api_key(&resources, user_id).await;
 
-    for uri in ["/api/chat/conversations", "/api/memory/facts"] {
-        let (status, body) = get(&app, uri, &key).await;
-        assert_eq!(status, StatusCode::OK, "{uri}: {body}");
-    }
+    // The memory is T3 and never a key's (ChefFamille 2026-11-25), so the
+    // conversations alone stand for what the key keeps.
+    let (status, body) = get(&app, "/api/chat/conversations", &key).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
 }
 
 /// D3: what the session-read service reads stays on Dravr's own surfaces.

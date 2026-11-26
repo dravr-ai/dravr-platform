@@ -4085,6 +4085,24 @@
       "title": "Falha na ligação",
       "tryAgain": "Tente novamente.",
       "unavailable": "O serviço está temporariamente indisponível. Tente novamente dentro de momentos."
+    },
+    "stepUp": {
+      "title": "{0} pede um acesso pontual aos seus registos de saúde",
+      "t2Disclosure": "Isto inclui registos de saúde como resultados de análises, que são informações de saúde sensíveis. {0} pode lê-los uma única vez e depois este acesso termina. Ao permitir, consente expressamente que a Dravr partilhe estes registos com {0}.",
+      "host": "{0} afirma tratar os registos de saúde com cuidado. A Dravr não pode verificar isso.",
+      "streamsTitle": "O que {0} pode ler, uma única vez:",
+      "stream": {
+        "activityDaily": "Atividade diária",
+        "workout": "Treinos",
+        "trainingLoad": "Carga de treino",
+        "sleep": "Sono",
+        "cardioDaily": "Resumo diário da frequência cardíaca",
+        "body": "Medidas corporais",
+        "fitness": "Estimativas de condição física",
+        "recoveryDaily": "Recuperação diária",
+        "profile": "Perfil",
+        "labs": "Resultados de análises"
+      }
     }
   },
   "onboarding": {
@@ -5335,7 +5353,8 @@
     "grantEventEndedByYou": "Terminada por si",
     "grantEventEndedByApp": "Terminada pela aplicação",
     "grantEventEndedByDravr": "Terminada pela Dravr",
-    "grantEventExpired": "Expirada"
+    "grantEventExpired": "Expirada",
+    "connectedAppsStepUpChild": "E um acesso pontual aos seus registos de saúde, até {{time}}"
   },
   "usage": {
     "counter": {

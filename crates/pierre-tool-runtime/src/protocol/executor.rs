@@ -35,9 +35,9 @@ use crate::runtime::ToolRuntime;
 use crate::scopes::missing_scope;
 use crate::security::SecurityLabels;
 use crate::support_session;
-use crate::tool_data::ToolData;
 use crate::turn_end::{self, HandoffSlot};
 use dispatch_record::DispatchRecord;
+use dravr_barrage::Stream;
 use dravr_cageux::config::intelligence::IntelligenceConfig;
 use dravr_tronc::mcp::tool::ToolCapabilities;
 use futures_util::future::Either;
@@ -437,6 +437,7 @@ impl UniversalExecutor {
         tool_name: &str,
         parties: Parties,
         provider_gate: ProviderGate<'_>,
+        ceiling: Option<&GrantCeiling>,
     ) -> Result<Option<UniversalResponse>, ProtocolError> {
         // Tool-disable (absorbed `enforce_tool_allowlist`): an admin's
         // explicit config for the tenant, or a per-user override above it,
@@ -466,7 +467,7 @@ impl UniversalExecutor {
         }
 
         // A consent grant whose day of rows is spent runs nothing more today.
-        Ok(self.row_budget_refusal(tool_name, parties).await)
+        Ok(self.row_budget_refusal(tool_name, parties, ceiling).await)
     }
 
     /// Count a call that spends the turn's write budget as attempted.
@@ -660,6 +661,17 @@ impl UniversalExecutor {
             })?;
 
         let (ctx, is_admin) = build_tool_context(&self.resources, &request).await?;
+        // The one grant this call runs under: the token's own, or its live
+        // step-up child when only the child covers what the tool reads
+        // (carnet#1544 slice 4b). Every gate, budget and reader below asks it.
+        let call_ceiling = self.ceiling.as_ref().map(|ceiling| {
+            let streams: Vec<Stream> = self
+                .resources
+                .tool_registry()
+                .call_data(&request.tool_name, &request.parameters)
+                .map_or_default(|data| data.required_streams().collect());
+            ceiling.for_streams(&streams)
+        });
         // Captured before `request` is torn apart: the charge and the admin
         // event below are owed for every transport, and `protocol` is the only
         // thing that says which one this was.
@@ -720,7 +732,13 @@ impl UniversalExecutor {
         // about one athlete, nothing is filed on their own account
         // (carnet#1070).
         if let Some(refusal) = self
-            .access_refusal(tool.as_ref(), &tool_name, user_uuid, is_admin)
+            .access_refusal(
+                tool.as_ref(),
+                (&tool_name, &args),
+                user_uuid,
+                is_admin,
+                call_ceiling.as_ref(),
+            )
             .await?
             .or_else(|| {
                 self.seat
@@ -754,7 +772,7 @@ impl UniversalExecutor {
                 .filter(|s| !s.is_empty()),
         };
         if let Some(refusal) = self
-            .authorization_refusal(&tool_name, parties, provider_gate)
+            .authorization_refusal(&tool_name, parties, provider_gate, call_ceiling.as_ref())
             .await?
         {
             return Ok(refusal);
@@ -837,14 +855,16 @@ impl UniversalExecutor {
         // notice) is the athlete's, and never posts into the coach's thread.
         let in_conversation = subject.is_none();
         let member_read = subject.as_ref().map(ReadSubject::athlete);
-        // An outside client reaches a tool reading T2/T3 streams only under
-        // the athlete's tier consent (`tier_gate`, carnet#1544).
-        let tiers = self
-            .resources
-            .tool_registry()
-            .tool_data(&tool_name)
-            .map_or_else(Vec::new, ToolData::tiers);
-        let execute = tier_gate::gated(&tool_name, &tiers, async move {
+        // An outside client never reaches a tool reading T3 streams, nor T2
+        // ones without a grant reaching T2 (`tier_gate`, carnet#1544).
+        let call_data = self.resources.tool_registry().call_data(&tool_name, &args);
+        let streams = call_data.map_or(&[][..], |data| data.streams());
+        let claim = Box::pin(self.single_use_claim(&tool_name, parties, call_ceiling.as_ref()));
+        let execute = tier_gate::gated(&tool_name, streams, async move {
+            // Past the tier gate a single-use grant is spent before it reads.
+            if let Some(consumed) = claim.await {
+                return consumed;
+            }
             // What the call derives from here on is the athlete's (carnet#1174),
             // and so is every attribution what it serves owes (carnet#1464).
             match member_read {
@@ -911,8 +931,11 @@ impl UniversalExecutor {
         // Every reader below runs under the grant's ceiling, which counts
         // the rows they serve for its daily budgets.
         // Boxed for the reason the body above is.
-        let body =
-            Box::pin(self.levied(parties, ai_scope::under_grant(self.ceiling.clone(), body)));
+        let body = Box::pin(self.levied(
+            parties,
+            call_ceiling.as_ref(),
+            ai_scope::under_grant(call_ceiling.clone(), body),
+        ));
         // A call feeding a group chat reads nothing kept to Dravr's members
         // (carnet#1170).
         let group_chat = self.group_chat;
@@ -1061,11 +1084,10 @@ impl UniversalExecutor {
             if provenance.served_provider_data() {
                 reply_check::note_unchecked_reply(&mut universal);
             }
-            let declared = self.resources.tool_registry().tool_data(&tool_name);
             trust_labels::attach(
                 &mut universal,
                 &tool_name,
-                declared,
+                call_data.as_ref(),
                 &provenance.source_classes(),
             );
         }

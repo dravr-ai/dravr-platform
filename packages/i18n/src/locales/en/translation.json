@@ -4085,6 +4085,24 @@
       "title": "Connection Failed",
       "tryAgain": "Please try again.",
       "unavailable": "The service is temporarily unavailable. Try again in a moment."
+    },
+    "stepUp": {
+      "title": "{0} asks for a one-off look at your health records",
+      "t2Disclosure": "This includes health records such as lab results, which are sensitive health information. {0} can read them once, and then this access ends. By allowing it you expressly consent to Dravr sharing these records with {0}.",
+      "host": "{0} says it handles health records with care. Dravr cannot check that claim.",
+      "streamsTitle": "What {0} can read, once:",
+      "stream": {
+        "activityDaily": "Daily activity",
+        "workout": "Workouts",
+        "trainingLoad": "Training load",
+        "sleep": "Sleep",
+        "cardioDaily": "Daily heart rate summary",
+        "body": "Body measurements",
+        "fitness": "Fitness estimates",
+        "recoveryDaily": "Daily recovery",
+        "profile": "Profile",
+        "labs": "Lab results"
+      }
     }
   },
   "onboarding": {
@@ -5335,7 +5353,8 @@
     "grantEventEndedByYou": "Ended by you",
     "grantEventEndedByApp": "Ended by the app",
     "grantEventEndedByDravr": "Ended by Dravr",
-    "grantEventExpired": "Expired"
+    "grantEventExpired": "Expired",
+    "connectedAppsStepUpChild": "Plus a one-off look at your health records, until {{time}}"
   },
   "usage": {
     "counter": {

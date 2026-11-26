@@ -1,5 +1,5 @@
 // ABOUTME: What of a stored wellness row the tier gate keeps from the reader: clinical readings and the athlete's daily note
-// ABOUTME: Glucose (T2) under the tier rule; the daily note (T3) off an outside client without sensitive_t3 (carnet#1544)
+// ABOUTME: Glucose (T2) under the tier rule; the daily note (T3) never to an outside client, consent or not (carnet#1544)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -36,12 +36,13 @@ pub(super) fn withhold_clinical_readings(rows: &mut [StoredHealthMetrics]) {
 }
 
 /// The note the athlete typed into their source's daily log is theirs, a T3
-/// record: any AI — an outside client (MCP, A2A, an API key) or Dravr's own
-/// agent, theirs or their coach's — reads it only while the athlete gives
-/// `sensitive_t3`, by the tier rule ([`ai_scope::ai_reads_tier`]), each
-/// nulled note tallied once as the athlete's choice (JF 2026-11-20, "Gate for
-/// third parties"; JF 2026-11-25, "Gate on tier consent"). A human coach's
-/// own screen reads what the athlete shares with them, no AI asked.
+/// record. An outside client (MCP, A2A, an API key) never reads it,
+/// `sensitive_t3` given or not (JF 2026-11-25, carnet#1544 slice 4b), and
+/// Dravr's own agent, theirs or their coach's, reads it only while the athlete
+/// gives `sensitive_t3` (JF 2026-11-25, "Gate on tier consent"): both by the
+/// tier rule ([`ai_scope::ai_reads_tier`]), each nulled note tallied once. A
+/// human coach's own screen reads what the athlete shares with them, no AI
+/// asked.
 pub(super) fn withhold_daily_notes(rows: &mut [StoredRecoveryMetrics]) {
     if ai_scope::ai_reads_tier(Tier::T3) {
         return;
@@ -89,6 +90,7 @@ mod tests {
     /// The notes `rows` keep read over `transport` under consents
     /// `withheld`, and the sensitive tally.
     async fn read(transport: Transport, withheld: &[&str]) -> (Vec<Option<String>>, usize) {
+        // The notes, and how many the interface's ceiling withheld.
         let withheld: BTreeSet<String> = withheld.iter().map(|key| (*key).to_owned()).collect();
         let (notes, tally) = serve_over(
             transport,
@@ -102,22 +104,19 @@ mod tests {
             ),
         )
         .await;
-        (notes, tally.sensitive_reduced)
+        (notes, tally.off_interface)
     }
 
     #[tokio::test]
-    async fn an_outside_client_reads_the_daily_note_only_under_sensitive_t3() {
+    async fn an_outside_client_never_reads_the_daily_note_even_under_sensitive_t3() {
         for transport in [Transport::McpHttp, Transport::A2a, Transport::ApiKey] {
-            assert_eq!(
-                read(transport, &[SENSITIVE_T3]).await,
-                (vec![None, None], 1),
-                "bug: withheld and tallied once per note ({transport:?})"
-            );
-            assert_eq!(
-                read(transport, &[]).await,
-                (vec![Some("legs heavy".to_owned()), None], 0),
-                "given: the note is served ({transport:?})"
-            );
+            for withheld in [&[SENSITIVE_T3][..], &[][..]] {
+                assert_eq!(
+                    read(transport, withheld).await,
+                    (vec![None, None], 1),
+                    "bug: withheld and tallied once per note ({transport:?}, {withheld:?})"
+                );
+            }
         }
     }
 

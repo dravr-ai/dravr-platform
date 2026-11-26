@@ -10,10 +10,11 @@ use pierre_core::errors::AppResult;
 
 use pierre_core::models::TenantId;
 use pierre_core::models::{
-    ClientGrantStanding, ConnectionType, DeviceAuthorization, GrantActor, GrantApproval,
-    OAuth2AuthCode, OAuth2Client, OAuth2ClientSweep, OAuth2PushedRequest, OAuth2RefreshToken,
-    OAuth2State, OAuthClientGrant, OAuthClientState, ProviderAccountRole, ProviderConnection,
-    ReauthMark, StravaPoolApp, StravaSeatHolder, StravaTokenApp, UserOAuthApp, UserOAuthToken,
+    ChildGrant, ClientGrantStanding, ConnectionType, DeviceAuthorization, GrantActor,
+    GrantApproval, OAuth2AuthCode, OAuth2Client, OAuth2ClientSweep, OAuth2PushedRequest,
+    OAuth2RefreshToken, OAuth2State, OAuthClientGrant, OAuthClientState, ProviderAccountRole,
+    ProviderConnection, ReauthMark, StravaPoolApp, StravaSeatHolder, StravaTokenApp, UserOAuthApp,
+    UserOAuthToken,
 };
 use uuid::Uuid;
 
@@ -472,6 +473,46 @@ pub trait OAuth2ServerRepository: Send + Sync {
         &self,
         now: Timestamp,
     ) -> AppResult<Vec<UngrantedRefreshFamilies>>;
+    /// Record the Host Profile client `client_id`'s metadata document
+    /// declares (owl §6.2 carrier A, `{"tier_max", "version"}` as JSON), or
+    /// `None` when it declares none. Only the metadata document resolver
+    /// calls it, so a client registered by DCR never has one.
+    async fn set_client_host_profile(
+        &self,
+        client_id: &str,
+        host_profile: Option<&str>,
+    ) -> AppResult<()>;
+    /// The Host Profile `client_id`'s metadata document declared; `None` for
+    /// a client that declared none, and for every client registered by DCR.
+    async fn client_host_profile(&self, client_id: &str) -> AppResult<Option<String>>;
+    /// Record a step-up child grant under the live parent its terms name
+    /// (carnet#1544 slice 4b, owl §7.6): the parent's previous live child is
+    /// revoked, the child inserted and its `step_up` receipt written, in one
+    /// transaction. The parent and the client's tokens are not touched.
+    ///
+    /// Returns the child's id, or `None`, storing nothing, when the parent is
+    /// not a live grant of the same user, tenant and client.
+    async fn store_child_grant(
+        &self,
+        child: &ChildGrant,
+        approval: &GrantApproval,
+    ) -> AppResult<Option<String>>;
+    /// Consume single-use child grant `id`, held by `user_id` in
+    /// `tenant_id`, with its `consume` receipt. One statement decides, so two
+    /// calls racing consume it once; returns whether this call did.
+    async fn consume_child_grant(
+        &self,
+        id: &str,
+        user_id: &str,
+        tenant_id: &str,
+    ) -> AppResult<bool>;
+    /// A user's live step-up children within a tenant, newest first: what
+    /// Connected apps lists under each parent.
+    async fn list_live_child_grants(
+        &self,
+        user_id: &str,
+        tenant_id: &str,
+    ) -> AppResult<Vec<ChildGrant>>;
 
     /// Where the user's consent to `client_id` stands in `tenant_id`, across
     /// every scope set they granted it. The resource servers' question about a

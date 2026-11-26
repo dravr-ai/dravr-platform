@@ -4,6 +4,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use dravr_barrage::Stream;
+use pierre_auth::oauth2_server::grant_ceiling::GrantCeiling;
+use pierre_contremaitre::consent_strings::step_up_worded;
 use pierre_core::transport::Transport;
 use pierre_providers::ai_scope;
 use tracing::warn;
@@ -15,11 +18,11 @@ use crate::protocol::types::UniversalResponse;
 use crate::protocols::ProtocolError;
 use crate::security::{Audience, RuntimeTool};
 use crate::tool_access::{
-    coach_role_refusal, is_human_coach, withheld, Caller, CallerRole, Withheld,
+    coach_role_refusal, is_human_coach, withheld_call, Caller, CallerRole, Withheld,
 };
 
 impl UniversalExecutor {
-    /// What [`withheld`] answers for this call, rendered
+    /// What [`withheld_call`] answers for this call with `args`, rendered
     /// ([`render_withheld`]): `None` when the call may run.
     ///
     /// `is_admin` is the live role
@@ -37,9 +40,10 @@ impl UniversalExecutor {
     pub(super) async fn access_refusal(
         &self,
         tool: &dyn RuntimeTool,
-        tool_name: &str,
+        (tool_name, args): (&str, &serde_json::Value),
         user_id: Uuid,
         is_admin: bool,
+        ceiling: Option<&GrantCeiling>,
     ) -> Result<Option<UniversalResponse>, ProtocolError> {
         let transport = ai_scope::effective_transport(self.transport);
         let external = !transport.is_some_and(Transport::is_first_party);
@@ -56,10 +60,10 @@ impl UniversalExecutor {
             grant: &self.scopes,
             transport,
             support_session: self.support_session.is_some(),
-            ceiling: self.ceiling.as_ref(),
+            ceiling,
         };
         let registry = self.resources.tool_registry();
-        let answer = withheld(registry, tool_name, tool, &caller).or_else(|| {
+        let answer = withheld_call(registry, tool_name, tool, &caller, args).or_else(|| {
             if self.caller_writes_reply {
                 return None;
             }
@@ -67,9 +71,21 @@ impl UniversalExecutor {
                 role: CallerRole::default(),
                 ..caller
             };
-            withheld(registry, tool_name, tool, &role_less)
+            withheld_call(registry, tool_name, tool, &role_less, args)
                 .filter(|why| *why != Withheld::Role(Audience::Admin))
         });
+        // A tier or stream refusal the athlete's step-up would cure says so,
+        // once the step-up screen is worded (carnet#1544 slice 4b).
+        if let (Some(Withheld::Tier(_) | Withheld::Stream), Some(ceiling)) = (answer, ceiling) {
+            let streams: Vec<Stream> = registry
+                .call_data(tool_name, args)
+                .map_or_default(|data| data.required_streams().collect());
+            if ceiling.step_up_cures(&streams)
+                && step_up_worded(self.resources.messaging_strings_registry())
+            {
+                return Ok(Some(grant_ceiling_refusal::step_up(tool_name, &streams)));
+            }
+        }
         answer
             .map(|answer| render_withheld(tool_name, answer))
             .transpose()

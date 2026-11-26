@@ -13,7 +13,8 @@
 //! tool (never served to a remote client), `tier_exceeds_grant` for a tier
 //! above the grant's `max_tier`.
 
-use dravr_barrage::Tier;
+use dravr_barrage::{Stream, Tier};
+use pierre_core::models::STEP_UP_MAX_AGE_SECS;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use tracing::info;
@@ -28,6 +29,9 @@ const TIER_EXCEEDS_GRANT: &str = "tier_exceeds_grant";
 
 /// The reason of a tool reading a stream the grant does not hold.
 const STREAM_NOT_GRANTED: &str = "stream_not_granted";
+
+/// The reason of a call the athlete's step-up would cure (owl PDPP §7.6).
+const STEP_UP_REQUIRED: &str = "step_up_required";
 
 /// The reason of a tool aggregating the whole history, past the grant's
 /// data window.
@@ -92,6 +96,38 @@ pub(super) fn stream(tool_name: &str) -> UniversalResponse {
     )
 }
 
+/// `tool_name` reads `streams`, beyond the grant, which the athlete's
+/// step-up would open: owl's `step_up_required`, with what to ask for. A
+/// host re-authorizes with a `one_off_question` request for those streams;
+/// the athlete approves it after signing in to Dravr again (no in-app
+/// approval exists yet, so `approval` is always `reauthorize`).
+pub(super) fn step_up(tool_name: &str, streams: &[Stream]) -> UniversalResponse {
+    let mut refused = refusal(
+        tool_name,
+        STEP_UP_REQUIRED,
+        None,
+        format!(
+            "'{tool_name}' reads health records the access the athlete gave this application \
+             does not cover. The athlete can allow a one-off look: connect again asking for a \
+             one_off_question, and they approve it after signing in to Dravr."
+        ),
+    );
+    if let Some(object) = refused.result.as_mut().and_then(Value::as_object_mut) {
+        let names: Vec<&str> = streams.iter().map(|stream| stream.name()).collect();
+        object.insert(
+            "step_up".to_owned(),
+            json!({
+                "required": true,
+                "approval": "reauthorize",
+                "preset": "one_off_question",
+                "streams": names,
+                "max_age": STEP_UP_MAX_AGE_SECS,
+            }),
+        );
+    }
+    refused
+}
+
 /// `tool_name` aggregates the whole history, past the grant's window.
 pub(super) fn window(tool_name: &str) -> UniversalResponse {
     refusal(
@@ -103,4 +139,35 @@ pub(super) fn window(tool_name: &str) -> UniversalResponse {
              application covers only recent data."
         ),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_curable_refusal_says_step_up_required_and_what_to_ask_for() {
+        let refused = step_up("get_health_records", &[Stream::Labs]);
+        assert!(!refused.success, "bug: a refusal read as a success");
+        let result = refused.result.unwrap();
+        assert_eq!(result["error_code"], STEP_UP_REQUIRED, "bug: {result}");
+        assert_eq!(
+            result["step_up"],
+            json!({
+                "required": true,
+                "approval": "reauthorize",
+                "preset": "one_off_question",
+                "streams": ["labs.summary"],
+                "max_age": 300,
+            }),
+            "bug: the cure is not stated"
+        );
+        assert_eq!(
+            refused
+                .metadata
+                .and_then(|metadata| metadata.get("blocked_reason").cloned()),
+            Some(Value::from(GRANT_BLOCK)),
+            "bug: a transport cannot pass the refusal on"
+        );
+    }
 }

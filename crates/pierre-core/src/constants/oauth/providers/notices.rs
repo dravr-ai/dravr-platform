@@ -124,10 +124,11 @@ impl ProviderNotice {
 ///   provider: each is the athlete's consent to AI use of every record of
 ///   one sensitivity tier, owl's T2 (labs, clinical records, self-measured
 ///   glucose) and T3 (cycle tracking, mental and reproductive health),
-///   whichever provider or import holds it (J2, 2026-11-12). [`SENSITIVE_T3`]
-///   also opens the athlete's notes and their agent's memory to an outside AI
-///   client; Dravr's own agent and the human coach read those either way
-///   (JF 2026-11-20, carnet#1544). A class guards no connect, since nothing
+///   whichever provider or import holds it (J2, 2026-11-12). Neither opens
+///   T3 to an outside AI client: T3 never goes outside (JF
+///   2026-11-25, closing JF 2026-11-20's path, carnet#1544), and Dravr's own
+///   agent and the human coach read the athlete's notes and their agent's
+///   memory either way. A class guards no connect, since nothing
 ///   connects under it; it rides this table only so the one AI-consent set
 ///   withholds it until given, exactly like WHOOP's authorization, and so one
 ///   acceptance record holds every consent to AI use. Asked of every account
@@ -262,10 +263,10 @@ pub const SENSITIVE_T2: &str = "sensitive_t2";
 ///
 /// Cycle tracking, mental, reproductive and substance records, whichever
 /// provider or import holds them: while it is not given, no model and no
-/// human coach reads one. It is also what lets an outside AI client (MCP,
-/// A2A, an API key) read the athlete's notes and their agent's memory,
-/// which Dravr's own agent and the human coach read without it
-/// ([`PROVIDER_NOTICES`]). Its acceptance is a row of
+/// human coach reads one. No outside AI client (MCP, A2A, an API key) reads
+/// a T3 record or the athlete's notes and their agent's memory, given or not
+/// (JF 2026-11-25); Dravr's own agent and the human coach read the
+/// notes and memory without it ([`PROVIDER_NOTICES`]). Its acceptance is a row of
 /// `provider_terms_consents` under this key.
 pub const SENSITIVE_T3: &str = "sensitive_t3";
 

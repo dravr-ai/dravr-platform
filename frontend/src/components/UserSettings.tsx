@@ -72,7 +72,7 @@ import {
   providerName,
   signInStartsWithExtension,
 } from '@pierre/shared-constants';
-import { formatCompactNumber, formatCount, formatDate, formatResetTime } from '@pierre/chat-utils';
+import { formatCompactNumber, formatCount, formatDate, formatDateTime, formatResetTime } from '@pierre/chat-utils';
 import { useUsageStatus } from '../hooks/useUsageStatus';
 import { useAiConsent } from '../hooks/useAiConsent';
 import { useConnectedApps, useRevokeConnectedApps } from '../hooks/useAccessFeed';
@@ -1554,6 +1554,29 @@ Authorization: Bearer <your-token-here>`}
                                         {t('apiKeys.expiresOn', { date: formatDate(app.expires_at, language) })}
                                       </p>
                                     )
+                                  )}
+                                  {app.step_up && (
+                                    <div
+                                      className="mt-2 flex flex-wrap items-center gap-2"
+                                      data-testid={`connected-app-step-up-${app.id}`}
+                                    >
+                                      <p className="text-xs text-on-surface-variant break-words">
+                                        {t('tokens.connectedAppsStepUpChild', {
+                                          time: app.step_up.expires_at
+                                            ? formatDateTime(app.step_up.expires_at, language)
+                                            : '',
+                                        })}
+                                      </p>
+                                      <Button
+                                        variant="danger-outline"
+                                        size="sm"
+                                        onClick={() => app.step_up && revokeConnectedAppMutation.mutate([app.step_up.id])}
+                                        disabled={revokeConnectedAppMutation.isPending}
+                                        data-testid={`connected-app-step-up-revoke-${app.id}`}
+                                      >
+                                        {t('settingsUi.revoke')}
+                                      </Button>
+                                    </div>
                                   )}
                                 </div>
                                 <Button

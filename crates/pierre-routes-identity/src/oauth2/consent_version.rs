@@ -49,7 +49,7 @@
 
 use pierre_auth::oauth2_server::authorization_details::{review_digest, ResolvedDetails};
 use pierre_auth::oauth2_server::client_registration::redirects_to_loopback;
-use pierre_contremaitre::consent_strings::CONSENT_SCREEN_KEYS;
+use pierre_contremaitre::consent_strings::{CONSENT_SCREEN_KEYS, STEP_UP_SCREEN_KEYS};
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::models::OAuthClientGrant;
 use pierre_core::permissions::scopes::OAuthScope;
@@ -73,6 +73,32 @@ const DIGESTED_ACCOUNT: &str = "athlete@example.invalid";
 /// the two it is changes what the screen discloses.
 const DIGESTED_LOOPBACK_REDIRECT: &str = "http://127.0.0.1/callback";
 const DIGESTED_REDIRECT: &str = "https://client.invalid/callback";
+
+/// The text version the screen for `details` is digested under.
+///
+/// Given the consent `version`: that version, and for a step-up request
+/// ([`Preset::requires_step_up`](pierre_auth::oauth2_server::authorization_details::Preset::requires_step_up))
+/// the step-up screen's own lines besides ([`STEP_UP_SCREEN_KEYS`]), which
+/// only that screen shows. So a step-up wording change is a new review digest
+/// for the step-up alone, and asks no ordinary grant again.
+pub(super) fn screen_version(
+    version: &str,
+    text: &ConsentText<'_>,
+    details: Option<&ResolvedDetails>,
+) -> String {
+    if !details.is_some_and(|details| details.preset().requires_step_up()) {
+        return version.to_owned();
+    }
+    let mut digest = Sha256::new();
+    digest.update(version.as_bytes());
+    for key in STEP_UP_SCREEN_KEYS {
+        digest.update(b"\n");
+        digest.update(key.as_bytes());
+        digest.update(b"=");
+        digest.update(text.line(key).as_bytes());
+    }
+    format!("{:x}", digest.finalize())
+}
 
 /// Who the consent screen is shown for, as far as it changes what the screen
 /// discloses.
@@ -226,6 +252,33 @@ mod tests {
         assert!(
             missing.is_empty(),
             "bug: add these keys to CONSENT_SCREEN_KEYS: {missing:?}"
+        );
+    }
+
+    /// The step-up screen's lines are its own review digest's: a key added
+    /// under `oauth.stepUp.` and left out of its list would change the
+    /// step-up screen without changing what its approval is bound to.
+    #[test]
+    fn every_step_up_key_in_the_catalogue_is_in_the_step_up_digest() {
+        let registry = MessagingStringsRegistry::new();
+        let mut missing: Vec<String> = registry
+            .list()
+            .into_iter()
+            .map(|(key, _, _)| key)
+            .filter(|key| key.starts_with("oauth.stepUp."))
+            .filter(|key| !STEP_UP_SCREEN_KEYS.contains(&key.as_str()))
+            .collect();
+        missing.sort_unstable();
+        missing.dedup();
+        assert!(
+            missing.is_empty(),
+            "bug: add these keys to STEP_UP_SCREEN_KEYS: {missing:?}"
+        );
+        assert!(
+            STEP_UP_SCREEN_KEYS
+                .iter()
+                .all(|key| !CONSENT_SCREEN_KEYS.contains(key)),
+            "bug: a step-up line is in the plain screen's version"
         );
     }
 

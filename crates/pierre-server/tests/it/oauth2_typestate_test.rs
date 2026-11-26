@@ -44,6 +44,7 @@ fn test_authorized_to_authenticated_transition() {
         scope: Some("read write".to_owned()),
         refresh_token: Some(SecretString::from("refresh_token_abc")),
         authorization_details: None,
+        step_up: None,
     };
 
     let authenticated = authorized
@@ -71,6 +72,7 @@ fn test_authenticated_to_refreshable_transition() {
         scope: Some("read".to_owned()),
         refresh_token: Some(SecretString::from("refresh_token_abc")),
         authorization_details: None,
+        step_up: None,
     };
 
     let authenticated = authorized
@@ -102,6 +104,7 @@ fn test_refreshable_to_authenticated_transition() {
         scope: Some("read".to_owned()),
         refresh_token: Some(SecretString::from("old_refresh")),
         authorization_details: None,
+        step_up: None,
     };
 
     let authenticated = authorized
@@ -119,6 +122,7 @@ fn test_refreshable_to_authenticated_transition() {
         scope: None, // Falls back to original scope
         refresh_token: Some(SecretString::from("new_refresh")),
         authorization_details: None,
+        step_up: None,
     };
 
     let re_authenticated = refreshable.refresh(new_token_response);
@@ -168,6 +172,7 @@ fn test_no_refresh_token_fails() {
         scope: None,
         refresh_token: None, // No refresh token
         authorization_details: None,
+        step_up: None,
     };
 
     let authenticated = authorized
@@ -208,6 +213,7 @@ fn test_force_refresh() {
         scope: None,
         refresh_token: Some(SecretString::from("refresh")),
         authorization_details: None,
+        step_up: None,
     };
 
     let authenticated = authorized
@@ -276,6 +282,7 @@ fn test_client_id_and_redirect_uri_preserved_through_transitions() {
         scope: Some("read".to_owned()),
         refresh_token: Some(SecretString::from("refresh")),
         authorization_details: None,
+        step_up: None,
     };
 
     let authenticated = authorized

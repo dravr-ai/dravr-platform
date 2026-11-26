@@ -38,27 +38,38 @@
 //! them.
 
 /// The RFC 8628 device authorization statements
-mod device;
+mod device_sql;
 /// The live refresh-token families the one-time grant backfill left unnamed
 pub(crate) mod grant_backfill;
+/// The reads of a consent grant row, parents only
+mod grant_reads;
 /// Every statement that starts or ends a consent grant, and its receipts
 pub(crate) mod grant_writes;
+/// A public client's declared Host Profile
+pub(crate) mod host_profile;
 /// The RFC 9126 pushed authorization request store
 pub(crate) mod pushed;
 mod rows;
 
-pub(crate) use device::{
+pub(crate) use device_sql::{
     APPROVE_DEVICE_AUTHORIZATION_SQL, CREATE_DEVICE_AUTHORIZATION_SQL,
     DELETE_DEVICE_AUTHORIZATION_SQL, DENY_DEVICE_AUTHORIZATION_SQL,
     GET_DEVICE_AUTHORIZATION_BY_CODE_HASH_SQL, GET_DEVICE_AUTHORIZATION_BY_USER_CODE_SQL,
     SWEEP_EXPIRED_DEVICE_AUTHORIZATIONS_SQL,
 };
 pub(crate) use grant_backfill::impl_ungranted_refresh_families;
+pub(crate) use grant_reads::{
+    FIND_ACTIVE_CLIENT_GRANT_SQL, GET_CLIENT_GRANT_SQL, LIST_CLIENT_GRANTS_SQL,
+    LIST_CLIENT_GRANT_HISTORY_SQL, LIST_CLIENT_LIVE_CHILD_GRANTS_SQL, LIST_LIVE_CHILD_GRANTS_SQL,
+    LIST_OTHER_LIVE_CLIENT_GRANTS_SQL,
+};
 pub(crate) use grant_writes::impl_client_grant_writes;
+pub(crate) use host_profile::impl_client_host_profile;
 pub(crate) use pushed::impl_pushed_request_store;
 pub(crate) use rows::{
-    client_grant_from_row, device_authorization_from_row, oauth2_auth_code_from_row,
-    oauth2_client_from_row, oauth2_refresh_token_from_row, oauth2_state_from_row,
+    child_grant_from_row, client_grant_from_row, device_authorization_from_row,
+    oauth2_auth_code_from_row, oauth2_client_from_row, oauth2_refresh_token_from_row,
+    oauth2_state_from_row,
 };
 
 /// Register an RFC 7591 client unless `$12` registrations are already
@@ -224,50 +235,6 @@ pub(crate) const CONSUME_OAUTH2_STATE_SQL: &str = r"
               AND used = FALSE
               AND expires_at > $3
             RETURNING state, client_id, user_id, tenant_id, redirect_uri, scope, code_challenge, code_challenge_method, created_at, expires_at, used
-            ";
-
-/// The ids of a user's live grants to one client in one tenant, but one:
-/// what an approval of that one revokes.
-pub(crate) const LIST_OTHER_LIVE_CLIENT_GRANTS_SQL: &str = r"
-            SELECT id FROM oauth_client_grants
-            WHERE user_id = $1 AND tenant_id = $2 AND client_id = $3 AND id <> $4
-              AND revoked_at IS NULL
-            ";
-
-/// The live grant for one `(user, tenant, client, scope)` tuple.
-pub(crate) const FIND_ACTIVE_CLIENT_GRANT_SQL: &str = r"
-            SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
-                   consent_version, consent_locale, authorization_details, expires_at
-            FROM oauth_client_grants
-            WHERE user_id = $1 AND tenant_id = $2 AND client_id = $3 AND scope = $4
-              AND revoked_at IS NULL
-            LIMIT 1
-            ";
-
-/// A user's live grants within a tenant, newest first.
-pub(crate) const LIST_CLIENT_GRANTS_SQL: &str = r"
-            SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
-                   consent_version, consent_locale, authorization_details, expires_at
-            FROM oauth_client_grants
-            WHERE user_id = $1 AND tenant_id = $2 AND revoked_at IS NULL
-            ORDER BY granted_at DESC
-            ";
-
-/// One grant by its id, live or not; `user_id` + `tenant_id` in the filter is
-/// the ownership check.
-pub(crate) const GET_CLIENT_GRANT_SQL: &str = r"
-            SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
-                   consent_version, consent_locale, authorization_details, expires_at
-            FROM oauth_client_grants
-            WHERE id = $1 AND user_id = $2 AND tenant_id = $3
-            ";
-
-/// Every grant, live or revoked, a user gave one client in one tenant.
-pub(crate) const LIST_CLIENT_GRANT_HISTORY_SQL: &str = r"
-            SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
-                   consent_version, consent_locale, authorization_details, expires_at
-            FROM oauth_client_grants
-            WHERE user_id = $1 AND tenant_id = $2 AND client_id = $3
             ";
 
 /// Revoke every live refresh token one user holds in one tenant through one
@@ -879,6 +846,53 @@ macro_rules! impl_oauth2_server_repository {
                 self.ungranted_family_rows(now).await
             }
 
+            async fn set_client_host_profile(
+                &self,
+                client_id: &str,
+                host_profile: Option<&str>,
+            ) -> AppResult<()> {
+                self.write_client_host_profile(client_id, host_profile).await
+            }
+
+            async fn client_host_profile(&self, client_id: &str) -> AppResult<Option<String>> {
+                self.read_client_host_profile(client_id).await
+            }
+
+            async fn store_child_grant(
+                &self,
+                child: &ChildGrant,
+                approval: &GrantApproval,
+            ) -> AppResult<Option<String>> {
+                self.store_child_rows(child, approval).await
+            }
+
+            async fn consume_child_grant(
+                &self,
+                id: &str,
+                user_id: &str,
+                tenant_id: &str,
+            ) -> AppResult<bool> {
+                self.consume_child_rows(id, user_id, tenant_id).await
+            }
+
+            async fn list_live_child_grants(
+                &self,
+                user_id: &str,
+                tenant_id: &str,
+            ) -> AppResult<Vec<ChildGrant>> {
+                let rows = sqlx::query($crate::repositories::tokens::LIST_LIVE_CHILD_GRANTS_SQL)
+                    .bind(user_id)
+                    .bind(tenant_id)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to list step-up grants: {e}"))
+                    })?;
+                rows.iter()
+                    .map($crate::repositories::tokens::child_grant_from_row)
+                    .collect()
+            }
+
             async fn client_grant_standing(
                 &self,
                 user_id: &str,
@@ -898,7 +912,21 @@ macro_rules! impl_oauth2_server_repository {
                     .iter()
                     .map(client_grant_from_row)
                     .collect::<AppResult<Vec<_>>>()?;
-                Ok(ClientGrantStanding::of_grants(&grants, Timestamp::now()))
+                let children =
+                    sqlx::query($crate::repositories::tokens::LIST_CLIENT_LIVE_CHILD_GRANTS_SQL)
+                        .bind(user_id)
+                        .bind(tenant_id)
+                        .bind(client_id)
+                        .fetch_all(self.pool())
+                        .await
+                        .map_err(|e| {
+                            AppError::database(format!("Failed to read step-up grants: {e}"))
+                        })?
+                        .iter()
+                        .map($crate::repositories::tokens::child_grant_from_row)
+                        .collect::<AppResult<Vec<_>>>()?;
+                let now = Timestamp::now();
+                Ok(ClientGrantStanding::of_grants(&grants, now).with_children(&children, now))
             }
 
             async fn withdraw_client_access(

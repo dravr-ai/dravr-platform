@@ -12,7 +12,7 @@ import { useConnectedApps, useRevokeConnectedApps } from '../../hooks/useAccessF
 import { useStandingPolicies } from '../../hooks/useGrantHistory';
 import { useTranslation } from '@pierre/i18n';
 import { alwaysAllowedClients, connectedAppPresetLabel, describeApiError } from '@pierre/ui-logic';
-import { formatDate } from '@pierre/chat-utils';
+import { formatDate, formatDateTime } from '@pierre/chat-utils';
 import { StandingPoliciesSection } from './StandingPoliciesSection';
 import { GrantHistorySection } from './GrantHistorySection';
 
@@ -106,9 +106,13 @@ export function ConnectedAppsScreen(): React.JSX.Element {
               grants.map((grant, index) => {
                 const revoking = revokeMutation.isPending && (revokeMutation.variables?.includes(grant.id) ?? false);
                 const expired = grant.expires_at !== null && grantHasExpired(grant.expires_at);
+                const stepUp = grant.step_up ?? null;
+                const stepUpRevoking =
+                  stepUp !== null && revokeMutation.isPending && (revokeMutation.variables?.includes(stepUp.id) ?? false);
+                const lastGrant = index === grants.length - 1;
                 return (
+                  <React.Fragment key={grant.id}>
                   <Row
-                    key={grant.id}
                     testID={`connected-app-${grant.id}`}
                     title={connectedAppName(grant)}
                     subtitle={[
@@ -124,7 +128,7 @@ export function ConnectedAppsScreen(): React.JSX.Element {
                       .join(' · ')}
                     hint={expired ? t('providers.expired') : undefined}
                     hintTestID={`connected-app-expired-${grant.id}`}
-                    last={index === grants.length - 1}
+                    last={lastGrant && stepUp === null}
                     trailing={
                       revoking ? (
                         <ActivityIndicator size="small" color={colors.text.tertiary} />
@@ -141,6 +145,39 @@ export function ConnectedAppsScreen(): React.JSX.Element {
                       )
                     }
                   />
+                  {stepUp !== null && (
+                    // The one-off T2 question under its app, ended on its own:
+                    // the app's own access stands.
+                    <Row
+                      testID={`connected-app-step-up-${grant.id}`}
+                      title={t('tokens.connectedAppsStepUpChild', {
+                        time: stepUp.expires_at ? formatDateTime(stepUp.expires_at, language) : '',
+                      })}
+                      last={lastGrant}
+                      trailing={
+                        stepUpRevoking ? (
+                          <ActivityIndicator size="small" color={colors.text.tertiary} />
+                        ) : (
+                          <Text
+                            className="text-sm font-medium text-primary"
+                            accessibilityRole="button"
+                            onPress={() =>
+                              revokeMutation.mutate([stepUp.id], {
+                                onError: (err: unknown) => {
+                                  const msg = describeApiError(err, { t, fallbackKey: 'errors.unknown' });
+                                  Alert.alert(t('app.couldNotRevokeApp'), msg);
+                                },
+                              })
+                            }
+                            testID={`revoke-step-up-${grant.id}`}
+                          >
+                            {t('app.revoke')}
+                          </Text>
+                        )
+                      }
+                    />
+                  )}
+                  </React.Fragment>
                 );
               })
             )}

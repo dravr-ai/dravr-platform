@@ -37,6 +37,17 @@
 //! tenant and client, whatever its scope, so narrowing to a preset never
 //! leaves an older plain grant standing beside it.
 //!
+//! A step-up child (carnet#1544 slice 4b) is written by its own statements:
+//! [`store_child_grant`](crate::repositories::OAuth2ServerRepository::store_child_grant)
+//! revokes the parent's live child and inserts the new one, with its
+//! `step_up` receipt, in one transaction, and never touches the parent or
+//! the client's tokens; revoking a parent, by id or by withdrawing the
+//! client, revokes its child with it, and a single-use child is consumed by
+//! [`consume_child_grant`](crate::repositories::OAuth2ServerRepository::consume_child_grant)
+//! (a `consume` receipt). Every receipt of a child states its step-up.
+//! Ending a child never revokes the client's refresh tokens: they ride on
+//! the parent.
+//!
 //! The hard deletes, the expire pass and the baseline select across
 //! tenants: they are system sweeps. Every event they write is keyed by the
 //! `(tenant_id, user_id, id)` of the row they read.
@@ -56,7 +67,8 @@ pub(crate) const STORE_CLIENT_GRANT_SQL: &str = r"
                  consent_version, consent_locale, authorization_details, expires_at,
                  standing_policy_id)
             VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, NULL, $6, $7, $8, $9, $10)
-            ON CONFLICT (user_id, tenant_id, client_id, scope) WHERE revoked_at IS NULL
+            ON CONFLICT (user_id, tenant_id, client_id, scope)
+                WHERE revoked_at IS NULL AND parent_grant_id IS NULL
             DO UPDATE SET consent_version = excluded.consent_version,
                           consent_locale = excluded.consent_locale,
                           standing_policy_id = excluded.standing_policy_id
@@ -65,23 +77,28 @@ pub(crate) const STORE_CLIENT_GRANT_SQL: &str = r"
                       CURRENT_TIMESTAMP AS event_at
             ";
 
-/// Soft-delete a grant; `user_id` + `tenant_id` in the filter is the
+/// Soft-delete a parent grant; `user_id` + `tenant_id` in the filter is the
 /// ownership check. Returns the revoked row, so the same transaction can
-/// retire its client's refresh tokens and write its receipt.
+/// retire its client's refresh tokens, its child and write its receipt. A
+/// child is revoked by [`CONSUME_CHILD_GRANT_SQL`]'s statement instead, which
+/// leaves the client's tokens alone.
 pub(crate) const REVOKE_CLIENT_GRANT_SQL: &str = r"
             UPDATE oauth_client_grants
             SET revoked_at = CURRENT_TIMESTAMP
             WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND revoked_at IS NULL
+              AND parent_grant_id IS NULL
             RETURNING id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
                       consent_version, consent_locale, authorization_details, expires_at
             ";
 
-/// Soft-delete every active grant a user gave one client in one tenant;
-/// returns the rows revoked.
+/// Soft-delete every active parent grant a user gave one client in one
+/// tenant; returns the rows revoked. Their children go first
+/// ([`REVOKE_CLIENT_CHILD_GRANTS_SQL`]).
 pub(crate) const WITHDRAW_CLIENT_GRANTS_SQL: &str = r"
             UPDATE oauth_client_grants
             SET revoked_at = CURRENT_TIMESTAMP
             WHERE user_id = $1 AND tenant_id = $2 AND client_id = $3 AND revoked_at IS NULL
+              AND parent_grant_id IS NULL
             RETURNING id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
                       consent_version, consent_locale, authorization_details, expires_at
             ";
@@ -150,7 +167,7 @@ pub(crate) const LIST_EXPIRED_UNENDED_CLIENT_GRANTS_SQL: &str = r"
             )
             ";
 
-/// Un-revoked grants, live or past their expiry, with no `issue` event,
+/// Un-revoked parent grants, live or past their expiry, with no `issue` event,
 /// oldest first, at most `$1`: the grants given before receipts were, which
 /// the baseline gives an `issue`. A grant the expire pass already ended
 /// before the baseline reached it holds an `expire` and no `issue`, and is
@@ -159,7 +176,7 @@ pub(crate) const LIST_UNRECEIPTED_LIVE_CLIENT_GRANTS_SQL: &str = r"
             SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
                    consent_version, consent_locale, authorization_details, expires_at
             FROM oauth_client_grants g
-            WHERE g.revoked_at IS NULL
+            WHERE g.revoked_at IS NULL AND g.parent_grant_id IS NULL
               AND NOT EXISTS (
                 SELECT 1 FROM oauth_grant_events e
                 WHERE e.tenant_id = g.tenant_id AND e.user_id = g.user_id
@@ -167,6 +184,71 @@ pub(crate) const LIST_UNRECEIPTED_LIVE_CLIENT_GRANTS_SQL: &str = r"
             )
             ORDER BY g.granted_at, g.id
             LIMIT $1
+            ";
+
+/// Record a step-up child of grant `$12`; returns it, with its step-up
+/// columns.
+pub(crate) const STORE_CHILD_GRANT_SQL: &str = r"
+            INSERT INTO oauth_client_grants
+                (id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
+                 consent_version, consent_locale, authorization_details, expires_at,
+                 parent_grant_id, step_up_auth_time, step_up_acr, host_profile_basis,
+                 host_profile_tier)
+            VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, NULL, $6, $7, $8, $9, $10, $11, $12,
+                    $13, $14)
+            RETURNING id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
+                      consent_version, consent_locale, authorization_details, expires_at,
+                      parent_grant_id, step_up_auth_time, step_up_acr, host_profile_basis,
+                      host_profile_tier
+            ";
+
+/// The live parent grant `$1` a child would be approved under, held by `$2`
+/// in `$3` for client `$4`; `user_id` + `tenant_id` is the ownership check.
+pub(crate) const FIND_LIVE_PARENT_GRANT_SQL: &str = r"
+            SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
+                   consent_version, consent_locale, authorization_details, expires_at
+            FROM oauth_client_grants
+            WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND client_id = $4
+              AND parent_grant_id IS NULL AND revoked_at IS NULL
+            ";
+
+/// Soft-delete the live child of parent `$1`, held by `$2` in `$3`; returns
+/// it, with its step-up columns.
+pub(crate) const REVOKE_LIVE_CHILD_GRANTS_SQL: &str = r"
+            UPDATE oauth_client_grants
+            SET revoked_at = CURRENT_TIMESTAMP
+            WHERE parent_grant_id = $1 AND user_id = $2 AND tenant_id = $3 AND revoked_at IS NULL
+            RETURNING id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
+                      consent_version, consent_locale, authorization_details, expires_at,
+                      parent_grant_id, step_up_auth_time, step_up_acr, host_profile_basis,
+                      host_profile_tier
+            ";
+
+/// Soft-delete every live child a user's grants to one client hold in one
+/// tenant; returns them, with their step-up columns.
+pub(crate) const REVOKE_CLIENT_CHILD_GRANTS_SQL: &str = r"
+            UPDATE oauth_client_grants
+            SET revoked_at = CURRENT_TIMESTAMP
+            WHERE user_id = $1 AND tenant_id = $2 AND client_id = $3 AND revoked_at IS NULL
+              AND parent_grant_id IS NOT NULL
+            RETURNING id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
+                      consent_version, consent_locale, authorization_details, expires_at,
+                      parent_grant_id, step_up_auth_time, step_up_acr, host_profile_basis,
+                      host_profile_tier
+            ";
+
+/// Consume live child `$1`, held by `$2` in `$3`: one statement, so two
+/// calls racing for a single-use child consume it once. Returns it, with its
+/// step-up columns, when this statement consumed it.
+pub(crate) const CONSUME_CHILD_GRANT_SQL: &str = r"
+            UPDATE oauth_client_grants
+            SET revoked_at = CURRENT_TIMESTAMP
+            WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND revoked_at IS NULL
+              AND parent_grant_id IS NOT NULL
+            RETURNING id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
+                      consent_version, consent_locale, authorization_details, expires_at,
+                      parent_grant_id, step_up_auth_time, step_up_acr, host_profile_basis,
+                      host_profile_tier
             ";
 
 /// Write one grant event. A second terminal event for the same grant
@@ -179,10 +261,12 @@ pub(crate) const INSERT_GRANT_EVENT_SQL: &str = r"
             ON CONFLICT DO NOTHING
             ";
 
-/// The latest `issue` event of grant `$3`, held by `$2` in `$1`.
+/// The latest `issue` event of grant `$3`, held by `$2` in `$1`: a step-up
+/// child's is its `step_up`.
 pub(crate) const LATEST_ISSUE_RECEIPT_SQL: &str = r"
             SELECT id FROM oauth_grant_events
-            WHERE tenant_id = $1 AND user_id = $2 AND client_grant_id = $3 AND event = 'issue'
+            WHERE tenant_id = $1 AND user_id = $2 AND client_grant_id = $3
+              AND event IN ('issue', 'step_up')
             ORDER BY at DESC, id DESC
             LIMIT 1
             ";
@@ -301,6 +385,13 @@ macro_rules! impl_client_grant_writes {
                 let grant = client_grant_from_row(&row)?;
                 let ended_at = grant.revoked_at.unwrap_or(grant.granted_at);
                 Self::end_grant_in(conn, &grant, actor, ended_at).await?;
+                Self::end_children_in(
+                    conn,
+                    $crate::repositories::tokens::grant_writes::REVOKE_LIVE_CHILD_GRANTS_SQL,
+                    [grant.id.as_str(), user_id, tenant_id],
+                    actor,
+                )
+                .await?;
                 let client_id = grant.client_id;
 
                 // The grant is the consent the client's refresh tokens ride
@@ -460,7 +551,9 @@ macro_rules! impl_client_grant_writes {
                 Ok(stored.id)
             }
 
-            /// `revoke_client_grant`: one grant and what rides on it.
+            /// `revoke_client_grant`: one grant and what rides on it. A
+            /// step-up child ends alone: its parent and the client's tokens
+            /// stand.
             async fn revoke_grant_rows(
                 &self,
                 id: &str,
@@ -468,13 +561,38 @@ macro_rules! impl_client_grant_writes {
                 tenant_id: &str,
                 actor: GrantActor,
             ) -> AppResult<bool> {
-                let mut tx = self.pool().begin().await.map_err(|e| {
+                let revoke_error = |e: sqlx::Error| {
                     AppError::database(format!("Failed to revoke OAuth client grant: {e}"))
-                })?;
+                };
+                let mut tx = self.pool().begin().await.map_err(revoke_error)?;
                 let Some(client_id) =
                     Self::revoke_grant_in(&mut tx, id, user_id, tenant_id, actor).await?
                 else {
-                    return Ok(false);
+                    let child = sqlx::query(
+                        $crate::repositories::tokens::grant_writes::CONSUME_CHILD_GRANT_SQL,
+                    )
+                    .bind(id)
+                    .bind(user_id)
+                    .bind(tenant_id)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(revoke_error)?;
+                    let Some(row) = child else {
+                        return Ok(false);
+                    };
+                    let child = $crate::repositories::tokens::child_grant_from_row(&row)?;
+                    let ended_at = child.grant.revoked_at.unwrap_or(child.grant.granted_at);
+                    let (event, actor, at) = GrantEvent::ending(&child.grant, actor, ended_at);
+                    Self::record_grant_event_in(
+                        &mut tx,
+                        &child.grant,
+                        event,
+                        ReceiptApproval::by(actor).stepped_up(&child.terms),
+                        at,
+                    )
+                    .await?;
+                    tx.commit().await.map_err(revoke_error)?;
+                    return Ok(true);
                 };
                 // A revoke also ends the athlete's standing policies for the
                 // client, so nothing renews the grant behind the revoke.
@@ -562,6 +680,13 @@ macro_rules! impl_client_grant_writes {
                     AppError::database(format!("Failed to withdraw OAuth client access: {e}"))
                 };
                 let client = GrantActor::Client;
+                Self::end_children_in(
+                    conn,
+                    $crate::repositories::tokens::grant_writes::REVOKE_CLIENT_CHILD_GRANTS_SQL,
+                    [user_id, tenant_id, client_id],
+                    client,
+                )
+                .await?;
                 let withdrawn = sqlx::query(WITHDRAW_CLIENT_GRANTS_SQL)
                     .bind(user_id)
                     .bind(tenant_id)
@@ -725,6 +850,153 @@ macro_rules! impl_client_grant_writes {
                 Ok(written)
             }
 
+            /// Run `sql`, which revokes child grants and returns them, with
+            /// `binds`, in `conn`'s transaction, and write each child's
+            /// ending caused by `actor`, stating its step-up. The client's
+            /// refresh tokens are not touched: they ride on the parent.
+            async fn end_children_in(
+                conn: &mut <<$row as sqlx::Row>::Database as sqlx::Database>::Connection,
+                sql: &str,
+                binds: [&str; 3],
+                actor: GrantActor,
+            ) -> AppResult<()> {
+                let [first, second, third] = binds;
+                let rows = sqlx::query(sql)
+                    .bind(first)
+                    .bind(second)
+                    .bind(third)
+                    .fetch_all(&mut *conn)
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to revoke a step-up grant: {e}"))
+                    })?;
+                for row in &rows {
+                    let child = $crate::repositories::tokens::child_grant_from_row(row)?;
+                    let ended_at = child.grant.revoked_at.unwrap_or(child.grant.granted_at);
+                    let (event, actor, at) = GrantEvent::ending(&child.grant, actor, ended_at);
+                    Self::record_grant_event_in(
+                        conn,
+                        &child.grant,
+                        event,
+                        ReceiptApproval::by(actor).stepped_up(&child.terms),
+                        at,
+                    )
+                    .await?;
+                }
+                Ok(())
+            }
+
+            /// `store_child_grant`: under the live parent the child names,
+            /// revoke its live child and insert this one, with its `step_up`
+            /// receipt, in one transaction. Returns the child's id, or
+            /// `None`, storing nothing, when the parent is no longer a live
+            /// grant of the same user, tenant and client.
+            async fn store_child_rows(
+                &self,
+                child: &ChildGrant,
+                approval: &GrantApproval,
+            ) -> AppResult<Option<String>> {
+                use $crate::repositories::tokens::grant_writes::{
+                    FIND_LIVE_PARENT_GRANT_SQL, REVOKE_LIVE_CHILD_GRANTS_SQL,
+                    STORE_CHILD_GRANT_SQL,
+                };
+                let store_error = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to store a step-up grant: {e}"))
+                };
+                let grant = &child.grant;
+                let terms = &child.terms;
+                let mut tx = self.pool().begin().await.map_err(store_error)?;
+                let parent = sqlx::query(FIND_LIVE_PARENT_GRANT_SQL)
+                    .bind(&terms.parent_grant_id)
+                    .bind(&grant.user_id)
+                    .bind(&grant.tenant_id)
+                    .bind(&grant.client_id)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(store_error)?
+                    .map(|row| $crate::repositories::tokens::client_grant_from_row(&row))
+                    .transpose()?;
+                if !parent.is_some_and(|parent| parent.is_live_at(Timestamp::now())) {
+                    return Ok(None);
+                }
+                Self::end_children_in(
+                    &mut tx,
+                    REVOKE_LIVE_CHILD_GRANTS_SQL,
+                    [terms.parent_grant_id.as_str(), &grant.user_id, &grant.tenant_id],
+                    approval.actor,
+                )
+                .await?;
+                let row = sqlx::query(STORE_CHILD_GRANT_SQL)
+                    .bind(&grant.id)
+                    .bind(&grant.user_id)
+                    .bind(&grant.tenant_id)
+                    .bind(&grant.client_id)
+                    .bind(&grant.scope)
+                    .bind(&grant.consent_version)
+                    .bind(&grant.consent_locale)
+                    .bind(&grant.authorization_details)
+                    .bind(grant.expires_at)
+                    .bind(&terms.parent_grant_id)
+                    .bind(terms.auth_time.epoch_seconds())
+                    .bind(&terms.acr)
+                    .bind(terms.host_profile_basis.as_str())
+                    .bind(&terms.host_profile_tier)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .map_err(store_error)?;
+                let stored = $crate::repositories::tokens::child_grant_from_row(&row)?;
+                Self::record_grant_event_in(
+                    &mut tx,
+                    &stored.grant,
+                    GrantEvent::StepUp,
+                    ReceiptApproval::from_approval(approval).stepped_up(&stored.terms),
+                    stored.grant.granted_at,
+                )
+                .await?;
+                tx.commit().await.map_err(store_error)?;
+                Ok(Some(stored.grant.id))
+            }
+
+            /// `consume_child_grant`: consume live child `id` and write its
+            /// `consume` receipt, by the client whose read consumed it, in one
+            /// transaction. Returns whether this call consumed it: a second
+            /// call, or a child already ended, consumes nothing.
+            async fn consume_child_rows(
+                &self,
+                id: &str,
+                user_id: &str,
+                tenant_id: &str,
+            ) -> AppResult<bool> {
+                let consume_error = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to consume a step-up grant: {e}"))
+                };
+                let mut tx = self.pool().begin().await.map_err(consume_error)?;
+                let row = sqlx::query(
+                    $crate::repositories::tokens::grant_writes::CONSUME_CHILD_GRANT_SQL,
+                )
+                .bind(id)
+                .bind(user_id)
+                .bind(tenant_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(consume_error)?;
+                let Some(row) = row else {
+                    return Ok(false);
+                };
+                let child = $crate::repositories::tokens::child_grant_from_row(&row)?;
+                let at = child.grant.revoked_at.unwrap_or(child.grant.granted_at);
+                Self::record_grant_event_in(
+                    &mut tx,
+                    &child.grant,
+                    GrantEvent::Consume,
+                    ReceiptApproval::by(GrantActor::Client).stepped_up(&child.terms),
+                    at,
+                )
+                .await?;
+                tx.commit().await.map_err(consume_error)?;
+                Ok(true)
+            }
+
             /// The baseline: up to `limit` un-revoked grants with no `issue`
             /// event (live, or past their expiry) get one (by the AS, flagged
             /// a baseline, at their `granted_at`), in one transaction. Returns
@@ -748,6 +1020,7 @@ macro_rules! impl_client_grant_writes {
                         actor: GrantActor::Auto,
                         standing_policy: None,
                         baseline: true,
+                        step_up: None,
                     };
                     if Self::record_grant_event_in(
                         &mut tx,

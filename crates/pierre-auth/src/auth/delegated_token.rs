@@ -138,6 +138,7 @@ impl AuthManager {
                 .map(|jkt| Confirmation {
                     jkt: jkt.to_owned(),
                 }),
+            auth_time: None,
         };
 
         // Get active RSA key from JWKS manager

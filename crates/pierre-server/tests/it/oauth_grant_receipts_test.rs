@@ -1221,9 +1221,9 @@ async fn the_export_carries_each_receipt_its_consent_record_and_its_log_entry() 
             .find(|record| record["@id"] == format!("urn:health-receipt:{}", receipt.id))
             .unwrap_or_else(|| panic!("bug: no record for receipt {}", receipt.id));
         let status = match receipt.event {
-            GrantEvent::Issue => "dpv:ConsentGiven",
+            GrantEvent::Issue | GrantEvent::StepUp => "dpv:ConsentGiven",
             GrantEvent::Revoke => "dpv:ConsentWithdrawn",
-            GrantEvent::Expire => "dpv:ConsentExpired",
+            GrantEvent::Expire | GrantEvent::Consume => "dpv:ConsentExpired",
         };
         assert_eq!(
             record["dpv:hasConsentStatus"]["@id"], status,

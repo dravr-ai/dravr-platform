@@ -1139,6 +1139,7 @@ mod tests {
             grant_id: None,
             client_grant_id: None,
             cnf: None,
+            auth_time: None,
         }
     }
 

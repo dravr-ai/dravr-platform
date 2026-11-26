@@ -45,6 +45,7 @@ use pierre_auth::oauth2_server::authorization_details::ResolvedDetails;
 use pierre_auth::oauth2_server::client_auth::{is_basic_authorization, resolve_client_credentials};
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::OAuth2Error;
+use pierre_auth::oauth2_server::step_up_echo::StepUpEcho;
 use pierre_auth::rate_limiting::OAuth2Endpoint;
 use pierre_core::errors::AppError;
 use secrecy::ExposeSecret;
@@ -103,9 +104,17 @@ pub(super) struct Introspection {
     /// plain grant
     #[serde(skip_serializing_if = "Option::is_none")]
     authorization_details: Option<ResolvedDetails>,
+    /// The live step-up child the token reads beside its grant (owl §7.6):
+    /// its details and `step_up_result`; absent when the grant has none
+    #[serde(skip_serializing_if = "Option::is_none")]
+    step_up: Option<StepUpEcho>,
     #[serde(skip_serializing_if = "Option::is_none")]
     health_inactive_cause: Option<InactiveCause>,
 }
+
+/// What a delegated token's standing grant was approved for: its details
+/// (`None` for a plain grant) and its live step-up child.
+type Admitted = (Option<ResolvedDetails>, Option<StepUpEcho>);
 
 impl Introspection {
     /// The answer for an inactive token.
@@ -118,7 +127,7 @@ impl Introspection {
 
     /// The answer for an active token, from its verified claims and the
     /// details its grant was approved for.
-    fn active(claims: Claims, authorization_details: Option<ResolvedDetails>) -> Self {
+    fn active(claims: Claims, (authorization_details, step_up): Admitted) -> Self {
         let token_type = if claims.cnf.is_some() {
             DPOP_SCHEME
         } else {
@@ -139,6 +148,7 @@ impl Introspection {
             pdpp_token_kind,
             grant_id: claims.client_grant_id,
             authorization_details,
+            step_up,
             health_inactive_cause: None,
         }
     }
@@ -276,7 +286,7 @@ impl OAuth2Routes {
         let standing = if let Some(client_id) = claims.client_credentials_client() {
             Self::client_standing(context, client_id)
                 .await?
-                .map_or(Ok(None), Err)
+                .map_or(Ok((None, None)), Err)
         } else if claims.is_delegated() {
             Self::grant_standing(context, &claims).await?
         } else {
@@ -307,11 +317,11 @@ impl OAuth2Routes {
 
     /// Whether a delegated token's consent grant stands, read as `/mcp` reads
     /// it: the details the grant was approved for when it does (`None` for a
-    /// plain grant), else why not.
+    /// plain grant) and its live step-up child, else why not.
     async fn grant_standing(
         context: &OAuth2Context,
         claims: &Claims,
-    ) -> Result<Result<Option<ResolvedDetails>, InactiveCause>, AppError> {
+    ) -> Result<Result<Admitted, InactiveCause>, AppError> {
         let (Some(client_id), Ok(user_id)) =
             (claims.client_id.as_deref(), Uuid::parse_str(&claims.sub))
         else {
@@ -332,17 +342,18 @@ impl OAuth2Routes {
             .await?;
         let client_grant_id = claims.client_grant_id.as_deref();
         if standing.admits_token(claims.iat, client_grant_id, now) {
-            let document = client_grant_id.and_then(|id| {
-                standing
-                    .grants
-                    .iter()
-                    .find(|grant| grant.id == id)
-                    .and_then(|grant| grant.authorization_details.as_deref())
-            });
-            return document
+            let held =
+                client_grant_id.and_then(|id| standing.grants.iter().find(|grant| grant.id == id));
+            let details = held
+                .and_then(|grant| grant.authorization_details.as_deref())
                 .map(ResolvedDetails::from_document)
-                .transpose()
-                .map(Ok);
+                .transpose()?;
+            let step_up = held
+                .and_then(|grant| grant.child.as_ref())
+                .filter(|child| child.expires_at.is_none_or(|expires_at| now < expires_at))
+                .map(StepUpEcho::of_standing)
+                .transpose()?;
+            return Ok(Ok((details, step_up)));
         }
         let Some(client_grant_id) = client_grant_id else {
             return Ok(Err(InactiveCause::Revoked));

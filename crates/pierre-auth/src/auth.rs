@@ -243,6 +243,14 @@ pub struct Claims {
     /// before this claim existed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cnf: Option<Confirmation>,
+    /// When the athlete last signed in on the authorization server's own page
+    /// (RFC 9470 `auth_time`, seconds since the Unix epoch): set only on the
+    /// sign-in token the hosted login (password or Google, verified by Dravr)
+    /// mints, which a step-up approval must find at most five minutes old.
+    /// `None` on every other token, so no web-app session, refreshed session
+    /// or delegated token ever satisfies a step-up.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_time: Option<i64>,
 }
 
 /// A token's confirmation claim (RFC 7800 `cnf`), carrying the RFC 7638
@@ -556,6 +564,9 @@ impl AuthManager {
             grant_id: None,
             client_grant_id: None,
             cnf: None,
+            // Only the hosted login's sign-in records when it happened: a
+            // step-up reads it, and no other session may satisfy one.
+            auth_time: (audience == OAUTH2_AUTHORIZE).then_some(now.epoch_seconds()),
         };
 
         // Get active RSA key from JWKS manager
@@ -628,6 +639,7 @@ impl AuthManager {
             grant_id: None,
             client_grant_id: None,
             cnf: None,
+            auth_time: None,
         };
 
         // Get active RSA key from JWKS manager
@@ -1073,6 +1085,7 @@ impl AuthManager {
             grant_id: None,
             client_grant_id: None,
             cnf: None,
+            auth_time: None,
         };
 
         // Get active RSA key from JWKS manager

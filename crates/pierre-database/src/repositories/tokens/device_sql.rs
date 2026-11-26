@@ -1,13 +1,8 @@
-// ABOUTME: The RFC 8628 device authorization statements of the OAuth 2.0 server — open, read, decide, consume, sweep
-// ABOUTME: One SQL text per operation for both backends, used by the shared repository body in the parent module
+// ABOUTME: The RFC 8628 device authorization statements: open, read by either code, approve, deny, consume, sweep
+// ABOUTME: One SQL text per operation, shared by both backends through the OAuth 2.0 server repository macro
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
-
-//! RFC 8628 device authorization statements.
-//!
-//! `device_authorization` keeps epoch seconds in a `BIGINT`/`INTEGER` column,
-//! so every expiry bound here is an `i64` on both backends.
 
 /// Delete every device authorization past its expiry: `$1` is now, in epoch
 /// seconds. `<=` is the comparison the token endpoint and the approval read

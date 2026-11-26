@@ -461,6 +461,44 @@ pub(super) struct ResolvedClient {
     pub(super) client: OAuth2Client,
     /// Whether it has a row yet; one without waits for an athlete to sign in.
     pub(super) is_stored: bool,
+    /// The Host Profile the document declares, when it was read now; a
+    /// stored row keeps the one it was last written with
+    pub(super) host_profile: Option<String>,
+}
+
+/// The `mcp_host_profile` member a client's metadata document declares.
+///
+/// It is owl PDPP §6.2 carrier A, returned as the JSON
+/// `{"tier_max": "T2", "version": v}` this server stores; `None` when it
+/// declares none, or a tier this server does not grant an outside host (T3)
+/// or cannot read.
+#[must_use]
+pub fn host_profile_from_document(body: &[u8]) -> Option<String> {
+    let document: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let declared = document.get("mcp_host_profile")?;
+    let tier = match declared
+        .get("tier_max")?
+        .as_str()?
+        .to_ascii_uppercase()
+        .as_str()
+    {
+        tier @ ("T0" | "T1" | "T2") => tier.to_owned(),
+        _ => return None,
+    };
+    let version = declared
+        .get("version")
+        .filter(|version| version.is_u64() || version.is_string())
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    Some(serde_json::json!({"tier_max": tier, "version": version}).to_string())
+}
+
+/// The tier a stored Host Profile declares, `"T2"` and the like; `None` for
+/// none, or one that does not read.
+#[must_use]
+pub fn host_profile_tier(stored: &str) -> Option<String> {
+    let declared: serde_json::Value = serde_json::from_str(stored).ok()?;
+    declared.get("tier_max")?.as_str().map(str::to_owned)
 }
 
 /// Resolves a metadata document `client_id` to the public client it describes.
@@ -526,6 +564,7 @@ impl MetadataResolver {
                 return Ok(ResolvedClient {
                     client: stored.clone(),
                     is_stored: true,
+                    host_profile: None,
                 });
             }
         }
@@ -538,6 +577,7 @@ impl MetadataResolver {
                 return Ok(ResolvedClient {
                     client: stored,
                     is_stored: true,
+                    host_profile: None,
                 });
             }
             (Err(error), _) => {
@@ -564,11 +604,20 @@ impl MetadataResolver {
             .update_public_client_metadata(&client)
             .await
             .map_err(|e| CimdError::Store(e.to_string()))?;
+        let host_profile = host_profile_from_document(body);
         if is_stored {
+            self.oauth2
+                .set_client_host_profile(client_id, host_profile.as_deref())
+                .await
+                .map_err(|e| CimdError::Store(e.to_string()))?;
             remember(client_id);
             info!(url_digest = %digest, "client metadata document refreshed");
         }
-        Ok(ResolvedClient { client, is_stored })
+        Ok(ResolvedClient {
+            client,
+            is_stored,
+            host_profile,
+        })
     }
 
     /// Store a client [`Self::resolve`] read but did not store, counted against
@@ -578,7 +627,11 @@ impl MetadataResolver {
     /// # Errors
     /// Returns [`CimdError::Store`] when the ceiling is reached or the row
     /// cannot be written.
-    pub(super) async fn enroll(&self, client: &OAuth2Client) -> Result<(), CimdError> {
+    pub(super) async fn enroll(
+        &self,
+        client: &OAuth2Client,
+        host_profile: Option<&str>,
+    ) -> Result<(), CimdError> {
         let store_error = |e: AppError| CimdError::Store(e.to_string());
         let stored = self
             .oauth2
@@ -603,6 +656,10 @@ impl MetadataResolver {
                 }
             }
         }
+        self.oauth2
+            .set_client_host_profile(&client.client_id, host_profile)
+            .await
+            .map_err(store_error)?;
         remember(&client.client_id);
         info!(url_digest = %url_digest(&client.client_id), "client metadata document stored");
         Ok(())
@@ -1022,6 +1079,26 @@ mod tests {
         assert_eq!(
             CimdError::Status(503).into_oauth2_error().error,
             "temporarily_unavailable"
+        );
+    }
+
+    #[test]
+    fn a_declared_host_profile_is_read_and_t3_or_nonsense_is_not() {
+        let declared = |member: &str| {
+            host_profile_from_document(
+                document(URL, &format!(r#","mcp_host_profile":{member}"#)).as_slice(),
+            )
+        };
+        let t2 = declared(r#"{"tier_max":"t2","version":1}"#).expect("bug: T2 not read");
+        assert_eq!(host_profile_tier(&t2).as_deref(), Some("T2"), "bug: tier");
+        assert!(
+            declared(r#"{"tier_max":"t3"}"#).is_none(),
+            "bug: a T3 host read"
+        );
+        assert!(declared(r#"{"version":1}"#).is_none(), "bug: no tier read");
+        assert!(
+            host_profile_from_document(&document(URL, "")).is_none(),
+            "bug: a document declaring none read as one"
         );
     }
 }

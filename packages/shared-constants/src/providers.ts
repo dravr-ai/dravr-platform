@@ -188,6 +188,15 @@ export const SCIOTTE_CODE_REJECTED = 'code_rejected' as const;
 export const SCIOTTE_NUMBER_MATCH_REPOLL_MS = 2000;
 
 /**
+ * The `option_id` that leaves a number-match sign-in for the provider's 2FA
+ * chooser, for an athlete whose phone never shows the prompt: the step
+ * answers `two_factor_choice` (or `otp_required`) on the same flow. Sent only
+ * between two polls — a poll in flight holds the flow, and a step sent beside
+ * it is refused. Mirrors the sign-in service's `ANOTHER_WAY_OPTION`.
+ */
+export const SCIOTTE_ANOTHER_WAY_OPTION = 'another_way' as const;
+
+/**
  * `details.reason` of the refusal a credential sign-in step gets once its flow
  * has lapsed: the sign-in has to start again. Mirrors the server's
  * `LOGIN_FLOW_EXPIRED_REASON`; read it with `refusalReason` from

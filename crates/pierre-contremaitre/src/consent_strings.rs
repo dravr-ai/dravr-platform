@@ -129,6 +129,81 @@ pub const KEY_CONSENT_GRANT_COMMITMENTS: &str = "oauth.consent.grantCommitments"
 /// preset, renewing it without asking again
 pub const KEY_CONSENT_STANDING_POLICY: &str = "oauth.consent.standingPolicy";
 
+// The step-up screen's lines (owl Phase 5, slice 4b), under their own
+// `oauth.stepUp.` namespace: the plain consent screen never shows them, so
+// they are versioned with the step-up screen's own review digest
+// (`STEP_UP_SCREEN_KEYS`), never in `CONSENT_SCREEN_KEYS`, and a remembered
+// ordinary grant is not asked again when they change. While the English line
+// of any is empty, the step-up screen is not offered and a step-up request is
+// refused before sign-in ("step-up is not offered yet").
+
+/// Key: the step-up screen's title: `{0}`, the client, asks for a one-off
+/// look that includes health records
+pub const KEY_STEP_UP_TITLE: &str = "oauth.stepUp.title";
+/// Key: what a one-off grant discloses: health records (T2) among what it
+/// reads, read once, then ended. `{0}`, the client
+pub const KEY_STEP_UP_T2_DISCLOSURE: &str = "oauth.stepUp.t2Disclosure";
+/// Key: the host's own declaration, which Dravr cannot verify: `{0}`, the
+/// client, says it handles health records with care
+pub const KEY_STEP_UP_HOST: &str = "oauth.stepUp.host";
+/// Key: above the streams a one-off question reads: `{0}`, the client, may
+/// read these once
+pub const KEY_STEP_UP_STREAMS_TITLE: &str = "oauth.stepUp.streamsTitle";
+/// Key: the daily activity stream, on the step-up screen. No placeholders.
+pub const KEY_STEP_UP_STREAM_ACTIVITY_DAILY: &str = "oauth.stepUp.stream.activityDaily";
+/// Key: the workouts stream, on the step-up screen. No placeholders.
+pub const KEY_STEP_UP_STREAM_WORKOUT: &str = "oauth.stepUp.stream.workout";
+/// Key: the training load stream, on the step-up screen. No placeholders.
+pub const KEY_STEP_UP_STREAM_TRAINING_LOAD: &str = "oauth.stepUp.stream.trainingLoad";
+/// Key: the sleep stream, on the step-up screen. No placeholders.
+pub const KEY_STEP_UP_STREAM_SLEEP: &str = "oauth.stepUp.stream.sleep";
+/// Key: the daily heart rate summary stream, on the step-up screen. No
+/// placeholders.
+pub const KEY_STEP_UP_STREAM_CARDIO_DAILY: &str = "oauth.stepUp.stream.cardioDaily";
+/// Key: the body measurements stream, on the step-up screen. No placeholders.
+pub const KEY_STEP_UP_STREAM_BODY: &str = "oauth.stepUp.stream.body";
+/// Key: the fitness estimates stream, on the step-up screen. No placeholders.
+pub const KEY_STEP_UP_STREAM_FITNESS: &str = "oauth.stepUp.stream.fitness";
+/// Key: the daily recovery stream, on the step-up screen. No placeholders.
+pub const KEY_STEP_UP_STREAM_RECOVERY_DAILY: &str = "oauth.stepUp.stream.recoveryDaily";
+/// Key: the profile stream, on the step-up screen. No placeholders.
+pub const KEY_STEP_UP_STREAM_PROFILE: &str = "oauth.stepUp.stream.profile";
+/// Key: the lab results stream, on the step-up screen. No placeholders.
+pub const KEY_STEP_UP_STREAM_LABS: &str = "oauth.stepUp.stream.labs";
+
+/// Every line the step-up screen can show beside the requested details': its
+/// own review digest covers them, and its test holds every `oauth.stepUp.`
+/// key in the catalogue to this list.
+pub const STEP_UP_SCREEN_KEYS: [&str; 14] = [
+    KEY_STEP_UP_TITLE,
+    KEY_STEP_UP_T2_DISCLOSURE,
+    KEY_STEP_UP_HOST,
+    KEY_STEP_UP_STREAMS_TITLE,
+    KEY_STEP_UP_STREAM_ACTIVITY_DAILY,
+    KEY_STEP_UP_STREAM_WORKOUT,
+    KEY_STEP_UP_STREAM_TRAINING_LOAD,
+    KEY_STEP_UP_STREAM_SLEEP,
+    KEY_STEP_UP_STREAM_CARDIO_DAILY,
+    KEY_STEP_UP_STREAM_BODY,
+    KEY_STEP_UP_STREAM_FITNESS,
+    KEY_STEP_UP_STREAM_RECOVERY_DAILY,
+    KEY_STEP_UP_STREAM_PROFILE,
+    KEY_STEP_UP_STREAM_LABS,
+];
+
+/// Whether `strings` word every line of the step-up screen in English.
+///
+/// The one switch of the step-up. The pinned catalogue words them; a catalogue
+/// that lost any (a contremaitre sync dropping it) turns the step-up off
+/// rather than show an athlete a screen with a line missing: the AS refuses a
+/// step-up request and no tool refusal offers one.
+#[must_use]
+pub fn step_up_worded(strings: &crate::MessagingStringsRegistry) -> bool {
+    STEP_UP_SCREEN_KEYS
+        .iter()
+        .all(|key| strings.get_exact(key, "en").is_some())
+}
+
 /// Every line the consent screen can show.
 ///
 /// What the user reads when they choose Allow access.

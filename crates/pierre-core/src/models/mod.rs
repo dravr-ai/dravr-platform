@@ -254,13 +254,20 @@ pub use oauth_client::OAuthClientState;
 // Tenant domain
 pub use tenant::{
     ClientGrantStanding, LlmCredentialRecord, LlmCredentialSummary, OAuthClientGrant,
-    StandingGrant, Tenant, TenantId, TenantOAuthCredentials,
+    StandingChild, StandingGrant, Tenant, TenantId, TenantOAuthCredentials,
 };
 
 // Tool selection domain
 pub use tool_selection::{
     CategorySummary, EffectiveTool, SetToolOverrideRequest, TenantPlan, TenantToolOverride,
     ToolAvailabilitySummary, ToolCatalogEntry, ToolCategory, ToolEnablementSource,
+};
+
+// Step-up child grants: one-off T2 access under a live grant (carnet#1544 slice 4b)
+mod child_grant;
+pub use child_grant::{
+    ChildGrant, HostProfileBasis, StepUpResult, StepUpTerms, OWNER_VERIFIED_ACR,
+    STEP_UP_MAX_AGE_SECS,
 };
 
 // A consent grant's receipts (carnet#1544)

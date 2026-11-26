@@ -9,6 +9,7 @@
 
 use crate::common;
 use crate::tier_consent_test::allow_memory_to_ai;
+use crate::transport_gate_e2e_test::api_key;
 
 use std::sync::Arc;
 
@@ -447,86 +448,12 @@ async fn every_history_the_athlete_brought_in_is_the_devices_record() {
     }
 }
 
-#[tokio::test]
-async fn the_agents_memory_is_t3_sensitive_and_agent_written() {
-    let resources = server().await;
-    let rider = athlete(&resources).await;
-    allow_memory_to_ai(
-        resources.agent.database.repositories(),
-        rider.tenant.as_uuid(),
-        rider.user_id,
-    )
-    .await;
-    // The agent remembers in Dravr's own app; an MCP caller recalls it.
+/// The agent remembers `morning workouts` in Dravr's own app, approved so a
+/// recall serves it.
+async fn remember_approved(resources: &Arc<ServerContext>, rider: &Rider) {
     let remembered = call(
-        &resources,
-        &rider,
-        Transport::WebApp,
-        false,
-        "remember_fact",
-        json!({
-            "kind": "preference",
-            "predicate_code": "prefer",
-            "object": "morning workouts",
-            "confidence": 0.95,
-        }),
-    )
-    .await;
-    assert!(remembered.success, "{:?}", remembered.error);
-    let fact = remembered.result.expect("the fact was filed");
-    assert_eq!(fact["status"], "draft", "{fact}");
-    assert_eq!(
-        label(&resources, &rider, "recall_user_memory", json!({})).await,
-        None,
-        "a draft is not recalled, so nothing was served"
-    );
-    resources
-        .agent
-        .database
-        .repositories()
-        .memory
-        .approve_user_fact(
-            fact["fact_id"].as_str().expect("the fact names its id"),
-            rider.tenant,
-            &rider.user_id.to_string(),
-        )
-        .await
-        .unwrap();
-
-    let label = label(&resources, &rider, "recall_user_memory", json!({}))
-        .await
-        .expect("the remembered fact was served");
-    assert_eq!(
-        label,
-        json!({
-            "v": 1,
-            "tier": "T3",
-            "source_class": ["agent_written"],
-            "sensitive": true,
-            "untrusted": true
-        }),
-        "the agent's memory is T3, sensitive and the agent's own unchecked writing"
-    );
-}
-
-#[tokio::test]
-async fn the_dossier_carrying_the_agents_memory_is_t3_and_agent_written() {
-    let resources = server().await;
-    let rider = athlete(&resources).await;
-    allow_memory_to_ai(
-        resources.agent.database.repositories(),
-        rider.tenant.as_uuid(),
-        rider.user_id,
-    )
-    .await;
-    assert_eq!(
-        label(&resources, &rider, "export_dossier", json!({})).await,
-        None,
-        "an empty dossier served nothing"
-    );
-    let remembered = call(
-        &resources,
-        &rider,
+        resources,
+        rider,
         Transport::WebApp,
         false,
         "remember_fact",
@@ -552,34 +479,14 @@ async fn the_dossier_carrying_the_agents_memory_is_t3_and_agent_written() {
         )
         .await
         .unwrap();
-
-    let response = call(
-        &resources,
-        &rider,
-        Transport::McpHttp,
-        true,
-        "export_dossier",
-        json!({}),
-    )
-    .await;
-    assert!(response.success, "{:?}", response.error);
-    assert!(
-        response
-            .result
-            .as_ref()
-            .is_some_and(|r| r.to_string().contains("morning workouts")),
-        "the remembered fact is in the dossier: {:?}",
-        response.result
-    );
-    let label = labels_of(&response).expect("the dossier served the agent's memory");
-    assert_eq!(label["tier"], "T3", "{label}");
-    assert_eq!(label["sensitive"], true, "{label}");
-    assert_eq!(label["source_class"], json!(["agent_written"]), "{label}");
-    assert_eq!(label["untrusted"], true, "{label}");
 }
 
+/// T3 never goes to an outside client, `sensitive_t3` given or not
+/// (JF 2026-11-25): the agent's memory and the dossier carrying it
+/// are T3, so an MCP or A2A caller is refused both, and no T3 label is ever
+/// sent. Dravr's own agent still reads them.
 #[tokio::test]
-async fn the_dossier_labels_the_sport_anchors_it_carries() {
+async fn the_agents_memory_and_the_dossier_never_reach_an_outside_caller() {
     let resources = server().await;
     let rider = athlete(&resources).await;
     allow_memory_to_ai(
@@ -588,45 +495,184 @@ async fn the_dossier_labels_the_sport_anchors_it_carries() {
         rider.user_id,
     )
     .await;
-    // The athlete states one per-sport anchor in Dravr's own app; the profile
-    // beside it holds no other value.
-    let stated = call(
+    remember_approved(&resources, &rider).await;
+
+    for transport in [Transport::McpHttp, Transport::A2a] {
+        for tool in ["recall_user_memory", "export_dossier"] {
+            let response = call(&resources, &rider, transport, true, tool, json!({})).await;
+            assert!(
+                !response.success,
+                "bug: {tool} over {transport:?} served T3 under sensitive_t3"
+            );
+            let result = response
+                .result
+                .as_ref()
+                .expect("the refusal carries a result");
+            assert_eq!(
+                result["error_code"], "sensitive_tier_withheld",
+                "{tool} over {transport:?}: {result}"
+            );
+            assert!(
+                !result.to_string().contains("morning workouts"),
+                "bug: the refusal leaked the memory: {result}"
+            );
+            assert_eq!(
+                labels_of(&response),
+                None,
+                "bug: a T3 label reached an outside caller ({tool}, {transport:?})"
+            );
+        }
+    }
+
+    let own = call(
         &resources,
         &rider,
         Transport::WebApp,
         false,
-        "set_physiology",
-        json!({ "sport_anchors": [{
-            "sport": "ride", "anchor": "map", "value": 380, "kind": "measured",
-            "source": "lab", "measured_on": "2026-11-02"
-        }]}),
-    )
-    .await;
-    assert!(stated.success, "{:?}", stated.error);
-
-    let response = call(
-        &resources,
-        &rider,
-        Transport::McpHttp,
-        true,
-        "export_dossier",
+        "recall_user_memory",
         json!({}),
     )
     .await;
-    assert!(response.success, "{:?}", response.error);
     assert!(
-        response
-            .result
-            .as_ref()
-            .is_some_and(|r| r["sport_anchors"].as_array().is_some_and(|a| a.len() == 1)),
-        "the stated anchor is in the dossier: {:?}",
-        response.result
+        own.success
+            && own
+                .result
+                .as_ref()
+                .is_some_and(|r| r.to_string().contains("morning workouts")),
+        "bug: Dravr's own agent keeps its memory: {:?}",
+        own.result
     );
-    let label = labels_of(&response).expect("the dossier served the athlete's anchor");
+}
+
+/// T3 never goes to an outside client on any surface, `sensitive_t3` given
+/// (JF 2026-11-25): `/mcp` `tools/call`, `GET /mcp/tools`, A2A
+/// `SendMessage` and the REST memory route each carry nothing of the agent's
+/// memory, while the athlete's own session still reads it.
+#[tokio::test]
+async fn no_outside_surface_serves_t3_under_sensitive_t3() {
+    let resources = server().await;
+    let rider = athlete(&resources).await;
+    allow_memory_to_ai(
+        resources.agent.database.repositories(),
+        rider.tenant.as_uuid(),
+        rider.user_id,
+    )
+    .await;
+    remember_approved(&resources, &rider).await;
+    resources
+        .a2a
+        .a2a_client_manager
+        .register_client(
+            pierre_a2a::ClientRegistrationRequest {
+                name: format!("t3-agent-{}", rider.user_id),
+                description: "an agent writing its own replies".into(),
+                capabilities: vec!["fitness-data-analysis".into()],
+                redirect_uris: vec![],
+                contact_email: "agent@example.com".into(),
+            },
+            rider.user_id,
+        )
+        .await
+        .unwrap();
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let delegated = format!(
+        "Bearer {}",
+        common::generate_delegated_test_token(&resources, &rider.user).await
+    );
+    let leaks = |body: &Value| body.to_string().contains("morning workouts");
+
+    for tool in ["recall_user_memory", "export_dossier"] {
+        let body = post(
+            &app,
+            "/mcp",
+            &delegated,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": { "name": tool, "arguments": {} }
+            }),
+        )
+        .await;
+        assert_eq!(body["result"]["isError"], true, "bug: /mcp {tool}: {body}");
+        assert!(!leaks(&body), "bug: /mcp {tool} leaked T3: {body}");
+
+        let envelope = post(
+            &app,
+            "/a2a/jsonrpc",
+            &delegated,
+            &json!({
+                "jsonrpc": "2.0",
+                "method": "SendMessage",
+                "params": {
+                    "message": {
+                        "messageId": format!("m-t3-{tool}"),
+                        "role": "ROLE_USER",
+                        "parts": [{ "data": { "tool_name": tool, "parameters": {} } }]
+                    }
+                },
+                "id": 1
+            }),
+        )
+        .await;
+        assert!(!leaks(&envelope), "bug: A2A {tool} leaked T3: {envelope}");
+    }
+
+    let discovery = app
+        .clone()
+        .oneshot(
+            Request::get("/mcp/tools")
+                .header("authorization", &delegated)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(discovery.status(), StatusCode::OK, "GET /mcp/tools answers");
+    let bytes = to_bytes(discovery.into_body(), usize::MAX).await.unwrap();
+    let catalogue: Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(
+        !leaks(&catalogue),
+        "bug: /mcp/tools carried T3: {catalogue}"
+    );
+
+    let session = format!(
+        "Bearer {}",
+        common::generate_test_token(&resources, &rider.user).await
+    );
+    let key = api_key(&resources, rider.user_id).await;
+    let rest = |authorization: String| {
+        let app = app.clone();
+        async move {
+            let response = app
+                .oneshot(
+                    Request::get("/api/memory/facts")
+                        .header("authorization", authorization)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let status = response.status();
+            let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+            (status, String::from_utf8_lossy(&bytes).into_owned())
+        }
+    };
+    let (status, outside) = rest(key).await;
     assert_eq!(
-        label["source_class"],
-        json!(["patient_entered"]),
-        "an anchor the athlete stated is theirs: {label}"
+        status,
+        StatusCode::FORBIDDEN,
+        "bug: REST over a key: {outside}"
+    );
+    assert!(
+        !outside.contains("morning workouts"),
+        "bug: REST leaked T3: {outside}"
+    );
+    let (status, own) = rest(session).await;
+    assert_eq!(status, StatusCode::OK, "{own}");
+    assert!(
+        own.contains("morning workouts"),
+        "bug: the athlete's own session reads their memory: {own}"
     );
 }
 

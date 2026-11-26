@@ -244,6 +244,7 @@ fn test_token_response_serialization() {
         scope: Some("read write".to_owned()),
         refresh_token: Some(SecretString::from("refresh_token_xyz")),
         authorization_details: None,
+        step_up: None,
     };
 
     let json = serde_json::to_string(&response).unwrap();
@@ -261,6 +262,7 @@ fn test_token_response_without_refresh() {
         scope: None,
         refresh_token: None,
         authorization_details: None,
+        step_up: None,
     };
 
     let json = serde_json::to_string(&response).unwrap();
@@ -698,6 +700,7 @@ fn test_token_response_long_expiry() {
         scope: None,
         refresh_token: None,
         authorization_details: None,
+        step_up: None,
     };
 
     assert_eq!(response.expires_in, 31_536_000);

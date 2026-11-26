@@ -1455,7 +1455,7 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 [[package]]
 name = "dravr-barrage"
 version = "0.35.0"
-source = "git+https://github.com/dravr-ai/dravr-barrage.git?rev=c76b016715a3a1ffe4024ccecdb6ce5d6864e7c1#c76b016715a3a1ffe4024ccecdb6ce5d6864e7c1"
+source = "git+https://github.com/dravr-ai/dravr-barrage.git?rev=4d8a2506258b2a84a9e6421bdd401ac22afdc8d2#4d8a2506258b2a84a9e6421bdd401ac22afdc8d2"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1564,12 +1564,12 @@ dependencies = [
 [[package]]
 name = "dravr-contremaitre"
 version = "0.1.0"
-source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=0228469af07782b253d5ec0a6e840233d0b648f4#0228469af07782b253d5ec0a6e840233d0b648f4"
+source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=d159c5731606c8968c1d06527025f1ff45da6261#d159c5731606c8968c1d06527025f1ff45da6261"
 
 [[package]]
 name = "dravr-enforme"
-version = "0.23.0"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.23.0#b2ad4bcec37768fcf48b41fb3b4812f4499cd576"
+version = "0.23.1"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.23.1#247939a4a47737773d2bf426a95f942eeca37873"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1632,8 +1632,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "5.0.0"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v5.0.0#7f1349c6a11c8b426a596b719568f521ae198233"
+version = "5.1.0"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v5.1.0#926ac7e50aeec3e78310ae3965e64534a69fff76"
 dependencies = [
  "async-trait",
  "dirs 6.0.0",

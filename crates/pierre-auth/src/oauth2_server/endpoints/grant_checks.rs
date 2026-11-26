@@ -14,7 +14,9 @@ use crate::dpop::{BEARER_SCHEME, DPOP_SCHEME};
 use crate::oauth2_server::authorization_details::ResolvedDetails;
 use crate::oauth2_server::models::{OAuth2Error, OAuth2RefreshToken};
 use crate::oauth2_server::resource::{token_audience, ResourceServers};
+use crate::oauth2_server::step_up_echo::StepUpEcho;
 use crate::rate_limiting::OAuth2Endpoint;
+use pierre_core::errors::AppError;
 
 /// Whose consent, to which client and in which tenant, a token rides on.
 #[derive(Debug, Clone)]
@@ -279,6 +281,37 @@ impl OAuth2AuthorizationServer {
         Err(OAuth2Error::invalid_grant(
             "The athlete's consent to this application was revoked or has expired; authorize it again",
         ))
+    }
+
+    /// The live step-up child of grant `client_grant_id`, as the token
+    /// response states it; `None` for a token naming no grant, or a grant
+    /// with no live child.
+    ///
+    /// # Errors
+    /// `server_error` when the children, or the child's details, cannot be
+    /// read.
+    pub(super) async fn step_up_echo(
+        &self,
+        user_id: Uuid,
+        tenant_id: &str,
+        client_grant_id: Option<&str>,
+    ) -> Result<Option<StepUpEcho>, OAuth2Error> {
+        let Some(parent) = client_grant_id else {
+            return Ok(None);
+        };
+        let failed = |e: AppError| {
+            error!(%user_id, client_grant_id = parent, error = %e, "Could not read a grant's step-up child");
+            OAuth2Error::server_error("Failed to read the consent grant")
+        };
+        self.oauth2_server
+            .list_live_child_grants(&user_id.to_string(), tenant_id)
+            .await
+            .map_err(failed)?
+            .iter()
+            .find(|child| child.terms.parent_grant_id == parent)
+            .map(StepUpEcho::of_child)
+            .transpose()
+            .map_err(failed)
     }
 
     /// Count a refresh in its user's window, before the token is rotated away.

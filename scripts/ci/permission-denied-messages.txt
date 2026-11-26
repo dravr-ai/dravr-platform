@@ -108,7 +108,7 @@ crates/pierre-server/src/routes/messaging/linking/oauth_link.rs:This link was st
 crates/pierre-server/src/routes/messaging/slack_actions/ops_card.rs:A tier is raised only by an active admin
 crates/pierre-server/src/routes/messaging/slack_actions/ops_card.rs:Coach access is decided only by an active admin
 crates/pierre-server/src/services/archive_import/upload.rs:This origin may not upload
-crates/pierre-server/src/services/memory_facts.rs:The athlete keeps their agent's memory from outside AI apps. Only they can allow it, in Dravr under Settings, Privacy & Data, Sensitive health records.
+crates/pierre-server/src/services/memory_facts.rs:The athlete's agent's memory is never served to outside AI apps. The athlete still sees it in Dravr.
 crates/pierre-services/src/admin_ops/caller.rs:Acting on an admin account requires a super-admin token
 crates/pierre-services/src/admin_ops/caller.rs:An account holder acts on its own account only
 crates/pierre-services/src/auth.rs:User state error: User already exists

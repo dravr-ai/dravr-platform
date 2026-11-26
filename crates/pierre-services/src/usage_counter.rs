@@ -364,14 +364,24 @@ pub async fn current_counter(
     Ok(record.value)
 }
 
+/// The prefix of a counter that never resets: it counts over the whole life
+/// of what it names (a one-off grant's total rows, owl §3.1 `total_rows`).
+pub const LIFETIME_COUNTER_PREFIX: &str = "lifetime_";
+
+/// The one period of a [`LIFETIME_COUNTER_PREFIX`] counter.
+const LIFETIME_PERIOD: &str = "lifetime";
+
 /// Compute the current period string for a counter type
 ///
 /// - `daily_*` → `YYYY-MM-DD` (today)
 /// - `weekly_*` → `YYYY-MM-DD` (most recent Sunday, or today if Sunday)
+/// - `lifetime_*` → `lifetime`, one period for ever
 fn current_period(counter_type: &str) -> String {
     let now = Timestamp::now();
 
-    if counter_type.starts_with("weekly_") {
+    if counter_type.starts_with(LIFETIME_COUNTER_PREFIX) {
+        LIFETIME_PERIOD.to_owned()
+    } else if counter_type.starts_with("weekly_") {
         let days_since_sunday = now.utc_date().weekday().num_days_from_sunday();
         let sunday = now - Elapsed::days(i64::from(days_since_sunday));
         sunday.utc_date().to_string()

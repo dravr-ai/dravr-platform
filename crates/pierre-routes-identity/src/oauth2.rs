@@ -93,6 +93,8 @@ mod revoke;
 mod session;
 /// A standing policy's renewal of a preset grant without the consent screen
 mod standing_policy;
+/// The step-up approval of a one-off T2 question
+mod step_up;
 /// `POST /oauth2/token-validate`: the SDK's check of its own token
 mod token_validate;
 /// did:web for the checkpoint key and the newest signed checkpoint (carnet#1542)
@@ -348,6 +350,13 @@ impl OAuth2Routes {
             }
             return Redirect::to(&login_url).into_response();
         };
+
+        // A step-up is approved only after a sign-in on this page at most
+        // five minutes old: any other session signs in again first
+        // (carnet#1544 slice 4b).
+        if let Some(sign_in) = Self::step_up_sign_in(&context, &checked, &request, &headers).await {
+            return sign_in;
+        }
 
         Self::execute_authorization(
             &context,
@@ -608,6 +617,7 @@ impl OAuth2Routes {
             context.refresh_token_expiry_days,
         )
         .with_token_limiter(context.rate_limiter.clone())
+        .with_step_up_offered(picker::step_up_offered(&context.strings))
     }
 
     /// Mint an authorization code and redirect back to the client.
