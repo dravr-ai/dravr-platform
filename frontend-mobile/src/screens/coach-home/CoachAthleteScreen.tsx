@@ -33,6 +33,7 @@ import {
   endedPlan,
   formatSyncTime,
   localToday,
+  PLAN_WORKSPACE_KEYS,
   sourceChips,
   type QueueEntry,
 } from '@pierre/ui-logic';
@@ -380,7 +381,7 @@ interface ActionsProps {
   onUndo: () => void;
 }
 
-/** The primary action the reason names, the group's room, and "Traité" or its undo. */
+/** The primary action the reason names, the athlete's workspace, the group's room, and "Traité" or its undo. */
 function Actions({ athlete, entry, treatedReason, destinations, onTreat, onUndo }: ActionsProps) {
   const { t } = useTranslation();
   const reason = entry?.reason ?? null;
@@ -392,6 +393,10 @@ function Actions({ athlete, entry, treatedReason, destinations, onTreat, onUndo 
   // takes no second tap, so a coach never opens two rooms.
   const roomBusy = destinations.pendingRoomAthleteId === athlete.user_id;
   const primaryBusy = primaryOpensRoom ? roomBusy : threadBusy;
+  // The workspace is reached through the athlete's group and reads their
+  // plan, so an athlete in no group, or who stopped sharing, has none.
+  const opensWorkspace = athlete.groups.length > 0 && athlete.status !== 'no_coach_consent';
+  const hasPrimary = primary !== null && reason !== null;
   return (
     <View className="gap-2 px-4" testID="coach-actions">
       {primary !== null && reason !== null && (
@@ -403,6 +408,17 @@ function Actions({ athlete, entry, treatedReason, destinations, onTreat, onUndo 
           fullWidth
           testID="coach-primary-action"
           onPress={() => destinations.perform(primary, athlete, reason)}
+        />
+      )}
+      {opensWorkspace && (
+        // The screen's one filled button is the reason's action; with no
+        // reason to act on, the plan is the thing to open.
+        <Button
+          title={t(PLAN_WORKSPACE_KEYS.open)}
+          variant={hasPrimary ? 'secondary' : 'primary'}
+          fullWidth
+          testID="coach-open-workspace"
+          onPress={() => destinations.openWorkspace(athlete)}
         />
       )}
       {showGroup && (
