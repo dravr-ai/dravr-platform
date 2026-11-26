@@ -81,6 +81,20 @@ async fn declare_t2_host(world: &World, client: &Client) {
 
 /// A one-off question about the athlete's labs.
 fn one_off_details(world: &World) -> String {
+    one_off_details_with(world, &Value::Null)
+}
+
+/// [`one_off_details`], its constraints narrowed to `budgets` (`null`:
+/// none named).
+fn one_off_details_with(world: &World, budgets: &Value) -> String {
+    let mut constraints = json!({
+        "max_tier": "T2",
+        "step_up": {"required": true, "acr": "owner_verified"},
+        "host_profile_required": "t2",
+    });
+    if !budgets.is_null() {
+        constraints["budgets"] = budgets.clone();
+    }
     json!([
         access_detail(
             world,
@@ -90,11 +104,7 @@ fn one_off_details(world: &World) -> String {
                 "streams": [{"name": "health.vault.labs.summary", "necessity": "required"}],
             })
         ),
-        constraints_detail(&json!({
-            "max_tier": "T2",
-            "step_up": {"required": true, "acr": "owner_verified"},
-            "host_profile_required": "t2",
-        })),
+        constraints_detail(&constraints),
     ])
     .to_string()
 }
@@ -129,11 +139,20 @@ async fn approve_parent(world: &World, client: &Client) -> String {
 
 /// `GET /oauth2/authorize` for the one-off question, under `cookie`.
 async fn authorize_one_off(world: &World, client: &Client, cookie: &str) -> AxumTestResponse {
-    let details = one_off_details(world);
+    authorize_details(world, client, cookie, &one_off_details(world)).await
+}
+
+/// `GET /oauth2/authorize` for `details`, under `cookie`.
+async fn authorize_details(
+    world: &World,
+    client: &Client,
+    cookie: &str,
+    details: &str,
+) -> AxumTestResponse {
     let query = request_query(
         client,
         &fresh_state(),
-        &[("authorization_details", details.as_str())],
+        &[("authorization_details", details)],
     );
     AxumTestRequest::get(&format!("/oauth2/authorize?{query}"))
         .header("cookie", cookie)
@@ -149,7 +168,17 @@ async fn approve_one_off(
     cookie: &str,
     digest: &str,
 ) -> AxumTestResponse {
-    let details = one_off_details(world);
+    approve_details(world, client, (cookie, digest), &one_off_details(world)).await
+}
+
+/// The athlete approves the step-up screen for `details` under `cookie`,
+/// with the digest carried.
+async fn approve_details(
+    world: &World,
+    client: &Client,
+    (cookie, digest): (&str, &str),
+    details: &str,
+) -> AxumTestResponse {
     let token = world
         .resources
         .auth
@@ -168,7 +197,7 @@ async fn approve_one_off(
         ("decision", "approve"),
         ("csrf_token", token.as_str()),
         ("review_digest", digest),
-        ("authorization_details", details.as_str()),
+        ("authorization_details", details),
     ];
     AxumTestRequest::post("/oauth2/consent")
         .header("cookie", cookie)
@@ -180,7 +209,12 @@ async fn approve_one_off(
 /// The step-up screen's review digest, the screen read under a fresh
 /// hosted sign-in.
 async fn step_up_digest(world: &World, client: &Client) -> String {
-    let screen = authorize_one_off(world, client, &hosted_sign_in(world)).await;
+    step_up_digest_of(world, client, &one_off_details(world)).await
+}
+
+/// [`step_up_digest`] of the screen for `details`.
+async fn step_up_digest_of(world: &World, client: &Client, details: &str) -> String {
+    let screen = authorize_details(world, client, &hosted_sign_in(world), details).await;
     assert_eq!(screen.status(), 200, "{}", screen.body_text());
     let page = screen.body_text();
     assert!(
@@ -255,13 +289,25 @@ async fn stepped_up() -> (World, Client, String, String) {
 
 /// [`stepped_up`], with the code the step-up approval returned.
 async fn stepped_up_with_code() -> (World, Client, String, String, String) {
+    stepped_up_under(&Value::Null).await
+}
+
+/// [`stepped_up_with_code`], the child's constraints narrowed to `budgets`.
+async fn stepped_up_under(budgets: &Value) -> (World, Client, String, String, String) {
     let world = world().await;
     let client = register(&world).await;
     let parent = approve_parent(&world, &client).await;
     light_step_up(&world);
     declare_t2_host(&world, &client).await;
-    let digest = step_up_digest(&world, &client).await;
-    let approved = approve_one_off(&world, &client, &hosted_sign_in(&world), &digest).await;
+    let details = one_off_details_with(&world, budgets);
+    let digest = step_up_digest_of(&world, &client, &details).await;
+    let approved = approve_details(
+        &world,
+        &client,
+        (&hosted_sign_in(&world), &digest),
+        &details,
+    )
+    .await;
     assert_eq!(approved.status(), 303, "{}", approved.body_text());
     assert!(
         param(&approved, "error").is_empty(),
@@ -785,5 +831,34 @@ async fn two_lab_reads_arriving_together_under_a_single_use_child_serve_one() {
         events(&world, &child).await,
         [GrantEvent::StepUp, GrantEvent::Consume],
         "bug: the child's receipts"
+    );
+}
+
+#[tokio::test]
+async fn a_step_up_childs_requests_an_hour_are_its_own() {
+    common::init_server_config();
+    let (world, client, _parent, child, code) =
+        stepped_up_under(&json!({ "requests_per_hour": 1 })).await;
+    file_a_lab(&world).await;
+    let (token, _) = tokens(&exchange(&world, &client, &code).await);
+
+    // Under the child, refused by the athlete's switch: its one request.
+    let unconsented = read_records(&world, &token, "labs", Some("T2")).await;
+    assert!(
+        !unconsented.to_string().contains("ferritin"),
+        "bug: a lab read without sensitive_t2: {unconsented}"
+    );
+    allow_health_records(&world).await;
+    let over = read_records(&world, &token, "labs", Some("T2"))
+        .await
+        .to_string();
+    assert!(
+        over.contains("budget_exhausted") && !over.contains("ferritin"),
+        "bug: the child's second request this hour was admitted: {over}"
+    );
+    assert_eq!(
+        events(&world, &child).await,
+        [GrantEvent::StepUp],
+        "bug: a refused call consumed the child"
     );
 }

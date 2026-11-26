@@ -37,6 +37,9 @@ use super::UniversalExecutor;
 use crate::conversions::tool_result_to_response;
 use crate::protocol::types::{UniversalResponse, GRANT_BLOCK};
 
+/// Seconds in the clock hour a step-up child's requests are counted over.
+const SECONDS_PER_HOUR: i64 = 3_600;
+
 /// The `error_code` of a call refused because its grant's day is spent.
 const BUDGET_EXHAUSTED: &str = "budget_exhausted";
 
@@ -93,6 +96,12 @@ impl UniversalExecutor {
             return Some(consumed(tool_name));
         }
         if let Some(refusal) = self
+            .child_hour_refusal(tool_name, ceiling, &user, &tenant)
+            .await
+        {
+            return Some(refusal);
+        }
+        if let Some(refusal) = self
             .total_budget_refusal(tool_name, ceiling, &user, &tenant)
             .await
         {
@@ -100,6 +109,51 @@ impl UniversalExecutor {
         }
         self.daily_budget_refusal(tool_name, ceiling, &user, &tenant)
             .await
+    }
+
+    /// The refusal of a call under step-up child `ceiling` past its own
+    /// requests an hour (a one-off question's 30, owl §3.1); `None` under a
+    /// parent, whose hour the auth middleware meters on the token's grant.
+    ///
+    /// The call is counted before it is admitted, in one increment, so two
+    /// calls arriving together cannot both take the last request. The hour
+    /// is the clock's (`grant_child_requests:<id>:<hour since the epoch>`),
+    /// a fixed window, where the parent's slides. A counter that cannot be
+    /// written refuses.
+    async fn child_hour_refusal(
+        &self,
+        tool_name: &str,
+        ceiling: &GrantCeiling,
+        user: &str,
+        tenant: &str,
+    ) -> Option<UniversalResponse> {
+        ceiling.step_up.as_ref()?;
+        let limit = ceiling.budgets.requests_per_hour;
+        let now = Timestamp::now();
+        let hour = now.epoch_seconds().div_euclid(SECONDS_PER_HOUR);
+        let counter = format!("grant_child_requests:{}:{hour}", ceiling.client_grant_id);
+        let repo = self.resources.repos().usage_counters.as_ref();
+        let over = increment_counter(repo, tenant, user, &counter, 1)
+            .await
+            .map_or_else(
+                |e| {
+                    warn!(
+                        tool_name,
+                        "a step-up grant's hourly requests could not be counted; refusing: {e}"
+                    );
+                    true
+                },
+                |made| made > i64::from(limit),
+            );
+        over.then(|| {
+            info!(
+                tool_name,
+                client_grant_id = %ceiling.client_grant_id,
+                "tool call refused: its step-up grant's requests this hour are spent"
+            );
+            let retry = SECONDS_PER_HOUR - now.epoch_seconds().rem_euclid(SECONDS_PER_HOUR);
+            hour_exhausted(tool_name, retry)
+        })
     }
 
     /// The refusal of a call under `ceiling` whose grant served every row it
@@ -320,6 +374,17 @@ fn budget_exhausted(tool_name: &str, retry_after_secs: i64) -> UniversalResponse
     }
 }
 
+/// The in-band refusal of `tool_name`: its step-up grant made every request
+/// it may this hour, the next one `retry_after_secs` away.
+fn hour_exhausted(tool_name: &str, retry_after_secs: i64) -> UniversalResponse {
+    let mut refusal = budget_exhausted(tool_name, retry_after_secs);
+    refusal.error = Some(format!(
+        "'{tool_name}' was not run: the one-off access the athlete gave this application has \
+         made all the requests it may this hour. Retry in {retry_after_secs} seconds."
+    ));
+    refusal
+}
+
 /// The `error_code` of a call refused because its single-use grant was
 /// consumed (owl §7.4 `grant_consumed`).
 const GRANT_CONSUMED: &str = "grant_consumed";
@@ -358,7 +423,8 @@ fn total_exhausted(tool_name: &str) -> UniversalResponse {
             "reason": BUDGET_EXHAUSTED,
         })),
         error: Some(format!(
-            "'{tool_name}' was not run: the one-off access the athlete gave this application has              served all the data it may. Ask the athlete to approve a new question."
+            "'{tool_name}' was not run: the one-off access the athlete gave this application has \
+             served all the data it may. Ask the athlete to approve a new question."
         )),
         metadata: Some(HashMap::from([(
             "blocked_reason".to_owned(),
