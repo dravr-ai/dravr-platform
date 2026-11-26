@@ -40,8 +40,8 @@ interface WorkspaceCalendarProps {
   refusing: string | null;
   /** Open the session editor on a session, or on a blank one after a date's sessions. */
   onEdit: (opening: SessionEditorOpening) => void;
-  /** « Retirer mon choix »: withdraw the coach's call on a session; `position` is its place among its date's entries. */
-  onWithdrawCall: (day: PlanDay, position: number) => void;
+  /** « Retirer mon choix »: withdraw the coach's call on a session, `position` its place among its date's entries; resolves whether it was. */
+  onWithdrawCall: (day: PlanDay, position: number) => Promise<boolean>;
   /** A call is being saved: every « Retirer mon choix » waits. */
   callSaving: boolean;
 }
@@ -74,6 +74,7 @@ function SessionBlock({
   entries,
   past,
   titleId,
+  buttonRef,
   onEdit,
 }: {
   day: PlanDay;
@@ -82,6 +83,8 @@ function SessionBlock({
   past: boolean;
   /** The id the session's title carries, which « Retirer mon choix » beside it is described by. */
   titleId: string;
+  /** The session's button, which takes focus once « Retirer mon choix » under it is gone. */
+  buttonRef: (node: HTMLButtonElement | null) => void;
   onEdit: (opening: SessionEditorOpening) => void;
 }) {
   const { t, language } = useTranslation();
@@ -108,6 +111,7 @@ function SessionBlock({
   return (
     <button
       type="button"
+      ref={buttonRef}
       aria-haspopup="dialog"
       aria-label={t(PLAN_WORKSPACE_KEYS.editSession, { session: title, date: formatCivilDate(day.date, language, ROW_DATE) })}
       aria-describedby={described || undefined}
@@ -177,7 +181,8 @@ function DateCell({
   onRefuse: () => Promise<boolean>;
   refusing: boolean;
   onEdit: (opening: SessionEditorOpening) => void;
-  onWithdrawCall: (day: PlanDay, position: number) => void;
+  /** Resolves whether the call was withdrawn. */
+  onWithdrawCall: (day: PlanDay, position: number) => Promise<boolean>;
   callSaving: boolean;
 }) {
   const { t, language } = useTranslation();
@@ -210,6 +215,17 @@ function DateCell({
     if (refusing) return;
     void onRefuse().then((refused) => {
       if (refused) headingRef.current?.focus();
+    });
+  };
+
+  // « Retirer mon choix » goes with the call it withdraws, so focus moves to
+  // the session it sat under, whose description no longer names the call,
+  // instead of falling to the start of the page.
+  const sessionButtons = useRef(new Map<number, HTMLButtonElement>());
+  const withdrawCall = (entry: PlanDay, position: number) => {
+    if (callSaving) return;
+    void onWithdrawCall(entry, position).then((withdrawn) => {
+      if (withdrawn) sessionButtons.current.get(position)?.focus();
     });
   };
 
@@ -279,6 +295,10 @@ function DateCell({
             entries={day.entries}
             past={past}
             titleId={`${dateId}-session-${position}`}
+            buttonRef={(node) => {
+              if (node === null) sessionButtons.current.delete(position);
+              else sessionButtons.current.set(position, node);
+            }}
             onEdit={onEdit}
           />
           {/* A session kept as the coach's call can be given back to the
@@ -291,11 +311,9 @@ function DateCell({
               // button drops the focus it holds.
               aria-disabled={callSaving || undefined}
               aria-describedby={`${dateId}-session-${position}`}
-              onClick={() => {
-                if (!callSaving) onWithdrawCall(entry, position);
-              }}
+              onClick={() => withdrawCall(entry, position)}
               data-testid={`workspace-call-undo-${entry.date}-${position}`}
-              className="self-start rounded px-1.5 text-xs font-medium text-primary transition-colors hover:text-primary-hover aria-disabled:cursor-not-allowed aria-disabled:opacity-50 focus-ring touch-target"
+              className="min-h-8 self-start rounded px-1.5 text-left text-xs font-medium text-primary transition-colors hover:text-primary-hover aria-disabled:cursor-not-allowed aria-disabled:opacity-50 focus-ring touch-target lg:px-1 xl:px-1.5"
             >
               {t(COACH_CALL_KEYS.undo)}
             </button>
@@ -310,7 +328,7 @@ function DateCell({
               aria-describedby={dateId}
               onClick={accept}
               data-testid={`workspace-accept-${day.date}`}
-              className="max-w-full truncate rounded text-primary transition-colors hover:text-primary-hover focus-ring touch-target"
+              className="min-h-8 max-w-full truncate rounded text-primary transition-colors hover:text-primary-hover focus-ring touch-target"
             >
               {t(PLAN_WORKSPACE_KEYS.accept)}
             </button>
@@ -325,7 +343,7 @@ function DateCell({
             aria-busy={refusing}
             onClick={refuse}
             data-testid={`workspace-refuse-${day.date}`}
-            className="max-w-full truncate rounded text-on-surface-variant transition-colors hover:text-on-surface aria-disabled:cursor-not-allowed aria-disabled:opacity-50 focus-ring touch-target"
+            className="min-h-8 max-w-full truncate rounded text-on-surface-variant transition-colors hover:text-on-surface aria-disabled:cursor-not-allowed aria-disabled:opacity-50 focus-ring touch-target"
           >
             {t(PLAN_WORKSPACE_KEYS.refuse)}
           </button>

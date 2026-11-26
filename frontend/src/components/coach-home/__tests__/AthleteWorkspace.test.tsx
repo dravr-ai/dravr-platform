@@ -190,6 +190,17 @@ function withCalls(dates: string[]): SubjectPlanResponse {
   return { ...plan, draft: { ...draft, weeks } };
 }
 
+/** The plan once the coach withdrew their call on `date`. */
+function withCallWithdrawn(date: string): SubjectPlanResponse {
+  const plan = subjectPlan();
+  const draft = plan.draft as WorkoutPlan;
+  const weeks = draft.weeks.map((week) => ({
+    ...week,
+    days: week.days.map((entry) => (entry.date === date ? { ...entry, coach_call: false } : entry)),
+  }));
+  return { ...plan, draft: { ...draft, weeks } };
+}
+
 const HISTORY: SubjectPlanHistory = {
   events: [
     { kind: 'agent_draft', source: 'agent', dates: ['2026-11-25', '2026-11-26'], created_at: '2026-11-25T10:05:00Z' },
@@ -362,6 +373,36 @@ describe('the athlete workspace (carnet#1816)', () => {
         'en',
       ),
     );
+  });
+
+  it('moves focus to the session once its call is withdrawn, and the session no longer names the call', async () => {
+    api.setSubjectDraftDayCoachCall.mockImplementation(async () => {
+      api.getSubjectPlan.mockResolvedValue(withCallWithdrawn('2026-12-05'));
+      return withCallWithdrawn('2026-12-05');
+    });
+    const user = userEvent.setup();
+    renderWorkspace();
+    await screen.findByTestId('workspace-calendar');
+
+    await user.click(screen.getByTestId('workspace-call-undo-2026-12-05-0'));
+    await waitFor(() => expect(screen.queryByTestId('workspace-call-undo-2026-12-05-0')).not.toBeInTheDocument());
+    const session = screen.getByTestId('workspace-session-2026-12-05-0');
+    expect(session).toHaveFocus();
+    expect(session).toHaveAccessibleDescription(new RegExp(`Z2 ${i18n.t('messaging.evidence.convention')}$`));
+  });
+
+  it('leaves the coach on « Retirer mon choix » and says why when the call cannot be withdrawn', async () => {
+    api.setSubjectDraftDayCoachCall.mockRejectedValue(new Error('network down'));
+    const user = userEvent.setup();
+    renderWorkspace();
+    await screen.findByTestId('workspace-calendar');
+
+    const undo = screen.getByTestId('workspace-call-undo-2026-12-05-0');
+    await user.click(undo);
+    expect(await screen.findByText(i18n.t('plan.editor.saveFailed'))).toBeInTheDocument();
+    expect(undo).toHaveFocus();
+    expect(undo).not.toHaveAttribute('aria-disabled');
+    expect(within(dateCell('2026-12-05')).getByTestId('workspace-session-coach-call')).toBeInTheDocument();
   });
 
   it('opens the editor on a session from its block, and on a blank one from « + Séance »', async () => {

@@ -156,6 +156,22 @@ function revertDate(plan: SubjectPlanResponse, date: string): SubjectPlanRespons
   return { ...plan, draft: { ...draft, weeks }, proposed_dates: plan.proposed_dates.filter((proposed) => proposed !== date) };
 }
 
+/**
+ * The subject plan once the coach kept, or withdrew, their call on the draft's
+ * session at `date` and `position`, as the server's coach-call write does.
+ */
+function setCoachCall(plan: SubjectPlanResponse, date: string, position: number, on: boolean): SubjectPlanResponse {
+  const { draft } = plan;
+  if (draft === null) return plan;
+  const weeks = draft.weeks.map((week) => ({
+    ...week,
+    days: week.days.map((entry) =>
+      entry.date === date && (entry.position ?? 0) === position ? { ...entry, coach_call: on } : entry,
+    ),
+  }));
+  return { ...plan, draft: { ...draft, weeks } };
+}
+
 /** What a workspace route records: the dates refused, and the coach's calls made. */
 export interface WorkspaceCalls {
   reverted: string[];
@@ -166,7 +182,8 @@ export interface WorkspaceCalls {
  * Mocks Léa's workspace: her own group with its one athlete named to the
  * coach, the coach's plan thread on her and their room, the subject plan with
  * the draft, its history, the room's words and the plan thread's last turn.
- * A refused date answers the plan with the live entries back on it.
+ * A refused date answers the plan with the live entries back on it, and a
+ * coach's call with the call kept or withdrawn on its session.
  */
 export async function mockWorkspace(page: Page, calls: WorkspaceCalls = { reverted: [], coachCalls: [] }): Promise<void> {
   const today = localToday();
@@ -322,7 +339,10 @@ export async function mockWorkspace(page: Page, calls: WorkspaceCalls = { revert
     await route.fulfill(json(subject));
   });
   await page.route(`**/api/chat/conversations/${WORKSPACE_PLAN_ID}/subject-plan/draft/days/**/coach-call**`, async (route, request) => {
-    calls.coachCalls.push(request.postDataJSON());
+    const body = request.postDataJSON() as { on: boolean };
+    calls.coachCalls.push(body);
+    const [date, position] = new URL(request.url()).pathname.split('/').slice(-3);
+    subject = setCoachCall(subject, date, Number(position), body.on);
     await route.fulfill(json(subject));
   });
   await page.route(`**/api/chat/conversations/${WORKSPACE_PLAN_ID}/subject-plan`, (route) => route.fulfill(json(subject)));
