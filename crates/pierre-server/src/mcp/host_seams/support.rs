@@ -165,7 +165,7 @@ mod tests {
         assert_eq!(
             request_host_tier(&ToolContext::default()),
             None,
-            "bug: legacy"
+            "bug: a request declaring no capabilities read as a claim"
         );
     }
 }
