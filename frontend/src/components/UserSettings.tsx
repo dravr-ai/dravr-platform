@@ -1577,7 +1577,7 @@ Authorization: Bearer <your-token-here>`}
                                         onClick={() => app.step_up && revokeConnectedAppMutation.mutate([app.step_up.id])}
                                         disabled={revokeConnectedAppMutation.isPending}
                                         data-testid={`connected-app-step-up-revoke-${app.id}`}
-                                        aria-describedby={`connected-app-name-${app.id} connected-app-step-up-text-${app.id}`}
+                                        aria-describedby={[`connected-app-name-${app.id}`, `connected-app-step-up-text-${app.id}`].join(' ')}
                                       >
                                         {t('settingsUi.revoke')}
                                       </Button>
