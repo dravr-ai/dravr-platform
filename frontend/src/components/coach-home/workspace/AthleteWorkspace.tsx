@@ -285,6 +285,8 @@ export default function AthleteWorkspace({ athlete, onNavigate, destinations }: 
             onRefuse={answers.refuse}
             refusing={answers.refusing}
             onEdit={setEditing}
+            onWithdrawCall={(day, position) => answers.setCall(day, position, false)}
+            callSaving={answers.callSaving}
           />
         </div>
       );

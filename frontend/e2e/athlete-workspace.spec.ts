@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: E2E for a coach's athlete workspace (carnet#1816) — opened from À traiter, or from Groups' one row and thread header (carnet#1817), Dravr's swap proposed, Refuser and « C'est mon choix » sent, the panel's tabs by keyboard, back to the athlete
+// ABOUTME: E2E for a coach's athlete workspace (carnet#1816) — opened from À traiter, or from Groups' one row and thread header (carnet#1817), Dravr's swap proposed, Refuser, « C'est mon choix » and « Retirer mon choix » sent, the panel's tabs by keyboard, back to the athlete
 // ABOUTME: Every route is mocked and dated from the day the spec runs; the routes record what the workspace wrote, so the spec reads the request, not only the page
 
 import { test, expect, type Page } from '@playwright/test';
@@ -16,7 +16,7 @@ import {
   type WorkspaceCalls,
 } from './athlete-workspace-mocks';
 
-/** The dates of the mocked draft: Wednesday and Thursday swapped, a session added on Saturday, and next Sunday outside its evidence. */
+/** The dates of the mocked draft: Wednesday and Thursday swapped, a session added on Saturday, next Saturday kept as the coach's call, and next Sunday outside its evidence. */
 function draftDates() {
   const plan = workspaceSubjectPlan();
   const [thisWeek, nextWeek] = plan.draft?.weeks ?? [];
@@ -25,6 +25,7 @@ function draftDates() {
     wednesday: dateOf(2),
     thursday: dateOf(3),
     saturday: dateOf(5),
+    nextSaturday: nextWeek.days[nextWeek.days.length - 2].date,
     nextSunday: nextWeek.days[nextWeek.days.length - 1].date,
   };
 }
@@ -90,6 +91,21 @@ test.describe('athlete workspace', () => {
     await check.getByTestId(`workspace-check-keep-${nextSunday}-0`).click();
     await expect.poll(() => calls.coachCalls.length).toBe(1);
     expect(calls.coachCalls[0]).toMatchObject({ on: true, expect: { sport: 'ride', workout: 'Longue sortie avec sprints' } });
+  });
+
+  test('« Retirer mon choix » withdraws the coach\'s call, and focus stays on the session it sat under', async ({ page }) => {
+    const calls: WorkspaceCalls = { reverted: [], coachCalls: [] };
+    await openWorkspace(page, calls);
+    const { nextSaturday } = draftDates();
+
+    const date = page.getByTestId(`workspace-date-${nextSaturday}`);
+    await expect(date.getByTestId('workspace-session-coach-call')).toBeVisible();
+    await date.getByTestId(`workspace-call-undo-${nextSaturday}-0`).click();
+    await expect.poll(() => calls.coachCalls.length).toBe(1);
+    expect(calls.coachCalls[0]).toMatchObject({ on: false, expect: { sport: 'hike', workout: 'Randonnée autour de Sutton' } });
+    await expect(date.getByTestId(`workspace-call-undo-${nextSaturday}-0`)).toHaveCount(0);
+    await expect(date.getByTestId('workspace-session-coach-call')).toHaveCount(0);
+    await expect(page.getByTestId(`workspace-session-${nextSaturday}-0`)).toBeFocused();
   });
 
   test('« Revoir » opens the day editor on the session the check names', async ({ page }) => {
