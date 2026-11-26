@@ -308,7 +308,11 @@ describe('ConnectedAppsScreen', () => {
     const worded = i18n.t('tokens.connectedAppsStepUpChild', { time: 'TIME' });
     expect(worded).not.toEqual('tokens.connectedAppsStepUpChild');
     expect(screen.getByText(new RegExp(worded.split('TIME')[0].trim()))).toBeTruthy();
-    fireEvent.press(screen.getByTestId(`revoke-step-up-${GRANT.id}`));
+    // A screen reader hears which app the second Revoke belongs to and what it ends.
+    const childRevoke = screen.getByTestId(`revoke-step-up-${GRANT.id}`);
+    expect(childRevoke.props.accessibilityLabel).toBe(i18n.t('app.revokeAppLabel', { app: 'Claude Desktop' }));
+    expect(childRevoke.props.accessibilityHint).toContain(worded.split('TIME')[0].trim());
+    fireEvent.press(childRevoke);
 
     await waitFor(() => expect(mockRevokeConnectedApp).toHaveBeenCalledWith('child-1'));
     expect(mockRevokeConnectedApp).not.toHaveBeenCalledWith(GRANT.id);

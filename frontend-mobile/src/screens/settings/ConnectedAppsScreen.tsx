@@ -170,6 +170,10 @@ export function ConnectedAppsScreen(): React.JSX.Element {
                               })
                             }
                             testID={`revoke-step-up-${grant.id}`}
+                            accessibilityLabel={t('app.revokeAppLabel', { app: connectedAppName(grant) })}
+                            accessibilityHint={t('tokens.connectedAppsStepUpChild', {
+                              time: stepUp.expires_at ? formatDateTime(stepUp.expires_at, language) : '',
+                            })}
                           >
                             {t('app.revoke')}
                           </Text>

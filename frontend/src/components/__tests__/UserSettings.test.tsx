@@ -808,7 +808,12 @@ describe('UserSettings Component', () => {
       const worded = i18n.t('tokens.connectedAppsStepUpChild', { time: 'TIME' });
       expect(worded).not.toEqual('tokens.connectedAppsStepUpChild');
       expect(line).toHaveTextContent(worded.split('TIME')[0].trim());
-      await user.click(screen.getByTestId('connected-app-step-up-revoke-parent-1'));
+      // Two Revoke buttons share a row: each says which it ends to a screen reader.
+      const childRevoke = screen.getByTestId('connected-app-step-up-revoke-parent-1');
+      expect(childRevoke).toHaveAccessibleDescription(expect.stringContaining('Claude'));
+      expect(childRevoke).toHaveAccessibleDescription(expect.stringContaining(worded.split('TIME')[0].trim()));
+      expect(screen.getByTestId('connected-app-revoke-parent-1')).toHaveAccessibleDescription('Claude');
+      await user.click(childRevoke);
 
       await waitFor(() => expect(revokeConnectedApp).toHaveBeenCalledWith('child-1'));
       expect(revokeConnectedApp).not.toHaveBeenCalledWith('parent-1');

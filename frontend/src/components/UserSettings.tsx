@@ -1518,6 +1518,7 @@ Authorization: Bearer <your-token-here>`}
                               >
                                 <div className="min-w-0">
                                   <p
+                                    id={`connected-app-name-${app.id}`}
                                     className={`font-medium break-all ${
                                       app.expires_at && grantHasExpired(app.expires_at)
                                         ? 'text-on-surface-variant'
@@ -1560,7 +1561,10 @@ Authorization: Bearer <your-token-here>`}
                                       className="mt-2 flex flex-wrap items-center gap-2"
                                       data-testid={`connected-app-step-up-${app.id}`}
                                     >
-                                      <p className="text-xs text-on-surface-variant break-words">
+                                      <p
+                                        id={`connected-app-step-up-text-${app.id}`}
+                                        className="text-xs text-on-surface-variant break-words"
+                                      >
                                         {t('tokens.connectedAppsStepUpChild', {
                                           time: app.step_up.expires_at
                                             ? formatDateTime(app.step_up.expires_at, language)
@@ -1573,6 +1577,7 @@ Authorization: Bearer <your-token-here>`}
                                         onClick={() => app.step_up && revokeConnectedAppMutation.mutate([app.step_up.id])}
                                         disabled={revokeConnectedAppMutation.isPending}
                                         data-testid={`connected-app-step-up-revoke-${app.id}`}
+                                        aria-describedby={`connected-app-name-${app.id} connected-app-step-up-text-${app.id}`}
                                       >
                                         {t('settingsUi.revoke')}
                                       </Button>
@@ -1585,6 +1590,8 @@ Authorization: Bearer <your-token-here>`}
                                   onClick={() => setAppToRevoke(app)}
                                   disabled={revokeConnectedAppMutation.isPending}
                                   className="flex-shrink-0"
+                                  aria-describedby={`connected-app-name-${app.id}`}
+                                  data-testid={`connected-app-revoke-${app.id}`}
                                 >
                                   {t('settingsUi.revoke')}
                                 </Button>
