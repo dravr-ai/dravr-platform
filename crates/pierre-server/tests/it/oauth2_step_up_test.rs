@@ -24,7 +24,7 @@ use crate::oauth2_grant_details_test::{
     live_grants, register, request_query, world, Client, World, REDIRECT,
 };
 
-use dravr_tronc::dates::Timestamp;
+use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{ChildGrant, GrantActor, GrantEvent, OWNER_VERIFIED_ACR};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -392,9 +392,10 @@ async fn an_approved_step_up_is_a_child_the_parents_code_names() {
     );
     assert_eq!(child.terms.host_profile_tier, "T2", "bug: tier");
     assert!(
-        child.grant.expires_at.is_some_and(|expires_at| {
-            expires_at <= Timestamp::now() + dravr_tronc::dates::Elapsed::hours(1)
-        }),
+        child
+            .grant
+            .expires_at
+            .is_some_and(|expires_at| { expires_at <= Timestamp::now() + Elapsed::hours(1) }),
         "bug: a one-off child outlived its hour"
     );
     let details: Value =
