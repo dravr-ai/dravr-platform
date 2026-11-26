@@ -55,6 +55,7 @@ import { MessageList, type MessageListPrivateLane } from './MessageList';
 import { UsageWarningBanner } from './UsageWarningBanner';
 import { VerdictSheet, type VerdictSource } from './VerdictSheet';
 import PlanThreadOpenDraft from './PlanThreadOpenDraft';
+import type { WorkspacePlanSurface } from './PlanChangeEntry';
 import SessionEditorSheet from './SessionEditorSheet';
 import type { SessionEditorTarget } from './WorkoutPlanCard';
 import { useChatVoiceInput } from './useChatVoiceInput';
@@ -131,6 +132,13 @@ export interface ChatThreadProps {
   privateLane?: { lane: UsePrivateLaneResult; agentName: string } | null;
   /** The host's one-time offer at the end of the transcript, in the agent's voice. */
   offer?: React.ReactNode;
+  /**
+   * The thread is a coach's plan thread drawn inside their athlete workspace,
+   * whose plan tab draws the plan: plan cards are one line leading there, and
+   * neither the open draft nor a card's day editor is drawn here. Absent in
+   * every other host.
+   */
+  planSurface?: WorkspacePlanSurface | null;
 }
 
 /** No plan thread, or its draft read still out. */
@@ -168,6 +176,7 @@ export function ChatThread({
   conversationTitle,
   privateLane = null,
   offer = null,
+  planSurface = null,
 }: ChatThreadProps) {
   const { t } = useTranslation();
   // The lane while it exists: the viewer is the group's coach and the room
@@ -582,12 +591,16 @@ export function ChatThread({
   // on every date with room (carnet#1515, #1714, #1716), on the condition the
   // open draft is drawn on: a plan thread whose
   // subject-plan read answered, which the server answers only for the
-  // thread's owner, about an athlete still sharing.
+  // thread's owner, about an athlete still sharing. In the athlete workspace
+  // the plan tab is where a day is edited and the draft is drawn.
   const buildsDays =
-    planSubjectName !== null && conversationId !== null && (planDraftRead.open !== null || planDraftRead.noDraft);
+    planSurface === null &&
+    planSubjectName !== null &&
+    conversationId !== null &&
+    (planDraftRead.open !== null || planDraftRead.noDraft);
   const onBuildPlanDay = buildsDays ? setEditing : undefined;
   const planDraft =
-    openDraft !== null && conversationId !== null ? (
+    planSurface === null && openDraft !== null && conversationId !== null ? (
       <PlanThreadOpenDraft conversationId={conversationId} open={openDraft} onBuildDay={onBuildPlanDay} />
     ) : null;
   // The empty plan thread's one-tap start while the coach holds no draft:
@@ -658,6 +671,7 @@ export function ChatThread({
         onReachStart={() => void messagesHook.loadEarlier()}
         privateLane={listLane}
         onBuildPlanDay={onBuildPlanDay}
+        planSurface={planSurface}
       />
 
       <UsageWarningBanner level={usageStatus.level} message={usageStatus.message} />
