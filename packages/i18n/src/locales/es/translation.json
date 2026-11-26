@@ -4085,6 +4085,24 @@
       "title": "Error de conexión",
       "tryAgain": "Vuelva a intentarlo.",
       "unavailable": "El servicio no está disponible temporalmente. Vuelva a intentarlo en un momento."
+    },
+    "stepUp": {
+      "title": "{0} pide un acceso puntual a sus registros de salud",
+      "t2Disclosure": "Esto incluye registros de salud como resultados de laboratorio, que son información de salud sensible. {0} puede leerlos una sola vez y luego este acceso termina. Al permitirlo, usted consiente expresamente que Dravr comparta estos registros con {0}.",
+      "host": "{0} dice que trata los registros de salud con cuidado. Dravr no puede comprobarlo.",
+      "streamsTitle": "Lo que {0} puede leer, una sola vez:",
+      "stream": {
+        "activityDaily": "Actividad diaria",
+        "workout": "Entrenamientos",
+        "trainingLoad": "Carga de entrenamiento",
+        "sleep": "Sueño",
+        "cardioDaily": "Resumen diario de frecuencia cardíaca",
+        "body": "Medidas corporales",
+        "fitness": "Estimaciones de forma física",
+        "recoveryDaily": "Recuperación diaria",
+        "profile": "Perfil",
+        "labs": "Resultados de laboratorio"
+      }
     }
   },
   "onboarding": {
@@ -5335,7 +5353,8 @@
     "grantEventEndedByYou": "Terminada por usted",
     "grantEventEndedByApp": "Terminada por la aplicación",
     "grantEventEndedByDravr": "Terminada por Dravr",
-    "grantEventExpired": "Caducada"
+    "grantEventExpired": "Caducada",
+    "connectedAppsStepUpChild": "Además, un acceso puntual a sus registros de salud, hasta {{time}}"
   },
   "usage": {
     "counter": {
