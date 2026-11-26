@@ -22,6 +22,7 @@
 //! screen; revoking one here means the next authorization for that client shows
 //! the consent screen again.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::{
@@ -257,6 +258,10 @@ struct ReceiptView {
     at: String,
     /// The receipt payload, as signed.
     payload: Value,
+    /// The name the receipt's client registered, read now, so a revoked
+    /// app's history still names it; `None` when it registered none or is
+    /// deleted. Not part of what was signed.
+    client_name: Option<String>,
     /// Hex SHA-256 of the stored payload bytes: the athlete's `record_log`
     /// entry names it.
     payload_sha256: String,
@@ -279,11 +284,45 @@ impl ReceiptView {
             actor: event.actor,
             at: event.at.to_rfc3339(),
             payload,
+            client_name: None,
             payload_sha256: event.payload_sha256,
             jws: event.jws,
             logged_at: event.logged_at.map(Timestamp::to_rfc3339),
         })
     }
+}
+
+/// `events` as the athlete reads them, each named by the name its client
+/// registered, read once per client.
+async fn receipt_views(
+    resources: &Arc<ServerContext>,
+    events: Vec<OAuthGrantEvent>,
+) -> Result<Vec<ReceiptView>, AppError> {
+    let mut views = events
+        .into_iter()
+        .map(ReceiptView::of)
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut names: HashMap<String, Option<String>> = HashMap::new();
+    for view in &mut views {
+        let Some(client_id) = view.payload["grant"]["client_id"]
+            .as_str()
+            .map(str::to_owned)
+        else {
+            continue;
+        };
+        if !names.contains_key(&client_id) {
+            let name = resources
+                .common
+                .repos
+                .oauth2_server
+                .get_client(&client_id)
+                .await?
+                .and_then(|client| client.client_name);
+            names.insert(client_id.clone(), name);
+        }
+        view.client_name = names.get(&client_id).cloned().flatten();
+    }
+    Ok(views)
 }
 
 /// Response body of the receipt listings.
@@ -320,10 +359,7 @@ async fn handle_grant_receipts(
     {
         return Err(AppError::not_found("OAuth grant"));
     }
-    let receipts = events
-        .into_iter()
-        .map(ReceiptView::of)
-        .collect::<Result<Vec<_>, _>>()?;
+    let receipts = receipt_views(&resources, events).await?;
     Ok(Json(ReceiptsResponse { receipts }).into_response())
 }
 
@@ -348,10 +384,7 @@ async fn handle_all_receipts(
             page.offset,
         )
         .await?;
-    let receipts = events
-        .into_iter()
-        .map(ReceiptView::of)
-        .collect::<Result<Vec<_>, _>>()?;
+    let receipts = receipt_views(&resources, events).await?;
     Ok(Json(ReceiptsResponse { receipts }).into_response())
 }
 

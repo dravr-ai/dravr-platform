@@ -359,6 +359,7 @@ export {
   alwaysAllowedClients,
   clientNames,
   connectedAppPresetLabel,
+  grantReceiptAppName,
   grantReceiptClientId,
   grantReceiptOutcome,
 } from './grantHistory';

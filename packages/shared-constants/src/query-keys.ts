@@ -112,6 +112,8 @@ export const QUERY_KEYS = {
     connectedAppReceipts: (grantId: string) => ['oauth', 'connected-apps', grantId, 'receipts'] as const,
     /** Every receipt of the athlete's grants (`GET /api/me/oauth-grant-receipts`), one page. */
     grantReceipts: (limit: number, offset: number) => ['oauth', 'grant-receipts', limit, offset] as const,
+    /** Every page of [`grantReceipts`], reread after a revoke writes its receipt. */
+    allGrantReceipts: () => ['oauth', 'grant-receipts'] as const,
     /** The athlete's standing policies (`GET /api/me/oauth-standing-policies`), reread after a removal. */
     standingPolicies: () => ['oauth', 'standing-policies'] as const,
   },

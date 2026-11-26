@@ -89,6 +89,17 @@ export function grantReceiptClientId(receipt: OAuthGrantReceipt): string | null 
 }
 
 /**
+ * The app a receipt names in the consent history: the name its client
+ * registered (which the server reads when it lists the receipt, so a revoked
+ * app keeps its name), else the name a live grant or policy carries, else the
+ * client id; `null` when the receipt names no client.
+ */
+export function grantReceiptAppName(receipt: OAuthGrantReceipt, names: ReadonlyMap<string, string>): string | null {
+  const clientId = grantReceiptClientId(receipt);
+  return receipt.client_name || (clientId && names.get(clientId)) || clientId;
+}
+
+/**
  * The name to show for each client the athlete's grants and policies name:
  * the name it registered, else none (the caller shows the id). A receipt of a
  * client deleted since names only its id.

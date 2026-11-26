@@ -62,6 +62,8 @@ export function createRevokeConnectedAppsHook(oauthApi: Pick<OAuthApi, 'revokeCo
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.oauth.connectedApps() }),
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.accessFeed.feed() }),
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.oauth.standingPolicies() }),
+          // The revoke writes the receipt the consent history shows.
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.oauth.allGrantReceipts() }),
         ]);
       },
     });

@@ -98,7 +98,7 @@ describe('createConnectedAppsHook', () => {
 describe('createRevokeConnectedAppsHook', () => {
   beforeEach(() => revokeConnectedApp.mockReset());
 
-  it('revokes every grant it is given and rereads the Connected-apps list, the feed and the policies it ended', async () => {
+  it('revokes every grant it is given and rereads the Connected-apps list, the feed, the policies it ended and the consent history', async () => {
     revokeConnectedApp.mockResolvedValue(undefined);
     const { invalidate, wrapper } = setup();
     const { result } = renderHook(() => useRevokeConnectedApps(), { wrapper });
@@ -110,10 +110,11 @@ describe('createRevokeConnectedAppsHook', () => {
       ['oauth', 'connected-apps'],
       ['access-feed'],
       ['oauth', 'standing-policies'],
+      ['oauth', 'grant-receipts'],
     ]);
   });
 
-  it('rereads all three after a refused revoke too, since part of it may have gone through', async () => {
+  it('rereads all four after a refused revoke too, since part of it may have gone through', async () => {
     revokeConnectedApp.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('refused'));
     const { invalidate, wrapper } = setup();
     const { result } = renderHook(() => useRevokeConnectedApps(), { wrapper });
@@ -121,7 +122,7 @@ describe('createRevokeConnectedAppsHook', () => {
     act(() => result.current.mutate(['g1', 'g2']));
 
     await waitFor(() => expect(result.current.isError).toBe(true));
-    expect(invalidate).toHaveBeenCalledTimes(3);
+    expect(invalidate).toHaveBeenCalledTimes(4);
   });
 });
 

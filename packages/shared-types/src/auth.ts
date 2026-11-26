@@ -887,6 +887,12 @@ export interface OAuthGrantReceipt {
   at: string;
   /** The receipt payload, as signed. */
   payload: Record<string, unknown>;
+  /**
+   * The name the receipt's client registered, read when listed, so a revoked
+   * app's history still names it; `null` when it registered none or is deleted.
+   * Not part of what was signed.
+   */
+  client_name?: string | null;
   /** Hex SHA-256 of the stored payload bytes: the athlete's record_log entry names it. */
   payload_sha256: string;
   /** The compact JWS over the payload; `null` until it is signed. */

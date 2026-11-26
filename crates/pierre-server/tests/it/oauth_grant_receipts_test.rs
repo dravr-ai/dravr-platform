@@ -1255,3 +1255,52 @@ async fn the_export_carries_each_receipt_its_consent_record_and_its_log_entry() 
         );
     }
 }
+
+#[tokio::test]
+async fn a_revoked_apps_receipts_still_name_it_and_a_deleted_ones_name_nothing() {
+    let (athlete, _kept, deleted, session) = athlete_with_receipts().await;
+    let client = client_id();
+    register(&athlete, &client).await;
+    let grant = athlete.approve(&athlete.grant(&client, SCOPE, None)).await;
+    AxumTestRequest::delete(&format!("/api/me/oauth-grants/{grant}"))
+        .header("Authorization", &format!("Bearer {session}"))
+        .send(OAuthGrantsRoutes::routes(Arc::clone(&athlete.resources)))
+        .await
+        .assert_status(StatusCode::NO_CONTENT);
+
+    let all = get_json(
+        &athlete,
+        "/api/me/oauth-grant-receipts",
+        &session,
+        StatusCode::OK,
+    )
+    .await;
+    let receipts = all["receipts"].as_array().unwrap();
+    let of = |id: &str| -> Vec<&Value> {
+        receipts
+            .iter()
+            .filter(|receipt| receipt["client_grant_id"] == id)
+            .collect()
+    };
+    let revoked = of(&grant);
+    assert_eq!(revoked.len(), 2, "fixture: issue and revoke: {all}");
+    assert!(
+        revoked
+            .iter()
+            .all(|receipt| receipt["client_name"] == "Receipts client"),
+        "bug: a revoked app's history lost its name: {all}"
+    );
+    assert!(
+        of(&deleted)
+            .iter()
+            .all(|receipt| receipt["client_name"].is_null()),
+        "bug: a deleted client was named: {all}"
+    );
+
+    let uri = format!("/api/me/oauth-grants/{grant}/receipts");
+    let one = get_json(&athlete, &uri, &session, StatusCode::OK).await;
+    assert_eq!(
+        one["receipts"][0]["client_name"], "Receipts client",
+        "bug: the grant's own receipts are not named: {one}"
+    );
+}

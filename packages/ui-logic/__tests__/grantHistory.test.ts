@@ -17,6 +17,7 @@ import {
   alwaysAllowedClients,
   clientNames,
   connectedAppPresetLabel,
+  grantReceiptAppName,
   grantReceiptClientId,
   grantReceiptOutcome,
 } from '../src/grantHistory';
@@ -87,6 +88,18 @@ describe('grantReceiptOutcome', () => {
 
   it('reads a payload without an approval member as allowed', () => {
     expect(grantReceiptOutcome({ ...receipt('issue', 'auto'), payload: {} })).toBe('allowed');
+  });
+});
+
+describe('grantReceiptAppName', () => {
+  it('names the app the server read, then a live grant or policy, then the client id', () => {
+    const names = new Map([['https://client.example/meta.json', 'Live name']]);
+    expect(grantReceiptAppName({ ...receipt('revoke', 'user'), client_name: 'Server name' }, names)).toBe('Server name');
+    expect(grantReceiptAppName(receipt('revoke', 'user'), names)).toBe('Live name');
+    expect(grantReceiptAppName({ ...receipt('revoke', 'user'), client_name: null }, new Map())).toBe(
+      'https://client.example/meta.json',
+    );
+    expect(grantReceiptAppName({ ...receipt('issue', 'user'), payload: {} }, names)).toBeNull();
   });
 });
 

@@ -13,7 +13,7 @@ import {
   describeApiError,
   GRANT_RECEIPT_OUTCOME_KEYS,
   GRANT_RECEIPT_PAGE,
-  grantReceiptClientId,
+  grantReceiptAppName,
   grantReceiptOutcome,
 } from '@pierre/ui-logic';
 import { formatDateTime } from '@pierre/chat-utils';
@@ -58,8 +58,7 @@ function ReceiptPage({ page, last, names, onOlder }: ReceiptPageProps): React.JS
   return (
     <>
       {receipts.map((receipt, index) => {
-        const clientId = grantReceiptClientId(receipt);
-        const app = (clientId && names.get(clientId)) || clientId || t(ACCESS_FEED_KEYS.unknownApp);
+        const app = grantReceiptAppName(receipt, names) || t(ACCESS_FEED_KEYS.unknownApp);
         return (
           <Row
             key={receipt.id}
