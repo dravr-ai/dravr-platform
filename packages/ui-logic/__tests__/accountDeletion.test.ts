@@ -26,7 +26,6 @@ function translatorFor(lng: keyof typeof CATALOGUES) {
     lng,
     resources: { [lng]: { translation: CATALOGUES[lng] } },
     initAsync: false,
-    showSupportNotice: false,
     interpolation: { escapeValue: false },
   });
   return (key: string, params?: Record<string, string | number>): string => {

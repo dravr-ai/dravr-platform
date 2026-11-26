@@ -61,11 +61,7 @@ export const defaultI18nConfig = {
   // first paint can render raw keys, and a test process is left holding
   // i18next's timeout. The live catalogue arrives later, as an overlay (see
   // `installLiveOverlay`).
-  initImmediate: false,
-  // i18next prints a vendor advert to the console on init, and hushes it only
-  // where `process.env.NODE_ENV` reads production — which a browser bundle
-  // has no `process` to say. Every app's console stays clean.
-  showSupportNotice: false,
+  initAsync: false,
   interpolation: {
     escapeValue: false, // React already escapes values
   },
