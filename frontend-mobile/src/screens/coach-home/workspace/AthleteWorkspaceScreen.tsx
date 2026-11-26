@@ -91,14 +91,16 @@ function PlanTab({
   const { t } = useTranslation();
   const { planThreadId } = threads;
   const subject = plan.read?.status === 'ok' ? plan.read.plan : null;
+  // Which state the plan is in is decided once, for both clients; this only draws it.
+  const planState = workspacePlanState(athlete, threads, plan);
+  const planShown = planState.kind === 'plan' ? planState.shown : null;
 
-  const shown = subject ? (subject.draft ?? subject.live) : null;
   // Which dates are proposed is the server's to say, by the rule a publish
   // announces them with: it names none when no draft is open.
   const proposed = useMemo(() => subject?.proposed_dates ?? [], [subject]);
   const weeks = useMemo(
-    () => (shown && subject ? planCalendarWeeks(shown, proposed, subject.today) : []),
-    [shown, subject, proposed],
+    () => (planShown && subject ? planCalendarWeeks(planShown, proposed, subject.today) : []),
+    [planShown, subject, proposed],
   );
   const checks = useMemo(() => (subject?.draft ? prePublishChecks(subject.draft, subject.today) : []), [subject]);
 
@@ -113,9 +115,8 @@ function PlanTab({
 
   const [editing, setEditing] = useState<SessionEditorTarget | null>(null);
 
-  // Which state the plan is in is decided once, for both clients; this only draws it.
-  const planState = workspacePlanState(athlete, threads, plan);
-  let body: React.ReactNode;
+  // Every state draws: a state the switch misses leaves this unassigned and fails the build.
+  let body: React.JSX.Element;
   switch (planState.kind) {
     case 'noGroup':
       body = <EmptyState testID="workspace-thread-failed">{t(PLAN_THREAD_KEYS.openError)}</EmptyState>;

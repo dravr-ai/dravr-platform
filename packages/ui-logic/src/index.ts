@@ -194,14 +194,14 @@ export {
   planCalendarWeeks,
   planHistoryLine,
   roomConversationOf,
+  shownPlan,
   usablePlanThread,
 } from './planWorkspace';
-// The athlete workspace's two threads and the coach's answers to the draft, one factory both clients bind (carnet#1816, #1818)
+// The athlete workspace's two threads, the coach's answers to the draft and which state its plan and tabs are in, one definition both clients bind (carnet#1816, #1818)
 export {
   type WorkspaceAnswers,
   type WorkspaceGroupTab,
   type WorkspacePlanRead,
-  type WorkspacePlanState,
   type WorkspaceRoom,
   type WorkspaceThreads,
   createWorkspaceHooks,

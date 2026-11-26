@@ -469,7 +469,8 @@ describe('the plan', () => {
     renderWorkspace();
     const check = within(await screen.findByTestId('workspace-prepublish'));
 
-    expect(check.getByText('Before you publish')).toBeTruthy();
+    // A heading, so a screen reader moving heading by heading reaches the check as it reaches each date.
+    expect(check.getByRole('header', { name: 'Before you publish' })).toBeTruthy();
     // What keeping a session means is said once, under the section's title.
     expect(check.getByText('You keep this session as it is: Dravr will describe it as your call, without arguing it.')).toBeTruthy();
     expect(screen.getByTestId('workspace-prepublish').props.className).not.toMatch(/\bborder\b|\brounded/);
@@ -599,16 +600,20 @@ describe('the history', () => {
     renderWorkspace();
     await screen.findByTestId('workspace-calendar');
 
+    // Fifty lines, each worded with the locale's date formatters: a render
+    // that large can outlast the default second on a loaded worker, so every
+    // wait below allows five.
     fireEvent.press(screen.getByTestId('workspace-tabs-history'));
-    expect(await screen.findAllByTestId('workspace-history-event')).toHaveLength(50);
+    await waitFor(() => expect(screen.getAllByTestId('workspace-history-event')).toHaveLength(50), { timeout: 5000 });
 
     await act(async () => {
       fireEvent.press(screen.getByTestId('workspace-history-more'));
     });
 
-    await waitFor(() => expect(mockApi.getSubjectPlanHistory).toHaveBeenLastCalledWith(PLAN_ID, { before: oldest, limit: 50 }));
-    // Fifty-one lines, each worded with the locale's date formatters: the
-    // re-render after the page lands can outlast the default second.
+    await waitFor(
+      () => expect(mockApi.getSubjectPlanHistory).toHaveBeenLastCalledWith(PLAN_ID, { before: oldest, limit: 50 }),
+      { timeout: 5000 },
+    );
     await waitFor(() => expect(screen.getAllByTestId('workspace-history-event')).toHaveLength(51), { timeout: 5000 });
     expect(screen.getAllByTestId('workspace-history-event')[50]).toHaveTextContent('Oct 30YouPlan published · Wed, Nov 25');
     expect(screen.queryByTestId('workspace-history-more')).toBeNull();

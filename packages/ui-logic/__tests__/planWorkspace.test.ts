@@ -11,6 +11,7 @@ import {
   canOpenWorkspace,
   planCalendarWeeks,
   planHistoryLine,
+  shownPlan,
   roomConversationOf,
   usablePlanThread,
 } from '../src/planWorkspace';
@@ -153,5 +154,14 @@ describe('canOpenWorkspace', () => {
   it('never opens for an athlete who stopped sharing, or who is in none of the coach\'s groups', () => {
     expect(canOpenWorkspace({ groups: [GROUP], status: 'no_coach_consent' })).toBe(false);
     expect(canOpenWorkspace({ groups: [], status: 'shared' })).toBe(false);
+  });
+});
+
+describe('shownPlan', () => {
+  it('draws the draft while one is open, else the live plan, else nothing', () => {
+    const live = { ...PLAN, weeks_deferred: 1 };
+    expect(shownPlan({ draft: PLAN, live })).toBe(PLAN);
+    expect(shownPlan({ draft: null, live })).toBe(live);
+    expect(shownPlan({ draft: null, live: null })).toBeNull();
   });
 });

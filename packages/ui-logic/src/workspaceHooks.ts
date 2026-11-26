@@ -19,7 +19,14 @@ import type {
 } from '@pierre/shared-types';
 import { API_ERROR_KEYS, describeApiError } from './apiError';
 import type { SubjectPlanRead, UseOpenAthleteThreadResult, UseOpenGroupRoomResult } from './coachPlanHooks';
-import { athleteRoomGroup, PLAN_WORKSPACE_KEYS, roomConversationOf, usablePlanThread, type PlanCalendarDay } from './planWorkspace';
+import {
+  athleteRoomGroup,
+  PLAN_WORKSPACE_KEYS,
+  roomConversationOf,
+  shownPlan,
+  usablePlanThread,
+  type PlanCalendarDay,
+} from './planWorkspace';
 import { isSessionMoved, SESSION_EDITOR_KEYS, sessionExpect, type SessionAt } from './sessionEditor';
 
 /** The athlete's own room with the coach. */
@@ -103,7 +110,7 @@ export type WorkspacePlanState =
   | { kind: 'threadFailed'; error: unknown; retry: () => void }
   /** A group's read failed before the plan thread was known. */
   | { kind: 'groupsFailed'; retry: () => void }
-  /** The plan thread is found or opened, or its plan read. */
+  /** The plan thread is still being found or opened, or its plan read. */
   | { kind: 'loading' }
   /** The athlete stopped sharing with the coach. */
   | { kind: 'consentRevoked' }
@@ -111,6 +118,7 @@ export type WorkspacePlanState =
   | { kind: 'loadFailed'; retry: () => void }
   /** The athlete has no plan yet, live or drafted. */
   | { kind: 'noPlan'; planThreadId: string; subject: SubjectPlanResponse }
+  /** The plan to draw; `shown` is the draft when one is open, else the live plan. */
   | { kind: 'plan'; planThreadId: string; subject: SubjectPlanResponse; shown: WorkoutPlan };
 
 /**
@@ -140,7 +148,7 @@ export function workspacePlanState(
     };
   }
   const subject = plan.read.plan;
-  const shown = subject.draft ?? subject.live;
+  const shown = shownPlan(subject);
   return shown === null ? { kind: 'noPlan', planThreadId, subject } : { kind: 'plan', planThreadId, subject, shown };
 }
 

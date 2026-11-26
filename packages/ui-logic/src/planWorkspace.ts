@@ -13,6 +13,7 @@ import type {
   PlanChangeKind,
   PlanDay,
   PlanWeek,
+  SubjectPlanResponse,
   WorkoutPlan,
 } from '@pierre/shared-types';
 import { instantMs } from '@pierre/shared-types';
@@ -112,6 +113,14 @@ const WEEK_OFFSETS = [0, 1, 2, 3, 4, 5, 6] as const;
 function timingOf(date: string, today: string): PlanDateTiming {
   if (date === today) return 'today';
   return date < today ? 'past' : 'ahead';
+}
+
+/**
+ * The plan a coach's workspace draws from a subject-plan read: the draft
+ * while one is open, else the live plan; `null` for an athlete with neither.
+ */
+export function shownPlan(subject: Pick<SubjectPlanResponse, 'draft' | 'live'>): WorkoutPlan | null {
+  return subject.draft ?? subject.live;
 }
 
 /**

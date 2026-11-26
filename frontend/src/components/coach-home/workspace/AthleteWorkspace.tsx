@@ -15,6 +15,7 @@ import {
   formatCivilDate,
   openThreadRefusalText,
   planCalendarWeeks,
+  shownPlan,
   workspaceAgentName,
   workspaceGroupTab,
   workspacePlanState,
@@ -155,14 +156,16 @@ export default function AthleteWorkspace({ athlete, onNavigate, destinations }: 
   const plan = useSubjectPlan(planThreadId, planThreadId !== null);
   const subject = plan.read?.status === 'ok' ? plan.read.plan : null;
   const name = subject?.athlete.display_name.trim() || athlete.name;
+  // Which state the plan is in is decided once, for both clients; this only draws it.
+  const planState = workspacePlanState(athlete, threads, plan);
+  const planShown = planState.kind === 'plan' ? planState.shown : null;
 
-  const shown = subject ? (subject.draft ?? subject.live) : null;
   // Which dates are proposed is the server's to say, by the rule a publish
   // announces them with: it names none when no draft is open.
   const proposed = useMemo(() => subject?.proposed_dates ?? [], [subject]);
   const weeks = useMemo(
-    () => (shown && subject ? planCalendarWeeks(shown, proposed, subject.today) : []),
-    [shown, subject, proposed],
+    () => (planShown && subject ? planCalendarWeeks(planShown, proposed, subject.today) : []),
+    [planShown, subject, proposed],
   );
   const checks = useMemo(
     () => (subject?.draft ? prePublishChecks(subject.draft, subject.today) : []),
@@ -212,11 +215,12 @@ export default function AthleteWorkspace({ athlete, onNavigate, destinations }: 
   const agentName = workspaceAgentName(threads.planGroup, t('shell.brandName'));
   const groupTab = workspaceGroupTab(threads, athlete);
 
-  const goal = shown?.goal_race ?? null;
+  // The header names the goal of the plan last read — the draft's when one is
+  // open — whatever the calendar draws, so a failed re-read keeps it.
+  const goal = (subject === null ? null : shownPlan(subject))?.goal_race ?? null;
 
-  // Which state the plan is in is decided once, for both clients; this only draws it.
-  const planState = workspacePlanState(athlete, threads, plan);
-  let calendar: React.ReactNode;
+  // Every state draws: a state the switch misses leaves this unassigned and fails the build.
+  let calendar: React.JSX.Element;
   switch (planState.kind) {
     case 'noGroup':
       calendar = <EmptyState data-testid="workspace-thread-failed">{t(PLAN_THREAD_KEYS.openError)}</EmptyState>;
