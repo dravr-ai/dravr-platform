@@ -285,6 +285,10 @@ beforeEach(() => {
   mockApi.openGroupRoom.mockResolvedValue(room);
 });
 
+
+/** The history paging test's budget: three waits of up to five seconds each. */
+const HISTORY_PAGING_TIMEOUT_MS = 20_000;
+
 describe('the tabs', () => {
   it('names the athlete in the header and opens on the plan, beside History, the agent and the group', async () => {
     renderWorkspace();
@@ -585,6 +589,9 @@ describe('the history', () => {
     expect(mockApi.getSubjectPlanHistory).toHaveBeenCalledWith(PLAN_ID, { limit: 50 });
   });
 
+  // A full page and the next: 101 lines rendered with the locale's date
+  // formatters, which a loaded CI worker can take past jest's default five
+  // seconds for the whole test (three waits of up to five each below).
   it('reads the older changes a page at a time, before the oldest shown, until a page comes back short', async () => {
     const full: PlanChangeEvent[] = Array.from({ length: 50 }, (_, index) => ({
       kind: 'day_edit',
@@ -617,7 +624,7 @@ describe('the history', () => {
     await waitFor(() => expect(screen.getAllByTestId('workspace-history-event')).toHaveLength(51), { timeout: 5000 });
     expect(screen.getAllByTestId('workspace-history-event')[50]).toHaveTextContent('Oct 30YouPlan published · Wed, Nov 25');
     expect(screen.queryByTestId('workspace-history-more')).toBeNull();
-  });
+  }, HISTORY_PAGING_TIMEOUT_MS);
 
   it('says when nothing is recorded yet', async () => {
     mockApi.getSubjectPlanHistory.mockResolvedValue({ events: [] });
