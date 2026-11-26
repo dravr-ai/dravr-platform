@@ -40,6 +40,10 @@ interface WorkspaceCalendarProps {
   refusing: string | null;
   /** Open the session editor on a session, or on a blank one after a date's sessions. */
   onEdit: (opening: SessionEditorOpening) => void;
+  /** « Retirer mon choix »: withdraw the coach's call on a session; `position` is its place among its date's entries. */
+  onWithdrawCall: (day: PlanDay, position: number) => void;
+  /** A call is being saved: every « Retirer mon choix » waits. */
+  callSaving: boolean;
 }
 
 /** A session's one mark: the coach's call, or the diamond with where its evidence sits. */
@@ -69,12 +73,15 @@ function SessionBlock({
   position,
   entries,
   past,
+  titleId,
   onEdit,
 }: {
   day: PlanDay;
   position: number;
   entries: PlanDay[];
   past: boolean;
+  /** The id the session's title carries, which « Retirer mon choix » beside it is described by. */
+  titleId: string;
   onEdit: (opening: SessionEditorOpening) => void;
 }) {
   const { t, language } = useTranslation();
@@ -115,6 +122,7 @@ function SessionBlock({
         <Pencil className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
       </span>
       <span
+        id={titleId}
         className={clsx(
           'min-w-0 break-words text-sm font-medium leading-snug lg:hyphens-auto xl:hyphens-manual',
           past || day.rest ? 'text-on-surface-variant' : 'text-on-surface',
@@ -159,6 +167,8 @@ function DateCell({
   onRefuse,
   refusing,
   onEdit,
+  onWithdrawCall,
+  callSaving,
 }: {
   day: PlanCalendarDay;
   accepted: boolean;
@@ -167,6 +177,8 @@ function DateCell({
   onRefuse: () => Promise<boolean>;
   refusing: boolean;
   onEdit: (opening: SessionEditorOpening) => void;
+  onWithdrawCall: (day: PlanDay, position: number) => void;
+  callSaving: boolean;
 }) {
   const { t, language } = useTranslation();
   const dateId = useId();
@@ -260,14 +272,35 @@ function DateCell({
           ))}
       </div>
       {day.entries.map((entry, position) => (
-        <SessionBlock
-          key={`${entry.date}-${position}`}
-          day={entry}
-          position={position}
-          entries={day.entries}
-          past={past}
-          onEdit={onEdit}
-        />
+        <div key={`${entry.date}-${position}`} className="flex min-w-0 flex-col">
+          <SessionBlock
+            day={entry}
+            position={position}
+            entries={day.entries}
+            past={past}
+            titleId={`${dateId}-session-${position}`}
+            onEdit={onEdit}
+          />
+          {/* A session kept as the coach's call can be given back to the
+              evidence here, where the call shows: inside the workspace the
+              plan card that also offers it is one line. */}
+          {entry.coach_call === true && !entry.rest && (
+            <button
+              type="button"
+              // Held back while a call is saved, never disabled: a disabled
+              // button drops the focus it holds.
+              aria-disabled={callSaving || undefined}
+              aria-describedby={`${dateId}-session-${position}`}
+              onClick={() => {
+                if (!callSaving) onWithdrawCall(entry, position);
+              }}
+              data-testid={`workspace-call-undo-${entry.date}-${position}`}
+              className="self-start rounded px-1.5 text-xs font-medium text-primary transition-colors hover:text-primary-hover aria-disabled:cursor-not-allowed aria-disabled:opacity-50 focus-ring touch-target"
+            >
+              {t(COACH_CALL_KEYS.undo)}
+            </button>
+          )}
+        </div>
       ))}
       {day.proposed && (
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 text-xs font-semibold">
@@ -324,7 +357,16 @@ function DateCell({
  * and a date the draft changes is dashed and says « Proposé » until the
  * coach accepts or refuses it.
  */
-export function WorkspaceCalendar({ weeks, isAccepted, onAccept, onRefuse, refusing, onEdit }: WorkspaceCalendarProps) {
+export function WorkspaceCalendar({
+  weeks,
+  isAccepted,
+  onAccept,
+  onRefuse,
+  refusing,
+  onEdit,
+  onWithdrawCall,
+  callSaving,
+}: WorkspaceCalendarProps) {
   const { language } = useTranslation();
   const currentIndex = weeks.findIndex((week) => week.week.current);
   const weekdays = weeks[0]?.days.slice(0, 7) ?? [];
@@ -348,6 +390,8 @@ export function WorkspaceCalendar({ weeks, isAccepted, onAccept, onRefuse, refus
                 onRefuse={() => onRefuse(day.date)}
                 refusing={refusing === day.date}
                 onEdit={onEdit}
+                onWithdrawCall={onWithdrawCall}
+                callSaving={callSaving}
               />
             ))}
           </ol>

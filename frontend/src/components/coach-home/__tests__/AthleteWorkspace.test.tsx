@@ -340,6 +340,30 @@ describe('the athlete workspace (carnet#1816)', () => {
     expect(within(dateCell('2026-11-24')).queryByTestId('workspace-session-evidence')).not.toBeInTheDocument();
   });
 
+  it('withdraws a coach’s call from under the session it keeps, and offers it on no other session', async () => {
+    const user = userEvent.setup();
+    renderWorkspace();
+    await screen.findByTestId('workspace-calendar');
+
+    expect(screen.getAllByTestId(/^workspace-call-undo-/).map((button) => button.dataset.testid)).toEqual([
+      'workspace-call-undo-2026-12-05-0',
+    ]);
+    const undo = within(dateCell('2026-12-05')).getByRole('button', { name: i18n.t('humanCoach.coachCall.undo') });
+    expect(undo).toHaveAccessibleDescription('Kept hike');
+
+    await user.click(undo);
+    await waitFor(() =>
+      expect(api.setSubjectDraftDayCoachCall).toHaveBeenCalledWith(
+        PLAN_ID,
+        '2026-12-05',
+        0,
+        false,
+        { sport: 'ride', workout: 'Kept hike' },
+        'en',
+      ),
+    );
+  });
+
   it('opens the editor on a session from its block, and on a blank one from « + Séance »', async () => {
     const user = userEvent.setup();
     renderWorkspace();
