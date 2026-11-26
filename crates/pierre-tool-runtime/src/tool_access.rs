@@ -294,9 +294,16 @@ fn decide(tool: Declared, caller: &Caller<'_>) -> Option<Withheld> {
         if !lifted {
             return Some(Withheld::Transport);
         }
-        if tool
-            .data
-            .is_some_and(|data| data.every_call_reads(Tier::T3))
+        // Only on a declared outside transport, as every listing declares
+        // one: a call with none (a worker, a routine) is judged by the tier
+        // gate, which reads its credential.
+        let declared_outside = caller
+            .transport
+            .is_some_and(|transport| !transport.is_first_party());
+        if declared_outside
+            && tool
+                .data
+                .is_some_and(|data| data.every_call_reads(Tier::T3))
         {
             return Some(Withheld::NeverExternal);
         }

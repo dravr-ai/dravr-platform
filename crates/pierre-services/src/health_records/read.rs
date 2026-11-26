@@ -387,9 +387,11 @@ impl RecordsRead<'_> {
     /// The records of `kind` in `window` this read reaches.
     ///
     /// What it serves is counted toward the grant's row budgets, under a
-    /// consent grant's ceiling ([`ai_scope::note_rows`]): each record,
-    /// self-report and glucose day a row, each timed glucose reading a raw
-    /// row, so a one-off question's `total_rows` is levied on what it read.
+    /// consent grant's ceiling ([`ai_scope::note_rows`]): each record and
+    /// self-report a row, so a one-off question's `total_rows` is levied on
+    /// what it read. A glucose page is counted by the readers it is built
+    /// from (its days by the stored-health read, its readings as raw rows
+    /// by the continuous-series read).
     ///
     /// # Errors
     ///
@@ -400,8 +402,7 @@ impl RecordsRead<'_> {
         window: RecordWindow,
     ) -> AppResult<HealthRecordsPage> {
         let page = self.page(kind, window).await?;
-        ai_scope::note_rows(page.records.len() + page.self_reports.len() + page.daily.len());
-        ai_scope::note_raw_rows(page.readings.len());
+        ai_scope::note_rows(page.records.len() + page.self_reports.len());
         Ok(page)
     }
 
