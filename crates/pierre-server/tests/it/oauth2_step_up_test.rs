@@ -27,6 +27,7 @@ use crate::oauth2_grant_details_test::{
 };
 
 use dravr_tronc::dates::{Elapsed, Timestamp};
+use pierre_contremaitre::consent_strings::STEP_UP_SCREEN_KEYS;
 use pierre_core::constants::oauth::providers::SENSITIVE_T2;
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::constants::oauth_providers::NoticeKind;
@@ -41,29 +42,48 @@ use sha2::{Digest, Sha256};
 use url::Url;
 use uuid::Uuid;
 
-/// The step-up screen's three lines, as the catalogue will word them.
-const STEP_UP_LINES: [(&str, &str); 3] = [
+/// The step-up screen's lines, as a test words them: each test sets the
+/// wording it reads rather than inheriting the pinned catalogue's.
+const STEP_UP_LINES: [(&str, &str); 5] = [
     (
-        "oauth.consent.stepUpTitle",
+        "oauth.stepUp.title",
         "{0} asks for a one-off look at your health records",
     ),
     (
-        "oauth.consent.stepUpT2Disclosure",
+        "oauth.stepUp.t2Disclosure",
         "This includes your health records. {0} reads them once, then this access ends.",
     ),
     (
-        "oauth.consent.stepUpHost",
+        "oauth.stepUp.host",
         "{0} says it handles health records with care. Dravr cannot check this.",
     ),
+    ("oauth.stepUp.streamsTitle", "What {0} can read, once:"),
+    ("oauth.stepUp.stream.labs", "Lab results (test wording)"),
 ];
 
-/// Word the step-up screen in English, the athlete's language.
+/// Word the step-up screen in English, the athlete's language: every line
+/// the screen can show, the ones this suite reads in its own wording.
 fn light_step_up(world: &World) {
     let strings = &world.resources.mcp.messaging_strings_registry;
-    for (key, line) in STEP_UP_LINES {
+    let lines = STEP_UP_SCREEN_KEYS.iter().map(|key| {
+        STEP_UP_LINES
+            .iter()
+            .find(|(own, _)| own == key)
+            .map_or((*key, "a step-up line"), |line| *line)
+    });
+    for (key, line) in lines {
         let sha = format!("{:x}", Sha256::digest(line.as_bytes()));
         strings.update(key, "en", line.to_owned(), sha.clone());
         strings.update(key, &world.user.locale, line.to_owned(), sha);
+    }
+}
+
+/// Unword the step-up screen in English, whatever the pinned catalogue says:
+/// the dark launch's state.
+fn darken_step_up(world: &World) {
+    let strings = &world.resources.mcp.messaging_strings_registry;
+    for key in STEP_UP_SCREEN_KEYS {
+        strings.update(key, "en", String::new(), String::new());
     }
 }
 
@@ -149,11 +169,17 @@ async fn authorize_details(
     cookie: &str,
     details: &str,
 ) -> AxumTestResponse {
-    let query = request_query(
-        client,
-        &fresh_state(),
-        &[("authorization_details", details)],
-    );
+    authorize_asking(world, client, cookie, &[("authorization_details", details)]).await
+}
+
+/// `GET /oauth2/authorize` with `extra` parameters, under `cookie`.
+async fn authorize_asking(
+    world: &World,
+    client: &Client,
+    cookie: &str,
+    extra: &[(&str, &str)],
+) -> AxumTestResponse {
+    let query = request_query(client, &fresh_state(), extra);
     AxumTestRequest::get(&format!("/oauth2/authorize?{query}"))
         .header("cookie", cookie)
         .send(app(&world.resources))
@@ -179,6 +205,23 @@ async fn approve_details(
     (cookie, digest): (&str, &str),
     details: &str,
 ) -> AxumTestResponse {
+    approve_asking(
+        world,
+        client,
+        (cookie, digest),
+        &[("authorization_details", details)],
+    )
+    .await
+}
+
+/// The athlete approves the screen a request with `extra` parameters
+/// showed, under `cookie`, with the digest carried.
+async fn approve_asking(
+    world: &World,
+    client: &Client,
+    (cookie, digest): (&str, &str),
+    extra: &[(&str, &str)],
+) -> AxumTestResponse {
     let token = world
         .resources
         .auth
@@ -187,7 +230,7 @@ async fn approve_details(
         .unwrap();
     let challenge = challenge();
     let state = fresh_state();
-    let form: Vec<(&str, &str)> = vec![
+    let mut form: Vec<(&str, &str)> = vec![
         ("response_type", "code"),
         ("client_id", client.id.as_str()),
         ("redirect_uri", REDIRECT),
@@ -197,8 +240,8 @@ async fn approve_details(
         ("decision", "approve"),
         ("csrf_token", token.as_str()),
         ("review_digest", digest),
-        ("authorization_details", details),
     ];
+    form.extend_from_slice(extra);
     AxumTestRequest::post("/oauth2/consent")
         .header("cookie", cookie)
         .form(&form)
@@ -224,6 +267,14 @@ async fn step_up_digest_of(world: &World, client: &Client, details: &str) -> Str
     assert!(
         !page.contains("standing_policy"),
         "bug: a step-up offered a standing policy: {page}"
+    );
+    assert!(
+        page.contains("What client can read, once:") || page.contains("can read, once:"),
+        "bug: the step-up screen does not head its streams: {page}"
+    );
+    assert!(
+        page.contains("<li>Lab results (test wording)</li>"),
+        "bug: the step-up screen does not list the streams it reads: {page}"
     );
     hidden_field(&page, "review_digest").expect("the screen carries its digest")
 }
@@ -345,6 +396,7 @@ async fn stepped_up_under(budgets: &Value) -> (World, Client, String, String, St
 #[tokio::test]
 async fn a_one_off_question_is_refused_before_sign_in_while_the_screen_is_dark() {
     let world = world().await;
+    darken_step_up(&world);
     let client = register(&world).await;
     let refused = authorize_one_off(&world, &client, &world.cookie).await;
     assert_eq!(refused.status(), 303, "{}", refused.body_text());
@@ -860,5 +912,152 @@ async fn a_step_up_childs_requests_an_hour_are_its_own() {
         events(&world, &child).await,
         [GrantEvent::StepUp],
         "bug: a refused call consumed the child"
+    );
+}
+
+// ============================================================================
+// The 403 challenge and the host's re-authorization (owl §7.6 row 2)
+// ============================================================================
+
+/// `tools/call` of `get_health_records` for `kind` over `/mcp` under
+/// `bearer`: the status, the `WWW-Authenticate` header and the body.
+async fn records_status(world: &World, bearer: &str, kind: &str) -> (u16, String, String) {
+    let response = AxumTestRequest::post("/mcp")
+        .header("authorization", &format!("Bearer {bearer}"))
+        .header("mcp-protocol-version", "2026-07-28")
+        .header("mcp-method", "tools/call")
+        .header("mcp-name", "get_health_records")
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "get_health_records", "arguments": {"kind": kind}},
+        }))
+        .send(ProviderToolRouter::build_http_app(&world.resources))
+        .await;
+    (
+        response.status(),
+        response
+            .header("www-authenticate")
+            .unwrap_or_default()
+            .to_owned(),
+        response.body_text(),
+    )
+}
+
+/// A world whose athlete holds a training-coach parent for a T2 host, with
+/// the step-up screen lit: the client, the parent's id and its token.
+async fn under_a_parent() -> (World, Client, String, String) {
+    let world = world().await;
+    let client = register(&world).await;
+    light_step_up(&world);
+    declare_t2_host(&world, &client).await;
+    let approved = approve_with(&world, &client, &[], Some("training_coach")).await;
+    assert_eq!(approved.status(), 303, "{}", approved.body_text());
+    let code = code_of(&approved);
+    let (token, _) = tokens(&exchange(&world, &client, &code).await);
+    let parent = live_grants(&world)
+        .await
+        .into_iter()
+        .find(|grant| grant.client_id == client.id)
+        .expect("the parent grant is live")
+        .id;
+    (world, client, parent, token)
+}
+
+/// The `scope` a `WWW-Authenticate` challenge names.
+fn challenged_scope(challenge: &str) -> String {
+    challenge
+        .split("scope=\"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .unwrap_or_else(|| panic!("a scope in {challenge}"))
+        .to_owned()
+}
+
+#[tokio::test]
+async fn a_call_a_step_up_would_cure_is_answered_403_with_the_cures_scope() {
+    let (world, _client, _parent, token) = under_a_parent().await;
+    let (status, challenge, body) = records_status(&world, &token, "labs").await;
+    assert_eq!(
+        status, 403,
+        "bug: a curable call was not challenged: {body}"
+    );
+    assert!(
+        challenge.contains("error=\"insufficient_scope\""),
+        "bug: {challenge}"
+    );
+    let scope = challenged_scope(&challenge);
+    assert!(
+        scope.ends_with("pdpp:preset:one_off_question pdpp:stream:labs.summary"),
+        "bug: the challenge's scope: {scope}"
+    );
+    assert!(
+        scope.contains("fitness:read"),
+        "bug: the challenge drops the token's own grant: {scope}"
+    );
+
+    // A call no step-up cures (T3 streams beside) stays in band.
+    let (status, challenge, body) = records_status(&world, &token, "clinical").await;
+    assert_eq!(
+        status, 200,
+        "bug: an incurable call was challenged: {challenge}"
+    );
+    assert!(
+        !body.contains("step_up_required"),
+        "bug: a step-up was offered for T3 streams: {body}"
+    );
+
+    // Dark, nothing is challenged.
+    darken_step_up(&world);
+    let (status, _, _) = records_status(&world, &token, "labs").await;
+    assert_eq!(status, 200, "bug: a dark step-up was challenged");
+}
+
+#[tokio::test]
+async fn a_host_reauthorizing_with_the_challenge_gets_a_child_its_token_names_the_parent_of() {
+    let (world, client, parent, token) = under_a_parent().await;
+    let (_, challenge, _) = records_status(&world, &token, "labs").await;
+    let scope = challenged_scope(&challenge);
+
+    let screen = authorize_asking(
+        &world,
+        &client,
+        &hosted_sign_in(&world),
+        &[("scope", &scope)],
+    )
+    .await;
+    assert_eq!(screen.status(), 200, "{}", screen.body_text());
+    let page = screen.body_text();
+    assert!(
+        page.contains("asks for a one-off look at your health records")
+            && page.contains("<li>Lab results (test wording)</li>"),
+        "bug: the challenge's scope is not the step-up screen: {page}"
+    );
+    let digest = hidden_field(&page, "review_digest").expect("the screen carries its digest");
+    let approved = approve_asking(
+        &world,
+        &client,
+        (&hosted_sign_in(&world), &digest),
+        &[("scope", &scope)],
+    )
+    .await;
+    assert_eq!(approved.status(), 303, "{}", approved.body_text());
+    assert!(
+        param(&approved, "error").is_empty(),
+        "bug: the re-authorization was refused: {:?}",
+        approved.header("location")
+    );
+    let child = children(&world).await;
+    assert_eq!(child.len(), 1, "bug: no child under the parent");
+    assert_eq!(
+        child[0].terms.parent_grant_id, parent,
+        "bug: another parent"
+    );
+    let (stepped, _) = tokens(&exchange(&world, &client, &code_of(&approved)).await);
+    assert_eq!(
+        claimed_grant(&stepped).as_deref(),
+        Some(parent.as_str()),
+        "bug: the re-authorized token does not name the parent"
     );
 }

@@ -23,6 +23,7 @@ use super::pkce::{check_code_challenge, check_pkce};
 use super::rate_limiting::OAuth2RateLimiter;
 use super::request_text::{refuse_control_characters, refuse_oversized_state};
 use super::resource::bound_audience;
+use super::step_up_scope;
 use crate::admin::jwks::JwksManager;
 use crate::auth::{oauth_access_token_lifetime_secs, AuthManager, TokenLineage};
 use crate::config::oauth::ClientRetentionConfig;
@@ -445,7 +446,14 @@ impl OAuth2AuthorizationServer {
         // the client's registered scope. `admin` is offered on the consent
         // screen, never asked for, so a request naming it is checked without
         // it rather than refused (carnet#1511, Q20).
-        let requested = without_admin(request.scope.as_deref());
+        // A step-up scope (`pdpp:`, owl §7.6) asks for a one-off question
+        // over its streams; the rest of it is the grant the code carries.
+        let step_up = step_up_scope::split(request.scope.as_deref())?;
+        let requested = without_admin(
+            step_up
+                .as_ref()
+                .map_or(request.scope.as_deref(), |step_up| Some(&step_up.scope)),
+        );
         let scope = Self::authorized_scope(client, requested.as_deref())?;
 
         check_code_challenge(request)?;
@@ -459,8 +467,11 @@ impl OAuth2AuthorizationServer {
             .map(|requested| bound_audience(&self.served(), requested))
             .transpose()?;
         // RFC 9396: details the server cannot resolve are refused now too.
+        let asked = self.step_up_details(step_up.as_ref(), request, resource.as_deref())?;
         let details = self.resolve_request_details(
-            request.authorization_details.as_deref(),
+            asked
+                .as_deref()
+                .or(request.authorization_details.as_deref()),
             resource.as_deref(),
         )?;
         let preset_source = self

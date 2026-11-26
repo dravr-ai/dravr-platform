@@ -138,26 +138,66 @@ pub const KEY_CONSENT_GRANT_COMMITMENTS: &str = "oauth.consent.grantCommitments"
 /// preset, renewing it without asking again
 pub const PRESET_KEY_STANDING_POLICY: &str = "oauth.consent.standingPolicy";
 
-// The step-up screen's lines (owl Phase 5, slice 4b): named PRESET_KEY_*
-// ahead of the catalogue, as the standing-policy line is. While the English
-// line of any is empty, the step-up screen is not offered and a step-up
-// request is refused before sign-in ("step-up is not offered yet").
+// The step-up screen's lines (owl Phase 5, slice 4b), under their own
+// `oauth.stepUp.` namespace: the plain consent screen never shows them, so
+// they are versioned with the step-up screen's own review digest
+// (`STEP_UP_SCREEN_KEYS`), never in `CONSENT_SCREEN_KEYS`, and a remembered
+// ordinary grant is not asked again when they change. While the English line
+// of any is empty, the step-up screen is not offered and a step-up request is
+// refused before sign-in ("step-up is not offered yet").
 
 /// Key: the step-up screen's title: `{0}`, the client, asks for a one-off
 /// look that includes health records
-pub const PRESET_KEY_STEP_UP_TITLE: &str = "oauth.consent.stepUpTitle";
+pub const KEY_STEP_UP_TITLE: &str = "oauth.stepUp.title";
 /// Key: what a one-off grant discloses: health records (T2) among what it
 /// reads, read once, then ended. `{0}`, the client
-pub const PRESET_KEY_STEP_UP_T2_DISCLOSURE: &str = "oauth.consent.stepUpT2Disclosure";
+pub const KEY_STEP_UP_T2_DISCLOSURE: &str = "oauth.stepUp.t2Disclosure";
 /// Key: the host's own declaration, which Dravr cannot verify: `{0}`, the
 /// client, says it handles health records with care
-pub const PRESET_KEY_STEP_UP_HOST: &str = "oauth.consent.stepUpHost";
+pub const KEY_STEP_UP_HOST: &str = "oauth.stepUp.host";
+/// Key: above the streams a one-off question reads: `{0}`, the client, may
+/// read these once
+pub const KEY_STEP_UP_STREAMS_TITLE: &str = "oauth.stepUp.streamsTitle";
+/// Key: the daily activity stream, on the step-up screen. No placeholders.
+pub const KEY_STEP_UP_STREAM_ACTIVITY_DAILY: &str = "oauth.stepUp.stream.activityDaily";
+/// Key: the workouts stream, on the step-up screen. No placeholders.
+pub const KEY_STEP_UP_STREAM_WORKOUT: &str = "oauth.stepUp.stream.workout";
+/// Key: the training load stream, on the step-up screen. No placeholders.
+pub const KEY_STEP_UP_STREAM_TRAINING_LOAD: &str = "oauth.stepUp.stream.trainingLoad";
+/// Key: the sleep stream, on the step-up screen. No placeholders.
+pub const KEY_STEP_UP_STREAM_SLEEP: &str = "oauth.stepUp.stream.sleep";
+/// Key: the daily heart rate summary stream, on the step-up screen. No
+/// placeholders.
+pub const KEY_STEP_UP_STREAM_CARDIO_DAILY: &str = "oauth.stepUp.stream.cardioDaily";
+/// Key: the body measurements stream, on the step-up screen. No placeholders.
+pub const KEY_STEP_UP_STREAM_BODY: &str = "oauth.stepUp.stream.body";
+/// Key: the fitness estimates stream, on the step-up screen. No placeholders.
+pub const KEY_STEP_UP_STREAM_FITNESS: &str = "oauth.stepUp.stream.fitness";
+/// Key: the daily recovery stream, on the step-up screen. No placeholders.
+pub const KEY_STEP_UP_STREAM_RECOVERY_DAILY: &str = "oauth.stepUp.stream.recoveryDaily";
+/// Key: the profile stream, on the step-up screen. No placeholders.
+pub const KEY_STEP_UP_STREAM_PROFILE: &str = "oauth.stepUp.stream.profile";
+/// Key: the lab results stream, on the step-up screen. No placeholders.
+pub const KEY_STEP_UP_STREAM_LABS: &str = "oauth.stepUp.stream.labs";
 
-/// Every line the step-up screen shows beside the requested details'.
-pub const STEP_UP_SCREEN_KEYS: [&str; 3] = [
-    PRESET_KEY_STEP_UP_TITLE,
-    PRESET_KEY_STEP_UP_T2_DISCLOSURE,
-    PRESET_KEY_STEP_UP_HOST,
+/// Every line the step-up screen can show beside the requested details': its
+/// own review digest covers them, and its test holds every `oauth.stepUp.`
+/// key in the catalogue to this list.
+pub const STEP_UP_SCREEN_KEYS: [&str; 14] = [
+    KEY_STEP_UP_TITLE,
+    KEY_STEP_UP_T2_DISCLOSURE,
+    KEY_STEP_UP_HOST,
+    KEY_STEP_UP_STREAMS_TITLE,
+    KEY_STEP_UP_STREAM_ACTIVITY_DAILY,
+    KEY_STEP_UP_STREAM_WORKOUT,
+    KEY_STEP_UP_STREAM_TRAINING_LOAD,
+    KEY_STEP_UP_STREAM_SLEEP,
+    KEY_STEP_UP_STREAM_CARDIO_DAILY,
+    KEY_STEP_UP_STREAM_BODY,
+    KEY_STEP_UP_STREAM_FITNESS,
+    KEY_STEP_UP_STREAM_RECOVERY_DAILY,
+    KEY_STEP_UP_STREAM_PROFILE,
+    KEY_STEP_UP_STREAM_LABS,
 ];
 
 /// Whether `strings` word every line of the step-up screen in English: the
@@ -177,7 +217,7 @@ pub fn step_up_worded(strings: &crate::MessagingStringsRegistry) -> bool {
 /// a key the screen renders and this list leaves out is a wording change
 /// nobody is asked again about; its test holds every `oauth.consent.` key in
 /// the catalogue to this list.
-pub const CONSENT_SCREEN_KEYS: [&str; 55] = [
+pub const CONSENT_SCREEN_KEYS: [&str; 52] = [
     KEY_CONSENT_TITLE,
     KEY_CONSENT_LEAD,
     KEY_CONSENT_RETURNS_TO,
@@ -230,9 +270,6 @@ pub const CONSENT_SCREEN_KEYS: [&str; 55] = [
     KEY_CONSENT_GRANT_PURPOSE,
     KEY_CONSENT_GRANT_COMMITMENTS,
     PRESET_KEY_STANDING_POLICY,
-    PRESET_KEY_STEP_UP_TITLE,
-    PRESET_KEY_STEP_UP_T2_DISCLOSURE,
-    PRESET_KEY_STEP_UP_HOST,
 ];
 
 /// Key: "Connection Failed": the error page's title and heading. No format placeholders.

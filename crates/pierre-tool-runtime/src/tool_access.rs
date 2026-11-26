@@ -206,6 +206,33 @@ pub(crate) fn withheld_call(
     decide(declared(tool, registry.call_data(name, args)), caller)
 }
 
+/// The streams a step-up would open for a call to `name` with `args`, which
+/// the consent grant `grant` was minted under with `ceiling` refuses on its
+/// tier or its streams (owl §7.6): `None` when the call is not so refused,
+/// or a step-up cannot cure it (a T3 or raw stream, one a one-off question
+/// never picks).
+///
+/// The one predicate of the step-up answer: the dispatch chokepoint gives it
+/// in band, and `/mcp` as RFC 6750's `403 insufficient_scope` before
+/// dispatch, so a host following MCP's step-up flow re-authorizes for it.
+#[must_use]
+pub fn step_up_cure(
+    registry: &ToolRegistry,
+    (name, args): (&str, &serde_json::Value),
+    grant: &[OAuthScope],
+    ceiling: &GrantCeiling,
+) -> Option<Vec<Stream>> {
+    let tool = registry.get(name)?;
+    let data = registry.call_data(name, args)?;
+    let streams: Vec<Stream> = data.required_streams().collect();
+    let call = ceiling.for_streams(&streams);
+    match beyond_ceiling(&declared(tool.as_ref(), Some(data)), grant, &call) {
+        Some(Withheld::Tier(_) | Withheld::Stream) => {}
+        _ => return None,
+    }
+    ceiling.step_up_cures(&streams).then_some(streams)
+}
+
 /// What `tool` declares, reading `data`.
 fn declared(tool: &dyn RuntimeTool, data: Option<ToolData>) -> Declared {
     Declared {

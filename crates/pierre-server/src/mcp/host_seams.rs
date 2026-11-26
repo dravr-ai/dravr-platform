@@ -42,7 +42,9 @@ use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext, ToolRegistry};
 use pierre_auth::auth::AuthResult;
 use pierre_auth::config::www_authenticate_challenge;
 use pierre_auth::oauth2_server::first_party::names_third_party;
+use pierre_auth::oauth2_server::step_up_scope::challenge_scope;
 use pierre_config::timeouts::ServerTimeouts;
+use pierre_contremaitre::consent_strings::step_up_worded;
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
@@ -84,7 +86,7 @@ mod method_handler;
 /// An admin's support session through their assistant, as `/mcp` serves it (carnet#1511)
 mod support;
 
-use auth_challenge::{auth_refusal, insufficient_scope_challenge};
+use auth_challenge::{auth_refusal, insufficient_scope_challenge, step_up_challenge};
 pub use method_handler::PierreMethodHandler;
 
 /// Supported MCP protocol revisions advertised by the platform server, in
@@ -273,6 +275,34 @@ impl PierreAuthHook {
         missing_scope(granted, capabilities)
     }
 
+    /// The step-up scope a `tools/call` in `request` is challenged with: a
+    /// call under a consent grant's ceiling that the ceiling refuses and a
+    /// one-off question would open ([`tool_access::step_up_cure`]), while the
+    /// step-up screen is worded; `None` for every other request.
+    fn step_up_scope_for(&self, request: &JsonRpcRequest, auth: &AuthResult) -> Option<String> {
+        let ceiling = auth.ceiling.as_ref()?;
+        let name = called_tool(request)?;
+        if !step_up_worded(&self.resources.mcp.messaging_strings_registry) {
+            return None;
+        }
+        let args = request
+            .params
+            .as_ref()
+            .and_then(|params| params.get("arguments"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        let streams = tool_access::step_up_cure(
+            &self.resources.mcp.tool_registry,
+            (name, &args),
+            &auth.scopes,
+            ceiling,
+        )?;
+        Some(challenge_scope(
+            &OAuthScope::render_granted(&auth.scopes),
+            &streams,
+        ))
+    }
+
     /// Put the call `request` names on the admin audit trail as `refused`
     /// when it is an admin-only `tools/call` this hook turns away: the
     /// refusal never reaches the dispatcher, which records every other one
@@ -432,6 +462,20 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
                         reason: format!(
                             "The grant does not cover this tool; '{missing}' is required"
                         ),
+                    });
+                }
+
+                // A call a step-up would cure, rendered here for the reason
+                // the scope refusal is: the dispatch chokepoint answers the
+                // same call in band, from the same predicate.
+                if let Some(scope) = self.step_up_scope_for(request, &auth_result) {
+                    debug!(
+                        scope,
+                        "MCP request rejected: a step-up would open what this tool reads"
+                    );
+                    return Err(AuthError::InsufficientScope {
+                        www_authenticate: step_up_challenge(resource_url, &scope),
+                        reason: "The athlete's one-off approval is needed for this tool".to_owned(),
                     });
                 }
 

@@ -26,6 +26,18 @@ pub(super) fn insufficient_scope_challenge(resource_url: &str, missing: OAuthSco
     )
 }
 
+/// The `insufficient_scope` challenge of a call a step-up would cure (owl
+/// §7.6 row 2): its `scope` is the step-up scope
+/// ([`pierre_auth::oauth2_server::step_up_scope::challenge_scope`]), the
+/// token's own grant and the one-off question over `streams`, which a host
+/// following MCP's step-up flow re-authorizes with.
+pub(super) fn step_up_challenge(resource_url: &str, scope: &str) -> String {
+    let metadata_url = protected_resource_metadata_url(resource_url);
+    format!(
+        "Bearer resource_metadata=\"{metadata_url}\", error=\"insufficient_scope\", scope=\"{scope}\""
+    )
+}
+
 /// The transport refusal for an authentication failure.
 ///
 /// Only a refused credential is a 401 `invalid_token`, which tells an `OAuth`

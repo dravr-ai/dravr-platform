@@ -36,7 +36,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 
 use pierre_auth::oauth2_server::authorization_details::{
-    preset_defaults, review_digest, Preset, Representation, ResolvedDetails,
+    preset_defaults, review_digest, Preset, Representation, ResolvedDetails, Stream,
 };
 use pierre_auth::oauth2_server::endpoints::CheckedAuthorization;
 use pierre_auth::oauth2_server::models::OAuth2Error;
@@ -47,8 +47,11 @@ use pierre_contremaitre::consent_strings::{
     KEY_CONSENT_GRANT_PURPOSE, KEY_CONSENT_GRANT_REQUESTED, KEY_CONSENT_GRANT_SLEEP_COACH,
     KEY_CONSENT_GRANT_SLEEP_COACH_HINT, KEY_CONSENT_GRANT_TRAINING_COACH,
     KEY_CONSENT_GRANT_TRAINING_COACH_HINT, KEY_CONSENT_GRANT_TRAINING_COACH_SUMMARY_HINT,
-    PRESET_KEY_STANDING_POLICY, PRESET_KEY_STEP_UP_HOST, PRESET_KEY_STEP_UP_T2_DISCLOSURE,
-    PRESET_KEY_STEP_UP_TITLE,
+    KEY_STEP_UP_HOST, KEY_STEP_UP_STREAMS_TITLE, KEY_STEP_UP_STREAM_ACTIVITY_DAILY,
+    KEY_STEP_UP_STREAM_BODY, KEY_STEP_UP_STREAM_CARDIO_DAILY, KEY_STEP_UP_STREAM_FITNESS,
+    KEY_STEP_UP_STREAM_LABS, KEY_STEP_UP_STREAM_PROFILE, KEY_STEP_UP_STREAM_RECOVERY_DAILY,
+    KEY_STEP_UP_STREAM_SLEEP, KEY_STEP_UP_STREAM_TRAINING_LOAD, KEY_STEP_UP_STREAM_WORKOUT,
+    KEY_STEP_UP_T2_DISCLOSURE, KEY_STEP_UP_TITLE, PRESET_KEY_STANDING_POLICY,
 };
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::time_constants;
@@ -57,7 +60,7 @@ use pierre_core::models::{OAuthClientGrant, User};
 use tracing::{error, warn};
 
 use super::consent_text::ConsentText;
-use super::consent_version::{consent_version, ConsentSubject};
+use super::consent_version::{consent_version, screen_version, ConsentSubject};
 
 /// Every line the picker and the requested details show.
 const GRANT_KEYS: [&str; 13] = [
@@ -186,7 +189,7 @@ impl GrantChoice {
     ) -> Result<Offer, OAuth2Error> {
         let version = consent_version(text, subject);
         let digest = |details: Option<&ResolvedDetails>| {
-            review_digest(&version, details).map_err(|e| {
+            review_digest(&screen_version(&version, text, details), details).map_err(|e| {
                 error!("The consent screen's review digest could not be computed: {e}");
                 OAuth2Error::server_error(super::consent::CONSENT_UNAVAILABLE)
             })
@@ -468,11 +471,30 @@ fn step_up_html(
 ) -> String {
     let mut html = format!(
         r#"<div class="scopes grant-requested step-up"><p class="grant-label">{}</p><p>{} {}</p><p class="step-up-host">{}</p>"#,
-        text.html(PRESET_KEY_STEP_UP_TITLE, &[client]),
-        text.html(PRESET_KEY_STEP_UP_T2_DISCLOSURE, &[client]),
+        text.html(KEY_STEP_UP_TITLE, &[client]),
+        text.html(KEY_STEP_UP_T2_DISCLOSURE, &[client]),
         lasts_line(details, text),
-        text.html(PRESET_KEY_STEP_UP_HOST, &[client]),
+        text.html(KEY_STEP_UP_HOST, &[client]),
     );
+    let streams = details.picked_streams();
+    if !streams.is_empty() {
+        write!(
+            html,
+            r#"<p class="grant-label">{}</p><ul class="step-up-streams">"#,
+            text.html(KEY_STEP_UP_STREAMS_TITLE, &[client])
+        )
+        .ok();
+        for stream in streams {
+            // A stream with no label is named as owl names it: the screen
+            // never hides what the request reads.
+            let label = step_up_stream_key(stream)
+                .map(|key| text.html(key, &[]))
+                .filter(|label| !label.is_empty())
+                .unwrap_or_else(|| escape_html_attribute(stream.name()));
+            write!(html, "<li>{label}</li>").ok();
+        }
+        html.push_str("</ul>");
+    }
     if let Some(purpose) = details.purpose_description() {
         write!(
             html,
@@ -488,6 +510,24 @@ fn step_up_html(
     html.push_str(&hidden(FIELD_DIGEST, review_digest));
     html.push_str("</div>");
     html
+}
+
+/// The step-up screen's label of `stream`, one of those a one-off question
+/// may pick; `None` for any other.
+const fn step_up_stream_key(stream: Stream) -> Option<&'static str> {
+    Some(match stream {
+        Stream::ActivityDaily => KEY_STEP_UP_STREAM_ACTIVITY_DAILY,
+        Stream::Workout => KEY_STEP_UP_STREAM_WORKOUT,
+        Stream::TrainingLoad => KEY_STEP_UP_STREAM_TRAINING_LOAD,
+        Stream::Sleep => KEY_STEP_UP_STREAM_SLEEP,
+        Stream::CardioDaily => KEY_STEP_UP_STREAM_CARDIO_DAILY,
+        Stream::Body => KEY_STEP_UP_STREAM_BODY,
+        Stream::Fitness => KEY_STEP_UP_STREAM_FITNESS,
+        Stream::RecoveryDaily => KEY_STEP_UP_STREAM_RECOVERY_DAILY,
+        Stream::Profile => KEY_STEP_UP_STREAM_PROFILE,
+        Stream::Labs => KEY_STEP_UP_STREAM_LABS,
+        _ => return None,
+    })
 }
 
 /// The details the athlete approved with `form` for `checked`: a request's
@@ -560,10 +600,12 @@ pub(super) fn check_review_digest(
     text: &ConsentText<'_>,
     subject: ConsentSubject<'_>,
 ) -> Result<String, OAuth2Error> {
-    let expected = review_digest(&consent_version(text, subject), details).map_err(|e| {
-        error!("The consent submission's review digest could not be computed: {e}");
-        OAuth2Error::server_error(super::consent::CONSENT_NOT_RECORDED)
-    })?;
+    let version = consent_version(text, subject);
+    let expected =
+        review_digest(&screen_version(&version, text, details), details).map_err(|e| {
+            error!("The consent submission's review digest could not be computed: {e}");
+            OAuth2Error::server_error(super::consent::CONSENT_NOT_RECORDED)
+        })?;
     if form.get(field) != Some(&expected) {
         warn!("OAuth consent refused: the screen changed since it was rendered");
         return Err(OAuth2Error::access_denied(CONSENT_CHANGED));
@@ -750,6 +792,21 @@ mod tests {
                 .render("", "Client", &unworded_text)
                 .contains("standing_policy"),
             "bug: an unlabelled box is shown"
+        );
+    }
+
+    #[test]
+    fn every_stream_a_one_off_question_may_pick_has_its_label() {
+        for stream in Preset::OneOffQuestion.streams() {
+            assert!(
+                step_up_stream_key(*stream).is_some(),
+                "bug: {} has no step-up label",
+                stream.name()
+            );
+        }
+        assert!(
+            step_up_stream_key(Stream::RestrictedNotes).is_none(),
+            "bug: a T3 stream has a step-up label"
         );
     }
 }

@@ -42,6 +42,8 @@ pub mod rate_limiting;
 mod request_text;
 /// RFC 8707 resource indicators: the resource server a token is bound to
 pub mod resource;
+/// The step-up scope a 403 names and an authorization request maps (owl §7.6)
+pub mod step_up_scope;
 /// Typestate pattern for compile-time OAuth flow safety
 pub mod typestate;
 

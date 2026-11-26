@@ -33,7 +33,7 @@
 //! step-up and a Host Profile requirement: everything else asks for them in
 //! vain, and `max_tier` above T1 is refused for it.
 
-pub use dravr_barrage::{Preset, Tier};
+pub use dravr_barrage::{Preset, Stream, Tier};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
