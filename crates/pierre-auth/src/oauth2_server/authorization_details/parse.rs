@@ -280,6 +280,7 @@ fn check_access(access: &DataAccessRequest) -> Result<Preset, OAuth2Error> {
         .selection_preset
         .as_deref()
         .ok_or_else(|| refused("the data-access detail must name a selection_preset"))?;
+    // LIMITATION(registre#1850): `Preset::from_name` reads no `clinician_summary`; barrage serves one of its streams.
     let preset = Preset::from_name(preset).ok_or_else(|| {
         refused("selection_preset must be training_coach, sleep_coach or one_off_question")
     })?;

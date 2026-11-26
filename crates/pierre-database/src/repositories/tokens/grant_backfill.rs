@@ -11,20 +11,21 @@
 //! tenant, client and user (JF 2026-11-25, "backfill grant ids"). The ones it
 //! leaves `NULL` (no live grant, or several) keep being admitted as before
 //! (`ClientGrantStanding::admits_token`), and this read names them for the
-//! log by tenant, client and user, with how many families each holds: never
-//! by token or family id.
+//! log, one tenant at a time, by client and user, with how many families
+//! each holds: never by token or family id.
 
 use pierre_core::errors::{AppError, AppResult};
 
-/// Live refresh tokens with no named grant, grouped by tenant, client and
-/// user, unexpired at `$1`. Every tenant, by design: the one-time backfill's
-/// boot report, which no request reaches.
+/// Live refresh tokens with no named grant in tenant `$2`, grouped by
+/// client and user, unexpired at `$1`. One tenant per read: the boot report
+/// asks each tenant in turn.
 pub(crate) const UNGRANTED_REFRESH_FAMILIES_SQL: &str = r"
             SELECT tenant_id, client_id, user_id, COUNT(DISTINCT family_id) AS families
             FROM oauth2_refresh_tokens
             WHERE client_grant_id IS NULL
               AND revoked = FALSE
               AND expires_at > $1
+              AND tenant_id = $2
             GROUP BY tenant_id, client_id, user_id
             ORDER BY tenant_id, client_id, user_id
             ";
@@ -76,12 +77,14 @@ macro_rules! impl_ungranted_refresh_families {
             /// The rows behind `refresh_families_without_grant`.
             async fn ungranted_family_rows(
                 &self,
+                tenant_id: &str,
                 now: Timestamp,
             ) -> AppResult<Vec<$crate::repositories::UngrantedRefreshFamilies>> {
                 let grants =
                     $crate::repositories::tokens::grant_backfill::UNGRANTED_REFRESH_FAMILIES_SQL;
                 sqlx::query(grants)
                     .bind(now)
+                    .bind(tenant_id)
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {

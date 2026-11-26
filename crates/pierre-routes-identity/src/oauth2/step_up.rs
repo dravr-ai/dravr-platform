@@ -250,6 +250,7 @@ impl OAuth2Routes {
             terms: StepUpTerms {
                 parent_grant_id: parent.id.clone(),
                 auth_time,
+                // LIMITATION(registre#1849): `acr` OWNER_VERIFIED_ACR is recorded for a password or Google sign-in, not a passkey.
                 acr: OWNER_VERIFIED_ACR.to_owned(),
                 host_profile_basis: host_basis,
                 host_profile_tier: host_tier,

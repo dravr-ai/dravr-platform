@@ -36,7 +36,6 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::factory::Database;
 use pierre_database::backends::shared::key_material::KeyStoreQueue;
-use pierre_database::backends::OAuth2ServerRepository;
 use pierre_database::RepositoryRegistry;
 use pierre_llm::config::LlmChain;
 use pierre_mcp_server::analytics_sink::{PierreAnalyticsProvider, PierreNotifyEnricher};
@@ -621,30 +620,49 @@ fn select_turn_runner(timeouts: &ServerTimeouts) -> Arc<TurnRunner> {
 
 /// Log the live refresh-token families that name no grant (carnet#1550).
 ///
-/// One line per tenant, client and user, with how many families each holds;
-/// never a token or family id.
-async fn report_ungranted_refresh_families(oauth2: &dyn OAuth2ServerRepository) {
-    match oauth2
-        .refresh_families_without_grant(Timestamp::now())
-        .await
-    {
-        Ok(groups) => {
-            for group in &groups {
-                info!(
-                    tenant_id = %group.tenant_id,
-                    client_id = %group.client_id,
-                    user_id = %group.user_id,
-                    families = group.families,
-                    "Live refresh-token families with no named grant: the grant backfill matched none, or several"
-                );
-            }
-            info!(
-                groups = groups.len(),
-                "Refresh-token grant backfill: groups left without a grant"
-            );
+/// Each tenant is read on its own: one line per tenant, client and user, with
+/// how many families each holds; never a token or family id.
+async fn report_ungranted_refresh_families(repos: &RepositoryRegistry) {
+    let tenants = match repos.tenants.get_all().await {
+        Ok(tenants) => tenants,
+        Err(e) => {
+            warn!(error = %e, "Could not list the tenants to read refresh tokens without a grant");
+            return;
         }
-        Err(e) => warn!(error = %e, "Could not read refresh tokens without a grant"),
+    };
+    let now = Timestamp::now();
+    let mut groups = 0_usize;
+    for tenant in &tenants {
+        let tenant_id = tenant.id.to_string();
+        match repos
+            .oauth2_server
+            .refresh_families_without_grant(&tenant_id, now)
+            .await
+        {
+            Ok(left) => {
+                for group in &left {
+                    info!(
+                        tenant_id = %group.tenant_id,
+                        client_id = %group.client_id,
+                        user_id = %group.user_id,
+                        families = group.families,
+                        "Live refresh-token families with no named grant: the grant backfill matched none, or several"
+                    );
+                }
+                groups += left.len();
+            }
+            Err(e) => warn!(
+                tenant_id = %tenant_id,
+                error = %e,
+                "Could not read refresh tokens without a grant"
+            ),
+        }
     }
+    info!(
+        groups,
+        tenants = tenants.len(),
+        "Refresh-token grant backfill: groups left without a grant"
+    );
 }
 
 /// The deployment's blob store, which keeps every original file (an import's
@@ -808,9 +826,8 @@ fn spawn_background_workers(
     // tenant, client and user only. Detached, as nothing waits on it; a
     // panic in the report is logged rather than lost with its handle.
     {
-        let oauth2 = Arc::clone(&resources.common.repos.oauth2_server);
-        let report =
-            tokio::spawn(async move { report_ungranted_refresh_families(oauth2.as_ref()).await });
+        let repos = resources.common.repos.clone();
+        let report = tokio::spawn(async move { report_ungranted_refresh_families(&repos).await });
         tokio::spawn(async move {
             if let Err(e) = report.await {
                 error!(error = %e, "The refresh-token grant report task failed");
