@@ -1568,8 +1568,8 @@ source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=0228469af07
 
 [[package]]
 name = "dravr-enforme"
-version = "0.23.0"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.23.0#b2ad4bcec37768fcf48b41fb3b4812f4499cd576"
+version = "0.23.1"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.23.1#247939a4a47737773d2bf426a95f942eeca37873"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1632,8 +1632,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "5.0.0"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v5.0.0#7f1349c6a11c8b426a596b719568f521ae198233"
+version = "5.1.0"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v5.1.0#926ac7e50aeec3e78310ae3965e64534a69fff76"
 dependencies = [
  "async-trait",
  "dirs 6.0.0",
@@ -5282,7 +5282,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.3",
  "rustls",
- "socket2 0.6.5",
+ "socket2 0.5.10",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -5320,7 +5320,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.5",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.61.2",
 ]
