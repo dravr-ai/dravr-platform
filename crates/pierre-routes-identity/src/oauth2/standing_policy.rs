@@ -228,6 +228,22 @@ mod tests {
         );
     }
 
+    /// owl §6.4: a standing policy never renews a T2 grant, even one whose
+    /// terms it holds word for word (no screen offers such a policy, so this
+    /// is a forged or seeded one).
+    #[test]
+    fn a_policy_never_renews_a_one_off_t2_question() {
+        let strings = MessagingStringsRegistry::new();
+        let terms = preset_defaults(Preset::OneOffQuestion, SOURCE);
+        assert_eq!(terms.max_tier(), Tier::T2, "bug: the one-off preset is not T2");
+        let policies = [policy(&strings, &terms)];
+        assert!(
+            renewing_policy(&policies, &checked(Some(terms)), SCOPE, &strings, subject())
+                .is_none(),
+            "bug: a standing policy renewed a T2 one-off question"
+        );
+    }
+
     #[test]
     fn a_policy_never_renews_another_scope() {
         let strings = MessagingStringsRegistry::new();
