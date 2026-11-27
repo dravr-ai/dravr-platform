@@ -46,6 +46,7 @@ use pierre_core::models::{
 };
 use pierre_core::transport::TransportPolicy;
 use pierre_core::uuid_utils::parse_uuid;
+use pierre_database::repositories::ChatRepository;
 use pierre_database::RepositoryRegistry;
 use pierre_llm::config::LlmChain;
 use tracing::{info, warn};
@@ -248,6 +249,27 @@ pub async fn resolve_plan_thread(
     let designated = chat
         .designate_plan_thread(&forged_id, user_id, tenant_id)
         .await?;
+    settle_plan_thread(chat, &forged_id, designated, user_id, tenant_id).await
+}
+
+/// After forging `forged_id` and trying to designate it, the plan thread
+/// that holds the designation.
+///
+/// It is this forge when `designated` and the read finds it. A racing request
+/// that designated its own thread first wins instead, and this forge, which
+/// nobody was sent to, is removed.
+///
+/// # Errors
+///
+/// Returns the repository error of the read, and an internal error when no
+/// thread holds the designation.
+async fn settle_plan_thread(
+    chat: &dyn ChatRepository,
+    forged_id: &str,
+    designated: bool,
+    user_id: &str,
+    tenant_id: TenantId,
+) -> AppResult<PlanThread> {
     let winner = chat.plan_thread_conversation(user_id, tenant_id).await?;
     match winner {
         Some(conversation) if designated && conversation.id == forged_id => {
@@ -261,7 +283,7 @@ pub async fn resolve_plan_thread(
             // A racing request designated its own thread first: this one was
             // forged for nothing and nobody was sent to it, so it goes.
             if let Err(e) = chat
-                .delete_conversation(&forged_id, user_id, tenant_id)
+                .delete_conversation(forged_id, user_id, tenant_id)
                 .await
             {
                 warn!(error = %e, conversation_id = %forged_id, "plan thread: removing the losing forge failed");

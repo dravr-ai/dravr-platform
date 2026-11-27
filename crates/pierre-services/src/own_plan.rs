@@ -153,9 +153,11 @@ async fn live_weeks_at(
 }
 
 /// Rebase the athlete's own overlay over a live write that turned `before`
-/// into `after`: each week the overlay holds of those written is rewritten
-/// by [`rebase_days`], and saved back when that changed it. A week the
-/// overlay never wrote shows the live plan through and is left alone.
+/// into `after`.
+///
+/// Each week the overlay holds of those written is rewritten by
+/// [`rebase_days`], and saved back when that changed it. A week the overlay
+/// never wrote shows the live plan through and is left alone.
 ///
 /// `policy` is the live plan's stamp after the write: the rebased week
 /// carries its entries.
@@ -248,9 +250,11 @@ fn on(days: &[PlannedDay], date: &str) -> Vec<PlannedDay> {
 }
 
 /// The overlay's entries of one week after a live write turned `old` into
-/// `new`, date by date: a date the overlay did not change takes `new`'s
-/// entries; a date the overlay proposes keeps its proposal while the write
-/// left the date alone, and takes `new`'s entries when the write changed it.
+/// `new`, date by date.
+///
+/// A date the overlay did not change takes `new`'s entries; a date the
+/// overlay proposes keeps its proposal while the write left the date alone,
+/// and takes `new`'s entries when the write changed it.
 /// Entries are compared by their training content, and come back in date
 /// order, each date's in its own order.
 #[must_use]
@@ -307,9 +311,11 @@ pub enum ProposalAccept {
 }
 
 /// Accept what the athlete's own overlay proposes on `date`, and on the other
-/// date of a session it moves (carnet#1841): each date's overlay entries go
-/// onto the live plan in place of its live entries, through
-/// [`write_live_weeks`], recorded as the athlete's `proposal_accept`.
+/// date of a session it moves (carnet#1841).
+///
+/// Each date's overlay entries go onto the live plan in place of its live
+/// entries, through [`write_live_weeks`], recorded as the athlete's
+/// `proposal_accept`.
 ///
 /// Idempotent: a date that proposes nothing is answered as such and writes
 /// nothing. A proposed date in a week the live plan does not hold yet is
@@ -355,12 +361,10 @@ pub async fn accept_proposal(
                 ..entry.clone()
             })
             .collect();
-        let at = match weeks
+        let at = weeks
             .iter()
             .position(|week| week.week_start == proposed.week_start)
-        {
-            Some(at) => at,
-            None => {
+            .unwrap_or_else(|| {
                 let base = live
                     .weeks
                     .iter()
@@ -372,8 +376,7 @@ pub async fn accept_proposal(
                     });
                 weeks.push(base);
                 weeks.len() - 1
-            }
-        };
+            });
         if let Some(week) = weeks.get_mut(at) {
             week.days = with_entries_on(&week.days, &entries, &dated);
         }

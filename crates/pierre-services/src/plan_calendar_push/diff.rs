@@ -187,9 +187,10 @@ pub fn diff_against_ledger(
 }
 
 /// The keys of `pending` a push would leave alone because the athlete
-/// changed their entry on the provider after Dravr wrote it (carnet#1841):
-/// the send review's « Modifiée sur Intervals.icu ». Only an update can be
-/// left alone so; a withdrawal is taken off whatever the athlete did.
+/// changed their entry on the provider after Dravr wrote it (carnet#1841).
+///
+/// These are the send review's « Modifiée sur Intervals.icu ». Only an update
+/// can be left alone so; a withdrawal is taken off whatever the athlete did.
 ///
 /// Reads `calendar`'s listing over the pending dates once, and an entry in
 /// detail only where the listing carries no change stamp, as the push does.
