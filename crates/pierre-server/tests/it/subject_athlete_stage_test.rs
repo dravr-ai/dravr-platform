@@ -63,6 +63,7 @@ use pierre_test_support::delegation::{create_group_agent, grant_coach_access};
 use pierre_tool_runtime::context::CONVERSATION_ID;
 use pierre_tool_runtime::implementations::training_plans::SaveTrainingPlanTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::tool_access::CallerRole;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -481,6 +482,7 @@ impl Fixture {
                 mentioned_agent: None,
                 steps_after: None,
                 grant: OAuthScope::self_grant(),
+                role: CallerRole::default(),
             },
             &web_profile(),
             &PipelineHooks::none(),

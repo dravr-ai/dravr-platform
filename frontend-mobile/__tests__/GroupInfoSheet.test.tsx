@@ -63,6 +63,9 @@ function coachConsents(overrides: Record<string, unknown> = {}) {
     assistant_read: false,
     assistant_read_at: null,
     assistant_read_supported: false,
+    missed_session_check: true,
+    missed_session_check_at: null,
+    missed_session_check_supported: false,
     sensitive_t2_read: false,
     sensitive_t2_read_at: null,
     sensitive_t2_read_until: null,
@@ -762,6 +765,51 @@ describe('GroupInfoSheet', () => {
 
     expect(await findByTestId('coach-sharing-switch')).toBeTruthy();
     expect(queryByTestId('coach-assistant-read-switch')).toBeNull();
+  });
+
+  it('offers the missed-session check under the assistant opt-in, on until the member turns it off, with no confirm', async () => {
+    mockCallerId = 'user-phil';
+    (groupsApi.getGroup as jest.Mock).mockResolvedValue(COACHED_GROUP);
+    mockGetCoachConsents.mockResolvedValue(coachConsents({ assistant_read_supported: true, missed_session_check_supported: true }));
+    mockUpdateCoachConsents.mockResolvedValue(
+      coachConsents({
+        assistant_read_supported: true,
+        missed_session_check_supported: true,
+        missed_session_check: false,
+        missed_session_check_at: '2026-11-26T09:00:00Z',
+      }),
+    );
+    const { findByTestId, getByTestId } = renderSheet();
+    await act(async () => {
+      fireEvent.press(await findByTestId('group-info-settings-toggle'));
+    });
+
+    const toggle = await findByTestId('coach-missed-session-check-switch');
+    expect(toggle).toHaveProp('value', true);
+    expect(getByTestId('coach-missed-session-check-row')).toHaveTextContent(/when planned sessions are missed/);
+    await act(async () => {
+      fireEvent(toggle, 'valueChange', false);
+    });
+
+    expect(mockUpdateCoachConsents).toHaveBeenCalledWith('group-1', { missed_session_check: false });
+    expect(mockUpdateCoachConsents).toHaveBeenCalledTimes(1);
+    // Turned off at once: no alert asks first, and the switch shows the answer.
+    expect(Alert.alert).not.toHaveBeenCalled();
+    await waitFor(() => expect(getByTestId('coach-missed-session-check-switch')).toHaveProp('value', false));
+    expect(mockUpdateCoachSharing).not.toHaveBeenCalled();
+  });
+
+  it('offers no missed-session check where the server says there is no coach to tell', async () => {
+    mockCallerId = 'user-phil';
+    (groupsApi.getGroup as jest.Mock).mockResolvedValue(COACHED_GROUP);
+    mockGetCoachConsents.mockResolvedValue(coachConsents({ assistant_read_supported: true }));
+    const { findByTestId, queryByTestId } = renderSheet();
+    await act(async () => {
+      fireEvent.press(await findByTestId('group-info-settings-toggle'));
+    });
+
+    expect(await findByTestId('coach-assistant-read-switch')).toBeTruthy();
+    expect(queryByTestId('coach-missed-session-check-row')).toBeNull();
   });
 
   // EFVP decision 9.2b: a sharing member who never answered the notice is told once,

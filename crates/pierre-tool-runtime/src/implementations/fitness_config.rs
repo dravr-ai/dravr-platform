@@ -15,7 +15,7 @@
 //! All tools reach the rows through the `FitnessConfigRepository` in the repository registry.
 
 use crate::annotations::{annotations, Effect, Reach};
-use crate::tool_data::ToolData;
+use crate::tool_data::{ToolData, WriteKind};
 use dravr_barrage::Stream;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -579,7 +579,8 @@ pub fn create_fitness_config_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(DeleteFitnessConfigTool => IRREVERSIBLE, reads: ToolData::own(&[]));
+crate::declare_security!(DeleteFitnessConfigTool => IRREVERSIBLE, reads: ToolData::own(&[])
+        .writes(WriteKind::Structured));
 crate::declare_security!(
     GetFitnessConfigTool => empty; first_party_only,
     reads: ToolData::own(&[Stream::Fitness, Stream::Profile]),
@@ -590,5 +591,6 @@ crate::declare_security!(
 );
 crate::declare_security!(
     SetFitnessConfigTool => empty,
-    reads: ToolData::own(&[Stream::Fitness, Stream::Profile]),
+    reads: ToolData::own(&[Stream::Fitness, Stream::Profile])
+        .writes(WriteKind::Structured),
 );

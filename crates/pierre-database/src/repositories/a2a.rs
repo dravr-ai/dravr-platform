@@ -84,6 +84,18 @@ pub trait A2ARepository: Send + Sync {
         history: Option<&Value>,
         artifacts: Option<&Value>,
     ) -> AppResult<()>;
+    /// Record the group members whose data the task's tool call read, the
+    /// caller aside, as `members`: a JSON array of the reads, each with how
+    /// it was made (`[]` for none), or, for a call run in an admin's support
+    /// session, that session with its reads. What a data export and every
+    /// later read of the task decide its row by (carnet#1511 calls 7, 19
+    /// and 28).
+    async fn record_task_members(&self, task_id: &str, members: &str) -> AppResult<()>;
+    /// The reads [`Self::record_task_members`] recorded on a task, as it
+    /// stored them: `None` for a task with no record (from before it
+    /// existed, or one whose record could not be written) and for an unknown
+    /// task. What every read of a stored task decides it by (carnet#1511).
+    async fn get_task_members(&self, task_id: &str) -> AppResult<Option<String>>;
     /// Store a push notification configuration for a task (A2A 1.0
     /// `CreateTaskPushNotificationConfig`)
     async fn create_push_config(&self, config: &A2APushNotificationConfig) -> AppResult<()>;
@@ -267,6 +279,16 @@ pub(crate) const UPDATE_TASK_WIRE_STATE_SQL: &str = r"
                 artifacts = COALESCE($3, artifacts)
             WHERE task_id = $1
             ";
+
+/// Record whose data a task served (`about_members`). A task carries no
+/// tenant or user column: it is addressed by its id alone, as every task
+/// write is.
+pub(crate) const RECORD_TASK_MEMBERS_SQL: &str =
+    "UPDATE a2a_tasks SET about_members = $2 WHERE task_id = $1";
+
+/// Whose data a task served, as [`RECORD_TASK_MEMBERS_SQL`] recorded it.
+pub(crate) const GET_TASK_MEMBERS_SQL: &str =
+    "SELECT about_members FROM a2a_tasks WHERE task_id = $1";
 
 /// Store or refresh one push-notification config of a task.
 pub(crate) const UPSERT_PUSH_CONFIG_SQL: &str = r"

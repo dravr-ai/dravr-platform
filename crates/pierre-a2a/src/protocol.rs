@@ -62,6 +62,8 @@ mod principal;
 mod push_config;
 /// An admin's support session through their agent, as A2A serves it (carnet#1511)
 mod support;
+mod task_members;
+mod task_reads;
 mod tasks;
 mod text_turn;
 use principal::AuthPrincipal;
@@ -768,11 +770,28 @@ impl A2AServer {
         let outcome = match (text_turn, Self::extract_tool_intent(&user_message)) {
             (Some(turn), _) => Self::run_text_turn(ctx, &task_id, turn).await,
             (None, Some((tool_name, params))) => {
-                Self::execute_registered_tool(ctx, tool_runtime, &principal, &tool_name, params)
-                    .await
-                    .map_or_else(SendOutcome::Failure, |(result, labels)| {
-                        SendOutcome::Tool(tool_name, result, labels)
-                    })
+                // A live support session runs the call as its user
+                // (carnet#1511), and its task is read only while it lives
+                // (call 28).
+                match Self::acting_for(ctx.as_ref(), &principal, &tool_name).await {
+                    Err(refused) => SendOutcome::Failure(SendFailure::text(refused)),
+                    Ok(acting) => {
+                        let support = acting.support.as_ref().map(|live| live.session.id.clone());
+                        let run = Self::execute_registered_tool(
+                            ctx,
+                            tool_runtime,
+                            &principal,
+                            acting,
+                            &tool_name,
+                            params,
+                        );
+                        Self::recording_members(ctx, &task_id, support, run)
+                            .await
+                            .map_or_else(SendOutcome::Failure, |(result, labels)| {
+                                SendOutcome::Tool(tool_name, result, labels)
+                            })
+                    }
+                }
             }
             // A message addressing no registered tool has nothing to run:
             // the task fails with the shape the surface accepts.
@@ -929,13 +948,10 @@ impl A2AServer {
         ctx: &Arc<dyn A2ACtx>,
         tool_runtime: &Arc<dyn ToolRuntime>,
         principal: &AuthPrincipal,
+        acting: support::Acting,
         tool_name: &str,
         tool_params: Value,
     ) -> Result<(Value, Option<Value>), SendFailure> {
-        // A live support session runs the call as its user (carnet#1511).
-        let acting = Self::acting_for(ctx.as_ref(), principal, tool_name)
-            .await
-            .map_err(SendFailure::text)?;
         let user_id = acting.user_id;
         // Resolve tenant context — required for all A2A tool execution.
         let tenant = acting.tenant;
@@ -1184,7 +1200,14 @@ impl A2AServer {
         }
 
         let receiver = TASK_EVENTS.subscribe(&record.id);
-        let snapshot = Self::wire_task(&record, params.history_length, true);
+        let snapshot = Self::readable_wire_task(
+            resources,
+            principal.user_id,
+            &record,
+            params.history_length,
+            true,
+        )
+        .await;
         Ok((snapshot, receiver))
     }
 }

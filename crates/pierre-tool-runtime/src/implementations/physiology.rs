@@ -34,7 +34,7 @@
 //! athlete's number instead of replacing it.
 
 use crate::annotations::{annotations, Effect, Reach};
-use crate::tool_data::ToolData;
+use crate::tool_data::{ToolData, WriteKind};
 use dravr_barrage::Stream;
 use pierre_providers::ai_scope;
 use std::collections::BTreeMap;
@@ -1112,5 +1112,6 @@ pub fn create_physiology_tools() -> Vec<Box<dyn RuntimeTool>> {
 // configurations.
 crate::declare_security!(
     SetPhysiologyTool => empty,
-    reads: ToolData::own(&[Stream::Fitness, Stream::Profile]),
+    reads: ToolData::own(&[Stream::Fitness, Stream::Profile])
+        .writes(WriteKind::Structured),
 );

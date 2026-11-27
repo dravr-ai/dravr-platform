@@ -473,7 +473,6 @@ async fn a_compaction_context_prints_the_size_of_the_transcript_never_its_text()
         tenant_id: TenantId::generate(),
         conversation_id: "conv-1",
         source_ids: &source_ids,
-        source_members: &vec![None; source_ids.len()],
         source_consents: &vec![Vec::new(); source_ids.len()],
         llm_messages: &mut llm_messages,
         summary_for_prompt: str::to_owned,

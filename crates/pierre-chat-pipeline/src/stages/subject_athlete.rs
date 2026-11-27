@@ -49,14 +49,16 @@
 //! (`TurnStanding::files_on_sender`) or playbook advice
 //! (`TurnSeat::sender_is_subject`), and no tool that writes the coach's own
 //! data (`TurnSeat::AthleteThread`). The plan tools are the one write, and they
-//! write the athlete's draft.
+//! write the athlete's draft. A turn the gates refuse holds the coach's private
+//! seat instead (`group_subject::turn_standing`, carnet#1511 call 30): no
+//! athlete tool is offered that every call would refuse.
 
 use std::fmt::Write as _;
 
 use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::civil_time::UTC_MINUTE;
 use pierre_core::errors::{AppResult, ErrorCode};
-use pierre_core::models::{ConversationSubject, TenantId};
+use pierre_core::models::{CarriedRead, ConversationSubject, TenantId};
 use pierre_core::untrusted::{display_line, ROSTER_NAME_MAX_CHARS};
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::{ConversationRecord, MessageRecord};
@@ -155,6 +157,20 @@ impl GrantedSubject {
     /// The athlete.
     pub(crate) const fn athlete(&self) -> Uuid {
         self.access.athlete_user_id
+    }
+
+    /// The read of the athlete the thread's block makes, through the coach's
+    /// view by `coach`: their plan and draft, which no peer sharing covers
+    /// (carnet#1511 call 23), and their wellness too while they grant it,
+    /// which the block's wellness section may carry (call 19).
+    pub(crate) fn carried_read(&self, coach: Uuid) -> CarriedRead {
+        let read = CarriedRead::coach(self.access.athlete_user_id, self.access.group.id, coach)
+            .beyond_activities();
+        if self.access.consents.wellness_read {
+            read.wellness()
+        } else {
+            read
+        }
     }
 
     /// The athlete's civil date.

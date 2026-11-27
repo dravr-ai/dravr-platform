@@ -138,12 +138,16 @@ fn a_body_without_a_payload_field_is_refused() {
 /// Pierre user.
 mod command_postback_authorization {
     use crate::common::create_test_server_resources;
-    use dravr_tronc::dates::Timestamp;
+    use dravr_tronc::dates::{Elapsed, Timestamp};
     use pierre_core::errors::ErrorCode;
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
     use pierre_database::backends::{CreateChannelLinkParams, MessagingRepository};
+    use pierre_database::repositories::{
+        CreateSessionParams, PendingAgentDraft, AGENT_PROPOSAL_ACTION,
+    };
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::routes::messaging::slack_actions::execute_postback_command;
+    use serde_json::json;
     use uuid::Uuid;
 
     /// Slack DM channel the card button lives in (`D` prefix = IM).
@@ -256,6 +260,172 @@ mod command_postback_authorization {
         assert!(
             analytics_consent(&resources, user_id).await,
             "the command must actually have run for the linked Active user"
+        );
+    }
+
+    /// A draft `/agent create` parked for `user_id`, drafted in
+    /// `conversation_id`: its claim token.
+    async fn park_draft(
+        resources: &ServerContext,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        conversation_id: &str,
+    ) -> String {
+        let token = Uuid::new_v4().simple().to_string();
+        resources
+            .common
+            .repos
+            .agent_drafts
+            .create_pending_action(
+                &PendingAgentDraft {
+                    id: token.clone(),
+                    tenant_id: tenant_id.to_string(),
+                    user_id: user_id.to_string(),
+                    tool_name: AGENT_PROPOSAL_ACTION.to_owned(),
+                    arguments: json!({
+                        "title": "Hill Agent",
+                        "description": "Coaches hill repeats.",
+                        "system_prompt": "You coach hill repeats.",
+                        "category": "training",
+                        "tags": [],
+                        "conversation_id": conversation_id,
+                    }),
+                    deny_reason: "awaiting_confirmation".to_owned(),
+                },
+                Timestamp::now() + Elapsed::minutes(10),
+            )
+            .await
+            .unwrap();
+        token
+    }
+
+    /// carnet#1511 design call 1: a draft is confirmed only from the thread
+    /// it was drafted in. The "Create it" button on a Slack DM's card acts in
+    /// the thread the DM's session writes into, so it confirms the draft
+    /// drafted there and no other.
+    #[tokio::test]
+    async fn a_dm_cards_confirm_button_acts_in_the_dms_thread() {
+        let resources = create_test_server_resources().await.unwrap();
+        let repos = &resources.common.repos;
+        let db: &dyn MessagingRepository = &*repos.messaging;
+        let (user_id, tenant_id) =
+            create_user(&resources, "slack_draft@example.com", UserStatus::Active).await;
+        link_slack(db, tenant_id, user_id, "U0DRAFTER1").await;
+        let thread = repos
+            .chat
+            .create_conversation(&user_id.to_string(), tenant_id, "DM", "model", None, None)
+            .await
+            .unwrap()
+            .id;
+        db.create_session(&CreateSessionParams {
+            id: &Uuid::new_v4().to_string(),
+            user_id: &user_id.to_string(),
+            tenant_id,
+            channel_type: "slack",
+            channel_user_id: "U0DRAFTER1",
+            channel_conversation_id: Some(CARD_CHANNEL),
+            pierre_conversation_id: Some(&thread),
+        })
+        .await
+        .unwrap();
+
+        let elsewhere = park_draft(&resources, user_id, tenant_id, "another-thread").await;
+        let refused = execute_postback_command(
+            &resources,
+            "U0DRAFTER1",
+            CARD_CHANNEL,
+            &format!("/agent create confirm {elsewhere}"),
+        )
+        .await
+        .unwrap();
+        assert!(
+            !refused.contains("Hill Agent"),
+            "a draft from another thread is not confirmed here: {refused}"
+        );
+
+        let here = park_draft(&resources, user_id, tenant_id, &thread).await;
+        let created = execute_postback_command(
+            &resources,
+            "U0DRAFTER1",
+            CARD_CHANNEL,
+            &format!("/agent create confirm {here}"),
+        )
+        .await
+        .unwrap();
+        assert!(
+            created.contains("Hill Agent"),
+            "the DM's card confirms the draft drafted in its thread: {created}"
+        );
+    }
+
+    /// Slack channel the room card's button lives in (`C` prefix = channel).
+    const ROOM_CHANNEL: &str = "C0ROOMCARD";
+
+    /// carnet#1511 design call 1, a channel: the "Create it" button on a
+    /// card posted in a Slack channel acts in the thread that channel's
+    /// session writes into for the clicker, found as an inbound channel
+    /// message finds it: under the tenant the clicker's channel link lives
+    /// in, here a workspace bot's tenant that is not the clicker's own. A
+    /// channel with no session for the clicker names no thread, and the
+    /// button says what to type in the draft's own conversation.
+    #[tokio::test]
+    async fn a_channel_cards_confirm_button_acts_in_the_channels_thread() {
+        let resources = create_test_server_resources().await.unwrap();
+        let repos = &resources.common.repos;
+        let db: &dyn MessagingRepository = &*repos.messaging;
+        let (user_id, tenant_id) =
+            create_user(&resources, "slack_room@example.com", UserStatus::Active).await;
+        let (_, bot_tenant) = create_user(
+            &resources,
+            "slack_bot_owner@example.com",
+            UserStatus::Active,
+        )
+        .await;
+        link_slack(db, bot_tenant, user_id, "U0ROOMDRAFT").await;
+        let thread = repos
+            .chat
+            .create_conversation(
+                &user_id.to_string(),
+                bot_tenant,
+                "Room",
+                "model",
+                None,
+                None,
+            )
+            .await
+            .unwrap()
+            .id;
+        let confirm = |token: &str| format!("/agent create confirm {token}");
+
+        // No session for the clicker in this channel yet: no thread named.
+        let waiting = park_draft(&resources, user_id, tenant_id, &thread).await;
+        let told =
+            execute_postback_command(&resources, "U0ROOMDRAFT", ROOM_CHANNEL, &confirm(&waiting))
+                .await
+                .unwrap();
+        assert!(
+            told.contains(&confirm(&waiting)) && !told.contains("Hill Agent"),
+            "a channel with no session says what to type, and confirms nothing: {told}"
+        );
+
+        db.create_session(&CreateSessionParams {
+            id: &Uuid::new_v4().to_string(),
+            user_id: &user_id.to_string(),
+            tenant_id: bot_tenant,
+            channel_type: "slack",
+            channel_user_id: "U0ROOMDRAFT",
+            channel_conversation_id: Some(ROOM_CHANNEL),
+            pierre_conversation_id: Some(&thread),
+        })
+        .await
+        .unwrap();
+        let created =
+            execute_postback_command(&resources, "U0ROOMDRAFT", ROOM_CHANNEL, &confirm(&waiting))
+                .await
+                .unwrap();
+        assert!(
+            created.contains("Hill Agent"),
+            "the channel's card confirms the draft drafted in its thread: {created}"
         );
     }
 

@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Migration `20261126100000` must not take away the index the previous
+//! Migration `20261126200000` must not take away the index the previous
 //! binary's consent upsert names as its arbiter: during a rolling deploy, or
 //! after a rollback, that binary still records consents against this schema.
 //! The previous release's statement is copied here verbatim (it is the data

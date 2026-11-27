@@ -17,6 +17,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use pierre_tool_runtime::tool_access::CallerRole;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -347,6 +348,7 @@ async fn served_reply_in(
         mentioned_agent: None,
         steps_after: None,
         grant: OAuthScope::self_grant(),
+        role: CallerRole::resolve(&resources.common.repos, user_id).await,
     };
     let profile = SurfaceProfile::resolve(&SurfaceRequest {
         surface: SurfaceId::Web,

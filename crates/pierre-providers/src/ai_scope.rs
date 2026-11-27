@@ -49,11 +49,10 @@
 //! The same accumulator records whose data was read when it is a group
 //! member's (carnet#1174): a tool that reads a member under their consent, or
 //! a coach's message quoting their room words (carnet#1249), calls
-//! [`note_member_read`], and a row derived from that one member is
-//! stamped with them ([`derived_member`]), so a member who withdraws or
+//! [`note_member_read`] with how it read them (carnet#1511 call 19), and a
+//! row derived from it carries that read, so a member who withdraws or
 //! deletes their account takes the row out of every later prompt. A tool
-//! round's rows are stamped from the calls of that round alone
-//! ([`reading_members`]).
+//! round's rows carry the reads of that round alone ([`reading_members`]).
 
 use std::cell::RefCell;
 use std::future::Future;
@@ -67,7 +66,7 @@ use pierre_core::constants::oauth_providers::{
     garmin_device, source_attribution, source_class_of, GARMIN_ATTRIBUTION,
 };
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{Activity, PlannedWorkout};
+use pierre_core::models::{Activity, PlannedWorkout, PushedEventPairing};
 use pierre_core::transport::{Transport, TransportPolicy};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -112,7 +111,9 @@ pub use group_chat::{
 };
 pub use human_coach::for_human_coach;
 pub use provenance::{
-    derived_member, note_member_read, reading_about, reading_members, sole, Provenance,
+    note_member_read, note_member_written, note_replayed_member_read, note_replayed_unknown_member,
+    note_round_read, reading_about, reading_in_room, reading_member_about, reading_members,
+    Provenance, RoomView,
 };
 pub use source_classes::{
     admit_agent_written, admit_profile, judging, note_agent_written, note_served_from,
@@ -540,6 +541,24 @@ pub fn filter_activities(
     note_rows(kept.len());
     // A grant without routes reads the sessions, not where they were.
     without_route(kept)
+}
+
+/// The pairing of Dravr's pushes to `provider`'s calendar, as the gates let it be seen.
+///
+/// Unchanged when no gate applies. Keyed on the calendar's provider, as a
+/// plan is.
+#[must_use]
+fn filter_pushed_pairings(
+    lookup: &dyn ProviderTerms,
+    provider: &str,
+    pushed: Vec<PushedEventPairing>,
+) -> Vec<PushedEventPairing> {
+    filter_typed(
+        lookup,
+        pushed,
+        |_| (provider.to_owned(), None),
+        &["external_id"],
+    )
 }
 
 /// Planned workouts as a model, or a caller over an external transport, may

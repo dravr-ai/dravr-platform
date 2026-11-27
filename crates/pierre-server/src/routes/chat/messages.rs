@@ -31,10 +31,11 @@ use dravr_tronc::dates::Timestamp;
 use pierre_chat_pipeline::turn_stop::{awaiting_question, recent_rows};
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
-use pierre_database::repositories::ChatRepository;
+use pierre_database::repositories::{ChatRepository, ReadableReads};
 use pierre_middleware::AuthenticatedUser;
 use pierre_providers::ai_scope;
 use pierre_services::locale::resolve_user_locale;
+use pierre_services::transcript_reading::{screen_reads, TranscriptRoom};
 use pierre_tool_runtime::derived_content;
 
 use super::common::{conversation_not_found, get_tenant_id, refuse_unshared_subject};
@@ -113,8 +114,30 @@ pub(super) async fn get_messages(
         .unwrap_or(DEFAULT_MESSAGE_LIMIT)
         .clamp(1, MAX_MESSAGE_LIMIT);
     let before = query.before.as_deref().filter(|id| !id.is_empty());
+    // A row carrying a read the caller may not read is not served, nor any
+    // row after it in its topic, which restates it: the one rule, for this
+    // reader (carnet#1422, carnet#1511 call 19). A participant added to a
+    // coach's thread reads none of what the coach read through the coach's
+    // view of another member there.
+    let readable = screen_reads(
+        &resources.common.repos,
+        TranscriptRoom::of(&conversation),
+        auth.user_id,
+        tenant_id,
+    )
+    .await?;
     let page = chat
-        .get_message_page(&conversation_id, &user_id_str, tenant_id, before, limit)
+        .get_message_page(
+            &conversation_id,
+            &user_id_str,
+            tenant_id,
+            before,
+            limit,
+            ReadableReads {
+                keys: &readable,
+                author: Some(auth.user_id),
+            },
+        )
         .await?;
     let mut messages = page.messages;
     // A row derived from first-party-only data is withheld from an external

@@ -928,11 +928,15 @@ pub fn create_analytics_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-// Each session's detail and sensor streams, without its position.
+// Each session's detail and sensor streams, without its position. A tool
+// that serves the athlete's saved physiology beside them (zones, thresholds,
+// maximum heart rate) declares `with_beyond_activities` (carnet#1511 call 27;
+// the sweep in `coach_athlete_training_reads_test` keeps it honest).
 crate::declare_security!(
     AnalyzeActivityTool => empty,
     reads: ToolData::of(DataClass::Training, &[Stream::Workout, Stream::WorkoutRaw])
-        .with_athlete_text(),
+        .with_athlete_text()
+        .with_beyond_activities(),
 );
 // Trends, best efforts, predictions and the advice derived from the
 // sessions; a mode reading the athlete's wellness is refused on a coach's
@@ -950,7 +954,8 @@ crate::declare_security!(
 );
 crate::declare_security!(
     AnalyzeTrainingLoadTool => empty,
-    reads: ToolData::of(DataClass::Training, &[Stream::TrainingLoad, Stream::Workout]),
+    reads: ToolData::of(DataClass::Training, &[Stream::TrainingLoad, Stream::Workout])
+        .with_beyond_activities(),
 );
 crate::declare_security!(
     AnalyzeWeatherImpactTool => empty,
@@ -959,11 +964,13 @@ crate::declare_security!(
 );
 crate::declare_security!(
     CalculateFitnessScoreTool => empty,
-    reads: ToolData::of(DataClass::Training, &[Stream::TrainingLoad, Stream::Workout]),
+    reads: ToolData::of(DataClass::Training, &[Stream::TrainingLoad, Stream::Workout])
+        .with_beyond_activities(),
 );
 crate::declare_security!(
     CalculateMetricsTool => empty,
-    reads: ToolData::of(DataClass::Training, &[Stream::Workout, Stream::WorkoutRaw]),
+    reads: ToolData::of(DataClass::Training, &[Stream::Workout, Stream::WorkoutRaw])
+        .with_beyond_activities(),
 );
 crate::declare_security!(
     CompareActivitiesTool => empty,
@@ -998,7 +1005,8 @@ crate::declare_security!(
 crate::declare_security!(
     GetActivityIntelligenceTool => empty,
     reads: ToolData::of(DataClass::Training, &[Stream::Workout, Stream::WorkoutRaw])
-        .with_athlete_text(),
+        .with_athlete_text()
+        .with_beyond_activities(),
 );
 crate::declare_security!(
     PredictPerformanceTool => empty,

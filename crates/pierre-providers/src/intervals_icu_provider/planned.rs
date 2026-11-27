@@ -20,46 +20,79 @@ use tracing::info;
 use super::{IntervalsIcuProvider, Target};
 use crate::errors::AppResult;
 use crate::intervals_icu_planned::{
-    completed_by_event, may_hold_done_workouts, planned_categories, planned_events,
+    completed_by_event, may_hold_done_workouts, planned_categories, planned_events, pushed_events,
     IntervalsIcuActivityPairing, PAIRING_FIELDS,
 };
-use crate::models::PlannedWorkout;
+use crate::models::{PlannedCalendar, PlannedWorkout};
 
 impl IntervalsIcuProvider {
-    /// The workouts and races the calendar plans over `[after, before]`,
-    /// each naming the activity that completed it, as the calendar shows the
-    /// provider's reader (the athlete, or a coach reading them).
+    /// The workouts and races the calendar plans over `[after, before]`.
     ///
-    /// The pairing is a second request, spent only when an event was kept
-    /// and the window can hold a workout already done. A refused or
-    /// unreadable pairing fails the read: an absent completion means "not
-    /// done", never "not known".
+    /// Each names the activity that completed it, as the calendar shows the
+    /// provider's reader (the athlete, or a coach reading them): the planned
+    /// half of [`Self::planned_calendar`], one read serving both.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`Self::planned_calendar`] error.
+    pub(super) async fn planned_workouts(
+        &self,
+        after: CivilDate,
+        before: CivilDate,
+    ) -> AppResult<Vec<PlannedWorkout>> {
+        Ok(self.planned_calendar(after, before).await?.planned)
+    }
+
+    /// The calendar over `[after, before]`: its planned workouts and Dravr's pushes.
+    ///
+    /// Every workout and race the calendar shows the provider's reader, each
+    /// naming the activity that completed it, and the events Dravr pushed
+    /// with the activity the calendar paired with each (carnet#1792). The
+    /// pairing is a second request, spent only when an event was found and
+    /// the window can hold a workout already done. A refused or unreadable
+    /// pairing fails the read: an absent completion means "not done", never
+    /// "not known".
     ///
     /// # Errors
     ///
     /// Returns [`AppError`](crate::errors::AppError) when either request is
     /// refused or fails, read on the athlete's path as every athlete-scoped
     /// call is.
-    pub(super) async fn planned_workouts(
+    pub(super) async fn planned_calendar(
         &self,
         after: CivilDate,
         before: CivilDate,
-    ) -> AppResult<Vec<PlannedWorkout>> {
+    ) -> AppResult<PlannedCalendar> {
         let entries: Vec<Value> = self
             .get_events(after, before, Some(&planned_categories()))
             .await?;
+        let pushed = pushed_events(&entries);
         let events = planned_events(entries, self.planned_reader);
-        let completed =
-            if !events.is_empty() && may_hold_done_workouts(after, Timestamp::now().utc_date()) {
-                completed_by_event(self.list_activity_pairing(after, before).await?)
-            } else {
-                HashMap::new()
-            };
-        info!(count = events.len(), %after, %before, "Intervals.icu planned-workout read");
-        Ok(events
-            .into_iter()
-            .map(|event| event.into_workout(&completed))
-            .collect())
+        let holds_any = !events.is_empty() || !pushed.is_empty();
+        let completed = if holds_any && may_hold_done_workouts(after, Timestamp::now().utc_date()) {
+            completed_by_event(self.list_activity_pairing(after, before).await?)
+        } else {
+            HashMap::new()
+        };
+        info!(
+            count = events.len(),
+            pushed = pushed.len(),
+            %after,
+            %before,
+            "Intervals.icu planned-calendar read"
+        );
+        Ok(PlannedCalendar {
+            planned: events
+                .into_iter()
+                .map(|event| event.into_workout(&completed))
+                .collect(),
+            pushed: Some(
+                pushed
+                    .into_iter()
+                    .map(|event| event.into_pairing(&completed))
+                    .collect(),
+            ),
+        })
     }
 
     /// The activities of `[oldest, newest]`, each with the planned event it

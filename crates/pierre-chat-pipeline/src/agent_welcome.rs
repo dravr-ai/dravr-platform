@@ -844,7 +844,7 @@ async fn after_written(
         target.conversation_tenant_id,
         target.user_id,
         TranscriptSpeaker::Coach,
-        message,
+        (message, &[]),
     )
     .await
     {

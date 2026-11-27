@@ -58,6 +58,10 @@ use tracing::warn;
 
 #[cfg(feature = "tools-groups")]
 use super::peer_grounding::mentioned_peers;
+#[cfg(feature = "tools-groups")]
+use crate::room_relay::shares_with_the_room;
+#[cfg(feature = "tools-groups")]
+use pierre_core::models::groups::GroupMember;
 
 /// Resolve group context strictly from the conversation record's
 /// `group_id`.
@@ -88,6 +92,14 @@ use super::peer_grounding::mentioned_peers;
 /// rule shows them goes on the member's record as a peer's `group_room` read,
 /// once a day ([`record_peer_view`], carnet#1543).
 ///
+/// `room_reads_reply` is set when the whole room reads the reply as it is
+/// posted, a messaging group chat bound to the group: the coach's cards are
+/// then only those of the members who share with the room
+/// ([`crate::room_relay::shares_with_the_room`]), so the reply never draws
+/// on data the coach alone may read, and no other member is asked the gate
+/// or read (carnet#1511 design call 6). In the app the coach's view stays
+/// whole: the transcript serves the reply to each member by their own rule.
+///
 /// # Errors
 ///
 /// Returns the repository error from the coach's gate or from a read's
@@ -101,6 +113,7 @@ pub async fn resolve_group_context(
     tool_tenant_id: TenantId,
     viewer: Uuid,
     left_out: Option<Uuid>,
+    room_reads_reply: bool,
 ) -> AppResult<(Option<String>, Vec<MemberFitnessSnapshot>)> {
     let Some(gid) = conversation_group_id else {
         return Ok((None, Vec::new()));
@@ -118,10 +131,15 @@ pub async fn resolve_group_context(
         }
     };
     let readers: Vec<(Uuid, TenantId)> = if group.coach_user_id == Some(viewer) {
+        let asked: Vec<GroupMember> = members
+            .iter()
+            .filter(|member| !room_reads_reply || shares_with_the_room(&group, member))
+            .cloned()
+            .collect();
         gate_group_view(
             &ctx.repos,
             &group,
-            &members,
+            &asked,
             viewer,
             tool_tenant_id,
             CoachReadSurface::GroupRoom,

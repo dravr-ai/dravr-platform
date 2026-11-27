@@ -37,6 +37,7 @@ use pierre_tool_runtime::chat_catalogue::SwitchedOff;
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::guardian::GuardianConfigDocument;
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::tool_access::CallerRole;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -108,6 +109,7 @@ async fn loopback_calls_in_one_turn_share_a_guardian_turn_key() {
     let surface = bridge.turn_surface(ToolSessionTurn {
         user_id: &user_id.to_string(),
         tenant_id: tenant,
+        conversation_tenant_id: tenant,
         conversation_id: "conv-under-test",
         turn_id: turn,
         turn_agent_id: None,
@@ -115,6 +117,7 @@ async fn loopback_calls_in_one_turn_share_a_guardian_turn_key() {
         seat: TurnSeat::Subject,
         switched_off: &SwitchedOff::default(),
         grant: &OAuthScope::self_grant(),
+        role: CallerRole::default(),
     });
     let goal = json!({ "goal_type": "distance", "target_value": 100 });
 
@@ -159,6 +162,7 @@ async fn loopback_calls_in_one_turn_share_a_guardian_turn_key() {
     let next_turn = bridge.turn_surface(ToolSessionTurn {
         user_id: &user_id.to_string(),
         tenant_id: tenant,
+        conversation_tenant_id: tenant,
         conversation_id: "conv-under-test",
         turn_id: ConversationTurnId(Uuid::new_v4()),
         turn_agent_id: None,
@@ -166,6 +170,7 @@ async fn loopback_calls_in_one_turn_share_a_guardian_turn_key() {
         seat: TurnSeat::Subject,
         switched_off: &SwitchedOff::default(),
         grant: &OAuthScope::self_grant(),
+        role: CallerRole::default(),
     });
     let fresh = next_turn.call(WRITE, &goal).await;
     assert_ne!(
@@ -194,6 +199,7 @@ async fn a_denied_call_stops_the_agents_later_writes_in_the_same_turn() {
     let surface = bridge.turn_surface(ToolSessionTurn {
         user_id: &user_id.to_string(),
         tenant_id: tenant,
+        conversation_tenant_id: tenant,
         conversation_id: "conv-under-test",
         turn_id: ConversationTurnId(Uuid::new_v4()),
         turn_agent_id: None,
@@ -201,6 +207,7 @@ async fn a_denied_call_stops_the_agents_later_writes_in_the_same_turn() {
         seat: TurnSeat::Subject,
         switched_off: &SwitchedOff::default(),
         grant: &OAuthScope::self_grant(),
+        role: CallerRole::default(),
     });
 
     let denied = surface

@@ -113,6 +113,33 @@ macro_rules! impl_chat_participants {
                     .map_err(|e| AppError::database(format!("Failed to list participants: {e}")))?;
                 rows.iter().map(participant_from_row).collect()
             }
+
+            /// The athletes a thread `user_id` owns is about.
+            async fn subject_thread_athletes(&self, user_id: Uuid) -> AppResult<Vec<Uuid>> {
+                let rows = sqlx::query(SUBJECT_THREAD_ATHLETES_SQL)
+                    .bind($ids::bind(user_id))
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to read the athletes an account's threads are about: {e}"
+                        ))
+                    })?;
+                rows.iter().map(|row| $ids::read(row, "athlete")).collect()
+            }
+
+            /// The groups of the room conversations `user_id` is in.
+            async fn room_thread_groups(&self, user_id: Uuid) -> AppResult<Vec<String>> {
+                sqlx::query_scalar(ROOM_THREAD_GROUPS_SQL)
+                    .bind($ids::bind(user_id))
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to read the rooms an account's threads are bound to: {e}"
+                        ))
+                    })
+            }
         }
     };
 }

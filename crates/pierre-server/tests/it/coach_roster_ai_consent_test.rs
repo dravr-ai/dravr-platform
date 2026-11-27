@@ -50,6 +50,7 @@ use pierre_providers::spi::{
 use pierre_routes_auth::AuthRoutes;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest};
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::tool_access::CallerRole;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -379,13 +380,15 @@ async fn rest_row(res: &Arc<ServerContext>, coach: &Person, athlete: &Person) ->
 }
 
 /// The athlete's row in `get_roster_overview`, run by the real executor as
-/// the coach's agent runs it: in Dravr's own app, the only surface the coach
-/// tools run on.
+/// the coach's agent runs it: in Dravr's own app, bound to the role the turn
+/// service resolves for the coach's turn.
 async fn tool_row(res: &Arc<ServerContext>, coach: &Person) -> Value {
     let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(res);
+    let role = CallerRole::resolve(&res.common.repos, coach.id).await;
     let response = UniversalExecutor::new(runtime)
         .with_scopes(OAuthScope::self_grant())
         .with_transport(Transport::WebApp)
+        .with_turn_role(role)
         .execute_tool(UniversalRequest {
             tool_name: "get_roster_overview".to_owned(),
             parameters: serde_json::json!({}),

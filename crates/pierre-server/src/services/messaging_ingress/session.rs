@@ -441,6 +441,8 @@ async fn resume_existing_session(
         );
     }
     let user_id = linked_user_id.to_owned();
+    let recorded = session["is_direct_message"].as_bool();
+    record_session_chat(db, tenant_id, &session_id, recorded, is_direct_message).await;
 
     // Self-heal: forge a fresh conversation when the stored
     // pierre_conversation_id can't be reused for this turn (NULL, row
@@ -667,6 +669,30 @@ async fn record_rebound_agent_usage(
     }
 }
 
+/// Record on the session whether its chat is a direct message, as the
+/// channel reported it on this turn: the one fact that tells a group chat's
+/// thread from a DM's when no group is bound to it (carnet#1422). Written
+/// only when `recorded`, what the session holds now, differs. A write that
+/// fails leaves the record as it was, which the room classifier reads as a
+/// room for any thread but the personal one.
+async fn record_session_chat(
+    db: &dyn MessagingRepository,
+    tenant_id: TenantId,
+    session_id: &str,
+    recorded: Option<bool>,
+    is_direct_message: bool,
+) {
+    if recorded == Some(is_direct_message) {
+        return;
+    }
+    if let Err(e) = db
+        .record_session_chat(tenant_id, session_id, is_direct_message)
+        .await
+    {
+        warn!(session_id, error = %e, "the session's chat could not be recorded");
+    }
+}
+
 /// Open a brand-new session for a linked user. The caller
 /// (`resolve_linked_session`) has already verified the channel link exists
 /// and passes the linked `user_id` in. For non-DM chats, resolves the
@@ -735,6 +761,7 @@ async fn open_new_session(
         pierre_conversation_id: Some(&conversation_id),
     };
     db.create_session(&session_params).await?;
+    record_session_chat(db, tenant_id, &session_id, None, is_direct_message).await;
 
     info!(
         session_id = %session_id,

@@ -46,7 +46,6 @@ use pierre_llm::stage::LlmStage;
 use pierre_llm::{ChatMessage, ChatRequest, MessageRole};
 use pierre_memory::CompactionBlock;
 use tracing::{info, warn};
-use uuid::Uuid;
 
 use pierre_llm::ChatProvider;
 
@@ -171,8 +170,6 @@ struct SummaryPlan {
     last_id: String,
     /// Approximate token count of the raw turns being replaced.
     original_tokens: u32,
-    /// The one group member the replaced rows read, if any (carnet#1174).
-    about_user_id: Option<Uuid>,
     /// The AI-consent keys of the rows summarized (carnet#1157).
     ai_consent_sources: Vec<String>,
 }
@@ -376,19 +373,14 @@ impl ConversationCompactor {
         // This guard makes that invariant safe — if a future stage ever inserts
         // into `llm_messages` without updating `source_ids`, we skip compaction
         // this turn rather than anchor a block to the wrong rows.
-        // `source_members` is built beside `source_ids` and held to it the
+        // `source_consents` is built beside `source_ids` and held to it the
         // same way.
         if ctx.source_ids.len() != ctx.llm_messages.len()
-            || ctx.source_members.len() != ctx.source_ids.len()
             || ctx.source_consents.len() != ctx.source_ids.len()
         {
             return None;
         }
-        let range = self.pick_range(ctx.source_ids, ctx.source_members)?;
-        // At most one member, by the range's construction.
-        let about_user_id = ctx.source_members[range.start..range.end]
-            .iter()
-            .find_map(|member| *member);
+        let range = self.pick_range(ctx.source_ids)?;
         let history_range =
             history_range_for(ctx.source_ids, ctx.llm_messages, range.start, range.end)?;
         // A row drawn from data kept out of the agent's memory is replaced
@@ -406,7 +398,6 @@ impl ConversationCompactor {
             first_id: history_range.first_id.to_owned(),
             last_id: history_range.last_id.to_owned(),
             original_tokens: history_range.original_tokens,
-            about_user_id,
             ai_consent_sources,
         })
     }
@@ -435,9 +426,15 @@ impl ConversationCompactor {
                 last_message_id: &plan.last_id,
                 // Stamped with what the turn replayed into the summarized range (carnet#769).
                 transport_policy: ai_scope::derived_policy(),
-                // The member its rows read, so the block goes where they go
-                // (carnet#1174).
-                about_user_id: plan.about_user_id,
+                // A block names no member itself: what it may be read by is
+                // the union of the reads its covered rows carry, recorded on
+                // those rows when they were written and never rewritten. Every
+                // reader decides the block by them: the replay splices it only
+                // over rows it replays, which stop before the first row
+                // carrying a read the reader may not read, and the export
+                // withholds it with any row it covers (carnet#1511 call 19,
+                // design A18).
+                about_user_id: None,
                 // The keys of the rows it summarizes, so a withdrawal reaches
                 // it (carnet#1157).
                 ai_consent_sources: &plan.ai_consent_sources,
@@ -507,39 +504,24 @@ impl ConversationCompactor {
     /// Compacting a short run is strictly better than compacting nothing: the
     /// alternative is `run_emergency_sliding`, which drops the same rows with
     /// no summary written at all.
-    fn pick_range(
-        &self,
-        source_ids: &[Option<String>],
-        source_members: &[Option<Uuid>],
-    ) -> Option<CompactRange> {
+    fn pick_range(&self, source_ids: &[Option<String>]) -> Option<CompactRange> {
         let n = self.config.summarize_oldest_n;
 
         // First real turn: skips the system prompt and any leading injected
         // summaries (all `None`).
         let start = source_ids.iter().position(Option::is_some)?;
 
-        // The contiguous run of real turns from `start`, capped at `n`, and
-        // ending before a row about a second group member: a block names the
-        // one member its rows read, so that member's withdrawal or deletion
-        // reaches it, and no block mixes two members (carnet#1174).
-        let mut run_member: Option<Uuid> = None;
+        // The contiguous run of real turns from `start`, capped at `n`. A row
+        // that carries a group member's read is covered like any other: the
+        // block is read by the union of its covered rows' reads, each reader
+        // decides it by them, and a thread where every reply carries one (a
+        // coach's thread about an athlete, a group room) still compacts
+        // rather than sliding its oldest turns away unsummarized
+        // (registre#198; carnet#1511 design A18).
         let run_len = source_ids[start..]
             .iter()
-            .zip(&source_members[start..])
             .take(n)
-            .take_while(|(id, member)| {
-                if id.is_none() {
-                    return false;
-                }
-                match (**member, run_member) {
-                    (Some(member), Some(first)) => member == first,
-                    (Some(member), None) => {
-                        run_member = Some(member);
-                        true
-                    }
-                    (None, _) => true,
-                }
-            })
+            .take_while(|id| id.is_some())
             .count();
         // Two real turns is the floor: a user turn and its reply. Below that
         // there is no exchange to summarize.
@@ -702,11 +684,6 @@ pub struct CompactionContext<'a, R: HarnessMemoryRepository + ?Sized> {
     /// Used to anchor the compaction block's `first_message_id` /
     /// `last_message_id` metadata to real persisted rows.
     pub source_ids: &'a [Option<String>],
-    /// The group member each `source_ids` row is about, index-aligned with
-    /// it: `None` for the system prompt, a spliced summary, and a row about
-    /// nobody (carnet#1174). A block covers rows of at most one member, and
-    /// names them.
-    pub source_members: &'a [Option<Uuid>],
     /// The AI-consent keys each `source_ids` row names, index-aligned with it
     /// (carnet#1157): none for the system prompt and a spliced summary. A row
     /// naming a key kept out of the agent's memory is covered by the block but
@@ -731,7 +708,6 @@ impl<R: HarnessMemoryRepository + ?Sized> fmt::Debug for CompactionContext<'_, R
             .field("tenant_id", &self.tenant_id)
             .field("conversation_id", &self.conversation_id)
             .field("source_ids", &self.source_ids)
-            .field("source_members", &self.source_members)
             .field("source_consents", &self.source_consents)
             .field("llm_messages", &self.llm_messages.len())
             .finish_non_exhaustive()

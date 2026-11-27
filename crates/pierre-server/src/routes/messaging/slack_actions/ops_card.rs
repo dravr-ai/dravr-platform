@@ -149,7 +149,7 @@ pub(super) async fn authorize_admin(
     decision: AdminDecision,
 ) -> Result<Uuid, AdminRefusal> {
     let user_id = match authorize_postback(resources, slack_user_id).await {
-        Ok((user_id, _)) => user_id,
+        Ok(caller) => caller.user_id,
         Err(error) => {
             let account = linked_account(resources, slack_user_id).await;
             return Err(AdminRefusal { error, account });

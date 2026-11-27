@@ -38,21 +38,35 @@ pub(crate) use rows::{
     user_fact_from_row, user_fact_metrics_from_rows,
 };
 
-/// Persist one compaction block.
+/// Persist one compaction block. Its record is its covered rows' (carnet#1511
+/// call 17, design A18): it is read by the union of the reads they carry, so
+/// it is recorded exactly when every row it covers (`$7` to `$8` of
+/// conversation `$3`) was written with its record, and legacy, which no room
+/// replays, when any was not.
 pub(crate) const INSERT_COMPACTION_BLOCK_SQL: &str = r"
             INSERT INTO compaction_blocks (
                 id, tenant_id, conversation_id, summary, summary_tokens,
                 original_tokens, first_message_id, last_message_id, created_at,
-                first_party_only, about_user_id, ai_consent_sources
+                first_party_only, about_user_id, audience_recorded, ai_consent_sources
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+                    NOT EXISTS (
+                        SELECT 1 FROM chat_messages m
+                        JOIN chat_messages f ON f.id = $7 AND f.conversation_id = $3
+                        JOIN chat_messages l ON l.id = $8 AND l.conversation_id = $3
+                        WHERE m.conversation_id = $3
+                          AND m.audience_recorded = FALSE
+                          AND (m.created_at, m.id) >= (f.created_at, f.id)
+                          AND (m.created_at, m.id) <= (l.created_at, l.id)
+                    ),
+                    $12)
             ";
 
 /// A conversation's compaction blocks, oldest first.
 pub(crate) const LIST_COMPACTION_BLOCKS_SQL: &str = r"
             SELECT id, tenant_id, conversation_id, summary, summary_tokens,
                    original_tokens, first_message_id, last_message_id, created_at,
-                   first_party_only, about_user_id, ai_consent_sources
+                   first_party_only, about_user_id, audience_recorded, ai_consent_sources
             FROM compaction_blocks
             WHERE conversation_id = $1 AND tenant_id = $2
             ORDER BY created_at ASC
@@ -336,6 +350,7 @@ macro_rules! impl_harness_memory_repository {
                     created_at: now,
                     transport_policy: params.transport_policy,
                     about_user_id: params.about_user_id,
+                    audience_recorded: true,
                     ai_consent_sources: params.ai_consent_sources.to_vec(),
                 })
             }

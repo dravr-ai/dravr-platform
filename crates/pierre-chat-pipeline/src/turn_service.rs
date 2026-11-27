@@ -49,13 +49,11 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_llm::call_record::LlmCallRecorder;
 use pierre_llm::stage::LlmStage;
-use pierre_llm::ChatProvider;
 use pierre_providers::ai_scope;
 use pierre_services::conversation_forge::reactivate_for_turn;
 use pierre_services::llm_usage_recorder::UsageRepoCallRecorder;
 use pierre_services::provider_notice::under_ai_consent;
-use pierre_services::tenant_chat_provider::resolve_tenant_chat_provider;
-use pierre_tool_runtime::context::TURN_LOCALE;
+use pierre_tool_runtime::tool_access::CallerRole;
 use tracing::field::Empty;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -67,6 +65,7 @@ use crate::language::{resolve_turn_locale, LocaleClassifier};
 use crate::next_steps::{NextSteps, StepsAfter, StepsFor};
 use crate::quota_policy::{check_pre_chat_quotas_scoped, settle_quota_notice, PreChatScope};
 use crate::recorders::usage_sink;
+use crate::room_relay::read_in_the_room;
 use crate::stages::agent_mention::resolve_agent_mention;
 use crate::stages::command_persistence::{
     is_room_visible, persist_command_turn, CommandPersistence, PersistedCommandReply,
@@ -81,8 +80,12 @@ use crate::usage_counters::{
 use crate::ChatPipelineContext;
 use crate::{chat_provider_from_resources_arc, record_turn_span_context};
 
+mod byo_provider;
+mod frames;
 mod outside_turn;
 mod suggestion_tap;
+
+use frames::{localized_run, tracked_turn};
 use outside_turn::OutsideTurn;
 use suggestion_tap::{resolve_suggestion_tap, TapOutcome};
 
@@ -388,12 +391,7 @@ pub async fn execute(
     // accumulates into the turn's own provenance: every row the turn writes is
     // stamped with what it served so far (carnet#769). Facts the platform put
     // in the prompt start it with what they were read under.
-    let provenance = request.hooks.supplied_findings.clone().unwrap_or_default();
-    let served = Box::pin(ai_scope::serve_over(
-        request.transport,
-        ai_scope::tracking(provenance, execute_turn(ctx, request, profile)),
-    ))
-    .await;
+    let served = tracked_turn(ctx, request, profile).await;
     if let Some(turn) = outside {
         turn.record(ctx, &served).await;
     }
@@ -432,6 +430,7 @@ async fn execute_turn(
             .as_ref()
             .and_then(|conv| conv.group_id.as_deref()),
     );
+    read_in_the_room(ctx, conversation.as_ref(), request.user_id).await;
 
     let quota = check_pre_chat_quotas_scoped(
         ctx,
@@ -448,23 +447,29 @@ async fn execute_turn(
     // ladder reads the text, so everything after — the command dispatch, the
     // persisted user row, the athlete's bubble — sees the words it stands for
     // (carnet#828).
-    let steps_after =
-        match resolve_suggestion_tap(ctx, &mut request, conversation.as_ref(), profile).await? {
-            TapOutcome::Proceed { steps_after } => steps_after,
-            TapOutcome::Answered(notice) => {
-                let quota = settle_quota_notice(
-                    ctx.repos.usage_counters.as_ref(),
-                    request.tool_tenant_id,
-                    &user_id_str,
-                    quota,
-                )
-                .await;
-                return Ok(ServedTurn::Command {
-                    command: notice,
-                    quota,
-                });
-            }
-        };
+    let steps_after = match Box::pin(resolve_suggestion_tap(
+        ctx,
+        &mut request,
+        conversation.as_ref(),
+        profile,
+    ))
+    .await?
+    {
+        TapOutcome::Proceed { steps_after } => steps_after,
+        TapOutcome::Answered(notice) => {
+            let quota = settle_quota_notice(
+                ctx.repos.usage_counters.as_ref(),
+                request.tool_tenant_id,
+                &user_id_str,
+                quota,
+            )
+            .await;
+            return Ok(ServedTurn::Command {
+                command: notice,
+                quota,
+            });
+        }
+    };
 
     if let Some(command) = dispatch_slash(
         ctx,
@@ -524,7 +529,7 @@ async fn execute_turn(
 
     let mut ctx_for_turn = ctx.clone();
     if let Some(provider) =
-        resolve_byo_chat_provider(ctx, request.tool_tenant_id, request.user_id).await
+        byo_provider::resolve_byo_chat_provider(ctx, request.tool_tenant_id, request.user_id).await
     {
         ctx_for_turn.chat_provider = Some(provider);
     }
@@ -594,15 +599,14 @@ async fn execute_turn(
         mentioned_agent: mentioned_agent.map(Box::new),
         steps_after,
         grant: request.grant.clone(),
+        // Read once, so the turn's catalogue and its calls agree (carnet#1511).
+        role: CallerRole::resolve(&ctx.repos, request.user_id).await,
     };
 
     // Every tool the turn dispatches renders in the language the turn
     // resolved, not the profile's stored one: the activity list ships beside
     // the reply and must read in the same language.
-    let run = TURN_LOCALE.scope(
-        Some(profile.locale.clone()),
-        crate::run(&ctx_for_turn, turn_input, &profile, &request.hooks),
-    );
+    let run = localized_run(&ctx_for_turn, turn_input, &profile, &request.hooks);
     let envelope = match request.hooks.stop.as_ref().filter(|stop| stop.watches()) {
         None => run.await?,
         Some(stop) => {
@@ -672,6 +676,21 @@ async fn execute_turn(
 ///
 /// Returns whatever the command handler returned when it fails.
 pub async fn dispatch_slash(
+    ctx: &ChatPipelineContext,
+    request: &SlashRequest<'_>,
+) -> AppResult<Option<CommandTurn>> {
+    // What the command reads accumulates into a provenance of its own, as a
+    // turn's does, so the reply it stores is stamped with the members it
+    // read on every surface, a messaging one that runs no turn included
+    // (carnet#1422). Inside a turn, the turn's provenance receives them too.
+    Box::pin(ai_scope::tracking(
+        ai_scope::Provenance::new(),
+        dispatch_slash_tracked(ctx, request),
+    ))
+    .await
+}
+
+async fn dispatch_slash_tracked(
     ctx: &ChatPipelineContext,
     request: &SlashRequest<'_>,
 ) -> AppResult<Option<CommandTurn>> {
@@ -1065,7 +1084,7 @@ async fn fan_out_room_visible_turn(
             request.conversation_tenant_id,
             &user_id,
             speaker,
-            row,
+            (row, &[]),
         )
         .await
         {
@@ -1077,27 +1096,6 @@ async fn fan_out_room_visible_turn(
             );
         }
     }
-}
-
-/// The chat provider a `(tenant, athlete)` pair should run this turn on.
-///
-/// `Some` is the tenant's own stored key ("bring your own"); `None` leaves
-/// the turn on the process-wide provider singleton. A short TTL cache keeps
-/// the common no-key case off the database on every turn.
-async fn resolve_byo_chat_provider(
-    ctx: &ChatPipelineContext,
-    tenant_id: TenantId,
-    user_id: Uuid,
-) -> Option<Arc<ChatProvider>> {
-    resolve_tenant_chat_provider(
-        &ctx.tenant_chat_providers,
-        &ctx.config.llm_chain,
-        ctx.repos.llm_credentials.as_ref(),
-        ctx.repos.security.as_ref(),
-        tenant_id,
-        user_id,
-    )
-    .await
 }
 
 #[cfg(test)]

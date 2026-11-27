@@ -129,13 +129,22 @@ impl LlmProvider for BatchingProvider {
     }
 }
 
+/// The tools the turn offers: every name a scripted model here calls, since
+/// a turn runs only a tool it offered (carnet#1511 design call 13).
 fn advertised_tools() -> Tool {
     Tool {
-        function_declarations: vec![FunctionDeclaration::new(
-            "get_activities".to_owned(),
-            "Retrieve the athlete's activities".to_owned(),
-            Some(json!({ "type": "object", "properties": {} })),
-        )],
+        function_declarations: vec![
+            FunctionDeclaration::new(
+                "get_activities".to_owned(),
+                "Retrieve the athlete's activities".to_owned(),
+                Some(json!({ "type": "object", "properties": {} })),
+            ),
+            FunctionDeclaration::new(
+                "disconnect_provider".to_owned(),
+                "Disconnect a provider".to_owned(),
+                Some(json!({ "type": "object", "properties": {} })),
+            ),
+        ],
     }
 }
 

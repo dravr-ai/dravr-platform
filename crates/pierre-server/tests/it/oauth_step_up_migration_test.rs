@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! carnet#1544 slice 4b. 20261126100000 widens `oauth_grant_events.event`
+//! carnet#1544 slice 4b. 20261126200000 widens `oauth_grant_events.event`
 //! to `consume` and `step_up`. SQLite cannot alter a CHECK, so it rebuilds
 //! the table: no receipt may be lost or changed, all five indexes must come
 //! back, and `consume` joins the terminal index, so a consumed child has

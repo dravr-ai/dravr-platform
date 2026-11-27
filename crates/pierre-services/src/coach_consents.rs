@@ -121,6 +121,10 @@ pub struct ConsentOffer {
     /// ([`CoachConsents::assistant_read`]). A link never carries it: the
     /// opt-in has no platform behind it.
     pub assistant_read: bool,
+    /// For a relationship, the group has a human coach other than the member,
+    /// who may be told of the sessions the member missed
+    /// ([`CoachConsents::missed_session_check`]). A link never carries it.
+    pub missed_session_check: bool,
 }
 
 /// Whether a coaching platform Dravr serves takes a coach's writes to an
@@ -152,6 +156,7 @@ pub fn link_offer(registry: &ProviderRegistry, link: &DelegatedConnection) -> Co
             .is_some_and(|caps| caps.supports_coach_calendar_write()),
         wellness_read: link_reads_wellness(registry, link),
         assistant_read: false,
+        missed_session_check: false,
     }
 }
 
@@ -172,6 +177,7 @@ pub fn consent_offer(
         calendar_write: coached && calendar_write_offered(registry),
         wellness_read: coached,
         assistant_read: assistant_read_offered(group, member),
+        missed_session_check: assistant_read_offered(group, member),
     }
 }
 
@@ -383,6 +389,8 @@ pub struct ConsentChange {
     /// Turn on or off the coach's AI assistant including the member in the
     /// roster tools.
     pub assistant_read: Option<bool>,
+    /// Turn on or off the coach being told of the sessions the member missed.
+    pub missed_session_check: Option<bool>,
     /// Grant or revoke the coach's reads of the member's health records (T2).
     pub sensitive_t2_read: Option<bool>,
     /// How long a `sensitive_t2_read` grant holds.
@@ -398,6 +406,7 @@ impl ConsentChange {
             calendar_write: if calendar_write { Some(true) } else { None },
             wellness_read: if wellness_read { Some(true) } else { None },
             assistant_read: None,
+            missed_session_check: None,
             sensitive_t2_read: None,
             sensitive_window: SensitiveWindow::UntilRevoked,
         }
@@ -409,6 +418,7 @@ impl ConsentChange {
         matches!(self.calendar_write, Some(true))
             || matches!(self.wellness_read, Some(true))
             || matches!(self.assistant_read, Some(true))
+            || matches!(self.missed_session_check, Some(true))
             || matches!(self.sensitive_t2_read, Some(true))
     }
 
@@ -421,6 +431,7 @@ impl ConsentChange {
             calendar_write: keep(self.calendar_write, offer.calendar_write),
             wellness_read: keep(self.wellness_read, offer.wellness_read),
             assistant_read: keep(self.assistant_read, offer.assistant_read),
+            missed_session_check: keep(self.missed_session_check, offer.missed_session_check),
             sensitive_t2_read: keep(self.sensitive_t2_read, offer.wellness_read),
             sensitive_window: self.sensitive_window,
         }
@@ -499,12 +510,21 @@ pub async fn set_coach_consents(
             .ok_or_else(|| AppError::not_found("Group member"))?,
         None => consents,
     };
+    let updated = match change.missed_session_check {
+        Some(on) => repos
+            .groups
+            .set_coach_missed_session_check(&group_key, member, on, now)
+            .await?
+            .ok_or_else(|| AppError::not_found("Group member"))?,
+        None => updated,
+    };
     info!(
         group_id = %group.id,
         member_user_id = %member,
         calendar_write = updated.coach_consents.calendar_write,
         wellness_read = updated.coach_consents.wellness_read,
         assistant_read = updated.coach_consents.assistant_read,
+        missed_session_check = updated.coach_consents.missed_session_check,
         sensitive_t2_read = updated.coach_consents.sensitive_t2_read,
         sensitive_t2_read_until = ?updated.coach_consents.sensitive_t2_read_until,
         "Coach consents set"
@@ -649,6 +669,7 @@ mod tests {
             calendar_write: true,
             wellness_read: false,
             assistant_read: false,
+            missed_session_check: false,
         };
         assert_eq!(
             both.within(calendar_only),
@@ -661,6 +682,7 @@ mod tests {
             calendar_write: false,
             wellness_read: false,
             assistant_read: false,
+            missed_session_check: false,
         };
         assert_eq!(both.within(nothing), ConsentChange::default());
         let opt_in = ConsentChange {
@@ -680,6 +702,7 @@ mod tests {
             calendar_write: Some(false),
             wellness_read: Some(false),
             assistant_read: Some(false),
+            missed_session_check: Some(false),
             sensitive_t2_read: Some(false),
             ..ConsentChange::default()
         };
@@ -706,6 +729,7 @@ mod tests {
             calendar_write: false,
             wellness_read: true,
             assistant_read: false,
+            missed_session_check: false,
         };
         assert_eq!(
             records.within(coached),
@@ -716,6 +740,7 @@ mod tests {
             calendar_write: false,
             wellness_read: false,
             assistant_read: false,
+            missed_session_check: false,
         };
         assert_eq!(
             records.within(uncoached).sensitive_t2_read,
@@ -754,6 +779,7 @@ mod tests {
             calendar_write: false,
             wellness_read: true,
             assistant_read: true,
+            missed_session_check: true,
         };
         let granted_at = |at: Option<Timestamp>| CoachConsents {
             wellness_read: true,
@@ -785,6 +811,7 @@ mod tests {
             calendar_write: false,
             wellness_read: false,
             assistant_read: false,
+            missed_session_check: false,
         };
         assert!(
             !wellness_notice_due(no_coach, granted_at(Some(before))),

@@ -35,6 +35,7 @@ use pierre_services::conversation_forge::{
     selected_or_system_agent, RoomOrigin, SlotQuota,
 };
 use pierre_services::locale::resolve_user_locale;
+use pierre_services::transcript_reading;
 use pierre_tool_runtime::derived_content;
 
 use super::common::{
@@ -324,7 +325,7 @@ pub(super) async fn list_conversations(
     // activity, and every count and preview it reads is of unstamped rows —
     // in the statement, so the page fills (carnet#769). An outside client is
     // listed no coach's thread about a member who does not share (EFVP 9.4c).
-    let page = resources
+    let mut page = resources
         .common
         .repos
         .chat
@@ -337,6 +338,15 @@ pub(super) async fn list_conversations(
             listed_subjects(&auth),
         )
         .await?;
+    // A preview shows no words the thread itself would withhold from this
+    // reader (carnet#1422).
+    transcript_reading::withhold_previews(
+        &resources.common.repos,
+        auth.user_id,
+        tenant_id,
+        &mut page.items,
+    )
+    .await;
     let solo_athletes = solo_athletes_coached_by(
         &resources.common.repos,
         auth.user_id,

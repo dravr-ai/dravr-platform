@@ -9,14 +9,15 @@ use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::AppResult;
 
-use pierre_core::models::AddMessageParams;
 use pierre_core::models::UpsertMessageFeedbackParams;
+use pierre_core::models::{AddMessageParams, CarriedRead};
 use pierre_core::models::{ConversationPage, ConversationParticipant, ConversationRecord};
 use pierre_core::models::{MessageFeedbackRecord, MessageRecord, TenantId};
 use pierre_core::models::{MessagePage, ThreadTopic};
 use pierre_core::transport::TransportPolicy;
 use uuid::Uuid;
 
+use super::chat_member_rows::{MemberReplay, ReadableReads, RowRead};
 use super::chat_subject::{NewSubjectConversation, OpenedSubjectThread, SubjectThreads};
 
 /// One assistant reply as the claim-verdict backfill reads it: the message,
@@ -220,6 +221,21 @@ pub trait ChatRepository: Send + Sync {
         readable: TransportPolicy,
         subjects: SubjectThreads,
     ) -> AppResult<i64>;
+    /// Whether `user_id` shares a private conversation with another account:
+    /// added to one another account owns (whose rows they read as a
+    /// participant), or owning one another account was added to (who reads
+    /// and posts beside them). Across tenants; a group's room is left out,
+    /// since who reads a group is the group's membership.
+    async fn shares_a_private_thread(&self, user_id: Uuid) -> AppResult<bool>;
+    /// Every athlete a thread `user_id` owns is about, across tenants and
+    /// whatever the thread's state: whom a coach's threads name, even once
+    /// they coach them no longer.
+    async fn list_subject_thread_athletes(&self, user_id: Uuid) -> AppResult<Vec<Uuid>>;
+    /// The groups of every room conversation `user_id` owns or takes part in.
+    ///
+    /// Across tenants and whatever the thread's state: the rooms still listed
+    /// to them, whether or not they belong to the group now.
+    async fn list_room_thread_groups(&self, user_id: Uuid) -> AppResult<Vec<String>>;
     /// Advance `user_id`'s read marker on a conversation they participate in.
     ///
     /// `up_to_message_id` names the row the athlete has seen; `None` means the
@@ -306,15 +322,53 @@ pub trait ChatRepository: Send + Sync {
     ) -> AppResult<bool>;
     /// Add a message to a conversation (verifies the user is a participant)
     async fn add_message(&self, params: &AddMessageParams<'_>) -> AppResult<MessageRecord>;
-    /// Get all messages for a conversation (verifies the user is a participant)
+    /// [`Self::add_message`], recording `carried`, every group member read
+    /// the row drew on with how it was read, in the same transaction
+    /// (carnet#1511 call 19): the row is stored with them or not at all,
+    /// never about nobody. Every row this writes is marked as written with
+    /// its record, carrying none or some.
+    async fn add_message_about(
+        &self,
+        params: &AddMessageParams<'_>,
+        carried: &[CarriedRead],
+    ) -> AppResult<MessageRecord>;
+    /// Every stored row of a conversation, oldest first, for a participant,
+    /// whatever group member a row is about: a check of what the thread
+    /// holds, never what a person is shown. A person's read of the
+    /// transcript is [`Self::get_readable_messages`], under the withholding
+    /// rule `pierre_services::transcript_reading` decides (carnet#1422).
     async fn get_messages(
         &self,
         conversation_id: &str,
         user_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<Vec<MessageRecord>>;
+    /// Every row of a conversation its participant `user_id` reads, oldest
+    /// first: none that restates a read outside `readable`, the reads the
+    /// reader may read (carnet#1422, carnet#1511 call 19) — a row carrying
+    /// another, or after one in its topic. [`Self::get_message_page`] serves
+    /// a window under the same rule.
+    async fn get_readable_messages(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+        readable: ReadableReads<'_>,
+    ) -> AppResult<Vec<MessageRecord>>;
+    /// Whether [`Self::get_readable_messages`] leaves the row `message_id`
+    /// out for a reader who may read only the `readable` reads.
+    async fn message_withheld(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+        message_id: &str,
+        readable: ReadableReads<'_>,
+    ) -> AppResult<bool>;
     /// One window of a thread for a participant, oldest first: the newest `limit` rows
     /// before `before` on `(created_at, id)`, else the newest; an unknown `before` reads none.
+    /// No row is served that restates a read outside `readable`, the reads the reader may
+    /// read (carnet#1422): a row carrying another, or after one in its topic.
     async fn get_message_page(
         &self,
         conversation_id: &str,
@@ -322,6 +376,7 @@ pub trait ChatRepository: Send + Sync {
         tenant_id: TenantId,
         before: Option<&str>,
         limit: i64,
+        readable: ReadableReads<'_>,
     ) -> AppResult<MessagePage>;
     /// A thread's topics for a participant, newest first: one per divider, plus its opening.
     async fn list_topics(
@@ -368,11 +423,14 @@ pub trait ChatRepository: Send + Sync {
         since: Timestamp,
     ) -> AppResult<bool>;
 
-    /// [`Self::get_recent_messages`] for a turn's prompt: a row about a group
-    /// member ([`MessageRecord::about_user_id`]) is returned only when that
-    /// member is in `readable_about` (carnet#1174). Both rules are in the
-    /// statement itself, so `limit` counts only rows the turn may replay. A
-    /// row about nobody is always returned.
+    /// [`Self::get_recent_messages`] for a turn's prompt, under `replay`: a
+    /// legacy row about a group member ([`MessageRecord::about_user_id`]) is
+    /// returned only when that member is one the turn may read
+    /// (carnet#1174), no legacy row at all where the replay takes only
+    /// recorded rows (carnet#1511 call 17), and no row at or after the first
+    /// row carrying a read the turn may not read, which restates it, but the
+    /// turn's own (carnet#1422). Every rule is in the statement itself, so
+    /// `limit` counts only rows the turn may replay.
     async fn get_recent_prompt_messages(
         &self,
         conversation_id: &str,
@@ -380,18 +438,56 @@ pub trait ChatRepository: Send + Sync {
         tenant_id: TenantId,
         limit: i64,
         readable: TransportPolicy,
-        readable_about: &[Uuid],
+        replay: MemberReplay<'_>,
     ) -> AppResult<Vec<MessageRecord>>;
 
-    /// Every group member a conversation's rows are about, for a participant
-    /// (carnet#1174): the members whose consent decides what of the thread a
-    /// turn may replay.
-    async fn list_message_subjects(
+    /// Every read a conversation's rows carry since its newest divider,
+    /// oldest first, for a participant `user_id` (carnet#1174, carnet#1422,
+    /// carnet#1511 call 19): each carried read, the member a legacy row
+    /// names, and the author of each row another participant wrote — what
+    /// decides what of the thread a turn may replay, and what it reads.
+    async fn list_member_reads(
         &self,
         conversation_id: &str,
         user_id: &str,
         tenant_id: TenantId,
-    ) -> AppResult<Vec<Uuid>>;
+    ) -> AppResult<Vec<RowRead>>;
+
+    /// Every read a conversation's rows carry, in any topic, by key, for a
+    /// participant: the reads whose readers decide what of the whole
+    /// transcript a reader is served (carnet#1422).
+    async fn list_thread_read_keys(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<String>>;
+
+    /// Every row of a conversation its participant `user_id` may file as
+    /// durable text, oldest first (carnet#1511 A20): only in a conversation
+    /// they own, only a row written with its record, by them (the agent's
+    /// replies to them included), carrying no read of anyone else. A legacy
+    /// row only when `legacy`: its reads cannot be known, and a durable text
+    /// such as an agent's system prompt can be bound to a room others read,
+    /// so the caller passes it only for an owner who never had anyone else's
+    /// data within reach.
+    async fn get_durable_messages(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+        legacy: bool,
+    ) -> AppResult<Vec<MessageRecord>>;
+
+    /// The conversation holding the row `message_id`, for a participant of
+    /// it: what a copy of the row elsewhere (a messaging outbound row) is
+    /// decided by. `None` when no conversation the participant reads holds it.
+    async fn message_conversation(
+        &self,
+        message_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<String>>;
 
     /// Replace the `content_blocks` of the stopped notice `message_id`, for a participant:
     /// the one rewrite a stored row takes, so the envelope notice a stopped turn's writes
@@ -940,10 +1036,12 @@ pub(crate) const SET_CHANNEL_SQL: &str = r"
       )";
 
 /// Insert a message only when the caller is a participant of the
-/// conversation in this tenant.
+/// conversation in this tenant, authored by that participant (`$10`), and
+/// marked as written with its record of the reads it carries, recorded
+/// beside it in the same transaction (carnet#1511 calls 17 and 19).
 pub(crate) const ADD_MESSAGE_SQL: &str = r"
-    INSERT INTO chat_messages (id, conversation_id, role, content, token_count, finish_reason, created_at, prompt_tokens, model, content_blocks, first_party_only, channel_type, about_user_id, turn_attempted_write, ai_consent_sources)
-    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $12, $13, $14, $15, $16, $17
+    INSERT INTO chat_messages (id, conversation_id, role, content, token_count, finish_reason, created_at, prompt_tokens, model, content_blocks, first_party_only, channel_type, about_user_id, turn_attempted_write, author_user_id, audience_recorded, ai_consent_sources)
+    SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $12, $13, $14, $15, $16, $10, TRUE, $17
     WHERE EXISTS (
         SELECT 1 FROM chat_conversations c
         JOIN conversation_participants p ON p.conversation_id = c.id
@@ -1027,38 +1125,13 @@ pub(crate) const RECENT_CONVERSATIONS_ADMIN_SQL: &str = concat!(
 
 /// Conversations of tenant `$1`, or of every tenant when it binds `NULL`,
 /// touched since an instant.
-pub(crate) const COUNT_ACTIVE_SINCE_SQL: &str =
-    "SELECT COUNT(*) FROM chat_conversations WHERE ($1 IS NULL OR tenant_id = $1) AND updated_at >= $2";
+pub(crate) const COUNT_ACTIVE_SINCE_SQL: &str = "SELECT COUNT(*) FROM chat_conversations WHERE ($1 IS NULL OR tenant_id = $1) AND updated_at >= $2";
 
-/// Bind a conversation to its messaging session.
-pub(crate) const SET_SESSION_ID_SQL: &str = r"
-    UPDATE chat_conversations
-    SET session_id = $1
-    WHERE id = $2 AND tenant_id = $3";
-
-/// Replace the onboarding state unconditionally.
-pub(crate) const SET_ONBOARDING_STATE_SQL: &str = r"
-    UPDATE chat_conversations
-    SET onboarding_state = $1
-    WHERE id = $2 AND tenant_id = $3";
-
-/// Replace the onboarding state only when it still holds `$4`. `IS NOT
-/// DISTINCT FROM` is the NULL-safe equality both engines share: a
-/// conversation that carried no state matches only an absent `expected`,
-/// never any stored JSON.
-pub(crate) const CAS_ONBOARDING_STATE_SQL: &str = r"
-    UPDATE chat_conversations
-    SET onboarding_state = $1
-    WHERE id = $2 AND tenant_id = $3
-      AND onboarding_state IS NOT DISTINCT FROM $4";
-
-/// A user's onboarding states, newest activity first.
-pub(crate) const LIST_ONBOARDING_STATES_SQL: &str = r"
-    SELECT onboarding_state
-    FROM chat_conversations
-    WHERE user_id = $1 AND tenant_id = $2 AND onboarding_state IS NOT NULL
-    ORDER BY updated_at DESC
-    LIMIT $3";
+mod onboarding_sql;
+pub(crate) use onboarding_sql::{
+    CAS_ONBOARDING_STATE_SQL, LIST_ONBOARDING_STATES_SQL, SET_ONBOARDING_STATE_SQL,
+    SET_SESSION_ID_SQL,
+};
 
 /// Bind a conversation to a coaching group, or unbind it. A thread bound to
 /// one athlete is never made a room: its replies would reach every member.
@@ -1096,59 +1169,10 @@ pub(crate) const LATEST_CHANNEL_THREAD_SQL: &str = concat!(
 /// The personal-thread statements: adopt, read and designate it.
 pub(crate) mod personal_sql;
 
-/// Bind a conversation to an agent, or unbind it. `agent_id` is TEXT on
-/// both backends — agent ids are slugs, not uuids — so unlike `group_id`
-/// there is nothing to parse.
-pub(crate) const SET_AGENT_ID_SQL: &str = r"
-    UPDATE chat_conversations
-    SET agent_id = $1
-    WHERE id = $2 AND tenant_id = $3";
-
-/// Whether an agent has introduced itself in a thread. `thread_id` is text on
-/// both backends: a conversation id, or a group id already rendered as text.
-pub(crate) const HAS_AGENT_INTRODUCTION_SQL: &str = r"
-    SELECT 1 FROM agent_introductions
-    WHERE tenant_id = $1 AND thread_id = $2 AND agent_id = $3";
-
-/// Record an introduction; a second write for the same thread and agent — two
-/// turns racing in one room — keeps the first.
-pub(crate) const RECORD_AGENT_INTRODUCTION_SQL: &str = r"
-    INSERT INTO agent_introductions (tenant_id, thread_id, agent_id, created_at)
-    VALUES ($1, $2, $3, $4)
-    ON CONFLICT DO NOTHING";
-
-/// The athlete's own `user` rows at or after `$3`. `since` binds as a
-/// timestamp, so the comparison is the one the column was written with on
-/// either backend.
-pub(crate) const USER_WROTE_SINCE_SQL: &str = r"
-    SELECT COUNT(*) FROM chat_messages m
-    INNER JOIN chat_conversations c ON c.id = m.conversation_id
-    WHERE c.tenant_id = $1 AND c.user_id = $2 AND m.role = 'user' AND m.created_at >= $3";
-
-/// The backfill walk over a tenant's assistant replies, oldest first.
-///
-/// The cursor is resolved in the same statement: `mark` is the cursor
-/// message's `(created_at, id)`, empty when `$3` is NULL or names no stored
-/// message, and every row after it in `(created_at, id)` order qualifies.
-/// Both bounds bind as timestamps, so the comparison is the one the column
-/// was written with on either backend.
-pub(crate) const ASSISTANT_MESSAGES_AFTER_SQL: &str = r"
-    WITH mark AS (SELECT created_at, id FROM chat_messages WHERE id = $3)
-    SELECT m.id AS message_id,
-           m.conversation_id AS conversation_id,
-           c.user_id AS user_id,
-           c.agent_id AS agent_id,
-           m.content AS content,
-           m.first_party_only AS first_party_only,
-           m.ai_consent_sources AS ai_consent_sources
-    FROM chat_messages m
-    INNER JOIN chat_conversations c ON c.id = m.conversation_id
-    WHERE c.tenant_id = $1
-      AND m.role = 'assistant'
-      AND ($2 IS NULL OR m.created_at >= $2)
-      AND (NOT EXISTS (SELECT 1 FROM mark)
-           OR m.created_at > (SELECT created_at FROM mark)
-           OR (m.created_at = (SELECT created_at FROM mark)
-               AND m.id > (SELECT id FROM mark)))
-    ORDER BY m.created_at ASC, m.id ASC
-    LIMIT $4";
+/// A thread's agent and introductions, the athlete's recent words, and the
+/// backfill walk over assistant replies.
+pub(crate) mod agent_thread_sql;
+pub(crate) use agent_thread_sql::{
+    ASSISTANT_MESSAGES_AFTER_SQL, HAS_AGENT_INTRODUCTION_SQL, RECORD_AGENT_INTRODUCTION_SQL,
+    SET_AGENT_ID_SQL, USER_WROTE_SINCE_SQL,
+};

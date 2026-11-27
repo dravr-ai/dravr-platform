@@ -72,7 +72,7 @@ pub fn challenge_scope(granted: &str, streams: &[Stream]) -> String {
 /// Never the parent's own: the previous release's consent upsert names
 /// `idx_oauth_client_grants_active`, one live row per (user, tenant, client,
 /// scope) over children and parents alike, and a child sharing its parent's
-/// scope would collide with it there (migration `20261126100000`, expand
+/// scope would collide with it there (migration `20261126200000`, expand
 /// then contract). A parent never holds a `pdpp:` name ([`split`] reads them
 /// out), so no parent's scope is ever a child's.
 #[must_use]

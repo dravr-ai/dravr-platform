@@ -12,6 +12,7 @@ use pierre_core::constants::oauth_providers::{
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::a2a::user_task_key;
 use pierre_core::models::roster_display_name;
+use pierre_core::models::CarriedRead;
 use pierre_core::models::{
     AddMessageParams, ConversationLastMessage, ConversationPage, ConversationParticipant,
     ConversationRecord, ConversationSummary, MessageFeedbackRecord, MessagePage, MessageRecord,
@@ -51,8 +52,14 @@ use crate::repositories::chat_feedback::{
     CONVERSATION_FEEDBACK_SQL, DELETE_FEEDBACK_SQL, FEEDBACK_BY_ID_SQL, GET_FEEDBACK_SQL,
     UPSERT_FEEDBACK_SQL,
 };
-use crate::repositories::chat_list::{COUNT_PARTICIPATING_SQL, LIST_CONVERSATIONS_SQL};
-use crate::repositories::chat_member_rows::{recent_prompt_messages_sql, MESSAGE_SUBJECTS_SQL};
+use crate::repositories::chat_list::{
+    COUNT_PARTICIPATING_SQL, LIST_CONVERSATIONS_SQL, ROOM_THREAD_GROUPS_SQL,
+    SHARES_PRIVATE_THREAD_SQL, SUBJECT_THREAD_ATHLETES_SQL,
+};
+use crate::repositories::chat_member_rows::{
+    recent_prompt_messages_sql, MemberReplay, ReadableReads, RowRead, DURABLE_MESSAGES_SQL,
+    MEMBER_READS_SQL, MESSAGE_CONVERSATION_SQL, RECORD_MESSAGE_MEMBER_SQL, THREAD_READ_KEYS_SQL,
+};
 use crate::repositories::chat_participants::{
     ADD_PARTICIPANT_SQL, GET_PARTICIPANT_SQL, LIST_PARTICIPANTS_SQL, REMOVE_PARTICIPANT_SQL,
 };

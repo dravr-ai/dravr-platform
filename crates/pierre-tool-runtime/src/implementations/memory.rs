@@ -12,7 +12,7 @@
 //! fact extractor in `services/memory_extraction.rs`.
 
 use crate::annotations::{annotations, Effect, Reach};
-use crate::tool_data::ToolData;
+use crate::tool_data::{ToolData, WriteKind};
 use dravr_barrage::Stream;
 use pierre_core::constants::oauth_providers::names_kept_out_source;
 use pierre_providers::ai_scope;
@@ -473,5 +473,6 @@ crate::declare_security!(
 );
 crate::declare_security!(
     RememberFactTool => empty; first_party_only,
-    reads: ToolData::own(&[Stream::RestrictedNotes]),
+    reads: ToolData::own(&[Stream::RestrictedNotes])
+        .writes(WriteKind::FreeText),
 );

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use super::SportType;
+use super::{PlannedWorkout, SportType};
 
 /// What kind of calendar entry a [`PlannedSession`] becomes on the provider.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -153,6 +153,30 @@ pub struct CalendarEventRef {
     /// When the provider last saw the event change, when it reports that.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<Timestamp>,
+}
+
+/// An event Dravr pushed to a calendar that pairs its events with
+/// activities, and whether it paired one (carnet#1792).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PushedEventPairing {
+    /// The key Dravr pushed the event under ([`CalendarKey`]).
+    pub external_id: String,
+    /// Civil date of the event.
+    pub date: CivilDate,
+    /// The activity the calendar paired with it, when it paired one.
+    pub completed_activity_id: Option<String>,
+}
+
+/// A planned calendar as the missed-session check reads it: the sessions
+/// others planned there, and the pairing of the events Dravr pushed.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PlannedCalendar {
+    /// The workouts the calendar plans, Dravr's own pushes left out, each
+    /// naming the activity that completed it.
+    pub planned: Vec<PlannedWorkout>,
+    /// The events Dravr pushed there with their pairing; `None` when the
+    /// calendar does not say whether a pushed event was done.
+    pub pushed: Option<Vec<PushedEventPairing>>,
 }
 
 /// Where a session saved to an account's own workout library landed.

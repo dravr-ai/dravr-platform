@@ -73,6 +73,8 @@ pub(crate) mod chat_feedback;
 pub(crate) mod chat_list;
 /// A thread's rows about a group member: the prompt read that keeps only the readable ones.
 pub(crate) mod chat_member_rows;
+/// A chat row written with the members it is about, in one transaction (carnet#1422).
+pub(crate) mod chat_message_write;
 /// Who belongs to a conversation: its membership statements and the bodies behind them.
 pub(crate) mod chat_participants;
 /// The row parsers `chat_backend` emits per backend.
@@ -129,6 +131,8 @@ pub mod fitness_config;
 pub mod garmin_push_inbox;
 /// A consent grant's receipts: the `record_log` worker's outbox, the athlete's grant history.
 pub mod grant_events;
+/// Repository trait for when an outside client's grant last read another member (carnet#1511 call 30).
+pub mod grant_member_reads;
 /// Connecting a group to a messaging chat from the web app (carnet#1683): its repository trait and shared body.
 pub mod group_chat_connect;
 /// Shared statements for a group's weekly digest lease, run by the coaching-group repository body.
@@ -177,6 +181,8 @@ pub mod messaging_link_states;
 pub mod messaging_proactive;
 /// Shared SQL and body for the reaction → chat-message lookup both backends serve.
 pub mod messaging_reactions;
+/// Whether a messaging session's chat is a direct message or a room
+pub mod messaging_session_chat;
 /// Repository traits for mobility (yoga and stretching) persistence.
 pub mod mobility;
 /// Repository traits for `OAuth` and system notification persistence.
@@ -358,6 +364,9 @@ pub use athlete_places::{
 };
 pub use calendar_preferences::{CalendarPreference, CalendarPreferenceRepository};
 pub use chat::*;
+pub use chat_member_rows::{
+    MemberReplay, ReadableReads, RowRead, AUTHOR_READ_PREFIX, UNATTRIBUTED_READ_KEY,
+};
 pub use chat_subject::{NewSubjectConversation, OpenedSubjectThread, SubjectThreads};
 pub use check_in_preferences::CheckInPreferenceRepository;
 pub use claim_verdicts::*;
@@ -392,7 +401,9 @@ pub use first_run_progress::{FirstRunDay, FirstRunProgressRepository};
 pub use fitness_config::*;
 pub use garmin_push_inbox::*;
 pub use grant_events::{OAuthGrantEventRepository, MAX_GRANT_RECEIPT_ATTEMPTS};
+pub use grant_member_reads::GrantMemberReadRepository;
 pub use group_chat_connect::GroupChatConnectRepository;
+pub use group_transcript::TranscriptReadable;
 pub use harness_memory::*;
 pub use health::*;
 pub use health_records::{

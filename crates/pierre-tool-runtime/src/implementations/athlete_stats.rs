@@ -60,6 +60,7 @@ use crate::protocol::format::formatted_response;
 use crate::protocol::provider_helpers::resolve_provider_for_tool;
 use crate::protocol::types::UniversalResponse;
 use crate::protocol::UniversalExecutor;
+use crate::read_subject;
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
@@ -662,7 +663,36 @@ impl AthleteContextRead {
             time: CONTEXT_READ_BUDGET,
             budget: budget.as_ref(),
         };
-        read_athlete_context(provider, &source, shoes, limits).await
+        let mut context = read_athlete_context(provider, &source, shoes, limits).await?;
+        if context.weight_kg.is_some() && !weight_readable(&self.repos).await {
+            context.weight_kg = None;
+            if context.personal_records.is_none() && context.gear.is_none() {
+                return None;
+            }
+        }
+        Some(context)
+    }
+}
+
+/// Whether the in-flight read may show the provider's body weight of the
+/// person it reads, and has put it on their record.
+///
+/// Body weight is wellness (carnet#1387), whoever holds it: on a coach's
+/// read it is shown only under the athlete's wellness grant, and recorded as
+/// a wellness read before it leaves, so the turn stamps the read as
+/// wellness and no peer view stands in for it (carnet#1511 call 19). A
+/// record that cannot be written leaves the weight out rather than shown
+/// unrecorded. Always true on the caller's own read.
+async fn weight_readable(repos: &RepositoryRegistry) -> bool {
+    if read_subject::wellness_withheld().is_some() {
+        return false;
+    }
+    match read_subject::record_wellness_read(repos).await {
+        Ok(()) => true,
+        Err(e) => {
+            warn!(error = %e, "the coach's read of the provider's weight could not be recorded; leaving it out");
+            false
+        }
     }
 }
 

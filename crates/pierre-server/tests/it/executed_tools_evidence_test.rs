@@ -54,9 +54,24 @@ async fn a_call_that_did_not_run_is_not_recorded_as_having_run() {
         },
     ];
 
-    let outcome = execute_function_calls(&executor, &calls, &user_id.to_string(), tenant_id, None)
-        .await
-        .expect("dispatch returns an outcome even when a tool fails");
+    // Both names are offered, so the hallucinated one reaches the registry,
+    // which holds no such tool.
+    let offered = pierre_llm::Tool {
+        function_declarations: [HALLUCINATED, "get_connection_status"]
+            .into_iter()
+            .map(|name| pierre_llm::FunctionDeclaration::new(name.to_owned(), String::new(), None))
+            .collect(),
+    };
+    let outcome = execute_function_calls(
+        &executor,
+        &offered,
+        &calls,
+        &user_id.to_string(),
+        tenant_id,
+        None,
+    )
+    .await
+    .expect("dispatch returns an outcome even when a tool fails");
 
     // The model asked for two; the LLM still gets a response for each so it can
     // see its own mistake.

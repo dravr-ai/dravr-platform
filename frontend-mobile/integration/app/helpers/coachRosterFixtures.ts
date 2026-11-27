@@ -209,7 +209,44 @@ const OLIVIER = sharer('olivier', {
   band: 'fresh',
   season: { state: 'plan_ended', race: null, ends: day(-12) },
 });
-const EMILIE = sharer('emilie', { name: 'Émilie Girard', days: 0, band: 'productive', ...planToRace(165, 120) });
+const EMILIE = sharer('emilie', {
+  name: 'Émilie Girard',
+  days: 0,
+  band: 'productive',
+  // First of the week: no session matched what her calendar planned on her last two planned days.
+  attention: [
+    reason({
+      id: 'planned_sessions_missed',
+      kind: 'planned_sessions_missed',
+      horizon: 'week',
+      rank: 110,
+      key: 'coachHome.reason.plannedSessionsMissed',
+      params: { count: 2, missed: 3, planned: 6, date: day(-14) },
+      action: 'write_to_athlete',
+      evidence: [
+        {
+          key: 'coachHome.evidence.plannedSessionsUnmatched',
+          params: { missed: 3, planned: 6, date: day(-14) },
+          source: { kind: 'plan', providers: ['intervals_icu'] },
+          at: `${day(0)}T05:00:00Z`,
+        },
+        {
+          key: 'coachHome.evidence.plannedSessionUnmatched',
+          params: { date: day(-1), sport: 'run' },
+          source: { kind: 'provider', providers: ['intervals_icu'] },
+          at: `${day(0)}T05:00:00Z`,
+        },
+        {
+          key: 'coachHome.evidence.wellnessNote',
+          params: { date: day(-1), note: 'Genou sensible depuis la sortie de dimanche' },
+          source: { kind: 'wellness', providers: [] },
+          at: `${day(0)}T05:00:00Z`,
+        },
+      ],
+    }),
+  ],
+  ...planToRace(165, 120),
+});
 const THOMAS = sharer('thomas', { name: 'Thomas Bélanger', days: 1, band: 'heavy_block', season: { state: 'no_plan', race: null, ends: null } });
 
 const MAUDE = nonSharer('maude', 'Maude Poirier', {

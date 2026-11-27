@@ -17,6 +17,7 @@ macro_rules! member_columns {
               m.coach_calendar_write, m.coach_calendar_write_at,
               m.coach_wellness_read, m.coach_wellness_read_at,
               m.coach_assistant_read, m.coach_assistant_read_at,
+              m.coach_missed_session_check, m.coach_missed_session_check_at,
               m.coach_sensitive_t2_read, m.coach_sensitive_t2_read_at, m.coach_sensitive_t2_read_until,
               m.joined_at, m.left_at,
               ",
@@ -103,6 +104,14 @@ pub(crate) const SET_COACH_CONSENTS_SQL: &str = r"UPDATE coaching_group_members
             coach_sensitive_t2_read_until = CASE WHEN $6 IS NULL THEN coach_sensitive_t2_read_until
                                                  WHEN $6 THEN $7 ELSE NULL END
       WHERE group_id = $4 AND user_id = $5 AND left_at IS NULL";
+
+/// A live member turns on or off `$1` their human coach being told of the
+/// sessions they missed (carnet#1792), stamped `$2` when the value changes.
+pub(crate) const SET_COACH_MISSED_SESSION_CHECK_SQL: &str = r"UPDATE coaching_group_members
+        SET coach_missed_session_check = $1,
+            coach_missed_session_check_at = CASE WHEN $1 = coach_missed_session_check
+                                                 THEN coach_missed_session_check_at ELSE $2 END
+      WHERE group_id = $3 AND user_id = $4 AND left_at IS NULL";
 
 /// Live members of a group, counted by group alone: they may span tenants.
 pub(crate) const COUNT_MEMBERS_SQL: &str = r"SELECT COUNT(*) as cnt FROM coaching_group_members

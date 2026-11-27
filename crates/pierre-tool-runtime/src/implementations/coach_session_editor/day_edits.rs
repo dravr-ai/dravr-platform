@@ -38,7 +38,7 @@ use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_contremaitre::messaging_strings::KEY_PLAN_REST;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::periodization::serde_num::whole_u32_opt;
-use pierre_core::models::{RelativeIntensity, WorkoutStep};
+use pierre_core::models::{CarriedRead, RelativeIntensity, WorkoutStep};
 use pierre_database::repositories::PlanChangeKind;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{CoachCall, PlanWeek, PlannedDay, MAX_SESSIONS_PER_DATE};
@@ -422,7 +422,7 @@ pub async fn save_draft_hand_day(
     let repos = runtime.repos();
     let target = &thread.target;
     let write = async {
-        ai_scope::note_member_read(target.athlete());
+        note_coach_read(thread);
         let week = match week_holding(repos, target, date, WeekFrom::DraftOrLive).await? {
             Ok(week) => week,
             Err(outcome) => return Ok(outcome),
@@ -459,7 +459,7 @@ pub async fn restore_draft_day(
     let repos = runtime.repos();
     let target = &thread.target;
     let write = async {
-        ai_scope::note_member_read(target.athlete());
+        note_coach_read(thread);
         let week = match week_holding(repos, target, date, WeekFrom::Draft).await? {
             Ok(week) => week,
             Err(outcome) => return Ok(outcome),
@@ -493,7 +493,7 @@ pub async fn remove_draft_day(
     let repos = runtime.repos();
     let target = &thread.target;
     let write = async {
-        ai_scope::note_member_read(target.athlete());
+        note_coach_read(thread);
         let week = match week_holding(repos, target, date, WeekFrom::DraftOrLive).await? {
             Ok(week) => week,
             Err(outcome) => return Ok(outcome),
@@ -533,7 +533,7 @@ pub async fn add_draft_session(
     let repos = runtime.repos();
     let target = &thread.target;
     let write = async {
-        ai_scope::note_member_read(target.athlete());
+        note_coach_read(thread);
         let week = match week_holding(repos, target, date, WeekFrom::DraftOrLive).await? {
             Ok(week) => week,
             Err(outcome) => return Ok(outcome),
@@ -589,7 +589,7 @@ pub async fn save_draft_coach_call(
     let repos = runtime.repos();
     let target = &thread.target;
     let write = async {
-        ai_scope::note_member_read(target.athlete());
+        note_coach_read(thread);
         let week = match week_holding(repos, target, date, WeekFrom::DraftOrLive).await? {
             Ok(week) => week,
             Err(outcome) => return Ok(outcome),
@@ -605,6 +605,15 @@ pub async fn save_draft_coach_call(
         save_edit(repos, thread, &week, edited, log).await
     };
     as_athletes_write(repos, target, write).await
+}
+
+/// Note the coach's read of the thread's athlete: a coach-way read of their
+/// plan, beyond their activities (carnet#1174, carnet#1511 call 23).
+pub(super) fn note_coach_read(thread: &EditorThread) {
+    ai_scope::note_member_read(
+        CarriedRead::coach(thread.target.athlete(), thread.group, thread.target.coach())
+            .beyond_activities(),
+    );
 }
 
 #[cfg(test)]

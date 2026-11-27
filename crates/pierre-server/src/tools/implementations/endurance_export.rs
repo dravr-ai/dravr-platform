@@ -410,7 +410,8 @@ pub fn create_endurance_export_tools() -> Vec<Box<dyn RuntimeTool>> {
 pierre_tool_runtime::declare_security!(
     ExportLatestSnapshotTool => empty; export,
     reads: ToolData::of(DataClass::Training, &[Stream::Workout, Stream::WorkoutRoute])
-        .with_incidental_route(),
+        .with_incidental_route()
+        .with_beyond_activities(),
 );
 // The composed dossier carries the durable facts beside the training and
 // physiology; the claim checker reads the sessions and physiology a

@@ -54,7 +54,9 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use dravr_tronc::dates::{CivilDate, Timestamp};
+use std::time::Duration;
+
+use dravr_tronc::dates::{CivilDate, Timestamp, Zone};
 use futures_util::stream::{self, StreamExt, TryStreamExt};
 use pierre_config::coach_home::CoachHomeConfig;
 use pierre_core::ai_policy::ProviderTerms;
@@ -82,13 +84,16 @@ use pierre_services::coach_roster::{
     ROSTER_LOOKUP_CONCURRENCY,
 };
 use pierre_services::coached_athlete::CoachedAthleteAccess;
+use pierre_services::missed_sessions::PlannedVsDone;
 use pierre_tool_runtime::coach_roster::{
     fetch_page_snapshots, gate_page_reads, read_snapshot, RosterReading,
 };
+use pierre_tool_runtime::missed_session_check::{check_missed_sessions, MissedCheckRequest};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tracing::info;
+use tokio::time;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
@@ -251,6 +256,12 @@ pub struct RosterRow {
     /// alone. A reason the caller marked handled for its current signal
     /// carries `dismissed_at`.
     pub attention: Vec<AttentionReason>,
+    /// Their missed-session check (carnet#1792): absent where it was not
+    /// run, for a non-sharer or a sharer the gate refused. The morning brief
+    /// counts the athletes whose check was switched off or could not read a
+    /// calendar; it is not served.
+    #[serde(skip)]
+    pub missed_sessions: Option<PlannedVsDone>,
 }
 
 /// `GET /api/coach/roster`.
@@ -490,6 +501,8 @@ impl RosterReader {
             replies: &replies,
             dismissals: &dismissals,
             thresholds: resources.common.config.coach_home,
+            runtime: &runtime,
+            reader: self,
         };
         let rows: Vec<_> = page
             .iter()
@@ -536,7 +549,71 @@ struct PageRead<'a> {
     replies: &'a WeekReplies,
     dismissals: &'a PageDismissals,
     thresholds: CoachHomeConfig,
+    runtime: &'a Arc<dyn ToolRuntime>,
+    /// Who reads the page: the AI rules and the record the missed-session
+    /// check's reads go under.
+    reader: RosterReader,
 }
+
+impl PageRead<'_> {
+    /// The missed-session check of the sharer `access` names, read under the
+    /// page's AI rules and bounded by [`MISSED_CHECK_TIMEOUT`]. A check that
+    /// fails or runs out of time could not read the athlete's calendars: it
+    /// is unreadable, never a miss and never a failed roster.
+    async fn missed_sessions(
+        &self,
+        access: &CoachedAthleteAccess,
+        zone: &Zone,
+        today: CivilDate,
+        plan_read: bool,
+    ) -> PlannedVsDone {
+        let request = MissedCheckRequest {
+            coach: self.coach,
+            access,
+            zone,
+            today,
+            thresholds: &self.thresholds,
+            plan_read,
+            surface: self.reader.surface.as_str(),
+            outside: self.reader.outside,
+            for_model: self.reader.for_model,
+        };
+        // Boxed: the calendar reads behind it make a large future.
+        let check = time::timeout(
+            MISSED_CHECK_TIMEOUT,
+            Box::pin(check_missed_sessions(self.runtime, request)),
+        );
+        let checked = if self.reader.for_model {
+            ai_scope::for_model(check).await
+        } else {
+            ai_scope::for_human_coach(check).await
+        };
+        match checked {
+            Ok(Ok(check)) => check,
+            Ok(Err(e)) => {
+                warn!(
+                    coach = %self.coach,
+                    athlete = %access.athlete_user_id,
+                    error = %e,
+                    "missed-session check failed; counted as unreadable"
+                );
+                PlannedVsDone::Unreadable
+            }
+            Err(_) => {
+                warn!(
+                    coach = %self.coach,
+                    athlete = %access.athlete_user_id,
+                    "missed-session check ran out of time; counted as unreadable"
+                );
+                PlannedVsDone::Unreadable
+            }
+        }
+    }
+}
+
+/// How long one athlete's missed-session check may read their calendars
+/// before it counts as unreadable.
+const MISSED_CHECK_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// One row: name, groups, status and the consent reason for everyone; the
 /// rest only for a sharer.
@@ -559,6 +636,7 @@ async fn row(
         agent_replies: None,
         season: None,
         attention: Vec::new(),
+        missed_sessions: None,
     };
     let zone = athlete_zone(repos, athlete).await;
     let today = civil_time::clock_date(Timestamp::now(), &zone);
@@ -579,6 +657,12 @@ async fn row(
         SharedPlan::default()
     };
 
+    let missed = match (member.member.status, read.readable.get(&athlete)) {
+        (RosterAthleteStatus::Shared, Some(access)) => {
+            Some(read.missed_sessions(access, &zone, today, plan.read).await)
+        }
+        _ => None,
+    };
     let sources = snapshot.map_or_default(sources_of);
     let refusals = refused_since(repos, athlete, row.training.as_ref()).await?;
     let inputs = AttentionInputs {
@@ -595,9 +679,11 @@ async fn row(
         plan: plan.plan.as_ref(),
         draft: plan.draft.as_ref(),
         replies,
+        missed_sessions: missed.as_ref(),
     };
     row.season = season_view(&inputs, &read.thresholds);
     row.attention = attention_reasons(&inputs, &read.thresholds);
+    row.missed_sessions = missed;
     if let Some(dismissed) = read.dismissals.get(&athlete) {
         apply_dismissals(&mut row.attention, dismissed);
     }

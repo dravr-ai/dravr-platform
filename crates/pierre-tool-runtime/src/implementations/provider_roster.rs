@@ -647,7 +647,7 @@ impl McpTool<dyn ToolRuntime> for GetProviderRosterTool {
 // own surfaces list and run it, and externally only an admin whose grant holds
 // `admin` (`crate::first_party_tools`, `crate::tool_access`).
 crate::declare_security!(
-    GetProviderRosterTool => empty; first_party_only,
+    GetProviderRosterTool => empty; first_party_only; private,
     reads: ToolData::own(&[]),
 );
 

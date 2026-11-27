@@ -324,7 +324,43 @@ export function namedAthletes(today: string): CoachRosterAthlete[] {
       plan: plan(today, [phase(today, 'base', -10, 18)], 'Pas de course', 0, 'base'),
       agent_replies: { count: 0, verified: 0, unmatched_figures: 0, capped: false },
       season: { state: 'no_a_race', race: null, ends: dayOffset(today, 18) },
-      attention: [],
+      // First of the week: no session matched what his calendar planned on his last two planned days.
+      attention: [
+        reason({
+          id: 'planned_sessions_missed',
+          kind: 'planned_sessions_missed',
+          key: 'coachHome.reason.plannedSessionsMissed',
+          params: { count: 2, missed: 3, planned: 6, date: dayOffset(today, -14) },
+          horizon: 'week',
+          rank: 290,
+          evidence: [
+            {
+              key: 'coachHome.evidence.plannedSessionsUnmatched',
+              params: { missed: 3, planned: 6, date: dayOffset(today, -14) },
+              source: { kind: 'plan', providers: ['intervals_icu'] },
+              at: at(today, 0, '05:00:00'),
+            },
+            {
+              key: 'coachHome.evidence.plannedSessionUnmatched',
+              params: { date: dayOffset(today, -3), sport: 'ride' },
+              source: { kind: 'provider', providers: ['intervals_icu'] },
+              at: at(today, 0, '05:00:00'),
+            },
+            {
+              key: 'coachHome.evidence.plannedSessionUnmatched',
+              params: { date: dayOffset(today, -1), sport: 'run' },
+              source: { kind: 'provider', providers: ['intervals_icu'] },
+              at: at(today, 0, '05:00:00'),
+            },
+            {
+              key: 'coachHome.evidence.wellnessNote',
+              params: { date: dayOffset(today, -1), note: 'Genou sensible depuis la sortie de dimanche' },
+              source: { kind: 'wellness', providers: [] },
+              at: at(today, 0, '05:00:00'),
+            },
+          ],
+        }),
+      ],
     },
     {
       user_id: 'u-rosalie',
@@ -384,7 +420,15 @@ export function buildBrief(today: string, over: Partial<CoachBrief> = {}): Coach
     hour: 7,
     reasons_off: [],
     muted: ['u-rosalie'],
-    last_run: { ran_at: localHour(today, 0, 7), outcome: 'posted', items: 4, not_sharing: 0, unreadable: 0 },
+    last_run: {
+      ran_at: localHour(today, 0, 7),
+      outcome: 'posted',
+      items: 4,
+      not_sharing: 0,
+      unreadable: 0,
+      missed_unreadable: 0,
+      missed_off: 0,
+    },
     next_run: localHour(today, 1, 7),
     ...over,
   };

@@ -43,6 +43,7 @@ use pierre_llm::{
 };
 use pierre_mcp_server::services::messaging_ingress::surface::messaging_surface_request;
 use pierre_providers::ai_scope::{self, Provenance};
+use pierre_tool_runtime::tool_access::CallerRole;
 use scope_probes::{
     judge, EvalProbe, FINANCIAL_ADVICE, FOOD_PRICING, MEDICAL_DIAGNOSIS, TEMPO_RUN,
 };
@@ -231,6 +232,7 @@ async fn slack_turn(text: &str, locale: &str) -> ServedTurn {
         mentioned_agent: None,
         steps_after: None,
         grant: OAuthScope::self_grant(),
+        role: CallerRole::default(),
     };
     let profile = SurfaceProfile::resolve(&messaging_surface_request(
         ChannelType::Slack,

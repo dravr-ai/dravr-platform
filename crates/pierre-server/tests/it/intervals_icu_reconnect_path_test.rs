@@ -45,6 +45,7 @@ use pierre_middleware::provider_link_token::{verify_link_token, CONNECT_PROVIDER
 use pierre_routes_auth::AuthRoutes;
 use pierre_tool_runtime::context::SUPPORT_SESSION;
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::tool_access::CallerRole;
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 use serde_json::Value;
 use uuid::Uuid;
@@ -229,6 +230,7 @@ async fn recover(
         mentioned_agent: None,
         steps_after: None,
         grant: OAuthScope::self_grant(),
+        role: CallerRole::default(),
     };
     let profile = SurfaceProfile::resolve(&SurfaceRequest {
         surface: SurfaceId::Web,

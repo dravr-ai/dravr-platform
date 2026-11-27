@@ -44,7 +44,7 @@ use pierre_core::models::AddMessageParams;
 use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_database::database::repositories::ChatRepository;
 use pierre_database::database::{ConversationRecord, MessageRecord};
-use pierre_database::repositories::CoachingGroupRepository;
+use pierre_database::repositories::{CoachingGroupRepository, MemberReplay};
 use pierre_providers::ai_scope;
 
 use crate::turn::{TurnInput, UserMessageResult};
@@ -52,7 +52,7 @@ use crate::turn_stop::question_blocks;
 use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{NewGroupTranscriptEntry, TranscriptSpeaker};
-use pierre_core::models::{TenantId, TurnOrigin};
+use pierre_core::models::{CarriedRead, RoomQuote, TenantId, TurnOrigin};
 use pierre_core::uuid_utils::parse_uuid;
 use tracing::warn;
 use uuid::Uuid;
@@ -99,6 +99,9 @@ fn app_reports_reading() -> bool {
 /// row's stamp (carnet#769), so a room reader is held to the same terms as a
 /// reader of the row itself.
 ///
+/// The entry records every read the row was stored with, `carried`, as what
+/// it carries (carnet#1511 call 19).
+///
 /// The entry is attributed to the conversation's member (`user_id`) for both
 /// speakers: an agent row is the reply that member received, so consent
 /// withholding hides the pair together. Non-group conversations append
@@ -117,12 +120,15 @@ pub(crate) async fn fan_out_to_group_transcript(
     tenant_id: TenantId,
     user_id: &str,
     speaker: TranscriptSpeaker,
-    message: &MessageRecord,
+    (message, carried): (&MessageRecord, &[CarriedRead]),
 ) -> AppResult<()> {
     let Some(group_id) = conversation.group_id.as_deref() else {
         return Ok(());
     };
     let tenant_str = tenant_id.to_string();
+    // The reads the row was stored with: the entry records them, so it is
+    // read by its own record whatever becomes of the row (carnet#1511 call
+    // 19).
     let entry = NewGroupTranscriptEntry {
         group_id,
         tenant_id: &tenant_str,
@@ -132,6 +138,7 @@ pub(crate) async fn fan_out_to_group_transcript(
         source_conversation_id: Some(&conversation.id),
         source_message_id: Some(&message.id),
         transport_policy: message.transport_policy,
+        carried,
     };
     groups.append_transcript_entry(&entry).await
 }
@@ -181,16 +188,17 @@ pub async fn persist_user_message(
         .quote
         .as_ref()
         .map_or(own, |quote| own.strictest(quote.transport_policy));
-    // A quote is the athlete's words, read under the coaching gates the
-    // surface ran: the row carrying them is about her, and so is whatever the
-    // turn derives from them (carnet#1174).
-    let about_user_id = input
+    // A quote is the athlete's room words, read by the coach in their thread
+    // about her through the coach's view, else through the room's peer
+    // view: the row carrying them carries that read, and so does whatever
+    // the turn derives from them (carnet#1174, carnet#1511 call 19).
+    let quoted = input
         .quote
         .as_ref()
-        .map(|quote| parse_uuid(&quote.author_user_id))
+        .map(|quote| quote_read(&conversation, user_id, quote))
         .transpose()?;
-    if let Some(athlete) = about_user_id {
-        ai_scope::note_member_read(athlete);
+    if let Some(read) = &quoted {
+        ai_scope::note_member_read(read.clone());
     }
     let user_msg_params = AddMessageParams {
         tenant_id,
@@ -205,11 +213,13 @@ pub async fn persist_user_message(
         content_blocks: blocks.as_deref(),
         transport_policy,
         channel_type: Some(channel),
-        about_user_id,
+        about_user_id: None,
         turn_attempted_write: None,
         ai_consent_sources: &[],
     };
-    let message = database.add_message(&user_msg_params).await?;
+    let message = database
+        .add_message_about(&user_msg_params, quoted.as_slice())
+        .await?;
     advance_read_marker(database, conversation_id, user_id, tenant_id, &message.id).await;
 
     fan_out_to_group_transcript(
@@ -218,13 +228,35 @@ pub async fn persist_user_message(
         tenant_id,
         user_id,
         TranscriptSpeaker::Member,
-        &message,
+        (&message, quoted.as_slice()),
     )
     .await?;
 
     Ok(UserMessageResult {
         message,
         conversation,
+    })
+}
+
+/// The read a quote of `quote`'s room words makes, in `conversation`, by
+/// `sender`: the coach's view of the athlete in a coach's thread about them,
+/// else the room's peer view of the conversation's group.
+fn quote_read(
+    conversation: &ConversationRecord,
+    sender: &str,
+    quote: &RoomQuote,
+) -> AppResult<CarriedRead> {
+    let author = parse_uuid(&quote.author_user_id)?;
+    Ok(match conversation.subject() {
+        Some(subject) => CarriedRead::coach(author, subject.group_id, parse_uuid(sender)?),
+        None => CarriedRead::peer(
+            author,
+            conversation
+                .group_id
+                .as_deref()
+                .map(parse_uuid)
+                .transpose()?,
+        ),
     })
 }
 
@@ -359,10 +391,11 @@ pub async fn resolve_platform_turn(
 /// A compaction summary of an earlier topic falls out with the rows it
 /// covers, since a block is spliced only when its last row is in the window.
 ///
-/// Nor does a row about a group member outside `readable_about` — the
-/// members the turn's sender may still read, as `history_scope` resolves
-/// them (carnet#1174). That rule is in the statement, so `limit` counts only
-/// rows the turn may replay.
+/// Nor does a row about a group member the turn may not read, nor any row at
+/// or after the first such row, which restates them, but the turn's own
+/// (`replay`, as `history_scope` resolves it; carnet#1174, carnet#1422).
+/// That rule is in the statement, so `limit` counts only rows the turn may
+/// replay.
 ///
 /// # Errors
 ///
@@ -373,7 +406,7 @@ pub async fn get_conversation_history(
     user_id: &str,
     tenant_id: TenantId,
     limit: i64,
-    readable_about: &[Uuid],
+    replay: MemberReplay<'_>,
 ) -> AppResult<Vec<MessageRecord>> {
     let mut history = database
         .get_recent_prompt_messages(
@@ -382,7 +415,7 @@ pub async fn get_conversation_history(
             tenant_id,
             limit,
             ai_scope::readable_policy(),
-            readable_about,
+            replay,
         )
         .await?;
     since_last_divider(&mut history);
@@ -395,6 +428,16 @@ pub async fn get_conversation_history(
     // or never gave (carnet#1157); a replayed row's keys taint the turn.
     ai_scope::retain_consented(&mut history, |row| &row.ai_consent_sources, false);
     Ok(history)
+}
+
+/// Every member read the running turn made so far, with how it was made:
+/// what a row drawn from it carries beside it, one read or several, in the
+/// one carrier (carnet#1422, carnet#1511 call 19). None outside a turn.
+pub(crate) fn turn_reads() -> Vec<CarriedRead> {
+    ai_scope::current_provenance()
+        .map_or_default(|provenance| provenance.carried_reads())
+        .into_iter()
+        .collect()
 }
 
 /// Drop every row up to and including the newest divider in `history`, which
@@ -436,7 +479,27 @@ pub async fn persist_assistant_response(
     tenant_id: TenantId,
     origin: TurnOrigin,
 ) -> AppResult<(MessageRecord, ConversationRecord)> {
-    let message = database.add_message(params).await?;
+    persist_assistant_response_about(database, groups, params, &[], tenant_id, origin).await
+}
+
+/// [`persist_assistant_response`] for a reply carrying `members`' reads.
+///
+/// Stored with them in the row's own transaction
+/// ([`ChatRepository::add_message_about`]): a reply that cannot be named
+/// about them is not stored at all.
+///
+/// # Errors
+///
+/// As [`persist_assistant_response`], and the error naming a member.
+pub(crate) async fn persist_assistant_response_about(
+    database: &dyn ChatRepository,
+    groups: &dyn CoachingGroupRepository,
+    params: &AddMessageParams<'_>,
+    members: &[CarriedRead],
+    tenant_id: TenantId,
+    origin: TurnOrigin,
+) -> AppResult<(MessageRecord, ConversationRecord)> {
+    let message = database.add_message_about(params, members).await?;
     let answers_the_athlete = origin == TurnOrigin::Athlete;
     if answers_the_athlete && !app_reports_reading() {
         advance_read_marker(
@@ -461,7 +524,7 @@ pub async fn persist_assistant_response(
             tenant_id,
             params.user_id,
             TranscriptSpeaker::Coach,
-            &message,
+            (&message, members),
         )
         .await?;
     }

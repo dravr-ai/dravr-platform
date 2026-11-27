@@ -41,6 +41,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::common;
+use crate::helpers::room_reads;
 use dravr_tronc::dates::Elapsed;
 use dravr_tronc::dates::{CivilDate, Timestamp};
 
@@ -1600,12 +1601,8 @@ async fn plan_share_in_a_room_lands_in_the_group_transcript_and_plan_does_not() 
         "a room-visible turn is written to the room conversation"
     );
 
-    let entries = resources
-        .common
-        .repos
-        .groups
-        .list_transcript_visible_to(&group_id.to_string(), user_id, 20)
-        .await?;
+    let entries =
+        room_reads::visible_to(&resources.common.repos, &group_id.to_string(), user_id, 20).await?;
     let reply = entries
         .iter()
         .find(|e| e.speaker == TranscriptSpeaker::Coach)
@@ -1633,12 +1630,8 @@ async fn plan_share_in_a_room_lands_in_the_group_transcript_and_plan_does_not() 
         private.persisted.is_none(),
         "a privately answered command is not the room's history"
     );
-    let after = resources
-        .common
-        .repos
-        .groups
-        .list_transcript_visible_to(&group_id.to_string(), user_id, 20)
-        .await?;
+    let after =
+        room_reads::visible_to(&resources.common.repos, &group_id.to_string(), user_id, 20).await?;
     assert_eq!(
         after.len(),
         shared_rows,

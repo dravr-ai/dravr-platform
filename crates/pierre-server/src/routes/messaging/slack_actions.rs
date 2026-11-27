@@ -225,6 +225,42 @@ pub(crate) fn verify_slack_signature(
 // Command postback routing
 // =============================================================================
 
+/// The thread the Slack chat `channel_id` writes into for `slack_user_id`:
+/// its messaging session's conversation, read under `session_tenant`, the
+/// tenant an inbound message from that chat files its session under (the
+/// caller's own for a DM, the channel link's for a channel, as
+/// `messaging_ingress::session::resolve_linked_session` decides). `None`
+/// when the chat has no session for the caller yet, or the read fails.
+async fn session_thread(
+    resources: &ServerContext,
+    session_tenant: TenantId,
+    slack_user_id: &str,
+    channel_id: &str,
+) -> Option<String> {
+    match resources
+        .common
+        .repos
+        .messaging
+        .get_session_by_channel_identity(
+            session_tenant,
+            SLACK_CHANNEL,
+            slack_user_id,
+            Some(channel_id),
+        )
+        .await
+    {
+        Ok(session) => session.and_then(|session| {
+            session["pierre_conversation_id"]
+                .as_str()
+                .map(ToOwned::to_owned)
+        }),
+        Err(e) => {
+            warn!(error = %e, "Slack postback: the chat's session could not be read; no thread named");
+            None
+        }
+    }
+}
+
 /// Handle a messaging command postback from a Slack interactive action.
 ///
 /// Executes the command on behalf of the authorized clicker and updates the
@@ -278,7 +314,11 @@ pub async fn execute_postback_command(
 
     use pierre_commands::{ConversationRotation, PlatformCommandContext};
 
-    let (user_id, user_tenant) = authorize_postback(resources, slack_user_id).await?;
+    let PostbackCaller {
+        user_id,
+        user_tenant,
+        link_tenant,
+    } = authorize_postback(resources, slack_user_id).await?;
 
     // Match command against registry
     let cmd_registry = resources
@@ -311,6 +351,20 @@ pub async fn execute_postback_command(
     )
     .await;
 
+    // Slack block_actions payloads don't expose event.channel_type; use the
+    // channel ID prefix convention ("D" = IM, "C" = channel, "G" = private
+    // group).
+    let is_direct_message = channel_id.starts_with('D');
+    // The session an inbound message from this chat is routed to: a DM's
+    // lives under the caller's own tenant, a channel's under the tenant the
+    // channel link lives in, the one the link lookup above found.
+    let session_tenant = if is_direct_message {
+        user_tenant
+    } else {
+        link_tenant
+    };
+    let conversation_id =
+        session_thread(resources, session_tenant, slack_user_id, channel_id).await;
     let ctx_dyn: Arc<dyn pierre_runtime_context::CommandCtx> =
         Arc::<ServerContext>::clone(resources);
     let tool_runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(resources);
@@ -322,20 +376,19 @@ pub async fn execute_postback_command(
         raw_text: parsed.raw_text,
         ctx: ctx_dyn,
         locale,
-        // Slack block_actions payloads don't expose event.channel_type;
-        // use the channel ID prefix convention ("D" = IM, "C" = channel,
-        // "G" = private group).
-        is_direct_message: channel_id.starts_with('D'),
+        is_direct_message,
         // A messaging surface: the group a button means is the group the
         // caller is in.
         ambient_group_fallback: true,
-        // Block-actions buttons fire outside a Pierre conversation
-        // turn — there's no chat_conversations row associated with the
-        // click. Group-scoped commands fall back to the user's most
-        // recent group via list_groups_for_user when this is None.
-        conversation_id: None,
-        // No conversation to scope, so this tracks the caller's tenant.
-        conversation_tenant_id: user_tenant,
+        // Block-actions buttons fire outside a Pierre conversation turn. The
+        // click is in the thread the chat's session writes into, so a card's
+        // button acts there (an agent draft is confirmed only from the
+        // thread it was drafted in). A chat with no session for the caller
+        // names none: a draft's confirm then says what to type in the
+        // draft's thread, and group-scoped commands fall back to the user's
+        // most recent group via list_groups_for_user.
+        conversation_id,
+        conversation_tenant_id: session_tenant,
         sender_id: Some(slack_user_id.to_owned()),
         rotation: ConversationRotation::default(),
         tool_runtime,
@@ -377,13 +430,14 @@ pub async fn execute_postback_command(
 /// reports for the clicker: the HMAC signature proves the click came from
 /// Slack, nothing more.
 ///
-/// Returns the Pierre user id and the tenant the command runs under — the
+/// Returns the Pierre user id, the tenant the command runs under — the
 /// user's own first-membership tenant, falling back to the link owner's
-/// tenant, the same resolution `messaging_ingress` performs on every turn.
+/// tenant, the same resolution `messaging_ingress` performs on every turn —
+/// and the link owner's tenant itself.
 async fn authorize_postback(
     resources: &ServerContext,
     slack_user_id: &str,
-) -> AppResult<(Uuid, TenantId)> {
+) -> AppResult<PostbackCaller> {
     // The link row is the authoritative `(channel, channel_user_id) -> owner
     // tenant` map; the ops-action endpoint carries no tenant of its own.
     let link_tenant = resources
@@ -406,11 +460,27 @@ async fn authorize_postback(
         .authenticate_channel(link_tenant, SLACK_CHANNEL, slack_user_id)
         .await?;
 
-    let tenant_id = auth
+    let user_tenant = auth
         .active_tenant_id
         .map_or(link_tenant, TenantId::from_uuid);
 
-    Ok((auth.user_id, tenant_id))
+    Ok(PostbackCaller {
+        user_id: auth.user_id,
+        user_tenant,
+        link_tenant,
+    })
+}
+
+/// The Dravr account behind a Slack identity that tapped a button.
+struct PostbackCaller {
+    /// The account.
+    user_id: Uuid,
+    /// The tenant its commands run under: its own first-membership tenant,
+    /// else the channel link's.
+    user_tenant: TenantId,
+    /// The tenant the Slack identity's channel link lives in, which an
+    /// inbound channel message files its session under.
+    link_tenant: TenantId,
 }
 
 // =============================================================================

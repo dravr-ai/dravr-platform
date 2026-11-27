@@ -27,8 +27,9 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_commands::pending_confirm::{ConfirmHandler, DenyHandler};
 use pierre_commands::{CommandHandler, ConversationRotation, PlatformCommandContext};
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, KEY_AGENT_CREATE_DISCARDED, KEY_GUARDIAN_CONFIRM_EXPIRED,
-    KEY_GUARDIAN_CONFIRM_NOT_FOUND,
+    MessagingStringsRegistry, KEY_AGENT_CREATE_DISCARDED, KEY_GUARDIAN_CONFIRM_ELSEWHERE,
+    KEY_GUARDIAN_CONFIRM_EXPIRED, KEY_GUARDIAN_CONFIRM_NOT_FOUND,
+    KEY_GUARDIAN_CONFIRM_TYPE_IN_THREAD,
 };
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{ClaimOutcome, PendingAgentDraft, AGENT_PROPOSAL_ACTION};
@@ -279,4 +280,112 @@ async fn a_claimed_row_that_is_no_draft_answers_not_found_and_never_runs() {
     );
 
     assert!(!ran.load(Ordering::SeqCst), "the stored call must not run");
+}
+
+/// Whether `id` still waits for its owner's answer, read without claiming it.
+async fn still_waits(
+    resources: &Arc<ServerContext>,
+    id: &str,
+    user_id: Uuid,
+    tenant: TenantId,
+) -> bool {
+    resources
+        .common
+        .repos
+        .agent_drafts
+        .pending_action(id, &user_id.to_string(), &tenant.to_string())
+        .await
+        .expect("read runs")
+        .is_some()
+}
+
+/// carnet#1511 design call 1: a draft is confirmed only from the conversation
+/// it was proposed in. A confirm from another conversation, from a dispatch
+/// that names none (a Slack card's button), or of a draft that names none
+/// (parked before the binding) is refused and spends nothing: the draft
+/// still waits. The refusal tells its owner, the only one it can reach,
+/// where the draft is confirmed; anyone else's confirm of the code reads as
+/// an unknown one.
+#[tokio::test]
+async fn a_draft_is_confirmed_only_from_the_conversation_it_was_drafted_in() {
+    let (resources, _) = server().await;
+    let (user_id, _) = create_test_user(&resources.agent.database)
+        .await
+        .expect("test user");
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
+    let registry = MessagingStringsRegistry::new();
+    let not_found = registry.render(KEY_GUARDIAN_CONFIRM_NOT_FOUND, "en", &[]);
+    let elsewhere_text = registry.render(KEY_GUARDIAN_CONFIRM_ELSEWHERE, "en", &[]);
+    assert!(
+        elsewhere_text.contains("another conversation"),
+        "the refusal reads clearly: {elsewhere_text}"
+    );
+
+    let mut row = draft(user_id, tenant);
+    row.arguments["conversation_id"] = json!("drafted-here");
+    park(&resources, &row, 5).await;
+    let type_it = registry.render(
+        KEY_GUARDIAN_CONFIRM_TYPE_IN_THREAD,
+        "en",
+        &[&format!("/agent create confirm {}", row.id)],
+    );
+    for (elsewhere, answer) in [(Some("a-groups-room"), &elsewhere_text), (None, &type_it)] {
+        let ctx = PlatformCommandContext {
+            conversation_id: elsewhere.map(ToOwned::to_owned),
+            ..command_ctx(&resources, user_id, tenant, &row.id)
+        };
+        assert_eq!(
+            &ConfirmHandler
+                .execute(&ctx)
+                .await
+                .expect("confirm runs")
+                .text,
+            answer,
+            "confirmed from {elsewhere:?}"
+        );
+        assert!(
+            still_waits(&resources, &row.id, user_id, tenant).await,
+            "a refused confirm from {elsewhere:?} spends nothing"
+        );
+    }
+
+    let unbound = draft(user_id, tenant);
+    park(&resources, &unbound, 5).await;
+    let ctx = PlatformCommandContext {
+        conversation_id: Some("drafted-here".to_owned()),
+        ..command_ctx(&resources, user_id, tenant, &unbound.id)
+    };
+    assert_eq!(
+        ConfirmHandler
+            .execute(&ctx)
+            .await
+            .expect("confirm runs")
+            .text,
+        elsewhere_text,
+        "a draft that names no conversation is confirmed from none"
+    );
+    assert!(
+        still_waits(&resources, &unbound.id, user_id, tenant).await,
+        "a confirm from the wrong conversation leaves the draft waiting"
+    );
+
+    // Someone else holding the code learns nothing of the draft.
+    let stranger = Uuid::new_v4();
+    let ctx = PlatformCommandContext {
+        conversation_id: Some("drafted-here".to_owned()),
+        ..command_ctx(&resources, stranger, tenant, &row.id)
+    };
+    assert_eq!(
+        ConfirmHandler
+            .execute(&ctx)
+            .await
+            .expect("confirm runs")
+            .text,
+        not_found,
+        "another account's confirm reads as an unknown code"
+    );
+    assert!(
+        still_waits(&resources, &row.id, user_id, tenant).await,
+        "a stranger's confirm leaves the draft waiting"
+    );
 }

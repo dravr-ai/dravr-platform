@@ -42,6 +42,7 @@ use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::{AddMessageParams, ConversationTurnId, TenantId, COMMAND_FINISH_REASON};
+use pierre_database::repositories::MemberReplay;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::{
     ChatRoutes, ConversationListResponse, ConversationResponse, ConversationSummaryResponse,
@@ -690,7 +691,7 @@ async fn a_command_turn_is_read_by_its_author_and_new_to_the_other_participant()
         &fx.owner_id.to_string(),
         fx.tenant_id,
         50,
-        &[],
+        MemberReplay::about_nobody(),
     )
     .await
     .unwrap();

@@ -21,7 +21,8 @@ use std::sync::Arc;
 use axum::Router;
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_contremaitre::messaging_strings::{
-    KEY_PLATFORM_POST_MORNING_BRIEF_LINKS, KEY_PLATFORM_POST_MORNING_BRIEF_NOT_SHARING,
+    KEY_PLATFORM_POST_MORNING_BRIEF_LINKS, KEY_PLATFORM_POST_MORNING_BRIEF_MISSED_OFF,
+    KEY_PLATFORM_POST_MORNING_BRIEF_MISSED_UNREADABLE, KEY_PLATFORM_POST_MORNING_BRIEF_NOT_SHARING,
     KEY_PLATFORM_POST_MORNING_BRIEF_PROMPT, KEY_PLATFORM_POST_MORNING_BRIEF_UNREADABLE,
 };
 use pierre_core::models::{LeftOut, RoutineKind, RunOutcome, SUPPORTED_LOCALES};
@@ -38,12 +39,13 @@ use uuid::Uuid;
 use crate::check_in_post_test::{asked_for, fixture, Fixture};
 use crate::helpers::axum_test::AxumTestRequest;
 use crate::helpers::coach_roster_fixtures::{
-    coach, coached_group, get, group_agent, join_at, person, post, row, seed_ride, Person,
+    coach, coached_group, get, group_agent, join_at, person, plan_with_days, post, row,
+    seed_activities, seed_ride, Person,
 };
 use crate::recording_post::RecordingPost;
 
 /// The brief's words, registered whatever the pinned catalogue carries.
-const BRIEF_STRINGS: [(&str, &str); 4] = [
+const BRIEF_STRINGS: [(&str, &str); 6] = [
     (
         KEY_PLATFORM_POST_MORNING_BRIEF_PROMPT,
         "Morning brief from these lines:\n{0}",
@@ -57,6 +59,14 @@ const BRIEF_STRINGS: [(&str, &str); 4] = [
         "{0} not included: unreadable",
     ),
     (KEY_PLATFORM_POST_MORNING_BRIEF_LINKS, "Open in To handle:"),
+    (
+        KEY_PLATFORM_POST_MORNING_BRIEF_MISSED_UNREADABLE,
+        "Missed sessions not checked for {0}: calendar unreadable",
+    ),
+    (
+        KEY_PLATFORM_POST_MORNING_BRIEF_MISSED_OFF,
+        "Missed sessions not checked for {0}: switched off",
+    ),
 ];
 
 /// A coach with one group, on the engine's fixture.
@@ -450,6 +460,100 @@ async fn the_coach_pauses_moves_and_trims_the_brief_from_to_handle() {
         status, 403,
         "bug: an athlete reached a coach's brief: {body:#}"
     );
+}
+
+/// Whether `athlete`'s row on the coach's To handle carries the missed
+/// sessions reason.
+fn flags_missed(page: &Value, athlete: Uuid) -> bool {
+    row(page, athlete)
+        .and_then(|r| r["attention"].as_array())
+        .is_some_and(|reasons| {
+            reasons
+                .iter()
+                .any(|reason| reason["kind"] == "planned_sessions_missed")
+        })
+}
+
+#[tokio::test]
+async fn the_athletes_switch_takes_them_out_of_the_check_and_the_brief_says_so() {
+    let d = desk("missed-off").await;
+    d.quiet("Ben").await;
+    // Mia's plan rode six and four days ago; her Strava, connected, holds
+    // neither ride. (With no source at all nothing could come in, and the
+    // check is not run.)
+    let mia = d.athlete("Mia", true).await;
+    seed_activities(d.res(), &mia, "strava", &[]).await;
+    let today = Timestamp::now().utc_date();
+    let (six, four) = (today - Elapsed::days(6), today - Elapsed::days(4));
+    plan_with_days(
+        d.res(),
+        (mia.id, mia.tenant),
+        six,
+        &[(six, "ride"), (four, "ride")],
+    )
+    .await;
+
+    let (status, page) = get(&d.router(), "/api/coach/roster", &d.coach.auth).await;
+    assert_eq!(status, 200, "{page:#}");
+    assert!(
+        flags_missed(&page, mia.id),
+        "bug: two missed planned days raised nothing: {page:#}"
+    );
+
+    let switched = d
+        .res()
+        .common
+        .repos
+        .groups
+        .set_coach_missed_session_check(&d.group.to_string(), mia.id, false, Timestamp::now())
+        .await
+        .unwrap()
+        .expect("Mia is a live member");
+    assert!(
+        !switched.coach_consents.missed_session_check,
+        "bug: the switch did not turn the check off"
+    );
+    assert!(
+        switched.coach_consents.missed_session_check_at.is_some(),
+        "bug: turning the check off was not stamped"
+    );
+
+    let (status, page) = get(&d.router(), "/api/coach/roster", &d.coach.auth).await;
+    assert_eq!(status, 200, "{page:#}");
+    assert!(
+        !flags_missed(&page, mia.id),
+        "bug: the athlete switched the check off and the coach still sees it: {page:#}"
+    );
+
+    let outcomes = d.next_morning().await;
+    assert!(
+        outcomes.iter().any(|o| matches!(o, WakeOutcome::Posted(_))),
+        "bug: the brief did not post: {outcomes:?}"
+    );
+    let asked = asked_for(&d.fx, d.coach.id);
+    let appendix = asked[0]
+        .appendix
+        .as_deref()
+        .expect("bug: the brief carried no appendix");
+    assert!(
+        appendix.contains("Missed sessions not checked for 1: switched off"),
+        "bug: the footer does not say whose missed sessions went unchecked: {appendix}"
+    );
+    assert!(
+        !asked[0].prompt.contains("planned_sessions_missed"),
+        "bug: a switched-off check reached the model: {}",
+        asked[0].prompt
+    );
+    let left_out = d.last_left_out().await;
+    assert_eq!(
+        (left_out.missed_off, left_out.missed_unreadable),
+        (1, 0),
+        "bug: the run did not record the switched-off athlete"
+    );
+    let (status, body) = get(&d.router(), "/api/coach/brief", &d.coach.auth).await;
+    assert_eq!(status, 200, "{body:#}");
+    assert_eq!(body["last_run"]["missed_off"], 1, "{body:#}");
+    assert_eq!(body["last_run"]["missed_unreadable"], 0, "{body:#}");
 }
 
 /// The push half of delivery: compiled only where notifications are.

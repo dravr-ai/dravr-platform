@@ -449,6 +449,12 @@ pub struct LeftOut {
     pub not_sharing: u32,
     /// They share, and nothing of their training could be read.
     pub unreadable: u32,
+    /// Their missed sessions were not checked: a calendar could not be read
+    /// (carnet#1792). They may still be listed for another reason.
+    pub missed_unreadable: u32,
+    /// Their missed sessions were not checked: they switched the check off
+    /// for this coach. They may still be listed for another reason.
+    pub missed_off: u32,
 }
 
 impl Routine {

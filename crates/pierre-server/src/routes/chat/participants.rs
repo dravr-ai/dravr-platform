@@ -109,6 +109,15 @@ pub(super) async fn add_participant(
             "A thread about one athlete's plan cannot be shared",
         ));
     }
+    // A group's room is read by the group's members, each under their own
+    // consent: someone added here would read what the members shared with
+    // the group, or with its coach alone. Joining the group is how someone
+    // enters its room (carnet#1511 design call 5).
+    if conversation.group_id.is_some() {
+        return Err(AppError::invalid_input(
+            "A group's room is read by its members; invite them to the group instead",
+        ));
+    }
 
     let target = Uuid::parse_str(request.user_id.trim())
         .map_err(|_| AppError::invalid_input("user_id must be a UUID"))?;

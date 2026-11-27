@@ -30,7 +30,7 @@
 //! The tool acts for the caller only: it is in no data class, so a coach's
 //! thread about an athlete withholds it.
 
-use crate::tool_data::ToolData;
+use crate::tool_data::{ToolData, WriteKind};
 use dravr_barrage::Stream;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -309,5 +309,6 @@ pub fn create_place_tools() -> Vec<Box<dyn RuntimeTool>> {
 crate::declare_security!(
     NamePlaceTool => empty,
     reads: ToolData::own(&[Stream::WorkoutRoute])
-        .with_athlete_text(),
+        .with_athlete_text()
+        .writes(WriteKind::FreeText),
 );

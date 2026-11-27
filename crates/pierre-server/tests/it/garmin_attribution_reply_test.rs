@@ -56,6 +56,7 @@ use pierre_providers::ai_scope::{self, Provenance};
 use pierre_test_support::delegation::{add_group_member, create_coached_group, create_group_agent};
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest};
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::tool_access::CallerRole;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -310,6 +311,7 @@ async fn served_reply(
         mentioned_agent: None,
         steps_after: None,
         grant: OAuthScope::self_grant(),
+        role: CallerRole::default(),
     };
     let ctx = resources.chat_pipeline_context();
     // Tracked the way `turn_service::execute`, the only caller of `run`,

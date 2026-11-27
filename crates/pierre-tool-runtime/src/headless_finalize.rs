@@ -287,7 +287,7 @@ fn record_observed_round(params: &ToolLoopParams<'_>, calls: &[ObservedToolCall]
         assistant_text: String::new(),
         tool_result_text,
         members_read: ai_scope::current_provenance()
-            .map_or_default(|provenance| provenance.members_read()),
+            .map_or_default(|provenance| provenance.carried_reads()),
     });
 }
 

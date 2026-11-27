@@ -281,3 +281,53 @@ fn assert_same_group(listed: &CoachingGroup, by_id: &CoachingGroup, listing: &st
     assert_eq!(listed.created_at, by_id.created_at, "{listing}: created_at");
     assert_eq!(listed.updated_at, by_id.updated_at, "{listing}: updated_at");
 }
+
+/// A group created under an id the caller chose is created once, its coach
+/// with it: a second create under that id writes nothing and says so, and
+/// the first one's row is kept.
+#[tokio::test]
+async fn a_group_created_if_absent_is_created_once_under_its_id() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let (owner_id, tenant_id, agent_id) = seed_owner_tenant_agent(repos).await;
+    let group = CoachingGroup {
+        coach_user_id: Some(owner_id),
+        ..group_bound_to_telegram(tenant_id, owner_id, &agent_id)
+    };
+
+    assert!(
+        repos
+            .groups
+            .create_group_if_absent(tenant_id, &group)
+            .await
+            .unwrap(),
+        "the first create writes the group"
+    );
+    let renamed = CoachingGroup {
+        name: "Second".to_owned(),
+        ..group.clone()
+    };
+    assert!(
+        !repos
+            .groups
+            .create_group_if_absent(tenant_id, &renamed)
+            .await
+            .unwrap(),
+        "the second writes nothing"
+    );
+    let stored = repos
+        .groups
+        .get_group(&group.id.to_string(), tenant_id)
+        .await
+        .unwrap()
+        .expect("the group reads back under its id");
+    assert_eq!(
+        stored.name, "Marathon crew",
+        "the first create's row is kept"
+    );
+    assert_eq!(
+        stored.coach_user_id,
+        Some(owner_id),
+        "the coach is written with the group"
+    );
+}

@@ -17,9 +17,9 @@ use uuid::Uuid;
 
 use crate::database::Database;
 use crate::repositories::coach_reply_reviews::{
-    impl_coach_reply_review_repository, GET_COACH_REPLY_SQL, INSERT_CORRECTION_ENTRY_SQL,
-    INSERT_CORRECTION_REVIEW_SQL, INSERT_FLAG_SQL, LIST_COACH_REPLIES_SQL,
-    LIST_REVIEWS_FOR_WINDOW_SQL, LIST_REVIEW_STAMPS_SQL,
+    get_coach_reply_sql, impl_coach_reply_review_repository, list_coach_replies_sql,
+    INSERT_CORRECTION_ENTRY_MEMBERS_SQL, INSERT_CORRECTION_ENTRY_SQL, INSERT_CORRECTION_REVIEW_SQL,
+    INSERT_FLAG_SQL, LIST_REVIEWS_FOR_WINDOW_SQL, LIST_REVIEW_STAMPS_SQL,
 };
 use crate::repositories::coaching_groups::{column, instant};
 use crate::repositories::uuid_columns::TextUuid;

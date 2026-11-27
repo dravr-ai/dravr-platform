@@ -16,7 +16,7 @@
 //!   category so the LLM can never delete a playbook on its own.
 
 use crate::annotations::{annotations, Effect, Reach};
-use crate::tool_data::ToolData;
+use crate::tool_data::{ToolData, WriteKind};
 use dravr_barrage::Stream;
 use pierre_providers::ai_scope;
 use pierre_services::memory_tier::MemoryReach;
@@ -310,5 +310,6 @@ crate::declare_security!(
 );
 crate::declare_security!(
     ForgetPlaybookTool => IRREVERSIBLE; first_party_only,
-    reads: ToolData::own(&[Stream::RestrictedNotes]),
+    reads: ToolData::own(&[Stream::RestrictedNotes])
+        .writes(WriteKind::Structured),
 );

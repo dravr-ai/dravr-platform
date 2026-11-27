@@ -4,16 +4,22 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::collections::HashSet;
+
 use dravr_tronc::error::{INTERNAL_ERROR, SERVER_ERROR_START};
+use pierre_core::models::TenantId;
 use pierre_core::transport::Transport;
+use pierre_mcp_transport::tenant_isolation::extract_tenant_context_internal;
 use pierre_tool_runtime::deployment_tools;
+use pierre_tool_runtime::guardian;
 use pierre_tool_runtime::support_session::END_TOOL;
 use pierre_tool_runtime::tool_access::{self, Caller, CallerRole};
 use serde_json::to_value;
-use tracing::error;
+use tracing::{error, warn};
+use uuid::Uuid;
 
 use super::principal::AuthPrincipal;
-use super::A2AServer;
+use super::{A2AResources, A2AServer};
 use crate::agent_card::{AgentCard, AgentSkill};
 use crate::{A2ARequest, A2AResponse};
 
@@ -69,6 +75,22 @@ impl A2AServer {
             &mut schemas,
             resources.tool_runtime.config(),
         );
+        // What an admin switched off for the caller is refused at dispatch,
+        // so it is listed nowhere: the static skills and the tools alike.
+        let switched_off = Self::switched_off(
+            resources,
+            acting.user_id,
+            acting.tenant,
+            card.skills
+                .iter()
+                .map(|skill| skill.id.as_str())
+                .filter(|id| registry.contains(id))
+                .chain(schemas.iter().map(|schema| schema.name.as_str())),
+        )
+        .await;
+        card.skills
+            .retain(|skill| !switched_off.contains(&skill.id));
+        schemas.retain(|schema| !switched_off.contains(&schema.name));
         for schema in schemas {
             if public_skill_ids.contains(&schema.name) {
                 continue;
@@ -95,5 +117,41 @@ impl A2AServer {
                 )
             }
         }
+    }
+
+    /// The tools among `names` an A2A call by `user` would be refused as
+    /// switched off: the predicate dispatch applies
+    /// ([`guardian::caller_tool_enabled`]) in the tenant the call runs in.
+    /// With no tenant to run in, dispatch refuses every call, so every name
+    /// is.
+    async fn switched_off<'a>(
+        resources: &A2AResources,
+        user: Uuid,
+        tenant: Option<TenantId>,
+        names: impl Iterator<Item = &'a str>,
+    ) -> HashSet<String> {
+        let tenant = match extract_tenant_context_internal(resources.ctx.repos(), user, tenant)
+            .await
+        {
+            Ok(Some(context)) => Some(context.tenant_id),
+            Ok(None) => None,
+            Err(e) => {
+                warn!(error = %e, "extended card: the caller's tenant could not be read; listing no tool");
+                None
+            }
+        };
+        let mut off = HashSet::new();
+        for name in names {
+            let enabled = match tenant {
+                Some(tenant) => {
+                    guardian::caller_tool_enabled(&resources.tool_runtime, tenant, user, name).await
+                }
+                None => false,
+            };
+            if !enabled {
+                off.insert(name.to_owned());
+            }
+        }
+        off
     }
 }

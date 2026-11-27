@@ -25,8 +25,9 @@ use crate::repositories::{
     DossierRepository, EmailVerificationRepository, EngagementRepository, FeatureFlagsRepository,
     FederatedIdentityRepository, FeedbackMessageRepository, FirebaseIdentityDeletionRepository,
     FirstRunProgressRepository, FitnessConfigRepository, GarminPushInboxRepository,
-    HarnessMemoryRepository, HealthRecordRepository, HealthSnapshotRepository,
-    HomePreferencesRepository, HostProfileClaimRepository, ImpersonationRepository,
+    GrantMemberReadRepository, HarnessMemoryRepository, HealthRecordRepository,
+    HealthSnapshotRepository, HomePreferencesRepository, HostProfileClaimRepository,
+    ImpersonationRepository,
     ImportTombstoneRepository, LlmCredentialRepository, LlmUsageRepository, McpTaskRepository,
     MemoryExtractionJobRepository, MessagingRepository, MobilityRepository, NotificationRepository,
     OAuth2ServerRepository, OAuthClientStateRepository, OAuthGrantEventRepository,
@@ -146,6 +147,9 @@ pub struct RepositoryRegistry {
     pub training_plans: Arc<dyn TrainingPlanRepository>,
     /// URL shortener: `code` → `target_url` for `WhatsApp`-clickable chat links
     pub short_links: Arc<dyn ShortLinkRepository>,
+    /// When each outside client's grant last read another member
+    /// (carnet#1511 call 30)
+    pub grant_member_reads: Arc<dyn GrantMemberReadRepository>,
     /// Warnings the Strava seat-reclaim sweeper sent before a reclaim
     pub strava_seat_reclaim_warnings: Arc<dyn StravaSeatReclaimWarningRepository>,
     /// Use-case starters each athlete was shown and tapped (carnet#828)
@@ -389,6 +393,7 @@ impl RepositoryRegistry {
             playbooks: db.clone(),
             training_plans: db.clone(),
             short_links: db.clone(),
+            grant_member_reads: db.clone(),
             strava_seat_reclaim_warnings: db.clone(),
             use_case_exposures: db.clone(),
             first_run_progress: db.clone(),
@@ -514,6 +519,7 @@ impl RepositoryRegistry {
             playbooks: db.clone(),
             training_plans: db.clone(),
             short_links: db.clone(),
+            grant_member_reads: db.clone(),
             strava_seat_reclaim_warnings: db.clone(),
             use_case_exposures: db.clone(),
             first_run_progress: db.clone(),

@@ -816,6 +816,16 @@ export interface CoachConsentsResponse {
   /** The group has an active human coach other than the member, so the member can be asked for `assistant_read`. */
   assistant_read_supported: boolean;
   /**
+   * The coach is told, on To handle and in the morning brief, when none of
+   * the sessions planned on consecutive planned days has a matching activity.
+   * On by default under coach sharing; the member turns it off.
+   */
+  missed_session_check: boolean;
+  /** When the member last turned `missed_session_check` on or off (RFC 3339); `null` while they never did. */
+  missed_session_check_at: string | null;
+  /** The group has an active human coach other than the member, so the member can turn `missed_session_check` off. */
+  missed_session_check_supported: boolean;
+  /**
    * The coach may read the member's health records (lab results, clinical
    * records, blood glucose) now: granted and not lapsed. Its own grant, read
    * only alongside `wellness_read`; the member's own Sensitive health records
@@ -842,6 +852,8 @@ export interface UpdateCoachConsentsRequest {
   wellness_read?: boolean;
   /** Granted only from Dravr's own app; a revoke is accepted from anywhere. */
   assistant_read?: boolean;
+  /** Turn the coach's missed-session check on or off. */
+  missed_session_check?: boolean;
   /** Grant or revoke the coach's reads of the member's health records. */
   sensitive_t2_read?: boolean;
   /** How long a `sensitive_t2_read` grant holds: 30 days, or left out for until revoked. */

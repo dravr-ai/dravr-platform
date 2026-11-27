@@ -34,6 +34,7 @@ use pierre_core::models::ConversationTurnId;
 use pierre_llm::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, MessageRole, StreamChunk,
 };
+use pierre_tool_runtime::tool_access::CallerRole;
 use serde_json::{json, Value};
 
 use crate::common::{create_test_server_resources_with_chat_provider, create_test_user};
@@ -235,6 +236,7 @@ async fn the_reply_carries_the_saved_plan_as_a_card() {
         mentioned_agent: None,
         steps_after: None,
         grant: OAuthScope::self_grant(),
+        role: CallerRole::default(),
     };
 
     let ctx = resources.chat_pipeline_context();
@@ -345,6 +347,7 @@ async fn a_turn_that_saved_nothing_carries_no_card() {
         mentioned_agent: None,
         steps_after: None,
         grant: OAuthScope::self_grant(),
+        role: CallerRole::default(),
     };
     let ctx = resources.chat_pipeline_context();
     let envelope = pierre_chat_pipeline::run(&ctx, input, &web_profile(), &PipelineHooks::none())
@@ -510,6 +513,7 @@ async fn asking_to_see_the_plan_carries_the_same_card() {
         mentioned_agent: None,
         steps_after: None,
         grant: OAuthScope::self_grant(),
+        role: CallerRole::default(),
     };
 
     let ctx = resources.chat_pipeline_context();

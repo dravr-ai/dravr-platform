@@ -23,6 +23,9 @@ use pierre_seeders::coach_plan_thread::{
     run as run_coach_plan_thread, SeedArgs as CoachPlanThreadArgs,
 };
 use pierre_seeders::demo_data::{run as run_demo_data, SeedArgs as DemoDataArgs};
+use pierre_seeders::directory_reviewer::{
+    run as run_directory_reviewer, SeedArgs as DirectoryReviewerArgs,
+};
 use pierre_seeders::llm_usage::{run as run_llm_usage, SeedArgs as LlmUsageArgs};
 use pierre_seeders::mobility::run as run_mobility;
 use pierre_seeders::synthetic_activities::{
@@ -72,6 +75,9 @@ pub(crate) enum SeedCommand {
 
     /// Seed a coach holding 45 athletes in three groups, every Coach Home attention reason and season state among them
     CoachHome(CoachHomeArgs),
+
+    /// Seed the coach the connector-directory reviewers sign in with: one group, three members (password from `DIRECTORY_REVIEWER_PASSWORD`)
+    DirectoryReviewer(DirectoryReviewerArgs),
 }
 
 /// Dispatch a `Seed` subcommand to its seeder module.
@@ -120,6 +126,15 @@ pub(crate) async fn dispatch(action: SeedCommand, database_url: &str) -> AppResu
             let repos = Arc::clone(database.repositories());
             let live = live_activity_store(&database, database_url, &repos).await?;
             run_coach_home(args, &repos, live.as_ref()).await
+        }
+        // The members' sessions are kept in the activity store the server
+        // reads, on the same database, which warms the cache with them; the
+        // signing keypair is loaded first, as for every keyed seeder.
+        SeedCommand::DirectoryReviewer(args) => {
+            let database = keyed_database(database_url, "directory-reviewer").await?;
+            let repos = Arc::clone(database.repositories());
+            let live = live_activity_store(&database, database_url, &repos).await?;
+            run_directory_reviewer(args, &repos, live.as_ref()).await
         }
         db_action => dispatch_with_database(db_action, database_url).await,
     }
@@ -196,7 +211,8 @@ async fn dispatch_with_database(action: SeedCommand, database_url: &str) -> AppR
         SeedCommand::CoachPlanThread(args) => run_coach_plan_thread(args, repos).await,
         SeedCommand::SyntheticActivities(_)
         | SeedCommand::TrainingpeaksDelegation(_)
-        | SeedCommand::CoachHome(_) => {
+        | SeedCommand::CoachHome(_)
+        | SeedCommand::DirectoryReviewer(_) => {
             unreachable!("token-writing seeders are handled by dispatch() with full key init")
         }
     }

@@ -96,6 +96,8 @@ pub mod fitness_config;
 pub mod garmin_push_inbox;
 /// A consent grant's receipts (`Postgres`) backing `OAuthGrantEventRepository`.
 pub mod grant_events;
+/// When an outside client's grant last read another member (`PostgreSQL`)
+pub mod grant_member_reads;
 /// Health persistence: data sources, sleep, recovery, health snapshots
 pub mod health_persistence;
 /// Health records: self-reports, clinical records and lab documents (carnet#1544).

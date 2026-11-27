@@ -356,7 +356,15 @@ async fn a_parameters_argument_envelope_is_lifted_before_dispatch() {
             .with_transport(Transport::WebApp)
             .with_turn_token("contract-env".to_owned()),
     );
-    let tools = advertised_tools();
+    // The turn offers the tool it calls: a turn runs only a tool it offered
+    // (carnet#1511 design call 13).
+    let tools = Tool {
+        function_declarations: vec![FunctionDeclaration::new(
+            "get_group_member_activities".to_owned(),
+            "Read a group member's activities".to_owned(),
+            Some(json!({ "type": "object", "properties": {} })),
+        )],
+    };
     let user = user_id.to_string();
     let tenant = TenantId::from_uuid(Uuid::new_v4());
 

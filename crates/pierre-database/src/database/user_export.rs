@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use serde_json::{json, Map, Number, Value};
 use sqlx::sqlite::SqliteRow;
@@ -13,7 +14,8 @@ use uuid::Uuid;
 
 use crate::database::Database;
 use crate::repositories::user_export::{
-    UserExportPage, UserExportRepository, UserExportTable, USER_EXPORT_KEY_ALIAS_SQL,
+    UserExportPage, UserExportRepository, UserExportTable, MEMBER_HISTORY_SQL,
+    USER_EXPORT_KEY_ALIAS_SQL,
 };
 
 /// A column whose text is a JSON document, by its declared type or its name.
@@ -102,5 +104,14 @@ impl UserExportRepository for Database {
             .map(|row| row_to_json(row, table.excluded))
             .collect::<AppResult<_>>()?;
         Ok(UserExportPage { rows, last_key })
+    }
+
+    async fn has_member_history(&self, user_id: Uuid, at: Timestamp) -> AppResult<bool> {
+        sqlx::query_scalar::<_, bool>(MEMBER_HISTORY_SQL)
+            .bind(user_id.to_string())
+            .bind(at)
+            .fetch_one(self.pool())
+            .await
+            .map_err(|e| AppError::database(format!("Failed to read a member history: {e}")))
     }
 }

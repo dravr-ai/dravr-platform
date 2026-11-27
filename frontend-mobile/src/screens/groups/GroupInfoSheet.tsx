@@ -179,11 +179,15 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   const { setSharing: setCoachSharing, isPending: isSavingCoachSharing } =
     useSetCoachSharing(groupId);
   // Whether the coach's AI assistant includes the member in its roster tools
-  // (carnet#1511): per membership, off until the member turns it on here.
-  const { setConsents: setCoachConsents, isPending: isSavingAssistantRead } =
+  // (carnet#1511), off until the member turns it on here, and whether the
+  // coach is told of missed planned sessions (carnet#1792), on until the
+  // member turns it off here: both per membership.
+  const { setConsents: setCoachConsents, isPending: isSavingCoachConsents } =
     useSetCoachConsents(groupId);
   const showsAssistantRead =
     showsCoachSharing && !!group?.coach_user_id && coachConsents?.assistant_read_supported === true;
+  const showsMissedSessionCheck =
+    showsCoachSharing && !!group?.coach_user_id && coachConsents?.missed_session_check_supported === true;
   const { updateRole } = useUpdateMemberRole(groupId);
   const { removeMember } = useRemoveMember(groupId);
   const { removeCoach, isPending: isRemovingCoach } = useRemoveCoach(groupId);
@@ -384,6 +388,17 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
     async (granted: boolean) => {
       try {
         await setCoachConsents({ assistant_read: granted });
+      } catch (err) {
+        Alert.alert(t('common.error'), describeApiError(err, { t, fallbackKey: 'app.failedUpdateSharing' }));
+      }
+    },
+    [setCoachConsents, t],
+  );
+
+  const handleMissedSessionCheckChange = useCallback(
+    async (on: boolean) => {
+      try {
+        await setCoachConsents({ missed_session_check: on });
       } catch (err) {
         Alert.alert(t('common.error'), describeApiError(err, { t, fallbackKey: 'app.failedUpdateSharing' }));
       }
@@ -823,7 +838,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                       testID="coach-sharing-switch"
                     />
                   }
-                  last={!showsAssistantRead}
+                  last={!showsAssistantRead && !showsMissedSessionCheck}
                   testID="coach-sharing-row"
                 />
               )}
@@ -837,13 +852,33 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                     <Switch
                       value={coachConsents.assistant_read}
                       onValueChange={(value) => void handleAssistantReadChange(value)}
-                      disabled={isSavingAssistantRead}
+                      disabled={isSavingCoachConsents}
                       {...switchColors(colors.tokens, coachConsents.assistant_read)}
                       testID="coach-assistant-read-switch"
                     />
                   }
-                  last
+                  last={!showsMissedSessionCheck}
                   testID="coach-assistant-read-row"
+                />
+              )}
+              {/* Whether the coach's To handle and morning brief say when the
+                  member's planned sessions go unmatched (carnet#1792): on by
+                  default, and turned off here without a confirm. */}
+              {showsMissedSessionCheck && coachConsents && (
+                <Row
+                  title={t('humanCoach.missedSessionCheck.label', { coach: coachName ?? '' })}
+                  subtitle={t('humanCoach.missedSessionCheck.hint', { coach: coachName ?? '' })}
+                  trailing={
+                    <Switch
+                      value={coachConsents.missed_session_check}
+                      onValueChange={(value) => void handleMissedSessionCheckChange(value)}
+                      disabled={isSavingCoachConsents}
+                      {...switchColors(colors.tokens, coachConsents.missed_session_check)}
+                      testID="coach-missed-session-check-switch"
+                    />
+                  }
+                  last
+                  testID="coach-missed-session-check-row"
                 />
               )}
             </View>

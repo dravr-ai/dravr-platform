@@ -21,7 +21,7 @@ use crate::implementations::goals_activities::{
 use crate::implementations::stored_copy::{caveated, Served};
 use crate::protocol::provider_helpers::PROVIDER_ARGUMENT;
 use crate::read_subject::DataClass;
-use crate::tool_data::ToolData;
+use crate::tool_data::{ToolData, WriteKind};
 use dravr_barrage::Stream;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -1108,7 +1108,8 @@ pub fn create_goal_tools() -> Vec<Box<dyn RuntimeTool>> {
 // The goals the athlete set.
 crate::declare_security!(
     SetGoalTool => empty,
-    reads: ToolData::own(&[Stream::Workout, Stream::TrainingLoad]),
+    reads: ToolData::own(&[Stream::Workout, Stream::TrainingLoad])
+        .writes(WriteKind::FreeText),
 );
 // Goals and the progress toward them.
 crate::declare_security!(

@@ -23,6 +23,7 @@ use pierre_core::transport::Transport;
 use pierre_database::repositories::{ActivityStreamsWrite, StreamOrigin};
 use pierre_providers::ai_scope;
 use pierre_tool_runtime::coach_seat::TurnSeat;
+use pierre_tool_runtime::tool_access::CallerRole;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -126,6 +127,7 @@ async fn map_of_the_run(f: &Fixture, conversation: &str, seat: TurnSeat) -> Rout
         mentioned_agent: None,
         steps_after: None,
         grant: OAuthScope::self_grant(),
+        role: CallerRole::default(),
     };
     let block = json!({
         "type": "route",

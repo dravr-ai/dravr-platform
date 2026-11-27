@@ -25,13 +25,13 @@ use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{
-    InsertClaimVerdictParams, PlanOutlineInput, SavePlanBundleParams,
+    InsertClaimVerdictParams, PlanOutlineInput, PlanWeekInput, SavePlanBundleParams,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::coach_attention::CoachAttentionRoutes;
 use pierre_mcp_server::routes::coach_roster::CoachRosterRoutes;
 use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
-use pierre_memory::training_plans::{GoalRace, PlanPhase};
+use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -324,6 +324,7 @@ pub(crate) async fn agent_reply(
             source_conversation_id: Some(&conversation.id),
             source_message_id: Some(&message.id),
             transport_policy: TransportPolicy::AnyTransport,
+            carried: &[],
         })
         .await
         .unwrap();
@@ -405,6 +406,69 @@ pub(crate) async fn live_plan(
                 season_end: None,
             }),
             weeks: &[],
+            transport_policy: TransportPolicy::AnyTransport,
+        })
+        .await
+        .unwrap();
+}
+
+/// Lay a live season whose one week, from `week_start`, plans `days`.
+///
+/// `athlete` is their id and home tenant; each day is a `(date, sport)`
+/// session, in that order.
+pub(crate) async fn plan_with_days(
+    res: &Arc<ServerContext>,
+    athlete: (Uuid, TenantId),
+    week_start: CivilDate,
+    days: &[(CivilDate, &str)],
+) {
+    let goal = GoalRace {
+        name: "Autumn Classic".to_owned(),
+        date: ymd(week_start + Elapsed::days(70)),
+        discipline: "road".to_owned(),
+        priority: RacePriority::A,
+    };
+    let phases = [phase(PhaseKind::Base, week_start, 10)];
+    let planned: Vec<PlannedDay> = days
+        .iter()
+        .map(|(date, sport)| {
+            serde_json::from_value(serde_json::json!({
+                "date": ymd(*date),
+                "sport": sport,
+                "workout": format!("{sport} session"),
+            }))
+            .unwrap()
+        })
+        .collect();
+    let start = ymd(week_start);
+    let weeks = [PlanWeekInput {
+        week_start: &start,
+        focus: "build the base",
+        days: &planned,
+        adjustment_reason: "",
+        phase_index: Some(0),
+    }];
+    let (tenant_key, athlete_key) = (athlete.1.to_string(), athlete.0.to_string());
+    res.common
+        .repos
+        .training_plans
+        .save_plan_bundle(&SavePlanBundleParams {
+            tenant_id: &tenant_key,
+            user_id: &athlete_key,
+            author: PlanAuthor::none(),
+            goal_fact_id: None,
+            replace_season: false,
+            outline: Some(PlanOutlineInput {
+                goal_race: &goal,
+                races: Some(&[]),
+                strategy: "the season's strategy",
+                phases: &phases,
+                source_conversation_id: None,
+                flavour: None,
+                season_start: None,
+                season_end: None,
+            }),
+            weeks: &weeks,
             transport_policy: TransportPolicy::AnyTransport,
         })
         .await

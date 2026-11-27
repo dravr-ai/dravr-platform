@@ -339,6 +339,19 @@ macro_rules! impl_seeder_repository {
                     .map(Option::flatten)
             }
 
+            async fn seed_conversation_read_members(&self, user_id: Uuid) -> AppResult<Vec<Uuid>> {
+                let rows = sqlx::query(CONVERSATION_READ_MEMBERS_SQL)
+                    .bind($ids::bind(user_id))
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to read whom an account's conversations are about: {e}"
+                        ))
+                    })?;
+                rows.iter().map(|row| $ids::read(row, "person")).collect()
+            }
+
             async fn seed_find_user_by_email(&self, email: &str) -> AppResult<Option<User>> {
                 self.get_by_email(email).await
             }
@@ -483,6 +496,74 @@ macro_rules! impl_seeder_repository {
                 Ok(())
             }
 
+            async fn seed_create_account(
+                &self,
+                user: &SeedDemoUser,
+                tenant: &SeedTenant,
+            ) -> AppResult<bool> {
+                $crate::repositories::users::refuse_the_id_of_no_account(user.id)?;
+                let is_active = user.status != "suspended";
+                let approved_at = (user.status == "active").then_some(user.created_at);
+                let create_error =
+                    |e: sqlx::Error| AppError::database(format!("Failed to create account: {e}"));
+                let tx = self.pool().begin().await.map_err(create_error)?;
+                // Dropped uncommitted on any early return: nothing is kept.
+                let mut guard = TransactionGuard::new(tx);
+                let inserted = sqlx::query(INSERT_ACCOUNT_USER_IF_ABSENT_SQL)
+                    .bind($ids::bind(user.id))
+                    .bind(normalize_email(&user.email))
+                    .bind(&user.display_name)
+                    .bind(&user.password_hash)
+                    .bind(&user.tier)
+                    .bind(is_active)
+                    .bind(&user.status)
+                    .bind(user.role.as_str())
+                    .bind(approved_at)
+                    .bind(user.created_at)
+                    .bind(&user.locale)
+                    .execute(guard.executor()?)
+                    .await
+                    .map_err(create_error)?
+                    .rows_affected();
+                // Taken: the transaction is dropped uncommitted, so the
+                // existing account and every table stay as they were.
+                if inserted == 0 {
+                    return Ok(false);
+                }
+                sqlx::query(INSERT_ACCOUNT_TENANT_SQL)
+                    .bind($ids::bind(tenant.id))
+                    .bind(&tenant.name)
+                    .bind(&tenant.slug)
+                    .bind(&tenant.plan)
+                    .bind(tenant.created_at)
+                    .bind(tenant.updated_at)
+                    .execute(guard.executor()?)
+                    .await
+                    .map_err(create_error)?;
+                sqlx::query(INSERT_TENANT_USER_SQL)
+                    .bind($ids::bind(Uuid::new_v4()))
+                    .bind($ids::bind(tenant.id))
+                    .bind($ids::bind(user.id))
+                    .bind(user.created_at)
+                    .execute(guard.executor()?)
+                    .await
+                    .map_err(create_error)?;
+                sqlx::query(UPDATE_USER_TENANT_SQL)
+                    .bind(tenant.id.to_string())
+                    .bind($ids::bind(user.id))
+                    .execute(guard.executor()?)
+                    .await
+                    .map_err(create_error)?;
+                sqlx::query(SET_ANALYTICS_CONSENT_SQL)
+                    .bind(false)
+                    .bind($ids::bind(user.id))
+                    .execute(guard.executor()?)
+                    .await
+                    .map_err(create_error)?;
+                guard.commit().await?;
+                Ok(true)
+            }
+
             async fn seed_insert_tenant(&self, tenant: &SeedTenant) -> AppResult<()> {
                 sqlx::query(UPSERT_TENANT_SQL)
                     .bind($ids::bind(tenant.id))
@@ -551,6 +632,35 @@ macro_rules! impl_seeder_repository {
                         AppError::database(format!("Failed to backdate membership: {e}"))
                     })?;
                 Ok(())
+            }
+
+            async fn seed_member_has_left(
+                &self,
+                tenant_id: &str,
+                group_id: Uuid,
+                user_id: Uuid,
+            ) -> AppResult<bool> {
+                let row = sqlx::query(MEMBER_HAS_LEFT_SQL)
+                    .bind(tenant_id)
+                    .bind($ids::bind(group_id))
+                    .bind($ids::bind(user_id))
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read a past membership: {e}"))
+                    })?;
+                Ok(row.is_some())
+            }
+
+            async fn seed_slug_taken(&self, slug: &str) -> AppResult<bool> {
+                let row = sqlx::query(SLUG_TAKEN_SQL)
+                    .bind(slug)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read a workspace slug: {e}"))
+                    })?;
+                Ok(row.is_some())
             }
 
             async fn seed_check_api_key_by_name(&self, name: &str) -> AppResult<Option<Uuid>> {

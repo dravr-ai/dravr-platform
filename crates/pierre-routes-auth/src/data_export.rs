@@ -41,6 +41,17 @@
 //! holds that list against the live schema, so a new table cannot be forgotten
 //! and a new credential-looking column cannot be exported unnoticed.
 //!
+//! Rows are left out within four tables as well: a conversation's rows about
+//! a group member the athlete may no longer read (a coach whose athlete
+//! stopped sharing), every platform row after one in its topic, and any
+//! summary covering one, as the athlete's own screen withholds them
+//! (`data_export::transcripts`, carnet#1511 design call 2); and the copies
+//! of such rows a messaging channel or an A2A task holds, with any outbound
+//! channel row or task the rule cannot decide (design call 7). Whenever a row
+//! is left out this way its table is named in `withheld_tables`, written just
+//! before `complete` and only then, and `complete` is `false`: an export that
+//! left nothing out has no `withheld_tables` key (design §6.4).
+//!
 //! The activity history barrage keeps (`dravr_barrage::export`) is part of the
 //! same document: every record and every erasure, in each tenant the athlete
 //! belongs to, as `barrage.activity_records` and `barrage.erased_activities`
@@ -102,7 +113,7 @@ use axum::{
 };
 use dravr_barrage::export::EXPORT_WITHHELD;
 use dravr_tronc::dates::Timestamp;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{error, field::Empty, info, warn, Span};
@@ -113,20 +124,21 @@ use pierre_auth::oauth2_server::first_party::names_third_party;
 use pierre_cache::{CacheKey, CacheResource};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::TenantId;
-use pierre_database::repositories::{
-    UserExportRepository, UserExportTable, USER_EXPORT_EXCLUDED_TABLES,
-};
+use pierre_database::repositories::{UserExportTable, USER_EXPORT_EXCLUDED_TABLES};
 use pierre_runtime_context::{resolve_tenant_in, TenantMode};
 use pierre_services::barrage_keys::published_checkpoint_key;
 
 use self::barrage::{write_barrage, ExportSources, Section};
 use self::grant_receipts::write_consent_records;
+use self::transcripts::ReaderTranscripts;
 use crate::AuthRoutesContext;
 
 /// Barrage's records, erasures and `record_log` in the export.
 mod barrage;
 /// The athlete's consent grant receipts as DPV consent records.
 mod grant_receipts;
+/// What of the exporter's conversations their own screen withholds.
+mod transcripts;
 
 /// How many exports one account may start in [`RATE_WINDOW`].
 const MAX_EXPORTS_PER_WINDOW: u64 = 3;
@@ -190,6 +202,10 @@ struct ExportSummary {
     /// Tables not read, or not read to their end, because the file reached its
     /// size or time limit.
     skipped_tables: Vec<&'static str>,
+    /// Tables a row of which was left out by rule: what the exporter's own
+    /// screen withholds, or a record that cannot be attributed (carnet#1511
+    /// design §6.4).
+    withheld_tables: Vec<&'static str>,
     /// The limit that stopped the file, when one did.
     limit_reached: Option<ExportLimit>,
     /// The client went away before the end.
@@ -201,6 +217,14 @@ impl ExportSummary {
     fn mark_failed(&mut self, table: &'static str) {
         if !self.failed_tables.contains(&table) {
             self.failed_tables.push(table);
+        }
+    }
+
+    /// Name `table` among the withheld ones, once however many of its rows
+    /// were left out.
+    fn mark_withheld(&mut self, table: &'static str) {
+        if !self.withheld_tables.contains(&table) {
+            self.withheld_tables.push(table);
         }
     }
 }
@@ -331,14 +355,7 @@ async fn write_export<S: ChunkSink>(
         }
         match *section {
             Section::Platform(table) => {
-                write_table(
-                    sources.repository,
-                    table,
-                    user_id,
-                    &mut writer,
-                    &mut summary,
-                )
-                .await;
+                write_table(&sources, table, user_id, &mut writer, &mut summary).await;
             }
             Section::Records | Section::Erased | Section::Log => {
                 write_barrage(*section, &sources, user_id, &mut writer, &mut summary).await;
@@ -349,15 +366,29 @@ async fn write_export<S: ChunkSink>(
         }
     }
 
-    let tail = json!({
-        "complete": summary.failed_tables.is_empty()
-            && summary.skipped_tables.is_empty()
-            && !writer.disconnected,
-        "limit_reached": summary.limit_reached.map(ExportLimit::as_str),
-        "failed_tables": summary.failed_tables,
-        "skipped_tables": summary.skipped_tables,
-    });
-    let mut tail_text = tail.to_string();
+    // `withheld_tables` comes before `complete`, and only when a row was
+    // left out: a client reads the tail from `complete` on, so an export
+    // that left nothing out has no `withheld_tables` key (design §6.4).
+    let mut tail = Map::new();
+    if !summary.withheld_tables.is_empty() {
+        tail.insert("withheld_tables".to_owned(), json!(summary.withheld_tables));
+    }
+    tail.insert(
+        "complete".to_owned(),
+        json!(
+            summary.failed_tables.is_empty()
+                && summary.skipped_tables.is_empty()
+                && summary.withheld_tables.is_empty()
+                && !writer.disconnected
+        ),
+    );
+    tail.insert(
+        "limit_reached".to_owned(),
+        json!(summary.limit_reached.map(ExportLimit::as_str)),
+    );
+    tail.insert("failed_tables".to_owned(), json!(summary.failed_tables));
+    tail.insert("skipped_tables".to_owned(), json!(summary.skipped_tables));
+    let mut tail_text = Value::Object(tail).to_string();
     // `}` closes `tables`; the tail's own fields continue the document.
     tail_text.replace_range(0..1, "},");
     writer.put(tail_text.as_bytes()).await;
@@ -370,7 +401,7 @@ async fn write_export<S: ChunkSink>(
 
 /// Write `"name":[row,…]`, a page at a time.
 async fn write_table<S: ChunkSink>(
-    repository: &dyn UserExportRepository,
+    sources: &ExportSources<'_>,
     table: &'static UserExportTable,
     user_id: Uuid,
     writer: &mut Writer<'_, S>,
@@ -383,7 +414,7 @@ async fn write_table<S: ChunkSink>(
         if writer.disconnected {
             break;
         }
-        let page = match repository.export_page(table, user_id, &after).await {
+        let page = match sources.repository.export_page(table, user_id, &after).await {
             Ok(page) => page,
             Err(error) => {
                 warn!(table = table.name, error = %error, "User export could not read a table");
@@ -393,6 +424,11 @@ async fn write_table<S: ChunkSink>(
         };
         let read = i64::try_from(page.rows.len()).unwrap_or(i64::MAX);
         for row in &page.rows {
+            // A row the exporter's own screen withholds is left out, after
+            // the page's count, so the next page still starts where it should.
+            if left_out(sources, table, row, summary).await {
+                continue;
+            }
             if let Some(limit) = writer.out_of_room() {
                 summary.limit_reached = Some(limit);
                 summary.skipped_tables.push(table.name);
@@ -411,6 +447,30 @@ async fn write_table<S: ChunkSink>(
         }
     }
     writer.put(b"]").await;
+}
+
+/// Whether `row` of `table` is left out: the exporter's own screen withholds
+/// it, or whether it does could not be decided, which names the table among
+/// the failed.
+async fn left_out(
+    sources: &ExportSources<'_>,
+    table: &'static UserExportTable,
+    row: &Value,
+    summary: &mut ExportSummary,
+) -> bool {
+    match sources.withholding.withholds(table, row).await {
+        Ok(withheld) => {
+            if withheld {
+                summary.mark_withheld(table.name);
+            }
+            withheld
+        }
+        Err(error) => {
+            warn!(table = table.name, error = %error, "User export could not decide whether a row is withheld; left out");
+            summary.mark_failed(table.name);
+            true
+        }
+    }
 }
 
 /// Write one row; a row that cannot be written is `null`, and its table is named.
@@ -605,6 +665,7 @@ pub(crate) async fn handle_user_export(
 
     let repos = Arc::clone(&resources.repos);
     let records = Arc::clone(&resources.activity_records);
+    let own_data_tools = Arc::clone(&resources.own_data_tools);
     let tenants = resources
         .repos
         .tenants
@@ -623,8 +684,11 @@ pub(crate) async fn handle_user_export(
     // gone, and reports its own outcome.
     let writing = tokio::spawn(async move {
         let mut sink = sender;
+        let withholding =
+            ReaderTranscripts::new(Arc::clone(&repos), user_id, tenants.clone(), own_data_tools);
         let sources = ExportSources {
             repository: repos.user_export.as_ref(),
+            withholding: &withholding,
             records: records.as_ref(),
             grant_events: repos.oauth_grant_events.as_ref(),
             tenants: &tenants,
@@ -682,11 +746,12 @@ pub(crate) async fn handle_user_export(
 
 #[cfg(test)]
 mod tests {
+    use super::transcripts::{tests::WithholdsNothing, RowWithholding};
     use async_trait::async_trait;
     use dravr_barrage::store::memory::MemoryActivityRecordStore;
     use pierre_core::models::OAuthGrantEvent;
     use pierre_database::repositories::{
-        OAuthGrantEventRepository, UserExportPage, USER_EXPORT_TABLES,
+        OAuthGrantEventRepository, UserExportPage, UserExportRepository, USER_EXPORT_TABLES,
     };
     use pierre_services::barrage_keys::memory_records;
     use tokio::task;
@@ -754,6 +819,7 @@ mod tests {
     pub(super) fn sources(repository: &FakeRepository) -> ExportSources<'_> {
         ExportSources {
             repository,
+            withholding: &WithholdsNothing,
             records: &*NO_RECORDS,
             grant_events: &NoReceipts,
             tenants: &[],
@@ -794,6 +860,80 @@ mod tests {
                 last_key: (end > start).then(|| (end - 1).to_string()),
             })
         }
+
+        async fn has_member_history(&self, _user_id: Uuid, _at: Timestamp) -> AppResult<bool> {
+            Ok(false)
+        }
+    }
+
+    /// Leaves out every odd row of the table named `table`.
+    struct WithholdsOddRowsOf {
+        table: &'static str,
+    }
+
+    #[async_trait]
+    impl RowWithholding for WithholdsOddRowsOf {
+        async fn withholds(&self, table: &UserExportTable, row: &Value) -> AppResult<bool> {
+            Ok(table.name == self.table && row["n"].as_u64().is_some_and(|n| n % 2 == 1))
+        }
+    }
+
+    /// The document's text from `"complete"` on, what both clients read.
+    fn text_of(sink: &Collector) -> String {
+        let bytes: Vec<u8> = sink.chunks.iter().flat_map(|c| c.to_vec()).collect();
+        String::from_utf8(bytes).unwrap()
+    }
+
+    /// carnet#1511 design §6.4: a row left out by rule names its table in
+    /// `withheld_tables`, written just before `complete`, which is then
+    /// `false`; an export that left nothing out ends exactly as it always
+    /// did, with no such key. Neither list is a failure.
+    #[tokio::test]
+    async fn a_withheld_row_names_its_table_before_complete() {
+        let repository = FakeRepository {
+            rows_per_table: 4,
+            row_bytes: 10,
+            failing: None,
+        };
+        let mut sink = collector();
+        write_export(sources(&repository), Uuid::new_v4(), &mut sink, ROOMY).await;
+        let whole = text_of(&sink);
+        assert!(
+            whole.ends_with(
+                "},\"complete\":true,\"limit_reached\":null,\"failed_tables\":[],\"skipped_tables\":[]}"
+            ) && !whole.contains("withheld_tables"),
+            "nothing left out, the tail is unchanged and names no withheld table: {}",
+            &whole[whole.len().saturating_sub(120)..]
+        );
+
+        let withholding = WithholdsOddRowsOf {
+            table: "chat_messages",
+        };
+        let mut sink = collector();
+        write_export(
+            ExportSources {
+                withholding: &withholding,
+                ..sources(&repository)
+            },
+            Uuid::new_v4(),
+            &mut sink,
+            ROOMY,
+        )
+        .await;
+        let text = text_of(&sink);
+        assert!(
+            text.ends_with(
+                "},\"withheld_tables\":[\"chat_messages\"],\"complete\":false,\"limit_reached\":null,\"failed_tables\":[],\"skipped_tables\":[]}"
+            ),
+            "the withheld table is named before complete: {}",
+            &text[text.len().saturating_sub(160)..]
+        );
+        let doc = document(&sink);
+        assert_eq!(
+            doc["tables"]["chat_messages"].as_array().map(Vec::len),
+            Some(2),
+            "the odd rows are left out"
+        );
     }
 
     /// Collects chunks, optionally going away after `leave_after` of them.

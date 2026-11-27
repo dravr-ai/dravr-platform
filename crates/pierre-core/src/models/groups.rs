@@ -15,11 +15,18 @@ use dravr_tronc::dates::{CivilDate, Timestamp};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::FormReading;
+use super::{CarriedRead, FormReading};
+
+mod coach_consents;
+
+pub use coach_consents::CoachConsents;
 
 pub use super::group_chat::{
     ConnectGroupChat, GroupChatConnectCode, GroupChatConnectOutcome, GroupChatConnection,
     ReleasedGroupChat,
+};
+pub use super::group_room::{
+    CorrectedReply, RoomCorrector, RoomEntryBody, RoomTranscriptEntry, SharedRoomEntry,
 };
 
 /// Title every group context section in an agent's system prompt opens with
@@ -304,65 +311,6 @@ pub struct GroupSetupTimeline {
     pub first_member_id: Option<Uuid>,
 }
 
-/// What a member lets their group's human coach do beyond reading their
-/// training, on the member's coach relationship (their membership row).
-///
-/// Each consent is the member's alone: off until they grant it from Dravr's
-/// own app, revocable at any time, and never changed by the coach. It holds
-/// whether the member reaches the coaching platform through a link to the
-/// coach's account or through a connection of their own.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CoachConsents {
-    /// The group's coach writes the member's training calendar on a coaching
-    /// platform, through the coach's own account there.
-    pub calendar_write: bool,
-    /// When the member last granted or revoked `calendar_write`; `None` while
-    /// it was never granted.
-    pub calendar_write_at: Option<Timestamp>,
-    /// The group's coach, through Dravr, may read the member's wellness
-    /// (sleep, HRV, resting heart rate, weight, readiness, daily notes) from
-    /// every app they connect; a confirmed link that reads wellness through
-    /// the coach's account syncs it under this consent too.
-    pub wellness_read: bool,
-    /// When the member last granted or revoked `wellness_read`, every grant
-    /// stamped even over a standing one; `None` while it was never granted.
-    pub wellness_read_at: Option<Timestamp>,
-    /// The AI assistant the group's human coach connects to Dravr (an MCP
-    /// client, an A2A agent, an API key) includes the member in the coach's
-    /// roster tools (carnet#1511). It does not govern a read of the member by
-    /// name, which `coach_sharing_consent` governs, nor anything in Dravr's
-    /// own app.
-    #[serde(default)]
-    pub assistant_read: bool,
-    /// When the member last turned `assistant_read` on or off; `None` while
-    /// they never did.
-    #[serde(default)]
-    pub assistant_read_at: Option<Timestamp>,
-    /// The group's coach may also read the member's health records (owl tier
-    /// T2: labs, clinical records, self-measured glucose) while
-    /// `sensitive_t2_read_until` has not passed. Its own grant: it reaches a
-    /// read only alongside `wellness_read`, and the member's own consent to
-    /// AI use of those records still applies on top (row 64).
-    #[serde(default)]
-    pub sensitive_t2_read: bool,
-    /// When the member last granted or revoked `sensitive_t2_read`; `None`
-    /// while it was never granted.
-    #[serde(default)]
-    pub sensitive_t2_read_at: Option<Timestamp>,
-    /// When a `sensitive_t2_read` grant lapses; `None` while it holds until
-    /// the member revokes it.
-    #[serde(default)]
-    pub sensitive_t2_read_until: Option<Timestamp>,
-}
-
-impl CoachConsents {
-    /// Whether `sensitive_t2_read` is given and has not lapsed at `now`.
-    #[must_use]
-    pub fn sensitive_t2_standing(&self, now: Timestamp) -> bool {
-        self.sensitive_t2_read && self.sensitive_t2_read_until.is_none_or(|until| now < until)
-    }
-}
-
 /// A member within a coaching group
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GroupMember {
@@ -503,6 +451,19 @@ pub struct GroupTranscriptEntry {
     /// as unstamped.
     #[serde(default, skip_serializing)]
     pub transport_policy: TransportPolicy,
+    /// Whether the author held the group's coach seat when the entry was
+    /// written (`coach_at_write`): the coach speaks to the room, so their own
+    /// words carry no member's data. Fixed at write, never read from who
+    /// coaches the group now (carnet#1511 design call 11).
+    #[serde(default, skip_serializing)]
+    pub author_coached: bool,
+    /// Whether everyone in the room may read the entry, with the reader it
+    /// was listed for as the sender: what a reply posted where the whole room
+    /// reads it may quote (carnet#1511 design call 8). Decided from what was
+    /// fixed when the entry was written, never from who coaches the group
+    /// now.
+    #[serde(default, skip_serializing)]
+    pub room_reads: bool,
 }
 
 /// Parameters for appending one entry to a group's shared transcript.
@@ -525,88 +486,13 @@ pub struct NewGroupTranscriptEntry<'a> {
     pub source_message_id: Option<&'a str>,
     /// The stamp of the message the entry copies (carnet#769).
     pub transport_policy: TransportPolicy,
-}
-
-/// One entry of a group's room as one member reads it.
-///
-/// Every entry keeps its place in the room whoever reads it, so a reader who
-/// may not see an entry still sees that something was said there; only what
-/// the consent rule allows travels with it (see [`RoomEntryBody`]).
-#[derive(Debug, Clone)]
-pub struct RoomTranscriptEntry {
-    /// Unique entry identifier — also the cursor a reader pages back from
-    pub id: Uuid,
-    /// Who spoke
-    pub speaker: TranscriptSpeaker,
-    /// When the utterance was recorded
-    pub created_at: Timestamp,
-    /// What the reader may see of the entry
-    pub body: RoomEntryBody,
-    /// The entry's stamp (carnet#769): an external reader sees a stamped
-    /// entry as withheld.
-    pub transport_policy: TransportPolicy,
-}
-
-/// What a reader may see of one room entry.
-#[derive(Debug, Clone)]
-pub enum RoomEntryBody {
-    /// The reader may read the entry: its author, words and provenance
-    /// (boxed: a withheld entry carries nothing).
-    Shared(Box<SharedRoomEntry>),
-    /// The consent rule withholds the entry from this reader: neither its
-    /// words nor who it is attributed to leave the database.
-    Withheld,
-}
-
-/// The readable half of a room entry.
-#[derive(Debug, Clone)]
-pub struct SharedRoomEntry {
-    /// The member the entry is attributed to (see
-    /// [`GroupTranscriptEntry::author_user_id`])
-    pub author_user_id: Uuid,
-    /// The author's display name, else their email
-    pub author_display_name: Option<String>,
-    /// The utterance text
-    pub content: String,
-    /// The member conversation the row was fanned out from; `None` for
-    /// ambient room chatter
-    pub source_conversation_id: Option<String>,
-    /// Provenance id of the source row (`chat_messages.id` for turn rows,
-    /// the channel-native message id for ambient rows)
-    pub source_message_id: Option<String>,
-    /// The agent reply a [`TranscriptSpeaker::Correction`] entry corrects;
-    /// `None` for every other entry.
-    pub corrects: Option<CorrectedReply>,
-    /// The coach who wrote a [`TranscriptSpeaker::Correction`] entry, from
-    /// the review row recorded with it (carnet#1211) — never the group's
-    /// current coach, who may have been reassigned since. `None` for every
-    /// other entry, and for a correction whose coach's account was deleted
-    /// (the review row goes with it).
-    pub corrected_by: Option<RoomCorrector>,
-}
-
-/// The human coach who wrote a correction.
-#[derive(Debug, Clone)]
-pub struct RoomCorrector {
-    /// The coach's user id (`coach_reply_reviews.coach_user_id`)
-    pub user_id: Uuid,
-    /// The coach's display name, else their email
-    pub display_name: Option<String>,
-}
-
-/// The agent reply a coach's correction is linked to.
-///
-/// It is attributed to the same member as the correction, so whoever may read
-/// the correction may read the reply it names.
-#[derive(Debug, Clone)]
-pub struct CorrectedReply {
-    /// The reply's transcript entry id — its room row on a peer's thread
-    pub entry_id: Uuid,
-    /// The `chat_messages` row the reply was fanned out from — its own row on
-    /// the thread of the member it answered
-    pub message_id: Option<String>,
-    /// The reply's words
-    pub content: String,
+    /// Every group member other than the author whose data the entry drew
+    /// on, each with how it was read and its class and tier: the reads of
+    /// the chat row it copies, recorded with the entry so it is read by its
+    /// own record and never by that row, which may be deleted (carnet#1511
+    /// call 19). Empty for words that are the author's own. No
+    /// default: every writer states it.
+    pub carried: &'a [CarriedRead],
 }
 
 /// An invite code for joining a group
@@ -1153,46 +1039,4 @@ pub struct GroupContext {
     pub requester_is_admin: bool,
     /// The requesting user's ID
     pub requester_user_id: Uuid,
-}
-
-#[cfg(test)]
-mod tests {
-    use dravr_tronc::dates::Elapsed;
-
-    use super::*;
-
-    #[test]
-    fn a_sensitive_grant_stands_until_its_window_passes() {
-        let now = Timestamp::now();
-        let forever = CoachConsents {
-            sensitive_t2_read: true,
-            ..CoachConsents::default()
-        };
-        assert!(
-            forever.sensitive_t2_standing(now + Elapsed::days(400)),
-            "bug: a grant with no window holds until revoked"
-        );
-
-        let windowed = CoachConsents {
-            sensitive_t2_read: true,
-            sensitive_t2_read_until: Some(now + Elapsed::days(30)),
-            ..CoachConsents::default()
-        };
-        assert!(
-            windowed.sensitive_t2_standing(now),
-            "bug: a grant stands inside its window"
-        );
-        assert!(
-            !windowed.sensitive_t2_standing(now + Elapsed::days(30)),
-            "bug: a grant lapses at its window's end"
-        );
-        let revoked = CoachConsents {
-            sensitive_t2_read_until: Some(now + Elapsed::days(30)),
-            ..CoachConsents::default()
-        };
-        assert!(
-            !revoked.sensitive_t2_standing(now),
-            "bug: a revoked grant stands nowhere, whatever window it kept"
-        );
-    }
 }

@@ -33,11 +33,14 @@
 
 use std::sync::Arc;
 
+use pierre_core::errors::AppResult;
 use pierre_core::models::groups::{CoachingGroup, GroupMember};
-use pierre_core::models::{TenantId, TurnOrigin};
+use pierre_core::models::{CarriedRead, TenantId, TurnOrigin};
 use pierre_database::database::ConversationRecord;
-use pierre_providers::ai_scope;
+use pierre_providers::ai_scope::{self, RoomView};
+use pierre_services::coach_roster::coaches_group;
 use pierre_services::group_chat_poster::{proactive_chat, GroupChatPoster};
+use pierre_services::member_reads;
 use tokio::runtime::Handle;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -72,22 +75,189 @@ pub(crate) fn readable_by_the_room(
     author: Uuid,
     row: RelayedRow,
 ) -> bool {
-    let shares = |member: &GroupMember| {
-        member.left_at.is_none() && group.peer_data_sharing && member.peer_sharing_consent
-    };
     if group.coach_user_id == Some(author) {
         return match row {
             RelayedRow::MemberPost => true,
-            RelayedRow::AgentReply => members
-                .iter()
-                .filter(|m| m.user_id != author && m.left_at.is_none())
-                .all(shares),
+            // The app cannot tell whose cards a coach's reply drew on, so it
+            // reads it as drawn on every other live member.
+            RelayedRow::AgentReply => room_reads_members(
+                group,
+                members,
+                author,
+                members
+                    .iter()
+                    .filter(|m| m.left_at.is_none())
+                    .map(|m| m.user_id),
+            ),
         };
     }
     members
         .iter()
         .find(|m| m.user_id == author)
-        .is_some_and(shares)
+        .is_some_and(|member| shares_with_the_room(group, member))
+}
+
+/// Whether `member` shares their training with everyone in `group`'s room:
+/// a live member who consented to share with the group, while the group's
+/// peer switch is on.
+#[must_use]
+pub(crate) fn shares_with_the_room(group: &CoachingGroup, member: &GroupMember) -> bool {
+    member.left_at.is_none() && group.peer_data_sharing && member.peer_sharing_consent
+}
+
+/// Record on the running turn's provenance, when its conversation is a
+/// group's room, the members whose data every reader of that room may
+/// already read: each who shares with the room ([`shares_with_the_room`]).
+/// Reading them from here on is no member read, so a turn that drew only on
+/// what the room already holds still saves facts and may write to its
+/// sender's own account (carnet#1511 design call 12). A coach's thread about
+/// one athlete is no room, nor is a conversation bound to no group; a group
+/// or member lookup that fails records nothing, and every member read then
+/// counts. Called before anything the turn reads; a turn whose conversation
+/// could not be read records nothing.
+///
+/// The group's coach, `sender` there, reads each member by the coach's
+/// consents (wellness and the sensitive tiers among them), wider than what
+/// a peer reads of a member who shares with the room: their turn records no
+/// view, and every member it reads counts. The coach is decided by the one
+/// coach rule ([`coaches_group`]), as the seat and the listing decide it: a
+/// recorded coach whose coach access was taken back reads the room as any
+/// member does, and records its view.
+pub(crate) async fn read_in_the_room(
+    ctx: &ChatPipelineContext,
+    conversation: Option<&ConversationRecord>,
+    sender: Uuid,
+) {
+    let Some(conversation) = conversation else {
+        return;
+    };
+    let Some(group_id) = conversation.group_id.as_deref() else {
+        return;
+    };
+    if conversation.subject().is_some() {
+        return;
+    }
+    let Ok(tenant) = TenantId::parse_str(&conversation.tenant_id) else {
+        return;
+    };
+    let groups = ctx.repos.groups.as_ref();
+    match tokio::try_join!(
+        groups.get_group(group_id, tenant),
+        groups.list_members(group_id),
+        coaches_group(&ctx.repos, sender, group_id)
+    ) {
+        Ok((Some(group), members, false)) => ai_scope::reading_in_room(RoomView {
+            group: group.id,
+            sharers: members
+                .iter()
+                .filter(|member| shares_with_the_room(&group, member))
+                .map(|member| member.user_id)
+                .collect(),
+        }),
+        // The group's coach reads wider than the room; no group, no room.
+        Ok((Some(_), _, true) | (None, _, _)) => {}
+        Err(e) => warn!(group_id, error = %e, "room view: lookup failed; every member read counts"),
+    }
+}
+
+/// Whether everyone in `group`'s room may read a reply drawn on `about`.
+///
+/// Each member `about` names, `author` aside, shares with the room
+/// ([`shares_with_the_room`]). A member `about` names who is not in the
+/// group reads as one who does not share.
+///
+/// What the app relay above decides a coach's agent reply by, from the
+/// members its turn drew on. A messaging group chat's own delivery decides
+/// by the reads the reply was stored with instead
+/// ([`reply_held_from_chat`]), carnet#1511 design calls 6 and 19.
+#[must_use]
+fn room_reads_members(
+    group: &CoachingGroup,
+    members: &[GroupMember],
+    author: Uuid,
+    about: impl IntoIterator<Item = Uuid>,
+) -> bool {
+    about
+        .into_iter()
+        .filter(|member| *member != author)
+        .all(|about| {
+            members
+                .iter()
+                .find(|m| m.user_id == about)
+                .is_some_and(|member| shares_with_the_room(group, member))
+        })
+}
+
+/// Whether the reply `reply_id` is kept from its group chat.
+///
+/// It is when the reply, stored in `conversation` for `author`, carries a
+/// read the whole room may not read now: every read it was stored with
+/// (`chat_message_members`, a member card in the prompt among them,
+/// carnet#1511 design call 4) and a legacy row's `about_user_id`, each
+/// decided by the one rule for a room reader
+/// ([`member_reads::Reader::Room`], design call 6, call 19).
+///
+/// A row bound to no group is held by nothing here. A group, read or rule
+/// lookup that fails holds the reply: what cannot be decided is not posted
+/// where everyone reads it.
+pub async fn reply_held_from_chat(
+    ctx: &ChatPipelineContext,
+    conversation: &ConversationRecord,
+    author: Uuid,
+    reply_id: &str,
+    about_user_id: Option<Uuid>,
+) -> bool {
+    let Some(group_id) = conversation.group_id.as_deref() else {
+        return false;
+    };
+    let Ok(tenant) = TenantId::parse_str(&conversation.tenant_id) else {
+        warn!(
+            group_id,
+            "room delivery: the row's tenant is unreadable; reply kept in the app"
+        );
+        return true;
+    };
+    let reader = author.to_string();
+    let decided = async {
+        let (group, reads) = tokio::try_join!(
+            ctx.repos.groups.get_group(group_id, tenant),
+            ctx.repos
+                .chat
+                .list_member_reads(&conversation.id, &reader, tenant),
+        )?;
+        let Some(group) = group else {
+            warn!(
+                group_id,
+                "room delivery: no such group; reply kept in the app"
+            );
+            return Ok(true);
+        };
+        let keys: Vec<String> = about_user_id
+            .map(CarriedRead::legacy_about_key)
+            .into_iter()
+            .chain(
+                reads
+                    .into_iter()
+                    .filter(|read| read.message_id == reply_id)
+                    .map(|read| read.key),
+            )
+            .collect();
+        let readable = member_reads::readable_keys(
+            &ctx.repos,
+            member_reads::Reader::Room {
+                group: group.id,
+                peer_switch: group.is_active && group.peer_data_sharing,
+                sender: author,
+            },
+            &keys,
+        )
+        .await?;
+        AppResult::Ok(readable.len() < keys.len())
+    };
+    decided.await.unwrap_or_else(|e| {
+        warn!(group_id, error = %e, "room delivery: lookup failed; reply kept in the app");
+        true
+    })
 }
 
 /// The name a relayed post is attributed with: the member's name in the
@@ -173,6 +343,12 @@ async fn relay_body(
 
 /// Relay one stored row of a web or mobile turn into its group's connected
 /// chat, when it may cross (see the module docs).
+///
+/// A reply (`reply_id`, the stored reply row) crosses only when the reads it
+/// was stored with are ones the whole room may read, by the rule a reply in
+/// a messaging group chat is delivered by ([`reply_held_from_chat`]), so one
+/// rule decides a reply wherever the chat reads it (carnet#1511 I7), beside
+/// the author's own sharing.
 pub(crate) async fn relay_to_connected_chat(
     ctx: &ChatPipelineContext,
     surface: SurfaceId,
@@ -180,6 +356,7 @@ pub(crate) async fn relay_to_connected_chat(
     author: &str,
     row: RelayedRow,
     text: &str,
+    reply_id: Option<&str>,
 ) {
     let Ok(author) = Uuid::parse_str(author) else {
         return;
@@ -194,6 +371,12 @@ pub(crate) async fn relay_to_connected_chat(
     if !readable_by_the_room(&target.group, &target.members, author, row) {
         info!(%group_id, row = ?row, "room relay: the room may not read this row; kept in the app");
         return;
+    }
+    if let Some(reply_id) = reply_id {
+        if reply_held_from_chat(ctx, conversation, author, reply_id, None).await {
+            info!(%group_id, "room relay: the reply carries a read the room may not read; kept in the app");
+            return;
+        }
     }
     let Some(chat) = proactive_chat(&target.group) else {
         return;
@@ -232,7 +415,7 @@ pub(crate) async fn relay_reply(
     surface: SurfaceId,
     origin: TurnOrigin,
     conversation: &ConversationRecord,
-    author: &str,
+    (author, reply_id): (&str, &str),
     text: &str,
 ) {
     let members_only = ai_scope::derived_members_only();
@@ -247,6 +430,7 @@ pub(crate) async fn relay_reply(
             author,
             RelayedRow::AgentReply,
             text,
+            Some(reply_id),
         )
         .await;
     }
@@ -310,6 +494,37 @@ mod tests {
             left_at: None,
             display_name: None,
         }
+    }
+
+    #[test]
+    fn a_reply_is_read_by_the_room_only_when_every_member_it_draws_on_shares() {
+        let (coach, alice, carol) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        let members = [member(alice, true), member(carol, false)];
+        let g = group(Some(coach), true);
+        assert!(
+            room_reads_members(&g, &members, coach, [alice]),
+            "a reply drawing only on a sharing member is the room's to read"
+        );
+        assert!(
+            room_reads_members(&g, &members, coach, []),
+            "a reply drawing on no member is the room's to read"
+        );
+        assert!(
+            !room_reads_members(&g, &members, coach, [alice, carol]),
+            "a reply drawing on a member who does not share is not the room's"
+        );
+        assert!(
+            room_reads_members(&g, &members, carol, [carol]),
+            "the author's own data is theirs to post"
+        );
+        assert!(
+            !room_reads_members(&g, &members, coach, [Uuid::new_v4()]),
+            "someone outside the group reads as one who does not share"
+        );
+        assert!(
+            !room_reads_members(&group(Some(coach), false), &members, coach, [alice]),
+            "the peer switch off shares no one"
+        );
     }
 
     #[test]

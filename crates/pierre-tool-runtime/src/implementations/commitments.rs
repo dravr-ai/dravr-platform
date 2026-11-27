@@ -25,7 +25,7 @@
 //! athlete in Auckland they missed a Sunday run at lunchtime on Sunday.
 
 use crate::annotations::{annotations, Effect, Reach};
-use crate::tool_data::ToolData;
+use crate::tool_data::{ToolData, WriteKind};
 use pierre_providers::ai_scope;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -433,9 +433,11 @@ pub fn create_commitment_tools() -> Vec<Box<dyn RuntimeTool>> {
 // destructive budget slot.
 crate::declare_security!(
     CommitmentCreateTool => empty; first_party_only,
-    reads: ToolData::own(&[]),
+    reads: ToolData::own(&[])
+        .writes(WriteKind::FreeText),
 );
 crate::declare_security!(
     CommitmentCancelTool => empty; first_party_only,
-    reads: ToolData::own(&[]),
+    reads: ToolData::own(&[])
+        .writes(WriteKind::Structured),
 );

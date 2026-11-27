@@ -18,7 +18,7 @@
 //! calendar-write tools resolve ([`resolve_calendar_scope`]), and only among
 //! the calendars a coach writes.
 
-use crate::tool_data::ToolData;
+use crate::tool_data::{ToolData, WriteKind};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -240,4 +240,5 @@ pub fn create_calendar_preference_tools() -> Vec<Box<dyn RuntimeTool>> {
 }
 
 // Records a choice in Dravr's own database; nothing leaves, nothing is lost.
-crate::declare_security!(SetPreferredCalendarTool => empty, reads: ToolData::own(&[]));
+crate::declare_security!(SetPreferredCalendarTool => empty, reads: ToolData::own(&[])
+        .writes(WriteKind::Structured));

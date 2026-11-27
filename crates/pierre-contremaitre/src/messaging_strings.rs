@@ -187,11 +187,23 @@ pub fn envelope_anchor_label_key(anchor: &str) -> String {
     format!("messaging.envelope.anchor_label.{anchor}")
 }
 
+/// Key: a draft confirmed outside the conversation it was drafted in. No
+/// format placeholders.
+pub const KEY_GUARDIAN_CONFIRM_ELSEWHERE: &str = "messaging.guardian.confirm_elsewhere";
+
+/// Key: a draft confirmed from a surface that names no conversation (a card
+/// button whose chat holds no session). Format: `{0}` = the confirm command
+/// to type in the conversation the draft was made in.
+pub const KEY_GUARDIAN_CONFIRM_TYPE_IN_THREAD: &str = "messaging.guardian.confirm_type_in_thread";
+
 /// Key: the parked action's confirmation window elapsed. No format placeholders.
 pub const KEY_GUARDIAN_CONFIRM_EXPIRED: &str = "messaging.guardian.confirm_expired";
 
 /// Key: no claimable pending action matches the given code. No format placeholders.
 pub const KEY_GUARDIAN_CONFIRM_NOT_FOUND: &str = "messaging.guardian.confirm_not_found";
+/// Key: a group chat's reply that draws on a member's training the chat
+/// does not share, kept in the app. No format placeholders.
+pub const KEY_ROOM_REPLY_HELD: &str = "messaging.room_reply_held";
 /// Key: LLM returned an empty reply, reformulation request.
 pub const KEY_EMPTY_REPLY: &str = "messaging.empty_reply";
 /// Key: the turn was cut short before producing anything.
@@ -517,6 +529,17 @@ pub const KEY_PLATFORM_POST_MORNING_BRIEF_NOT_SHARING: &str =
 /// read this morning. `{0}` = how many.
 pub const KEY_PLATFORM_POST_MORNING_BRIEF_UNREADABLE: &str =
     "platform_post.morning_brief.unreadable";
+
+/// Key: the brief's footer line for missed sessions a calendar read kept unchecked.
+///
+/// carnet#1792. `{0}` = how many.
+pub const KEY_PLATFORM_POST_MORNING_BRIEF_MISSED_UNREADABLE: &str =
+    "platform_post.morning_brief.missed_unreadable";
+
+/// Key: the morning brief's footer line for athletes who switched the
+/// missed-session check off for the coach (carnet#1792). `{0}` = how many.
+pub const KEY_PLATFORM_POST_MORNING_BRIEF_MISSED_OFF: &str =
+    "platform_post.morning_brief.missed_off";
 
 /// Key: the line that introduces the morning brief's links into To handle.
 /// No placeholder.

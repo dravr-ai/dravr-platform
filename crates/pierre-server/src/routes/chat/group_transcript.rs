@@ -38,6 +38,7 @@ use pierre_core::models::TenantId;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_middleware::AuthenticatedUser;
 use pierre_providers::ai_scope;
+use pierre_services::member_reads;
 use uuid::Uuid;
 
 use super::common::{get_tenant_id, served_outside, verify_group_membership};
@@ -219,11 +220,19 @@ pub(super) async fn get_group_transcript(
         .unwrap_or(DEFAULT_TRANSCRIPT_LIMIT)
         .clamp(1, MAX_TRANSCRIPT_LIMIT);
     let before = query.before.as_deref().map(parse_uuid).transpose()?;
+    // The reads of the room the caller may read now, by the one rule
+    // (carnet#1511 call 19): what each entry is decided by.
+    let readable = member_reads::readable_room_keys(
+        &resources.common.repos,
+        member_reads::Reader::Person(auth.user_id),
+        &[parse_uuid(&group_id)?],
+    )
+    .await?;
     let mut entries = resources
         .common
         .repos
         .groups
-        .list_room_transcript_for(&group_id, auth.user_id, before, limit)
+        .list_room_transcript_for(&group_id, auth.user_id, before, limit, &readable)
         .await?;
     // Newest-first from the repository (it selects the newest window);
     // render oldest-first, the order a chat view paints.

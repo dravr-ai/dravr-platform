@@ -219,7 +219,16 @@ macro_rules! user_owned_tables {
         /// it, and the receipt counts them. So do the rows of a coach's own
         /// group chat about the athlete (carnet#1174): each tool round that
         /// read them, the reply drawn from it, and a summary of those
-        /// (`chat_messages` and `compaction_blocks` by `about_user_id`).
+        /// (`chat_messages` and `compaction_blocks` by `about_user_id`, and
+        /// every summary in a conversation holding a row that drew on them,
+        /// before those rows go, since a summary is read by its covered
+        /// rows' reads), and
+        /// a row about several members, which goes with each one's account
+        /// (`chat_messages` named in `chat_message_members`, before its
+        /// links, carnet#1422). A room entry that drew on the user goes the
+        /// same way (`group_transcript_entries` named in
+        /// `group_transcript_entry_members`): its link has no foreign key,
+        /// so the entry never outlives the member as carrying fewer members.
         ///
         /// The admin audit trail's rows that name the user as the *target* of
         /// an admin's action, by id or by email, go too (carnet#1391): the
@@ -311,10 +320,12 @@ user_owned_tables!(
     "messaging_resumable_turns",
     "activity_conversations",
     "chat_conversations" where "CAST(user_id AS TEXT) = $1 OR CAST(subject_user_id AS TEXT) = $1",
-    "chat_messages" where "CAST(about_user_id AS TEXT) = $1",
-    "compaction_blocks" where "CAST(about_user_id AS TEXT) = $1",
+    "compaction_blocks" where "CAST(about_user_id AS TEXT) = $1 OR conversation_id IN (SELECT m.conversation_id FROM chat_messages m JOIN chat_message_members mm ON mm.message_id = m.id WHERE CAST(mm.member_user_id AS TEXT) = $1)",
+    "chat_messages" where "CAST(about_user_id AS TEXT) = $1 OR id IN (SELECT mm.message_id FROM chat_message_members mm WHERE CAST(mm.member_user_id AS TEXT) = $1)",
+    "chat_message_members" where "CAST(member_user_id AS TEXT) = $1",
     "coach_reply_reviews" where "CAST(athlete_user_id AS TEXT) = $1 OR CAST(coach_user_id AS TEXT) = $1",
-    "group_transcript_entries" where "CAST(author_user_id AS TEXT) = $1",
+    "group_transcript_entries" where "CAST(author_user_id AS TEXT) = $1 OR id IN (SELECT em.entry_id FROM group_transcript_entry_members em WHERE CAST(em.member_user_id AS TEXT) = $1)",
+    "group_transcript_entry_members" where "CAST(member_user_id AS TEXT) = $1",
     "coaching_groups" where "CAST(owner_id AS TEXT) = $1 AND is_active = FALSE AND NOT EXISTS (SELECT 1 FROM chat_conversations c WHERE c.group_id = coaching_groups.id OR c.subject_group_id = coaching_groups.id)",
     "short_links",
     "mcp_tasks",

@@ -110,6 +110,7 @@ macro_rules! impl_chat_row_parsers {
                         .try_get("last_first_party_only")
                         .map_err(|e| chat_column_error("last_first_party_only", &e))?;
                     Ok(ConversationLastMessage {
+                        id: opt("last_id")?.unwrap_or_default(),
                         content_head: opt("last_content_head")?.unwrap_or_default(),
                         role,
                         created_at: last_created_at.map(|t| t.to_rfc3339()).unwrap_or_default(),

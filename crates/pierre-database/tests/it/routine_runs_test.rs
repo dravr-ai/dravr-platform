@@ -217,6 +217,8 @@ async fn a_listed_item_counts_as_acted_on_once_within_the_window_and_in_its_tena
             left_out: LeftOut {
                 not_sharing: 2,
                 unreadable: 1,
+                missed_unreadable: 3,
+                missed_off: 4,
             },
         })
         .await
@@ -234,7 +236,9 @@ async fn a_listed_item_counts_as_acted_on_once_within_the_window_and_in_its_tena
             1,
             LeftOut {
                 not_sharing: 2,
-                unreadable: 1
+                unreadable: 1,
+                missed_unreadable: 3,
+                missed_off: 4,
             }
         ),
         "bug: the run did not read back as recorded"

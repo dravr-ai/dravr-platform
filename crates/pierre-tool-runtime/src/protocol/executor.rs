@@ -35,6 +35,7 @@ use crate::runtime::ToolRuntime;
 use crate::scopes::missing_scope;
 use crate::security::SecurityLabels;
 use crate::support_session;
+use crate::tool_access::CallerRole;
 use crate::turn_end::{self, HandoffSlot};
 use dispatch_record::DispatchRecord;
 use dravr_barrage::Stream;
@@ -54,6 +55,8 @@ use pierre_providers::ai_scope;
 use pierre_services::provider_notice;
 use serde_json::Value as JsonValue;
 use std::fmt;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -73,11 +76,17 @@ mod dispatch_record;
 mod grant_budget;
 /// The refusals of a call beyond its consent grant's ceiling
 mod grant_ceiling_refusal;
+/// The grant-scoped member-read taint of /mcp and A2A calls (carnet#1511 call 30).
+mod grant_taint;
 /// Answering a call the Guardian blocked, and leaving the block for the turn.
 mod guardian_block;
+/// What the executor answers about its registry and binding without a call.
+mod lookups;
 /// Whose data a dispatched call reads (carnet#1387).
 mod subject;
 mod tier_gate;
+/// What a listing beside the executor asks of the turn it serves.
+mod turn_audience;
 mod turn_signals;
 
 pub use access::SUPPORT_SESSION_EXPORT_REFUSED;
@@ -199,6 +208,13 @@ pub struct UniversalExecutor {
     /// [`Self::with_caller_writing_reply`]; never inherited, because a nested
     /// dispatch answers the tool that made it, not the caller.
     caller_writes_reply: bool,
+    /// The role a chat turn's catalogue was built for
+    /// ([`offered_schemas`](crate::chat_catalogue::offered_schemas)), bound
+    /// by the turn with [`Self::with_turn_role`] so its calls are decided for
+    /// the role its catalogue was (carnet#1511, plan site 5). Never
+    /// inherited: a nested dispatch is decided for no role, which withholds
+    /// rather than widens.
+    turn_role: Option<CallerRole>,
     /// The coached athlete the call this executor was built inside reads
     /// ([`READ_SUBJECT`]), inherited when it is built inside such a call's
     /// body. A nested dispatch then reads that athlete too, and is charged to
@@ -231,6 +247,7 @@ impl fmt::Debug for UniversalExecutor {
             .field("transport", &self.transport)
             .field("provenance", &self.provenance)
             .field("caller_writes_reply", &self.caller_writes_reply)
+            .field("turn_role", &self.turn_role)
             .field("read_subject", &self.read_subject)
             .field("ceiling", &self.ceiling)
             .finish_non_exhaustive()
@@ -290,6 +307,7 @@ impl UniversalExecutor {
             // And accumulates into the derivation its caller accumulates into.
             provenance: ai_scope::current_provenance(),
             caller_writes_reply: false,
+            turn_role: None,
             // A nested dispatch reads the coached athlete its caller reads.
             read_subject: scoped_read_subject(),
             // And reads no wider than the grant its caller runs under.
@@ -317,6 +335,15 @@ impl UniversalExecutor {
     #[must_use]
     pub const fn with_caller_writing_reply(mut self) -> Self {
         self.caller_writes_reply = true;
+        self
+    }
+
+    /// Bind the role the chat turn this executor serves was decided for
+    /// ([`CallerRole::resolve`], read once per turn by the turn service), so
+    /// its calls are refused exactly as its catalogue left them out.
+    #[must_use]
+    pub const fn with_turn_role(mut self, role: CallerRole) -> Self {
+        self.turn_role = Some(role);
         self
     }
 
@@ -624,14 +651,7 @@ impl UniversalExecutor {
         // An admin-only call from outside Dravr's own surfaces is on the audit
         // trail before it is dispatched, or it is not run (EFVP 9.4d).
         let audited = self.admin_call_audit(&request).await?;
-        // Boxed: a tool body may dispatch another tool through here
-        // (`analyze_activity` → `get_activity_intelligence`), and an inline
-        // `dispatch` future would ride in that body's future and its callers'.
-        let result = Box::pin(
-            self.dispatch(request, body_answered)
-                .instrument(span.clone()),
-        )
-        .await;
+        let result = self.dispatch_boxed(request, body_answered, &span).await;
         if let Some(started) = &audited {
             admin_call_audit::settle(
                 self.resources.repos().admin_audit.as_ref(),
@@ -642,6 +662,22 @@ impl UniversalExecutor {
         }
         record_outcome(&span, &result);
         result
+    }
+
+    /// [`Self::dispatch`] inside `span`, built and boxed in a frame of its
+    /// own: a tool body may dispatch another tool through here, and a debug
+    /// build would keep the inline future's slot under every poll of the body
+    /// (`pierre_chat_pipeline`'s `turn_frames` says why).
+    fn dispatch_boxed<'a>(
+        &'a self,
+        request: UniversalRequest,
+        body_answered: &'a AtomicBool,
+        span: &tracing::Span,
+    ) -> Pin<Box<dyn Future<Output = Result<UniversalResponse, ProtocolError>> + Send + 'a>> {
+        Box::pin(
+            self.dispatch(request, body_answered)
+                .instrument(span.clone()),
+        )
     }
 
     /// [`Self::execute_tool`]'s body, run inside its span.
@@ -731,19 +767,25 @@ impl UniversalExecutor {
         // own data is not what the turn is about (carnet#742); in their thread
         // about one athlete, nothing is filed on their own account
         // (carnet#1070).
+        //
+        // A write naming an athlete over an external transport is refused
+        // for every role, as the listing offers it no such argument
+        // (carnet#1533). On a turn that read another member, a write that
+        // would land on the caller's own account is refused, as the turn's
+        // listing withholds it (carnet#1422).
+        //
+        // Last, an /mcp or A2A call has no topic: a grant that read another
+        // member has its free-text writes wait (carnet#1511 call 30).
         if let Some(refusal) = self
-            .access_refusal(
+            .call_refusal(
                 tool.as_ref(),
-                (&tool_name, &args),
+                &tool_name,
+                &args,
                 user_uuid,
                 is_admin,
                 call_ceiling.as_ref(),
             )
             .await?
-            .or_else(|| {
-                self.seat
-                    .refusal(self.resources.tool_registry(), &tool_name)
-            })
         {
             return Ok(refusal);
         }
@@ -854,21 +896,26 @@ impl UniversalExecutor {
         // body starts on the athlete's account (a backfill, a reconnect
         // notice) is the athlete's, and never posts into the coach's thread.
         let in_conversation = subject.is_none();
-        let member_read = subject.as_ref().map(ReadSubject::athlete);
         // An outside client never reaches a tool reading T3 streams, nor T2
         // ones without a grant reaching T2 (`tier_gate`, carnet#1544).
         let call_data = self.resources.tool_registry().call_data(&tool_name, &args);
         let streams = call_data.map_or(&[][..], |data| data.streams());
+        // The coach's read of the athlete, as every row derived from it
+        // carries it (carnet#1511 calls 19, 23 and 27).
+        let (_, member_read) = self.coach_read(&tool_name, subject.as_ref());
         // Past the tier gate a single-use grant is spent before it reads.
         let ceiling = call_ceiling.as_ref();
         let claimed = self.single_use_claimed(&tool_name, parties, ceiling, async move {
             // What the call derives from here on is the athlete's (carnet#1174),
             // and so is every attribution what it serves owes (carnet#1464).
             match member_read {
-                Some(athlete) => {
-                    ai_scope::note_member_read(athlete);
-                    ai_scope::reading_about(athlete, tool.execute(&self.resources, &ctx, args))
-                        .await
+                Some((read, wellness_recorded)) => {
+                    subject::reading_member(
+                        read,
+                        &wellness_recorded,
+                        tool.execute(&self.resources, &ctx, args),
+                    )
+                    .await
                 }
                 None => tool.execute(&self.resources, &ctx, args).await,
             }
@@ -881,7 +928,10 @@ impl UniversalExecutor {
         // no conversation.
         let handoff = (self.turn_token.is_some() && self.turn_ask.is_some() && in_conversation)
             .then(HandoffSlot::default);
-        let execute = turn_end::with_handoff(handoff.clone(), execute);
+        // Boxed before the scopes wrap it: each wrapper would otherwise carry
+        // the tool body's whole state inline, and a debug build lays every
+        // one of them out in this function's frame.
+        let execute = Box::pin(turn_end::with_handoff(handoff.clone(), execute));
         let body = ai_scope::ai_read(CONVERSATION_ID.scope(
             self.conversation_id.clone().filter(|_| in_conversation),
             CONVERSATION_TENANT.scope(
@@ -1129,43 +1179,6 @@ impl UniversalExecutor {
         })
         .await;
         Ok(universal)
-    }
-
-    /// Check if executor has a specific tool
-    #[must_use]
-    pub fn has_tool(&self, tool_name: &str) -> bool {
-        self.resources.tool_registry().get(tool_name).is_some()
-    }
-
-    /// Whether `tool_name`'s registered input schema declares `property` as a
-    /// top-level argument.
-    ///
-    /// Shape-tolerant argument parsing uses this to distinguish a
-    /// provider-emitted `{"parameters": {...}}` envelope from a tool that
-    /// really takes a `parameters` argument (e.g. `validate_configuration`).
-    /// An unknown tool reports `false`: dispatch fails on the name lookup
-    /// anyway, so the answer never reaches a tool body.
-    #[must_use]
-    pub fn tool_declares_property(&self, tool_name: &str, property: &str) -> bool {
-        self.resources
-            .tool_registry()
-            .get(tool_name)
-            .is_some_and(|tool| {
-                tool.definition()
-                    .input_schema
-                    .get("properties")
-                    .and_then(|props| props.get(property))
-                    .is_some()
-            })
-    }
-}
-
-impl UniversalExecutor {
-    /// The turn token bound to this executor, `None` for a one-shot MCP or A2A
-    /// call: such a call mints a nonce that no later reader could ever name.
-    #[must_use]
-    pub fn turn_token(&self) -> Option<&str> {
-        self.turn_token.as_deref()
     }
 }
 

@@ -385,6 +385,25 @@ pub(crate) async fn acting_on<'c>(
         .expect("the caller may act on the account")
 }
 
+/// A conversation of `user`'s own in `tenant`, bound to no group and written
+/// into by no messaging chat: the room a loopback built for one of its
+/// direct-message turns is decided in, so its listing offers what a private
+/// turn's dispatch takes.
+pub(crate) async fn own_conversation(
+    resources: &ServerContext,
+    user: Uuid,
+    tenant: TenantId,
+) -> String {
+    resources
+        .common
+        .repos
+        .chat
+        .create_conversation(&user.to_string(), tenant, "Own", "mock-model", None, None)
+        .await
+        .unwrap()
+        .id
+}
+
 /// Run `call`, a tool call `user` makes in `tenant`, as a turn of Dravr's web
 /// app: the conversation `CONVERSATION_ID` scopes is read by `user` alone
 /// when its row carries no group, as the chat route says it

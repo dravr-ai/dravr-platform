@@ -143,6 +143,27 @@ pub async fn roster_access(repos: &RepositoryRegistry, coach_id: Uuid) -> AppRes
     })
 }
 
+/// Whether `user_id` coaches the active group `group_id` by the one coach
+/// rule ([`roster_access`]).
+///
+/// That is: attached to it as its coach and holding coach access. A coach whose access was taken back reads the group's room as any
+/// member does, so the chat listing's room classes and the coach's seat ask
+/// this, as every coach tool's gate does.
+///
+/// # Errors
+///
+/// Returns the repository error from the user or group lookup.
+pub async fn coaches_group(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    group_id: &str,
+) -> AppResult<bool> {
+    Ok(match roster_access(repos, user_id).await? {
+        RosterAccess::Granted(groups) => groups.iter().any(|g| g.id.to_string() == group_id),
+        RosterAccess::NoCoachAccess(_) | RosterAccess::NotACoach => false,
+    })
+}
+
 /// A group named on a roster row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, schemars::JsonSchema)]
 pub struct RosterGroupRef {

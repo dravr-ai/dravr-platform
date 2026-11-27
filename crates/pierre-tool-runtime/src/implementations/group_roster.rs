@@ -53,6 +53,8 @@ use crate::tool_data::ToolData;
 use dravr_barrage::Stream;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -68,6 +70,7 @@ use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time::{local_date, resolve_zone};
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::{CoachingGroup, MemberFitnessSnapshot};
+use pierre_core::models::CarriedRead;
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_mcp_schema::PropertySchema;
 use pierre_providers::ai_scope;
@@ -234,10 +237,16 @@ async fn covered_groups(
     is_admin: bool,
 ) -> AppResult<Result<Covered, ToolResult>> {
     let access = roster_access(context.resources.repos(), context.user_id).await?;
+    // The room is asked before any role answers, an admin's included, so a
+    // call is taken exactly where the listing offers it (carnet#1422).
+    let room = call_room(context).await?;
     let (mut groups, holds_coach_access) = match access {
         RosterAccess::Granted(groups) => (groups, true),
         RosterAccess::NoCoachAccess(groups) => (groups, false),
-        RosterAccess::NotACoach if is_admin => return Ok(Ok(Covered::AdminWithoutGroup)),
+        RosterAccess::NotACoach if is_admin && room.is_private() => {
+            return Ok(Ok(Covered::AdminWithoutGroup));
+        }
+        RosterAccess::NotACoach if is_admin => (Vec::new(), true),
         RosterAccess::NotACoach => {
             return Ok(Err(refusal(
                 "not_a_coach",
@@ -249,7 +258,7 @@ async fn covered_groups(
         }
     };
 
-    match call_room(context).await? {
+    match room {
         CallRoom::Private => {}
         // A conversation the caller cannot resolve may be any room: fail
         // closed rather than publish a roster into it.
@@ -452,7 +461,13 @@ async fn build_overview(
     // Each athlete whose training is read: what the round is about
     // (carnet#1174). The others are named with their status, no data.
     for m in &readable {
-        ai_scope::note_member_read(m.member.user_id);
+        if let Some(group) = m.member.shared_via {
+            ai_scope::note_member_read(CarriedRead::coach(
+                m.member.user_id,
+                group,
+                context.user_id,
+            ));
+        }
     }
     let snapshots = fetch_page_snapshots(runtime, &readable).await;
     let group_names = |m: &OrderedMember| m.member.groups.iter().map(|g| g.name.clone()).collect();
@@ -563,35 +578,45 @@ impl McpTool<dyn ToolRuntime> for GetRosterOverviewTool {
         args: Value,
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
-        let result: AppResult<ToolResult> = async {
-            let arg_group = args
-                .get("group_id")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|s| !s.is_empty());
-            let groups = match covered_groups(&context, arg_group, ctx.is_admin).await? {
-                Ok(Covered::Groups(groups)) => groups,
-                Ok(Covered::AdminWithoutGroup) => {
-                    return ok_typed(
-                        "get_roster_overview",
-                        RosterOverviewResult {
-                            groups: Vec::new(),
-                            athletes: Vec::new(),
-                            truncated: false,
-                            note: Some(coach_assistant::ADMIN_NO_GROUP_NOTE.to_owned()),
-                        },
-                    );
-                }
-                Err(refused) => return Ok(refused),
-            };
-            ok_typed(
-                "get_roster_overview",
-                build_overview(&context, &groups).await?,
-            )
-        }
-        .await;
-        tool_result_to_response(result)
+        tool_result_to_response(roster_overview(context, args, ctx.is_admin).await)
     }
+}
+
+/// The roster overview `args` ask for, built and boxed in a frame of its
+/// own: a debug build lays a future out on the stack of the frame that
+/// builds it, and the tool's async body would keep that slot under every
+/// read of every member (`UniversalExecutor::dispatch_boxed` says why).
+fn roster_overview(
+    context: ToolExecutionContext,
+    args: Value,
+    is_admin: bool,
+) -> Pin<Box<dyn Future<Output = AppResult<ToolResult>> + Send>> {
+    Box::pin(async move {
+        let arg_group = args
+            .get("group_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let groups = match covered_groups(&context, arg_group, is_admin).await? {
+            Ok(Covered::Groups(groups)) => groups,
+            Ok(Covered::AdminWithoutGroup) => {
+                return ok_typed(
+                    "get_roster_overview",
+                    RosterOverviewResult {
+                        groups: Vec::new(),
+                        athletes: Vec::new(),
+                        truncated: false,
+                        note: Some(coach_assistant::ADMIN_NO_GROUP_NOTE.to_owned()),
+                    },
+                );
+            }
+            Err(refused) => return Ok(refused),
+        };
+        ok_typed(
+            "get_roster_overview",
+            build_overview(&context, &groups).await?,
+        )
+    })
 }
 
 // A coach's tool over other members' data: listed and run over every

@@ -26,10 +26,11 @@ use std::time::Duration as StdDuration;
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_cache::{CacheKey, CacheResource};
 use pierre_core::models::{
-    Athlete, ConnectionType, DataSource, DeviceType, SportType, TimeSeriesData, UserOAuthToken,
-    UserPhysiologicalProfile,
+    Athlete, CarriedRead, ConnectionType, DataSource, DeviceType, SportType, TimeSeriesData,
+    UserOAuthToken, UserPhysiologicalProfile,
 };
 use pierre_database::repositories::{ActivityStreamsWrite, StreamOrigin};
+use pierre_providers::ai_scope::{self, Provenance};
 use pierre_tool_runtime::protocols::ProtocolError;
 use pierre_tool_runtime::read_subject::DataClass;
 use secrecy::SecretString;
@@ -1082,4 +1083,98 @@ async fn every_training_read_is_offered_in_the_thread_and_named_to_its_model() {
             "bug: the athlete's wellness ({wellness}) is not a training read"
         );
     }
+}
+
+/// carnet#1511 call 27: whether a coach's read went beyond the athlete's
+/// activities is decided by what the tool returned, not only by what it
+/// declared. `calculate_metrics` reads a session's streams, and serves the
+/// maximum heart rate the athlete saved: the read is of their physiology,
+/// which no peer sharing covers, so no room member reads a reply drawn
+/// from it.
+#[tokio::test]
+async fn a_coachs_read_serving_saved_physiology_is_no_peer_views() {
+    let (f, _) = world().await;
+    let (response, reads) = ai_scope::tracking(Provenance::new(), async {
+        let response = f
+            .in_thread(
+                "calculate_metrics",
+                json!({ "provider": UPLOAD, "activity_id": ATHLETE_STREAM_RUN }),
+            )
+            .await;
+        (
+            response,
+            ai_scope::current_provenance().map_or_default(|provenance| provenance.carried_reads()),
+        )
+    })
+    .await;
+    let payload = ok(response, "calculate_metrics");
+    assert_eq!(
+        at(&payload, "/max_hr_source").as_str(),
+        Some("profile"),
+        "the call served the athlete's saved maximum heart rate: {payload}"
+    );
+    let of_athlete: Vec<&CarriedRead> = reads
+        .iter()
+        .filter(|read| read.member == f.athlete.id)
+        .collect();
+    assert!(
+        !of_athlete.is_empty(),
+        "the call noted the athlete: {reads:?}"
+    );
+    let stamped = CarriedRead::strictest_per_member(of_athlete.iter().copied());
+    assert!(
+        stamped.iter().all(|read| !read.peer_view_covers()),
+        "bug: a coach's read serving the athlete's saved physiology is covered by their peer \
+         sharing: {of_athlete:?}"
+    );
+}
+
+/// carnet#1511 call 27, the sweep: every tool declared as reading a
+/// coached athlete's activities alone is called in the coach's thread on the
+/// athlete's run. A tool that served their saved physiology (or their plan)
+/// is recorded as read beyond their activities, so the call's reads then fail this sweep
+/// until the tool declares it (`with_beyond_activities`).
+#[tokio::test]
+async fn every_activities_only_tool_declares_the_physiology_it_serves() {
+    let (f, _) = world().await;
+    let registry = &f.res.mcp.tool_registry;
+    let names: Vec<String> = registry
+        .tool_names()
+        .into_iter()
+        .filter(|name| registry.reads_activities_only(name))
+        .map(str::to_owned)
+        .collect();
+    assert!(!names.is_empty(), "some tool reads activities alone");
+    let mut undeclared = Vec::new();
+    for name in &names {
+        let reads = ai_scope::tracking(Provenance::new(), async {
+            // A tool the generic arguments do not fit refuses: it read
+            // nothing, which passes.
+            let _answer = f
+                .try_call(
+                    &f.thread_executor(),
+                    f.coach,
+                    name,
+                    json!({
+                        "provider": UPLOAD,
+                        "activity_id": ATHLETE_STREAM_RUN,
+                        "activity_ids": [ATHLETE_STREAM_RUN],
+                    }),
+                )
+                .await;
+            ai_scope::current_provenance().map_or_default(|provenance| provenance.carried_reads())
+        })
+        .await;
+        if reads
+            .iter()
+            .any(|read| read.member == f.athlete.id && !read.peer_view_covers())
+        {
+            undeclared.push(name.clone());
+        }
+    }
+    assert!(
+        undeclared.is_empty(),
+        "bug: these tools read the athlete beyond their activities but declare their activities \
+         alone; declare `.with_beyond_activities()` on their `reads:`: {undeclared:?}"
+    );
 }

@@ -25,6 +25,8 @@ mod support_session_assistant_tests {
         coach, coached_group, group_agent, join, person, seed_ride, Person,
     };
 
+    use crate::coach_athlete_reads_test::{run, UPLOAD};
+
     use std::collections::BTreeSet;
     use std::sync::Arc;
 
@@ -1234,6 +1236,96 @@ mod support_session_assistant_tests {
         assert!(
             !text(&roster).contains("Bea Bright"),
             "bug: after the revocation the agent is the admin: {roster}"
+        );
+    }
+
+    /// carnet#1511 call 28: a task an admin's agent made in a support
+    /// session holds the user's data, so `GetTask` and `ListTasks` serve it only
+    /// while that session lives. Once it ends, the task keeps its id and the
+    /// admin's own message, and what the call read of the user is withheld.
+    #[tokio::test]
+    async fn a_support_sessions_a2a_task_is_read_only_while_it_lives() {
+        let world = world().await;
+        let grant = world.admin_grant().await;
+        let started = world
+            .a2a(
+                &grant.bearer,
+                START_TOOL,
+                json!({ "user": "alex@support-session.test", "reason": "carnet #42" }),
+            )
+            .await;
+        assert!(text(&started).contains("\"session_id\""), "{started}");
+        // A session Alex uploaded: read from Dravr's own store, no provider.
+        world
+            .res
+            .common
+            .repos
+            .activity_cache
+            .upsert_activities(
+                world.alex.id,
+                &world.alex.tenant,
+                UPLOAD,
+                &[run("alex-upload-1", 1)],
+            )
+            .await
+            .unwrap();
+        let sent = world
+            .a2a(
+                &grant.bearer,
+                "get_activities",
+                json!({ "provider": UPLOAD }),
+            )
+            .await;
+        let task_id = sent["result"]["task"]["id"]
+            .as_str()
+            .unwrap_or_else(|| panic!("a task: {sent}"))
+            .to_owned();
+        assert!(
+            text(&sent).contains("alex-upload-1"),
+            "the task read Alex: {sent}"
+        );
+        let get_task = |id: String| {
+            let world = &world;
+            let bearer = grant.bearer.clone();
+            async move {
+                world
+                    .post(
+                        "/a2a/jsonrpc",
+                        &bearer,
+                        rpc("GetTask", &json!({ "id": id })),
+                    )
+                    .await
+                    .1
+            }
+        };
+        let read = get_task(task_id.clone()).await;
+        assert!(
+            text(&read).contains("alex-upload-1"),
+            "while the session lives, GetTask serves the result: {read}"
+        );
+
+        let ended = world.a2a(&grant.bearer, END_TOOL, json!({})).await;
+        assert!(text(&ended).contains("\"ended\":true"), "{ended}");
+        let read = get_task(task_id.clone()).await;
+        assert_eq!(
+            read["result"]["id"],
+            task_id.as_str(),
+            "the task itself: {read}"
+        );
+        assert!(
+            !text(&read).contains("alex-upload-1"),
+            "bug: GetTask served the user's data after the support session ended: {read}"
+        );
+        let (_, listed) = world
+            .post(
+                "/a2a/jsonrpc",
+                &grant.bearer,
+                rpc("ListTasks", &json!({ "includeArtifacts": true })),
+            )
+            .await;
+        assert!(
+            text(&listed).contains(&task_id) && !text(&listed).contains("alex-upload-1"),
+            "bug: ListTasks served the user's data after the support session ended: {listed}"
         );
     }
 

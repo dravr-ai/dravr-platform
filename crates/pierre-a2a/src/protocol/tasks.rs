@@ -56,7 +56,14 @@ impl A2AServer {
 
         match Self::load_owned_task(resources, &params.id, &principal, request.id.as_ref()).await {
             Ok(record) => {
-                let task = Self::wire_task(&record, params.history_length, true);
+                let task = Self::readable_wire_task(
+                    resources,
+                    principal.user_id,
+                    &record,
+                    params.history_length,
+                    true,
+                )
+                .await;
                 Self::task_response(&task, request.id)
             }
             Err(err) => *err,
@@ -214,12 +221,20 @@ impl A2AServer {
         let take_count = usize::try_from(page_size).unwrap_or(usize::MAX);
         let has_more = records.len() > skip_count.saturating_add(take_count);
 
-        let tasks: Vec<Task> = records
-            .iter()
-            .skip(skip_count)
-            .take(take_count)
-            .map(|record| Self::wire_task(record, params.history_length, params.include_artifacts))
-            .collect();
+        let mut tasks: Vec<Task> = Vec::with_capacity(take_count.min(records.len()));
+        let page = records.iter().skip(skip_count).take(take_count);
+        for record in page {
+            tasks.push(
+                Self::readable_wire_task(
+                    resources,
+                    principal.user_id,
+                    record,
+                    params.history_length,
+                    params.include_artifacts,
+                )
+                .await,
+            );
+        }
 
         let next_page_token = if has_more {
             format!("o{}", offset.saturating_add(page_size))
@@ -290,7 +305,9 @@ impl A2AServer {
 
         match Self::load_owned_task(resources, &record.id, &principal, request.id.as_ref()).await {
             Ok(updated) => {
-                let task = Self::wire_task(&updated, None, true);
+                let task =
+                    Self::readable_wire_task(resources, principal.user_id, &updated, None, true)
+                        .await;
                 Self::task_response(&task, request.id)
             }
             Err(err) => *err,

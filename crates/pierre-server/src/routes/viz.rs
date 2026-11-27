@@ -42,6 +42,7 @@ use photograveur::{resolve, Locale, RenderBlock};
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
 use pierre_core::uuid_utils::parse_uuid;
+use pierre_services::transcript_reading;
 use serde_json::Value;
 use sha2::Sha256;
 use tracing::{debug, warn};
@@ -258,17 +259,29 @@ pub async fn get_viz_png(
 /// Reads through the tenant-scoped repository rather than trusting the token to
 /// carry content: the token authorises a lookup, it never *is* the data. A
 /// token naming a message in another tenant therefore finds nothing rather than
-/// serving it.
+/// serving it, and one naming a row its reader may no longer read, about a
+/// group member, finds nothing either.
 async fn load_block(
     resources: &ServerContext,
     token: &VizToken,
 ) -> Result<Option<RenderBlock>, AppError> {
-    let messages = resources
-        .common
-        .repos
+    let repos = &resources.common.repos;
+    let Some(conversation) = repos
         .chat
-        .get_messages(&token.conversation_id, &token.user_id, token.tenant_id)
-        .await?;
+        .get_conversation(&token.conversation_id, &token.user_id, token.tenant_id)
+        .await?
+    else {
+        return Ok(None);
+    };
+    let Ok(reader) = parse_uuid(&token.user_id) else {
+        return Ok(None);
+    };
+    // The chart is drawn only from a row its reader may read now
+    // (carnet#1422): the token names a reader, not a licence to the row.
+    let messages =
+        transcript_reading::read_transcript(repos, &conversation, reader, token.tenant_id)
+            .await?
+            .messages;
 
     let Some(message) = messages.into_iter().find(|m| m.id == token.message_id) else {
         return Ok(None);

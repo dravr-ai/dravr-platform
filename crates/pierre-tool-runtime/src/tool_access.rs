@@ -33,9 +33,15 @@
 //!    [`ToolReach::FirstPartyOnly`] tool from everyone but an admin whose
 //!    grant holds `admin`.
 //! 3. **Role**: who the tool serves ([`Audience`]). An admin tool needs an
-//!    admin on every transport; a coach tool needs a coach or an admin over
-//!    an external transport only, because in Dravr's own app the tool's own
-//!    gates decide (a peer reads a group member there too).
+//!    admin on every transport; a coach tool needs a coach or an admin on
+//!    every transport too, but one that also serves a group's peers
+//!    ([`RuntimeTool::serves_group_peers`]: a member's activities) is left to
+//!    its own gates in Dravr's own app, where a peer reads a group member.
+//!    So a turn never offers a tool whose every call it refuses for the
+//!    caller's role (carnet#1511 I7). A chat turn's role is read once, whole,
+//!    on every transport ([`CallerRole::resolve`], once per turn): an admin who coaches
+//!    nothing is offered the coach-only tools in the app, on Messaging, over
+//!    MCP and over A2A alike, and reads the "no group" answer (Q24, call 22).
 //!
 //! In an admin's support session ([`crate::support_session`]) the caller is
 //! the user the session acts as, and the tools that carry the user's whole
@@ -65,7 +71,10 @@
 //! chokepoint refuses a call with the same answer. The role is read live on
 //! each listing and each call and kept nowhere: `/mcp` holds no session, and
 //! the listing carries `ttlMs: 0` with `cacheScope: private`, so a role
-//! change shows at the client's next list and on the very next call.
+//! change shows at the client's next list and on the very next call. A chat
+//! turn reads it once, when the turn starts, and its catalogue and its calls
+//! both read that value (`UniversalExecutor::with_turn_role`), so this check
+//! never refuses a call to a tool the same turn offered.
 
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
@@ -77,7 +86,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::protocol::types::UniversalResponse;
-use crate::read_subject::{DataClass, ATHLETE_ARGUMENT};
+use crate::read_subject::{requires_athlete_argument, strip_athlete_argument, DataClass};
 use crate::registry::ToolRegistry;
 use crate::scopes::missing_scope;
 use crate::security::{Audience, RuntimeTool, ToolReach};
@@ -255,7 +264,9 @@ fn declared(tool: &dyn RuntimeTool, data: Option<ToolData>) -> Declared {
         audience: tool.audience(),
         capabilities: tool.capabilities(),
         exports_record: tool.exports_record(),
+        serves_group_peers: tool.serves_group_peers(),
         data,
+        requires_athlete: requires_athlete_argument(tool),
     }
 }
 
@@ -266,8 +277,12 @@ struct Declared {
     audience: Audience,
     capabilities: ToolCapabilities,
     exports_record: bool,
+    /// Whether, a coach tool, it also serves a group's peers.
+    serves_group_peers: bool,
     /// What it reads; `None` for a tool that declared nothing.
     data: Option<ToolData>,
+    /// Whether it cannot be called without the `athlete` argument.
+    requires_athlete: bool,
 }
 
 /// [`withheld`] over what a tool declares.
@@ -308,10 +323,27 @@ fn decide(tool: Declared, caller: &Caller<'_>) -> Option<Withheld> {
             return Some(Withheld::NeverExternal);
         }
     }
+    // A tool whose every call names an athlete is offered only to a caller
+    // offered the argument: anyone else's every call would be refused. A
+    // write outside the app names no one for anyone, so it is not over this
+    // interface; elsewhere a caller who coaches no one has no one to name.
+    if tool.requires_athlete && !offers_athlete(tool.capabilities, caller) {
+        let external_write =
+            caller.is_external() && tool.capabilities.contains(ToolCapabilities::WRITES_DATA);
+        return Some(if external_write || caller.role.coach {
+            Withheld::Transport
+        } else {
+            Withheld::Role(Audience::Coach)
+        });
+    }
     match tool.audience {
         Audience::Athlete => None,
         Audience::Admin => (!caller.role.admin).then_some(Withheld::Role(Audience::Admin)),
-        Audience::Coach => (caller.is_external() && !caller.role.coach && !caller.role.admin)
+        // The coach rule on every transport; in Dravr's own app a tool that
+        // also serves a group's peers is left to its own gates.
+        Audience::Coach => (!caller.role.coach
+            && !caller.role.admin
+            && (caller.is_external() || !tool.serves_group_peers))
             .then_some(Withheld::Role(Audience::Coach)),
     }
 }
@@ -359,9 +391,9 @@ fn beyond_ceiling(
 
 /// Whether `caller` is offered the `athlete` argument on `tool`.
 ///
-/// On Dravr's own surfaces nothing changes: the argument is the tool's own,
-/// and chat refuses it itself. Externally it goes to a human coach alone, and
-/// never on a tool that writes: an external write that names an athlete is
+/// Only a human coach sees and passes it, on every transport (carnet#1511,
+/// Q16): anyone else's name would match no one they coach. Externally never
+/// on a tool that writes, either: an external write that names an athlete is
 /// refused for every role (carnet#1533).
 #[must_use]
 fn offers_athlete_argument(tool: &dyn RuntimeTool, caller: &Caller<'_>) -> bool {
@@ -370,35 +402,29 @@ fn offers_athlete_argument(tool: &dyn RuntimeTool, caller: &Caller<'_>) -> bool 
 
 /// [`offers_athlete_argument`] over a tool's capabilities.
 fn offers_athlete(capabilities: ToolCapabilities, caller: &Caller<'_>) -> bool {
-    !caller.is_external()
-        || (caller.role.coach && !capabilities.contains(ToolCapabilities::WRITES_DATA))
+    caller.role.coach
+        && (!caller.is_external() || !capabilities.contains(ToolCapabilities::WRITES_DATA))
 }
 
 /// Narrow a built listing to what `caller` is offered.
 ///
 /// Every tool [`withheld`] withholds goes, and so does the `athlete`
 /// property of every tool left that does not offer it: externally a human
-/// coach alone is offered it, and never on a tool that writes.
+/// coach alone is offered it, and never on a tool that writes. A tool that
+/// requires the argument goes whole for a caller not offered it: its every
+/// call would be refused.
 pub fn retain_offered(registry: &ToolRegistry, schemas: &mut Vec<ToolSchema>, caller: &Caller<'_>) {
     schemas.retain(|schema| {
         registry
             .get(&schema.name)
             .is_none_or(|tool| withheld(registry, &schema.name, tool.as_ref(), caller).is_none())
     });
-    for schema in schemas.iter_mut() {
+    schemas.retain_mut(|schema| {
         let offered = registry
             .get(&schema.name)
             .is_none_or(|tool| offers_athlete_argument(tool.as_ref(), caller));
-        if offered {
-            continue;
-        }
-        if let Some(properties) = &mut schema.input_schema.properties {
-            properties.remove(ATHLETE_ARGUMENT);
-        }
-        if let Some(required) = &mut schema.input_schema.required {
-            required.retain(|name| name != ATHLETE_ARGUMENT);
-        }
-    }
+        offered || strip_athlete_argument(&mut schema.input_schema)
+    });
 }
 
 /// The in-band refusal of a coach tool an external caller is not a coach
@@ -437,7 +463,9 @@ mod tests {
             audience,
             capabilities,
             exports_record: false,
+            serves_group_peers: false,
             data: None,
+            requires_athlete: false,
         }
     }
 
@@ -466,8 +494,53 @@ mod tests {
         }
     }
 
+    // carnet#1511: a tool whose every call names an athlete is offered
+    // exactly where the argument is, so no caller is offered a call that can
+    // only be refused.
     #[test]
-    fn the_coach_tools_go_externally_to_a_coach_and_an_admin_only() {
+    fn a_tool_that_requires_an_athlete_goes_only_where_the_argument_does() {
+        let link = Declared {
+            requires_athlete: true,
+            ..tool(ToolReach::AnyTransport, Audience::Athlete, WRITE)
+        };
+        let named_read = Declared {
+            requires_athlete: true,
+            ..tool(ToolReach::AnyTransport, Audience::Athlete, READ)
+        };
+        assert_eq!(
+            decide(named_read, &caller(COACH, &READ_ONLY, Transport::McpHttp)),
+            None,
+            "bug: a coach outside the app is offered a read that names an athlete"
+        );
+        assert_eq!(
+            decide(named_read, &caller(ADMIN, &READ_ONLY, Transport::McpHttp)),
+            Some(Withheld::Role(Audience::Coach)),
+            "bug: a non-coach is offered a read that names an athlete"
+        );
+        let grant = OAuthScope::self_grant();
+        assert_eq!(
+            decide(link, &caller(COACH, &grant, Transport::WebApp)),
+            None,
+            "bug: a coach in the app is offered it"
+        );
+        for (role, transport, why) in [
+            (ATHLETE, Transport::WebApp, Withheld::Role(Audience::Coach)),
+            (ADMIN, Transport::WebApp, Withheld::Role(Audience::Coach)),
+            (ADMIN, Transport::McpHttp, Withheld::Transport),
+            (ADMIN, Transport::A2a, Withheld::Transport),
+            (COACH, Transport::McpHttp, Withheld::Transport),
+            (COACH, Transport::ApiKey, Withheld::Transport),
+        ] {
+            assert_eq!(
+                decide(link, &caller(role, &grant, transport)),
+                Some(why),
+                "bug: {role:?} over {transport:?} is not offered the athlete it requires"
+            );
+        }
+    }
+
+    #[test]
+    fn the_coach_tools_go_to_a_coach_and_an_admin_only() {
         let roster = tool(ToolReach::AnyTransport, Audience::Coach, READ);
         assert_eq!(
             decide(roster, &caller(ATHLETE, &READ_ONLY, Transport::McpHttp)),
@@ -484,11 +557,52 @@ mod tests {
             None,
             "bug: an admin is offered the coach tools over A2A"
         );
-        assert_eq!(
-            decide(roster, &caller(ATHLETE, &READ_ONLY, Transport::WebApp)),
-            None,
-            "in Dravr's own app the tool's own gates decide"
-        );
+        for transport in [
+            Transport::WebApp,
+            Transport::MobileApp,
+            Transport::Messaging,
+        ] {
+            assert_eq!(
+                decide(roster, &caller(ATHLETE, &READ_ONLY, transport)),
+                Some(Withheld::Role(Audience::Coach)),
+                "bug: a non-coach is offered in Dravr's own app ({transport:?}) a coach tool \
+                 its gate refuses every call of (carnet#1511 I7)"
+            );
+            assert_eq!(
+                decide(roster, &caller(COACH, &READ_ONLY, transport)),
+                None,
+                "bug: a coach is offered the coach tools in Dravr's own app ({transport:?})"
+            );
+        }
+    }
+
+    // carnet#1511 I7: a coach tool that also serves a group's peers (a
+    // member's activities) stays offered in the app to whoever its own gates
+    // may answer, and goes externally to a coach or an admin alone.
+    #[test]
+    fn a_coach_tool_serving_peers_stays_offered_to_peers_in_the_app() {
+        let activities = Declared {
+            serves_group_peers: true,
+            ..tool(ToolReach::AnyTransport, Audience::Coach, READ)
+        };
+        for transport in [
+            Transport::WebApp,
+            Transport::MobileApp,
+            Transport::Messaging,
+        ] {
+            assert_eq!(
+                decide(activities, &caller(ATHLETE, &READ_ONLY, transport)),
+                None,
+                "bug: a peer is withheld a member's activities in the app ({transport:?})"
+            );
+        }
+        for transport in [Transport::McpHttp, Transport::A2a, Transport::ApiKey] {
+            assert_eq!(
+                decide(activities, &caller(ATHLETE, &READ_ONLY, transport)),
+                Some(Withheld::Role(Audience::Coach)),
+                "bug: a peer's sharing reached an outside assistant ({transport:?})"
+            );
+        }
     }
 
     #[test]
@@ -561,7 +675,7 @@ mod tests {
     }
 
     #[test]
-    fn the_athlete_argument_goes_externally_to_a_coach_on_reads_alone() {
+    fn the_athlete_argument_goes_to_a_coach_alone_and_externally_on_reads_alone() {
         let every = OAuthScope::self_grant();
         assert!(
             offers_athlete(READ, &caller(COACH, &every, Transport::McpHttp)),
@@ -580,8 +694,12 @@ mod tests {
             "bug: an athlete is not offered athlete= externally"
         );
         assert!(
-            offers_athlete(WRITE, &caller(ATHLETE, &every, Transport::WebApp)),
-            "bug: in the app the tool's own gates decide athlete="
+            !offers_athlete(WRITE, &caller(ATHLETE, &every, Transport::WebApp)),
+            "bug: in the app an athlete who coaches no one is offered athlete= (Q16)"
+        );
+        assert!(
+            offers_athlete(WRITE, &caller(COACH, &every, Transport::WebApp)),
+            "bug: in the app a coach names an athlete on their plan tools"
         );
     }
 

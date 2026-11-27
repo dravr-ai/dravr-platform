@@ -6,12 +6,16 @@
 
 //! Turn input and output types for [`super::run`].
 
+use std::collections::BTreeSet;
 use std::fmt;
 
-use pierre_core::models::{ConversationTurnId, InputSource, RoomQuote, TenantId, TurnOrigin};
+use pierre_core::models::{
+    CarriedRead, ConversationTurnId, InputSource, RoomQuote, TenantId, TurnOrigin,
+};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::TransportPolicy;
 use pierre_database::database::{ConversationRecord, MessageRecord};
+use pierre_tool_runtime::tool_access::CallerRole;
 
 use crate::envelope::QuotaState;
 use crate::next_steps::StepsAfter;
@@ -45,6 +49,12 @@ pub struct AmbientContext {
     /// The strictest stamp among the room entries the block quotes: a turn
     /// that reads it derives from them.
     pub transport_policy: TransportPolicy,
+    /// Every member read the block quotes: each quoted entry's author other
+    /// than the sender, coach and agent replies included, and every read the
+    /// entry itself carried, as it was read (carnet#1511 design call 8, call
+    /// 19). A turn that reads the block makes them, as it reads a member's
+    /// room card.
+    pub members: BTreeSet<CarriedRead>,
 }
 
 impl fmt::Debug for AmbientContext {
@@ -52,6 +62,7 @@ impl fmt::Debug for AmbientContext {
         f.debug_struct("AmbientContext")
             .field("text_len", &self.text.len())
             .field("transport_policy", &self.transport_policy)
+            .field("members", &self.members.len())
             .finish()
     }
 }
@@ -141,6 +152,12 @@ pub struct TurnInput {
     /// narrowed to, and what decides whether it may write to the athlete's
     /// memory.
     pub grant: Vec<OAuthScope>,
+    /// The caller's role the turn is decided for, read once and whole by
+    /// [`crate::turn_service::execute`] on every transport: an admin keeps
+    /// the coach tools in Dravr's own app too (carnet#1511 call 22). What the
+    /// turn's tool offer is built for and what its executors are bound to, so
+    /// the two read one value (carnet#1511, plan site 5).
+    pub role: CallerRole,
 }
 
 // The athlete's message and the room transcript are athlete text: only the
@@ -163,6 +180,7 @@ impl fmt::Debug for TurnInput {
             .field("mentioned_agent", &self.mentioned_agent)
             .field("steps_after", &self.steps_after)
             .field("grant", &self.grant)
+            .field("role", &self.role)
             .finish()
     }
 }

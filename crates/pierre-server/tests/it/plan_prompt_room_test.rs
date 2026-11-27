@@ -51,6 +51,7 @@ use pierre_memory::training_plans::{GoalRace, RacePriority};
 use pierre_tool_runtime::chat_catalogue::SwitchedOff;
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::tool_access::CallerRole;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -306,6 +307,7 @@ fn turn(conversation_id: &str, user: Uuid, tenant: TenantId, is_direct_message: 
         mentioned_agent: None,
         steps_after: None,
         grant: OAuthScope::self_grant(),
+        role: CallerRole::default(),
     }
 }
 
@@ -476,6 +478,7 @@ async fn the_headless_tool_surface_authors_a_save_as_the_turns_agent() {
     let surface = bridge.turn_surface(ToolSessionTurn {
         user_id: &user.to_string(),
         tenant_id: tenant,
+        conversation_tenant_id: tenant,
         conversation_id: "conv-under-test",
         turn_id: ConversationTurnId(Uuid::new_v4()),
         turn_agent_id: Some("taper-builder-agent"),
@@ -483,6 +486,7 @@ async fn the_headless_tool_surface_authors_a_save_as_the_turns_agent() {
         seat: TurnSeat::Subject,
         switched_off: &SwitchedOff::default(),
         grant: &OAuthScope::self_grant(),
+        role: CallerRole::default(),
     });
     let outcome = surface
         .call("save_training_plan", &taper_week_payload())

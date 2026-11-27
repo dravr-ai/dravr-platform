@@ -53,7 +53,7 @@ pub mod quota_policy;
 pub mod recorders;
 pub(crate) mod recovery;
 /// Relaying a web or mobile turn into its group's connected chat (carnet#1683, D2).
-mod room_relay;
+pub mod room_relay;
 pub mod stages;
 pub mod suggestions;
 /// Detached work, spawned with a watcher that reports how it failed.
@@ -62,6 +62,7 @@ pub mod surface_profile;
 pub(crate) mod team_offer;
 mod tool_budget;
 pub mod turn;
+mod turn_frames;
 mod turn_prompt;
 pub mod turn_service;
 pub mod turn_stop;
@@ -103,10 +104,10 @@ pub use turn::{TurnInput, UserMessageResult};
 use follow_through::persist_verdicts_for_turn;
 use follow_through::{finish_turn_follow_through, FinishTurnInputs};
 use pierre_core::uuid_utils::parse_uuid;
-use recovery::{run_recovery_and_post_process, RecoveryAndPostProcessInputs};
-
-use std::future::Future;
-use std::pin::Pin;
+use recovery::RecoveryAndPostProcessInputs;
+use turn_frames::{
+    answered_turn, dispatch_llm, recovered_and_post_processed, scoped_turn, BoxedStage,
+};
 
 use dravr_tronc::dates::Timestamp;
 use pierre_agui::AgUiEvent;
@@ -121,17 +122,15 @@ use pierre_llm::ChatMessage;
 use pierre_providers::ai_scope;
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_services::provider_notice;
-use pierre_tool_runtime::chat_catalogue::{self, SwitchedOff};
+use pierre_tool_runtime::chat_catalogue::{self, SwitchedOff, TurnReaders};
 use pierre_tool_runtime::coach_seat::TurnSeat;
-use pierre_tool_runtime::context::{TURN_ASK, TURN_DIRECT_MESSAGE};
+use pierre_tool_runtime::context::TURN_ASK;
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
 use tracing::{debug, info, warn};
 
 use stages::agent_session::{ensure_agent_session_attached, finalize_session_state};
 use stages::deterministic_reply::PLATFORM_REPLY_TRANSCRIPT_MARKER;
-use stages::persistence::{
-    append_platform_prompt, get_conversation_history, persist_assistant_response,
-};
+use stages::persistence::append_platform_prompt;
 use stages::provider_stop;
 use tool_budget::resolve_max_iterations;
 use turn_prompt::{store_turn_prompt, turn_ask};
@@ -183,14 +182,19 @@ async fn emit_step(hooks: &PipelineHooks<'_>, step: &str, status: &str) {
 
 /// Run [`stages::prompt_assembly::assemble_prompt_and_messages`] between
 /// AG-UI `STEP_STARTED`/`STEP_FINISHED`, outside [`run_turn`]'s complexity.
-async fn assemble_prompt_stage(
-    hooks: &PipelineHooks<'_>,
-    turn: stages::prompt_assembly::PromptTurn<'_>,
-) -> AppResult<stages::prompt_assembly::AssembledPrompt> {
-    emit_step_started(hooks, "prompt_assembly").await;
-    let result = stages::prompt_assembly::assemble_prompt_and_messages(turn).await;
-    emit_step_finished(hooks, "prompt_assembly").await;
-    result
+///
+/// Built and boxed here: its future would otherwise take a slot of the
+/// turn's frame under every later stage's polls ([`scoped_turn`]).
+fn assemble_prompt_stage<'a>(
+    hooks: &'a PipelineHooks<'_>,
+    turn: stages::prompt_assembly::PromptTurn<'a>,
+) -> BoxedStage<'a, AppResult<stages::prompt_assembly::AssembledPrompt>> {
+    Box::pin(async move {
+        emit_step_started(hooks, "prompt_assembly").await;
+        let result = stages::prompt_assembly::assemble_prompt_and_messages(turn).await;
+        emit_step_finished(hooks, "prompt_assembly").await;
+        result
+    })
 }
 
 /// The tool that persists a training plan.
@@ -234,6 +238,8 @@ struct DispatchStageArgs<'a> {
     turn_agent_id: Option<&'a str>,
     /// Whose data the turn's tools run against (see `DispatchLlmInputs::seat`).
     seat: TurnSeat,
+    /// Who reads what the turn writes (see `DispatchLlmInputs::readers`).
+    readers: TurnReaders,
     /// What an admin switched off for the sender (see
     /// `DispatchLlmInputs::switched_off`).
     switched_off: &'a SwitchedOff,
@@ -243,6 +249,9 @@ struct DispatchStageArgs<'a> {
 }
 
 /// Run the dispatch stage with AG-UI step emissions.
+///
+/// The tool loop inside it is built and boxed in a frame of its own
+/// (`turn_frames`): it is the deepest part of a turn.
 async fn dispatch_stage(
     args: DispatchStageArgs<'_>,
     llm_messages: &mut Vec<ChatMessage>,
@@ -250,7 +259,7 @@ async fn dispatch_stage(
     emit_step_started(args.hooks, "dispatch").await;
     let max_iterations =
         resolve_max_iterations(args.profile.budget, args.ctx, args.agent_ctx).await;
-    let result = stages::tool_dispatch::dispatch_llm_with_tools(
+    let result = dispatch_llm(
         stages::tool_dispatch::DispatchLlmInputs {
             ctx: args.ctx,
             input: args.input,
@@ -264,6 +273,7 @@ async fn dispatch_stage(
             peer_roster: args.peer_roster,
             turn_agent_id: args.turn_agent_id,
             seat: args.seat,
+            readers: args.readers,
             switched_off: args.switched_off,
             defer_tools: args.defer_tools,
         },
@@ -275,6 +285,7 @@ async fn dispatch_stage(
     emit_step_finished(args.hooks, "dispatch").await;
     result
 }
+
 /// Pick the `call_type` string used for per-LLM-call `llm_usage` rows
 /// produced by the chat pipeline.
 pub(crate) fn call_type_for_profile(profile: &SurfaceProfile) -> &'static str {
@@ -367,13 +378,7 @@ pub async fn run(
         ai_scope::posts_to_group_chat(ai_scope::declared_transport(), input.is_direct_message);
     let outcome = ai_scope::for_model(ai_scope::with_ai_consent(
         consent_withheld,
-        Box::pin(ai_scope::for_group_chat(
-            group_chat,
-            TURN_DIRECT_MESSAGE.scope(
-                Some(input.is_direct_message),
-                run_turn(ctx, input, profile, hooks),
-            ),
-        )),
+        scoped_turn(ctx, input, profile, hooks, group_chat),
     ))
     .await;
 
@@ -550,15 +555,12 @@ async fn run_turn(
     // What the turn's calls hand to its end runs once the turn is answered,
     // however it was: the writes that handed it over landed (carnet#1702).
     let turn_end = stages::turn_end::TurnEndRun::of(&input);
-    // Erased behind `dyn`: the rest of the turn is the deepest future the
-    // pipeline builds, and every caller proving its own `Send` would walk it.
-    let answer: Pin<Box<dyn Future<Output = AppResult<TurnEnvelope>> + Send + '_>> =
-        Box::pin(async move {
-            let answered = answer_stored_turn(ctx, input, profile, hooks, msg_result).await;
-            turn_end.run(ctx).await;
-            answered
-        });
-    TURN_ASK.scope(Some(ask), answer).await
+    TURN_ASK
+        .scope(
+            Some(ask),
+            answered_turn(ctx, input, profile, hooks, msg_result, turn_end),
+        )
+        .await
 }
 
 /// The body of a turn once its prompt is stored.
@@ -656,51 +658,14 @@ async fn answer_stored_turn(
         }
     }
 
-    // Stage 5: Load conversation history for LLM context. Bound the load to a
-    // generous multiple of the compaction message cap so a long thread loads
-    // its recent working set, not its full unbounded history (a 200-turn thread
-    // would otherwise build a 200-message vector every turn before compaction
-    // trims it to the cap). The multiple leaves headroom above `max_messages`
-    // for compaction-block reconstruction; compaction still governs the final
-    // in-prompt size.
-    let history_load_limit = i64::try_from(
-        ctx.harness_config_registry
-            .current_compaction()
-            .max_messages
-            .saturating_mul(4)
-            .clamp(80, 500),
-    )
-    .unwrap_or(160);
-    // The group members whose rows the turn may replay: those its sender may
-    // still read (carnet#1174). Every other member's rows, and summaries of
-    // them, stay out of the prompt.
-    let readable_about = stages::history_scope::readable_about(
-        &ctx.repos,
-        &conv,
-        &input.user_id,
-        input.conversation_tenant_id,
-    )
-    .await;
-    let mut history = get_conversation_history(
-        database,
-        &input.conversation_id,
-        &input.user_id,
-        input.conversation_tenant_id,
-        history_load_limit,
-        &readable_about,
-    )
-    .await?;
-
-    // The Garmin attribution closing an earlier reply is the platform's, not
-    // something the model says: it never reads it back (carnet#1464).
-    stages::source_attribution::strip_from_history(ctx, &mut history);
-
-    // What of the history the turn may read: an external turn in a
-    // first-party-only thread, or a coach's athlete thread the gates refuse,
-    // reads only its own new message (`history_scope`).
-    let subject_turn =
-        stages::history_scope::scope_history(ctx, &input, &conv, &user_message.id, &mut history)
-            .await?;
+    // Stage 5: Load the conversation history the turn may replay.
+    let stages::history_scope::LoadedHistory {
+        mut history,
+        replay: replay_scope,
+        subject_turn,
+    } = stages::history_scope::load_history(ctx, &input, &conv, &user_message.id).await?;
+    let readable_about = replay_scope.readable_about();
+    let recorded_only = replay_scope.recorded_only();
 
     append_platform_prompt(&mut history, &user_message, input.origin);
 
@@ -735,7 +700,8 @@ async fn answer_stored_turn(
             history: &history,
             onboarding: onboarding_turn.as_ref(),
             subject_turn,
-            readable_about: &readable_about,
+            readable_about,
+            recorded_only,
         },
     )
     .await?;
@@ -762,7 +728,9 @@ async fn answer_stored_turn(
             guided_flow_active: onboarding_turn.is_some(),
             peer_roster: &group_roster,
             turn_agent_id: input.turn_agent_id(&conv),
-            seat,
+            // The seat the tools run on (carnet#1511 call 30).
+            seat: standing.tools,
+            readers: standing.readers,
             switched_off: &switched_off,
             defer_tools,
         },
@@ -773,7 +741,7 @@ async fn answer_stored_turn(
     // Stages 14b–18: capability recovery, the provider re-auth recovery short-circuit,
     // then either skip post-processing (recovery content is already canonical) or run the
     // standard withhold/guardrails/verification/hook chain on LLM-produced text.
-    let (post_processed, reconnect) = run_recovery_and_post_process(
+    let (post_processed, reconnect) = recovered_and_post_processed(
         RecoveryAndPostProcessInputs {
             ctx,
             input: &input,
@@ -906,9 +874,10 @@ async fn answer_stored_turn(
         // Stamped with what the turn served so far (carnet#769).
         transport_policy: ai_scope::derived_policy(),
         channel_type: Some(profile.surface.wire_channel()),
-        // A reply drawn from one member's data names them as their tool rows
-        // do (carnet#1174); one drawn from several members is about nobody.
-        about_user_id: ai_scope::derived_member(),
+        // A reply drawn from a group member's data restates it: it carries
+        // every read the turn made, beside the row (carnet#1174,
+        // carnet#1422, carnet#1511 call 19), never in `about_user_id`.
+        about_user_id: None,
         turn_attempted_write: Some(result.attempted_write(ctx.tool_runtime.tool_registry())),
         ai_consent_sources: &ai_scope::derived_consent_sources(),
     };
@@ -919,10 +888,11 @@ async fn answer_stored_turn(
     // ahead of the reply drawn from them.
     tool_rounds.persist_held().await;
     let (assistant_message, updated_conversation) = science_notes
-        .told_once(persist_assistant_response(
+        .told_once(stages::persistence::persist_assistant_response_about(
             database,
             ctx.repos.groups.as_ref(),
             &assistant_params,
+            &stages::persistence::turn_reads(),
             input.conversation_tenant_id,
             input.origin,
         ))
@@ -935,7 +905,7 @@ async fn answer_stored_turn(
         profile.surface,
         input.origin,
         &updated_conversation,
-        &input.user_id,
+        (&input.user_id, &assistant_message.id),
         &persisted_assistant_content,
     )
     .await;

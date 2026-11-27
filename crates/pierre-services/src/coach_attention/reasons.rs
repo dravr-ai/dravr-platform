@@ -4,13 +4,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use dravr_tronc::dates::{CivilDate, Timestamp, Zone};
 use pierre_config::coach_home::CoachHomeConfig;
 use pierre_core::civil_time;
 use pierre_core::models::FormBand;
 use serde_json::Value;
+
+use crate::missed_sessions::{self, MissedRun, PlannedVsDone};
 
 use super::{
     season_view, AttentionAction, AttentionEvidence, AttentionHorizon, AttentionInputs,
@@ -25,10 +27,13 @@ const TIER_CONSENT: u32 = TIER;
 const TIER_VERIFICATION: u32 = 2 * TIER;
 const TIER_SOURCE: u32 = 3 * TIER;
 const TIER_FATIGUE: u32 = 4 * TIER;
-const TIER_DRAFT: u32 = 5 * TIER;
-const TIER_NEW_MEMBER: u32 = 6 * TIER;
-const TIER_PLAN_ENDED: u32 = 7 * TIER;
-const TIER_QUIET: u32 = 8 * TIER;
+/// First of the week (Phil, 2026-11-26): before the plan states, and before
+/// the quiet days it would otherwise restate.
+const TIER_MISSED: u32 = 5 * TIER;
+const TIER_DRAFT: u32 = 6 * TIER;
+const TIER_NEW_MEMBER: u32 = 7 * TIER;
+const TIER_PLAN_ENDED: u32 = 8 * TIER;
+const TIER_QUIET: u32 = 9 * TIER;
 
 /// The within-tier offset that puts the largest `count` first.
 fn largest_first(count: u32) -> u32 {
@@ -498,4 +503,229 @@ fn plan_ended(plan: &PlanSignals, view: &SeasonView) -> Option<AttentionReason> 
         fingerprint: format!("{}:{}", plan.plan_id, ended),
         dismissed_at: None,
     })
+}
+
+/// `planned_sessions_missed` once the run of missed planned days reached its threshold.
+///
+/// carnet#1792. Its lines are how many of the sessions planned over the
+/// window read have no matching activity, one line per session of the run,
+/// and the athlete's last wellness note when their coach may read it. A check
+/// switched off, or one whose calendar could not be read, raises nothing: the
+/// brief counts those, and an unread calendar is never a miss.
+pub(super) fn planned_sessions_missed(check: &PlannedVsDone) -> Option<AttentionReason> {
+    let PlannedVsDone::Read {
+        read_at,
+        run: Some(run),
+        wellness,
+    } = check
+    else {
+        return None;
+    };
+    let last = run.days.last().copied()?;
+    let mut evidence = vec![window_count(run, *read_at)];
+    evidence.extend(run.sessions.iter().map(|session| AttentionEvidence {
+        key: "coachHome.evidence.plannedSessionUnmatched",
+        params: params([
+            ("date", day(session.date)),
+            (
+                "sport",
+                Value::String(missed_sessions::sport_name(&session.sport)),
+            ),
+        ]),
+        source: session.provider.as_ref().map_or_else(
+            || EvidenceSource::of(EvidenceSourceKind::Plan),
+            |provider| EvidenceSource::with(EvidenceSourceKind::Provider, vec![provider.clone()]),
+        ),
+        at: *read_at,
+    }));
+    evidence.extend(wellness.iter().map(|note| AttentionEvidence {
+        key: "coachHome.evidence.wellnessNote",
+        params: params([
+            ("date", day(note.date)),
+            ("note", Value::String(note.text.clone())),
+        ]),
+        source: EvidenceSource::of(EvidenceSourceKind::Wellness),
+        at: *read_at,
+    }));
+    let days = u32::try_from(run.days.len()).unwrap_or(u32::MAX);
+    let kind = AttentionKind::PlannedSessionsMissed;
+    Some(AttentionReason {
+        id: kind.as_str().to_owned(),
+        kind,
+        horizon: AttentionHorizon::Week,
+        rank: TIER_MISSED + largest_first(days),
+        key: "coachHome.reason.plannedSessionsMissed",
+        params: params([
+            ("count", Value::from(days)),
+            ("missed", Value::from(run.missed)),
+            ("planned", Value::from(run.planned)),
+            ("date", day(run.since)),
+        ]),
+        evidence,
+        action: AttentionAction::WriteToAthlete,
+        target: AttentionTarget::default(),
+        // A new missed day lengthens the run and brings a handled reason back.
+        fingerprint: format!("{last}:{days}"),
+        dismissed_at: None,
+    })
+}
+
+/// How many of the sessions judged over the window have no matching
+/// activity, read from the calendars that paired them and the plan.
+fn window_count(run: &MissedRun, read_at: Timestamp) -> AttentionEvidence {
+    let calendars: BTreeSet<String> = run
+        .sessions
+        .iter()
+        .filter_map(|session| session.provider.clone())
+        .collect();
+    AttentionEvidence {
+        key: "coachHome.evidence.plannedSessionsUnmatched",
+        params: params([
+            ("missed", Value::from(run.missed)),
+            ("planned", Value::from(run.planned)),
+            ("date", day(run.since)),
+        ]),
+        source: EvidenceSource::with(EvidenceSourceKind::Plan, calendars.into_iter().collect()),
+        at: read_at,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use dravr_tronc::dates::{CivilDate, Timestamp};
+    use pierre_core::models::SportType;
+
+    use super::*;
+    use crate::missed_sessions::{JudgedSession, Verdict, WellnessNote};
+
+    fn date(s: &str) -> CivilDate {
+        CivilDate::parse_from_str(s, "%Y-%m-%d").unwrap()
+    }
+
+    fn read_at() -> Timestamp {
+        Timestamp::parse_from_rfc3339("2026-10-30T06:30:00Z").unwrap()
+    }
+
+    /// A check that found Saturday (paired by intervals.icu) and Monday (a
+    /// Dravr plan day) missed, after a done Thursday.
+    fn missed_check(wellness: Option<WellnessNote>) -> PlannedVsDone {
+        let session = |day: &str, provider: Option<&str>| JudgedSession {
+            date: date(day),
+            sport: SportType::Run,
+            provider: provider.map(str::to_owned),
+            verdict: Verdict::Missed,
+        };
+        PlannedVsDone::Read {
+            read_at: read_at(),
+            run: Some(MissedRun {
+                days: vec![date("2026-10-24"), date("2026-10-26")],
+                sessions: vec![
+                    session("2026-10-24", Some("intervals_icu")),
+                    session("2026-10-26", None),
+                ],
+                since: date("2026-10-22"),
+                planned: 3,
+                missed: 2,
+            }),
+            wellness,
+        }
+    }
+
+    #[test]
+    fn a_run_of_missed_planned_days_is_a_week_reason_with_counts_and_evidence() {
+        let note = WellnessNote {
+            date: date("2026-10-27"),
+            text: "tired".to_owned(),
+        };
+        let reason = planned_sessions_missed(&missed_check(Some(note))).unwrap();
+        assert_eq!(
+            reason.kind,
+            AttentionKind::PlannedSessionsMissed,
+            "bug: the run raised another kind"
+        );
+        assert_eq!(
+            reason.horizon,
+            AttentionHorizon::Week,
+            "bug: missed sessions are not a week reason"
+        );
+        assert_eq!(
+            reason.key, "coachHome.reason.plannedSessionsMissed",
+            "bug: the reason's line key changed"
+        );
+        assert_eq!(
+            reason.params["count"], 2,
+            "bug: count is not the run's missed planned days"
+        );
+        assert_eq!(
+            reason.params["missed"], 2,
+            "bug: missed is not the window's missed sessions"
+        );
+        assert_eq!(
+            reason.params["planned"], 3,
+            "bug: planned is not the window's judged sessions"
+        );
+        assert_eq!(
+            reason.params["date"], "2026-10-22",
+            "bug: date is not the window's first judged day"
+        );
+        assert_eq!(
+            reason.fingerprint, "2026-10-26:2",
+            "bug: the fingerprint is not the run's last day and length"
+        );
+        let keys: Vec<&str> = reason.evidence.iter().map(|line| line.key).collect();
+        assert_eq!(
+            keys,
+            [
+                "coachHome.evidence.plannedSessionsUnmatched",
+                "coachHome.evidence.plannedSessionUnmatched",
+                "coachHome.evidence.plannedSessionUnmatched",
+                "coachHome.evidence.wellnessNote",
+            ],
+            "bug: the evidence is not the count, one line per missed session, then the note"
+        );
+        assert_eq!(
+            reason.evidence[0].source.providers,
+            ["intervals_icu"],
+            "bug: the count line does not name the calendar that paired a session"
+        );
+        assert_eq!(
+            reason.evidence[1].source.kind,
+            EvidenceSourceKind::Provider,
+            "bug: a session the calendar paired is not sourced to it"
+        );
+        assert_eq!(
+            reason.evidence[2].source.kind,
+            EvidenceSourceKind::Plan,
+            "bug: a Dravr plan day is not sourced to the plan"
+        );
+        assert_eq!(
+            reason.evidence[2].params["sport"], "run",
+            "bug: the sport is not its wire name"
+        );
+        assert_eq!(
+            reason.evidence[3].params["note"], "tired",
+            "bug: the wellness note is not quoted as the athlete wrote it"
+        );
+        assert_eq!(
+            reason.evidence[3].source.kind,
+            EvidenceSourceKind::Wellness,
+            "bug: the note is not sourced to the athlete's wellness"
+        );
+    }
+
+    #[test]
+    fn a_check_switched_off_unread_or_without_a_run_raises_nothing() {
+        let quiet = PlannedVsDone::Read {
+            read_at: read_at(),
+            run: None,
+            wellness: None,
+        };
+        for check in [PlannedVsDone::Off, PlannedVsDone::Unreadable, quiet] {
+            assert_eq!(
+                planned_sessions_missed(&check),
+                None,
+                "bug: a check with no run raised the reason: {check:?}"
+            );
+        }
+    }
 }

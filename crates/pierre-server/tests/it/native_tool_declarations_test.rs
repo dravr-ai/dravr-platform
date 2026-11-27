@@ -29,8 +29,9 @@ use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_tool_runtime::chat_catalogue::{
     self, build_mcp_tools, defer_beyond_core, SwitchedOff, LOADED_CORE,
 };
-use pierre_tool_runtime::coach_seat::TurnSeat;
+use pierre_tool_runtime::coach_seat::{MemberReads, TurnSeat};
 use pierre_tool_runtime::registry::ToolRegistry;
+use pierre_tool_runtime::tool_access::CallerRole;
 use std::sync::Arc;
 
 fn full_registry() -> Arc<ToolRegistry> {
@@ -417,8 +418,18 @@ fn on_the_coachs_seat_nothing_is_deferred() {
         &registry,
         TurnSeat::Coach,
         &SwitchedOff::default(),
-        Some(Transport::WebApp),
-        &OAuthScope::self_grant(),
+        chat_catalogue::OfferedTo {
+            transport: Some(Transport::WebApp),
+            grant: &OAuthScope::self_grant(),
+            // The role the turn service resolves in the app for a human
+            // coach, who alone holds the coach's seat with coach access.
+            role: CallerRole {
+                admin: false,
+                coach: true,
+            },
+            readers: chat_catalogue::TurnReaders::CallerAlone,
+            member_reads: MemberReads::default(),
+        },
         &ServerConfig::default(),
     ));
     assert!(
@@ -443,5 +454,95 @@ fn on_the_coachs_seat_nothing_is_deferred() {
             .filter(|decl| decl.defer_loading)
             .map(|decl| decl.name.as_str())
             .collect::<Vec<_>>()
+    );
+}
+
+/// carnet#1422: no declaration a chat turn is offered requires an argument
+/// it does not declare. Every listing that withholds `athlete` takes it out
+/// of `properties` and `required` together, in every room, over every
+/// transport, for every seat and role: a tool whose `athlete` is required
+/// (`propose_athlete_link`) declared without it tells the model the call
+/// needs what it cannot send, and a strict provider rejects the whole array.
+#[test]
+fn no_offered_declaration_requires_an_argument_it_does_not_declare() {
+    let registry = full_registry();
+    let config = ServerConfig::default();
+    let transports = [
+        Some(Transport::WebApp),
+        Some(Transport::MobileApp),
+        Some(Transport::Messaging),
+        Some(Transport::PlatformJob),
+        Some(Transport::McpHttp),
+        Some(Transport::A2a),
+        Some(Transport::ApiKey),
+        None,
+    ];
+    let readers = [
+        chat_catalogue::TurnReaders::CallerAlone,
+        chat_catalogue::TurnReaders::CoachedRoom,
+        chat_catalogue::TurnReaders::GroupRoom,
+        chat_catalogue::TurnReaders::Others,
+    ];
+    let roles = [
+        CallerRole::default(),
+        CallerRole {
+            admin: false,
+            coach: true,
+        },
+        CallerRole {
+            admin: true,
+            coach: false,
+        },
+        CallerRole {
+            admin: true,
+            coach: true,
+        },
+    ];
+    let grants = [
+        OAuthScope::self_grant(),
+        vec![OAuthScope::FitnessRead, OAuthScope::ProfileRead],
+    ];
+    let mut checked = 0_usize;
+    let mut malformed = Vec::new();
+    for transport in transports {
+        for seat in [TurnSeat::Subject, TurnSeat::Coach, TurnSeat::AthleteThread] {
+            for role in roles {
+                for readers in readers {
+                    for grant in &grants {
+                        let schemas = chat_catalogue::offered_schemas(
+                            &registry,
+                            seat,
+                            &SwitchedOff::default(),
+                            chat_catalogue::OfferedTo {
+                                transport,
+                                grant,
+                                role,
+                                readers,
+                                member_reads: MemberReads::default(),
+                            },
+                            &config,
+                        );
+                        for schema in schemas {
+                            checked += 1;
+                            let declared = schema.input_schema.properties.as_ref();
+                            for name in schema.input_schema.required.iter().flatten() {
+                                if !declared.is_some_and(|properties| properties.contains_key(name))
+                                {
+                                    malformed.push(format!(
+                                        "{transport:?}/{seat:?}/{role:?}/{readers:?}: {} requires `{name}`",
+                                        schema.name
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(checked > 0, "premise: the listings offered tools to check");
+    assert!(
+        malformed.is_empty(),
+        "a declaration requires an argument it does not declare: {malformed:#?}"
     );
 }

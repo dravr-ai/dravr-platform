@@ -19,7 +19,7 @@
 use crate::common;
 use crate::helpers;
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -44,8 +44,9 @@ use pierre_core::models::groups::{
     NewGroupTranscriptEntry, RoomEntryBody, RoomTranscriptEntry, TranscriptSpeaker,
 };
 use pierre_core::models::messaging::ChannelType;
-use pierre_core::models::{ConnectionType, TenantId};
+use pierre_core::models::{CarriedRead, ConnectionType, TenantId};
 use pierre_core::transport::TransportPolicy;
+use pierre_database::repositories::ReadableReads;
 use pierre_database::RepositoryRegistry;
 use pierre_llm::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, StreamChunk,
@@ -491,11 +492,15 @@ impl Fixture {
     /// athlete's own entries readable while she shares with the coach, every
     /// other entry in its place.
     async fn room(&self) -> Vec<RoomTranscriptEntry> {
-        self.repos()
-            .groups
-            .list_room_transcript_for(&self.group.id.to_string(), self.coach.id, None, 500)
-            .await
-            .unwrap()
+        helpers::room_reads::room_page(
+            self.repos(),
+            &self.group.id.to_string(),
+            self.coach.id,
+            None,
+            500,
+        )
+        .await
+        .unwrap()
     }
 
     /// The athlete's room conversation, as they open it from the group.
@@ -642,12 +647,11 @@ async fn room_entry_written(
             source_conversation_id: None,
             source_message_id: None,
             transport_policy: written.policy,
+            carried: &[],
         })
         .await
         .unwrap();
-    repos
-        .groups
-        .list_room_transcript_for(&group_id, author.id, None, 500)
+    helpers::room_reads::room_page(repos, &group_id, author.id, None, 500)
         .await
         .unwrap()
         .into_iter()
@@ -951,6 +955,11 @@ async fn a_quoting_row_carries_the_quoted_entrys_stamp() {
             fx.coach.tenant,
             None,
             100,
+            // The coach's own row: a typed row is withheld by no read.
+            ReadableReads {
+                keys: &[],
+                author: None,
+            },
         )
         .await
         .unwrap();
@@ -1000,6 +1009,24 @@ async fn a_quoting_row_and_its_reply_name_the_quoted_athlete() {
         .get_messages(&fx.thread, &fx.coach.id.to_string(), fx.coach.tenant)
         .await
         .unwrap();
+    // The one member each row carries a read of (carnet#1511 call 19: the
+    // link rows are the one carrier), `None` for none or several.
+    let reads = fx
+        .repos()
+        .chat
+        .list_member_reads(&fx.thread, &fx.coach.id.to_string(), fx.coach.tenant)
+        .await
+        .unwrap();
+    let carried = |row: &str| -> Option<Uuid> {
+        let members: BTreeSet<Uuid> = reads
+            .iter()
+            .filter(|read| read.message_id == row)
+            .filter_map(|read| CarriedRead::from_key(&read.key).map(|read| read.member))
+            .collect();
+        (members.len() == 1)
+            .then(|| members.into_iter().next())
+            .flatten()
+    };
     // Each question with the member it and its reply are about.
     let about = |question: &str| {
         let at = rows
@@ -1010,7 +1037,7 @@ async fn a_quoting_row_and_its_reply_name_the_quoted_athlete() {
             .iter()
             .find(|m| m.role == "assistant")
             .unwrap_or_else(|| panic!("the reply to {question:?}: {rows:?}"));
-        (rows[at].about_user_id, reply.about_user_id)
+        (carried(&rows[at].id), carried(&reply.id))
     };
     assert_eq!(
         about(COACH_ASK),
@@ -1761,11 +1788,10 @@ async fn a_rebound_thread_says_the_publish_where_it_was_last_opened() {
         first_before,
         "the group the thread was rebound away from hears nothing"
     );
-    let second_room = repos
-        .groups
-        .list_room_transcript_for(&second.id.to_string(), fx.coach.id, None, 500)
-        .await
-        .unwrap();
+    let second_room =
+        helpers::room_reads::room_page(repos, &second.id.to_string(), fx.coach.id, None, 500)
+            .await
+            .unwrap();
     assert_eq!(
         second_room.len(),
         1,

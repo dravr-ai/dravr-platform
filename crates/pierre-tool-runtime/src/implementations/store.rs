@@ -31,7 +31,7 @@
 
 use crate::annotations::{annotations, Effect, Reach};
 use crate::read_subject::DataClass;
-use crate::tool_data::ToolData;
+use crate::tool_data::{ToolData, WriteKind};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -471,5 +471,6 @@ crate::declare_security!(
 );
 crate::declare_security!(
     InstallAgentFromStoreTool => empty; first_party_only,
-    reads: ToolData::own(&[]),
+    reads: ToolData::own(&[])
+        .writes(WriteKind::Structured),
 );

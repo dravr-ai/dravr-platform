@@ -282,6 +282,14 @@ async fn a_blocked_call_in_a_chat_batch_is_reported_as_never_run() {
 
     let outcome = execute_function_calls(
         &executor,
+        &Tool {
+            function_declarations: ["get_connection_status", "disconnect_provider"]
+                .into_iter()
+                .map(|name| {
+                    pierre_llm::FunctionDeclaration::new(name.to_owned(), String::new(), None)
+                })
+                .collect(),
+        },
         &calls,
         &user_id.to_string(),
         TenantId::from_uuid(Uuid::new_v4()),

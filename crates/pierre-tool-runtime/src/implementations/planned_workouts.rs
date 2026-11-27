@@ -79,7 +79,7 @@ use async_trait::async_trait;
 use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{
-    ConnectionStatus, ConversationRecord, PlannedWorkout, PlannedWorkoutBuilder,
+    ConnectionStatus, ConversationRecord, PlannedCalendar, PlannedWorkout, PlannedWorkoutBuilder,
     ProviderAccountRole, ProviderConnection, TenantId, WorkoutStep,
 };
 use pierre_core::untrusted::{display_line, fence_athlete_text, ACTIVITY_NAME_MAX_CHARS};
@@ -91,6 +91,7 @@ use pierre_providers::spi::ProviderCapabilities;
 use pierre_providers::{CoreFitnessProvider, ProviderRegistry};
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::coach_platform::coach_platform;
+use pierre_services::delegation_refusal::Refusal;
 use pierre_services::provider_notice;
 use pierre_tools_core::ToolResult;
 use serde::Serialize;
@@ -169,8 +170,9 @@ pub struct UnavailableCalendar {
 
 /// How one provider's calendar read ended.
 enum CalendarRead {
-    /// The workouts its calendar plans over the window.
-    Planned(Vec<PlannedWorkout>),
+    /// The workouts its calendar plans over the window, and the pairing of
+    /// the events Dravr pushed there.
+    Planned(PlannedCalendar),
     /// Its session is dead: the error carries the reconnect signal.
     Reconnect(AppError),
     /// It refused: `error` says why, `answer` is the refusal as a read of
@@ -302,9 +304,11 @@ impl McpTool<dyn ToolRuntime> for GetPlannedWorkoutsTool {
             };
             if let [backend] = backends.as_slice() {
                 return match reader.read(backend).await? {
-                    CalendarRead::Planned(workouts) => {
-                        reader.answer(vec![user_facing_name(backend).to_owned()], vec![], workouts)
-                    }
+                    CalendarRead::Planned(calendar) => reader.answer(
+                        vec![user_facing_name(backend).to_owned()],
+                        vec![],
+                        calendar.planned,
+                    ),
                     // A dead session keeps its code: the executor re-raises it
                     // and the chat pipeline mints the reconnect link.
                     CalendarRead::Reconnect(dead) => Err(dead),
@@ -362,7 +366,7 @@ async fn coach_read(
 ) -> AppResult<Result<(CalendarReader, Vec<String>), ToolResult>> {
     let repos = context.resources.repos();
     if let Some(refused) =
-        room_refusal_in(context, conversation, "Read an athlete's planned calendar")
+        room_refusal_in(context, conversation, "Read an athlete's planned calendar").await
     {
         return Ok(Err(refused));
     }
@@ -560,8 +564,8 @@ impl CalendarReader {
             Err(ended) => return Ok(ended),
         };
         Ok(
-            match provider.list_planned_workouts(self.start, self.end).await {
-                Ok(workouts) => CalendarRead::Planned(workouts),
+            match provider.read_planned_calendar(self.start, self.end).await {
+                Ok(calendar) => CalendarRead::Planned(calendar),
                 Err(e) => {
                     let auth = &self.executor.auth_service;
                     match seat {
@@ -626,8 +630,8 @@ impl CalendarReader {
         for backend in backends {
             let provider = user_facing_name(backend).to_owned();
             match self.read(backend).await? {
-                CalendarRead::Planned(planned) => {
-                    workouts.extend(planned);
+                CalendarRead::Planned(calendar) => {
+                    workouts.extend(calendar.planned);
                     providers.push(provider);
                 }
                 CalendarRead::Reconnect(dead) => {
@@ -927,6 +931,96 @@ fn has_planned_calendar(registry: &ProviderRegistry, backend: &str) -> bool {
     registry
         .get_capabilities(backend)
         .is_some_and(|caps| caps.supports_planned_workouts())
+}
+
+/// A coached athlete's planned calendars as the missed-session check reads
+/// them (carnet#1792).
+#[derive(Debug, Default)]
+pub(crate) struct CoachedCalendars {
+    /// Each calendar read: its provider (`intervals_icu`) and what it holds.
+    pub(crate) read: Vec<(String, PlannedCalendar)>,
+    /// A calendar the coach reaches could not be read: their own session on
+    /// it needs reconnecting, or the read failed. The check then judges
+    /// nothing, since an absent completion never answers a read that did not
+    /// happen.
+    pub(crate) failed: bool,
+}
+
+/// Read every planned calendar of `athlete` that `coach` reaches on a coaching platform.
+///
+/// Over `[start, end]`, in the athlete's home `tenant`, as the coach's own
+/// `get_planned_workouts` reads it: through the coach's seat there, under the
+/// athlete's AI consents (carnet#1419).
+///
+/// A calendar the coach does not reach (no link, no account of their own
+/// there, another coach's link) is not read and not counted: the check sees
+/// what the coach would see. One the coach reaches but cannot read marks
+/// [`CoachedCalendars::failed`].
+///
+/// # Errors
+///
+/// Returns a repository error from the connections or the coach reader's
+/// decision, or the error of building a reader.
+pub(crate) async fn read_coached_calendars(
+    resources: &Arc<dyn ToolRuntime>,
+    coach: Uuid,
+    athlete: Uuid,
+    tenant: TenantId,
+    (start, end): (CivilDate, CivilDate),
+) -> AppResult<CoachedCalendars> {
+    let registry = resources.provider_registry();
+    let connections = resources
+        .repos()
+        .provider_connections
+        .get_for_user(athlete, Some(tenant))
+        .await?;
+    let backends: BTreeMap<&str, &str> = connections
+        .iter()
+        .filter(|connection| {
+            has_planned_calendar(registry, &connection.provider)
+                && coach_platform(registry, &connection.provider).is_some()
+        })
+        .map(|connection| {
+            (
+                user_facing_name(&connection.provider),
+                connection.provider.as_str(),
+            )
+        })
+        .collect();
+    let mut calendars = CoachedCalendars::default();
+    for (name, backend) in backends {
+        let reader = CalendarReader {
+            executor: UniversalExecutor::new(Arc::clone(resources)),
+            reader: Reader::Coach {
+                coach,
+                athlete: athlete.to_string(),
+            },
+            user_id: athlete,
+            tenant,
+            start,
+            end,
+        };
+        match reader.read(backend).await? {
+            CalendarRead::Planned(calendar) => calendars.read.push((backend.to_owned(), calendar)),
+            CalendarRead::Reconnect(_) => calendars.failed = true,
+            CalendarRead::Refused { answer, .. } => {
+                // A refusal before any read names its reason; only a coach
+                // whose own session there needs reconnecting reaches the
+                // calendar. A read the provider refused names none.
+                let reason = answer.get("reason").and_then(Value::as_str);
+                if reason.is_none_or(|reason| reason == Refusal::ReconnectNeeded.as_str()) {
+                    warn!(
+                        coach = %coach,
+                        athlete = %athlete,
+                        provider = name,
+                        "missed-session check: a calendar the coach reaches could not be read"
+                    );
+                    calendars.failed = true;
+                }
+            }
+        }
+    }
+    Ok(calendars)
 }
 
 /// The providers with a planned calendar, as "Brand (name)" for a refusal

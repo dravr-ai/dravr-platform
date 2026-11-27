@@ -53,6 +53,8 @@ use pierre_auth::google_oidc::{google_callback_url, GoogleOidcClient};
 use pierre_routes_identity::GoogleSignIn;
 use pierre_services::auth::AuthService;
 #[cfg(feature = "protocol-rest")]
+use pierre_tool_runtime::read_subject::may_read_others;
+#[cfg(feature = "protocol-rest")]
 use tracing::info;
 
 #[cfg(feature = "protocol-rest")]
@@ -263,6 +265,15 @@ impl ServerContext {
             group_service: Some(self.common.group_service.clone()),
             #[cfg(not(feature = "tools-groups"))]
             group_service: None,
+            own_data_tools: Arc::new(
+                self.mcp
+                    .tool_registry
+                    .tool_names()
+                    .into_iter()
+                    .filter(|name| !may_read_others(&self.mcp.tool_registry, name))
+                    .map(str::to_owned)
+                    .collect(),
+            ),
             #[cfg(feature = "provider-sciotte")]
             nonce_store: self.auth.nonce_store.clone(),
             #[cfg(feature = "provider-sciotte")]

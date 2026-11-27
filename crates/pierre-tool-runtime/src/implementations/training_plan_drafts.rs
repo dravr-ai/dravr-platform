@@ -23,7 +23,7 @@
 //! steps.
 
 use crate::annotations::{annotations, Effect, Reach};
-use crate::tool_data::ToolData;
+use crate::tool_data::{ToolData, WriteKind};
 use dravr_barrage::Stream;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -721,5 +721,6 @@ pub fn create_training_plan_publish_tools() -> Vec<Box<dyn RuntimeTool>> {
 // listed there.
 crate::declare_security!(
     PublishTrainingPlanTool => IRREVERSIBLE ; app_only,
-    reads: ToolData::own(&[Stream::Workout]),
+    reads: ToolData::own(&[Stream::Workout])
+        .writes(WriteKind::Structured),
 );

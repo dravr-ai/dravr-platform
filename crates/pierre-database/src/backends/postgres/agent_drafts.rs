@@ -11,7 +11,8 @@ use crate::backends::postgres::PostgresDatabase;
 use crate::repositories::agent_drafts::{
     action_from_row, impl_agent_drafts_repository, AgentDraftsRepository, ClaimOutcome,
     PendingAgentDraft, CLAIM_PENDING_ACTION_SQL, EXPIRE_PENDING_ACTION_SQL,
-    INSERT_PENDING_ACTION_SQL, READ_CLAIMED_ACTION_SQL, SWEEP_PENDING_ACTIONS_SQL,
+    INSERT_PENDING_ACTION_SQL, READ_CLAIMED_ACTION_SQL, READ_PENDING_ACTION_SQL,
+    SWEEP_PENDING_ACTIONS_SQL,
 };
 
 impl_agent_drafts_repository!(PostgresDatabase);

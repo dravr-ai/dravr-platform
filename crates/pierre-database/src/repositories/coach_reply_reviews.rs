@@ -45,6 +45,7 @@ use pierre_core::models::{
 use uuid::Uuid;
 
 use super::coaching_groups::person_name_column;
+use super::group_transcript::transcript_entry_visible;
 
 /// A coach's review of the agent's replies in the groups they coach.
 #[async_trait]
@@ -52,19 +53,24 @@ pub trait CoachReplyReviewRepository: Send + Sync {
     /// The agent's replies in the groups `coach_user_id` coaches, whatever
     /// tenant owns them, newest first, narrowed and paged by `filter`. Only
     /// replies to a live member who shares with the coach are listed.
+    /// Each is decided by the one transcript rule, `readable` the keys of
+    /// the reads the coach may read (carnet#1511 call 19).
     async fn list_coach_replies(
         &self,
         coach_user_id: Uuid,
         filter: &CoachReplyFilter,
+        readable: &[String],
     ) -> AppResult<Vec<CoachReply>>;
 
     /// One reply the coach may review, by its transcript entry id; `None` for
     /// an entry that is not an agent reply in a group they coach, or one to a
-    /// member who does not share with them.
+    /// member who does not share with them, or one the one transcript rule
+    /// withholds from them under `readable`.
     async fn get_coach_reply(
         &self,
         coach_user_id: Uuid,
         entry_id: Uuid,
+        readable: &[String],
     ) -> AppResult<Option<CoachReply>>;
 
     /// Record a flag on a reply and return it.
@@ -113,13 +119,17 @@ macro_rules! coach_reply_columns {
 }
 
 /// The replies coach `$1` may review: the agent's replies (`e`) in the active
-/// groups (`g`) they coach, whatever tenant owns the group — the coach
+/// groups (`g`) they coach now, whatever tenant owns the group — the coach
 /// relationship is the access key, as for
 /// `CoachingGroupRepository::list_groups_coached_by` — to a live member who
-/// shares with them, never a reply to the coach themself, who may also be a
-/// member of a group they run.
-macro_rules! coach_reply_scope {
-    () => {
+/// shares with them, never a reply to the coach themself, and only those the
+/// one transcript rule lets them read ([`transcript_entry_visible`]), its
+/// readable keys bound `count` placeholders from `$first` on. A coach who
+/// took the seat after a reply was written reads it only as the room does,
+/// never through the coach's view of the coach before them (carnet#1511
+/// A2).
+fn coach_reply_scope(first: usize, count: usize) -> String {
+    format!(
         r"g.coach_user_id = $1
                 AND g.is_active = TRUE
                 AND e.speaker = 'coach'
@@ -130,8 +140,10 @@ macro_rules! coach_reply_scope {
                       AND gm.user_id = e.author_user_id
                       AND gm.left_at IS NULL
                       AND gm.coach_sharing_consent = TRUE
-                )"
-    };
+                )
+                AND {}",
+        transcript_entry_visible("$1", first, count)
+    )
 }
 
 /// When the cursor entry `$4` was written, read only from a group coach `$1`
@@ -150,48 +162,46 @@ macro_rules! coach_reply_cursor_created_at {
 /// and `$3` to one athlete (NULL for any); `$4` is the id of the oldest reply
 /// the coach already holds (NULL for the newest page), and the page holds the
 /// replies ordered strictly before it on the `(created_at, id)` order it is
-/// sorted by.
-pub(crate) const LIST_COACH_REPLIES_SQL: &str = concat!(
-    "SELECT ",
-    coach_reply_columns!(),
-    r"
+/// sorted by. The coach's readable keys bind from `$6` on.
+pub(crate) fn list_coach_replies_sql(readable: usize) -> String {
+    format!(
+        r"SELECT {columns}
               FROM group_transcript_entries e
               JOIN coaching_groups g ON g.id = e.group_id
               LEFT JOIN users u ON u.id = e.author_user_id
-              WHERE ",
-    coach_reply_scope!(),
-    r"
+              WHERE {scope}
                 AND ($2 IS NULL OR e.group_id = $2)
                 AND ($3 IS NULL OR e.author_user_id = $3)
                 AND (
                   $4 IS NULL
-                  OR e.created_at < ",
-    coach_reply_cursor_created_at!(),
-    r"
+                  OR e.created_at < {cursor}
                   OR (
-                    e.created_at = ",
-    coach_reply_cursor_created_at!(),
-    r"
+                    e.created_at = {cursor}
                     AND e.id < $4
                   )
                 )
               ORDER BY e.created_at DESC, e.id DESC
-              LIMIT $5"
-);
+              LIMIT $5",
+        columns = coach_reply_columns!(),
+        scope = coach_reply_scope(6, readable),
+        cursor = coach_reply_cursor_created_at!(),
+    )
+}
 
-/// One reply the coach may review, by id (`$2`).
-pub(crate) const GET_COACH_REPLY_SQL: &str = concat!(
-    "SELECT ",
-    coach_reply_columns!(),
-    r"
+/// One reply the coach may review, by id (`$2`), the coach's readable keys
+/// bound from `$3` on.
+pub(crate) fn get_coach_reply_sql(readable: usize) -> String {
+    format!(
+        r"SELECT {columns}
               FROM group_transcript_entries e
               JOIN coaching_groups g ON g.id = e.group_id
               LEFT JOIN users u ON u.id = e.author_user_id
-              WHERE ",
-    coach_reply_scope!(),
-    r"
-                AND e.id = $2"
-);
+              WHERE {scope}
+                AND e.id = $2",
+        columns = coach_reply_columns!(),
+        scope = coach_reply_scope(3, readable),
+    )
+}
 
 /// One flag.
 pub(crate) const INSERT_FLAG_SQL: &str = r"INSERT INTO coach_reply_reviews
@@ -200,12 +210,29 @@ pub(crate) const INSERT_FLAG_SQL: &str = r"INSERT INTO coach_reply_reviews
               VALUES ($1, $2, $3, $4, $5, $6, 'flag', $7, $8, NULL, $9)";
 
 /// A correction's room entry: attributed to the member the corrected reply
-/// answered, written under the group's tenant, from no conversation.
+/// answered, written under the group's tenant, from no conversation. It
+/// keeps the corrected reply's record as it was written: the coach seat then
+/// and whether it has one ([`INSERT_CORRECTION_ENTRY_MEMBERS_SQL`] copies the
+/// members it drew on), never the seat now (carnet#1511 design call 11).
 pub(crate) const INSERT_CORRECTION_ENTRY_SQL: &str = r"INSERT INTO group_transcript_entries
               (id, group_id, tenant_id, author_user_id, speaker, content,
                source_conversation_id, source_message_id, created_at, first_party_only,
-               corrects_entry_id)
-              VALUES ($1, $2, $3, $4, 'correction', $5, NULL, NULL, $6, $7, $8)";
+               corrects_entry_id, coach_at_write, audience_recorded)
+              VALUES ($1, $2, $3, $4, 'correction', $5, NULL, NULL, $6, $7, $8,
+                      (SELECT c.coach_at_write FROM group_transcript_entries c
+                       WHERE c.id = $8),
+                      COALESCE((SELECT c.audience_recorded FROM group_transcript_entries c
+                                WHERE c.id = $8), FALSE))";
+
+/// The reads correction `$1` carries: every read the reply it corrects
+/// (`$2`) drew on, as it was read (carnet#1511 call 19).
+pub(crate) const INSERT_CORRECTION_ENTRY_MEMBERS_SQL: &str = r"INSERT INTO group_transcript_entry_members
+              (entry_id, member_user_id, via_kind, via_group, via_coach, data_class, tier,
+               beyond_activities, written)
+              SELECT $1, m.member_user_id, m.via_kind, m.via_group, m.via_coach, m.data_class,
+                     m.tier, m.beyond_activities, m.written
+              FROM group_transcript_entry_members m
+              WHERE m.entry_id = $2";
 
 /// A correction's review row.
 pub(crate) const INSERT_CORRECTION_REVIEW_SQL: &str = r"INSERT INTO coach_reply_reviews
@@ -307,8 +334,8 @@ macro_rules! impl_coach_reply_review_repository {
                         }))
                     }
                     Some(ReplyReviewKind::Correction) => {
-                        let correction_entry_id =
-                            $ids::read_opt(r, "correction_entry_id")?.ok_or_else(|| {
+                        let correction_entry_id = $ids::read_opt(r, "correction_entry_id")?
+                            .ok_or_else(|| {
                                 AppError::database(format!(
                                     "coach_reply_reviews {id}: a correction without its room entry"
                                 ))
@@ -340,16 +367,21 @@ macro_rules! impl_coach_reply_review_repository {
                 &self,
                 coach_user_id: Uuid,
                 filter: &CoachReplyFilter,
+                readable: &[String],
             ) -> AppResult<Vec<CoachReply>> {
-                let rows = sqlx::query(LIST_COACH_REPLIES_SQL)
+                let sql = list_coach_replies_sql(readable.len());
+                let mut query = sqlx::query(&sql)
                     .bind($ids::bind(coach_user_id))
                     .bind($ids::bind_opt(filter.group_id))
                     .bind($ids::bind_opt(filter.athlete_user_id))
                     .bind($ids::bind_opt(filter.before))
-                    .bind(filter.limit.max(1))
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to list coach replies: {e}")))?;
+                    .bind(filter.limit.max(1));
+                for key in readable {
+                    query = query.bind(key);
+                }
+                let rows = query.fetch_all(self.pool()).await.map_err(|e| {
+                    AppError::database(format!("Failed to list coach replies: {e}"))
+                })?;
                 rows.iter().map(Self::coach_reply_row).collect()
             }
 
@@ -357,13 +389,18 @@ macro_rules! impl_coach_reply_review_repository {
                 &self,
                 coach_user_id: Uuid,
                 entry_id: Uuid,
+                readable: &[String],
             ) -> AppResult<Option<CoachReply>> {
-                let row = sqlx::query(GET_COACH_REPLY_SQL)
+                let sql = get_coach_reply_sql(readable.len());
+                let mut query = sqlx::query(&sql)
                     .bind($ids::bind(coach_user_id))
-                    .bind($ids::bind(entry_id))
-                    .fetch_optional(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to read a coach reply: {e}")))?;
+                    .bind($ids::bind(entry_id));
+                for key in readable {
+                    query = query.bind(key);
+                }
+                let row = query.fetch_optional(self.pool()).await.map_err(|e| {
+                    AppError::database(format!("Failed to read a coach reply: {e}"))
+                })?;
                 row.map(|row| Self::coach_reply_row(&row)).transpose()
             }
 
@@ -382,7 +419,9 @@ macro_rules! impl_coach_reply_review_repository {
                     .bind(created_at)
                     .execute(self.pool())
                     .await
-                    .map_err(|e| AppError::database(format!("Failed to record a reply flag: {e}")))?;
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to record a reply flag: {e}"))
+                    })?;
                 Ok(CoachReplyFlag {
                     id,
                     reply_entry_id: flag.reply_entry_id,
@@ -415,6 +454,16 @@ macro_rules! impl_coach_reply_review_repository {
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to post a correction to the room: {e}"))
+                    })?;
+                sqlx::query(INSERT_CORRECTION_ENTRY_MEMBERS_SQL)
+                    .bind($ids::bind(correction_entry_id))
+                    .bind($ids::bind(correction.reply_entry_id))
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to record what a correction carries: {e}"
+                        ))
                     })?;
                 sqlx::query(INSERT_CORRECTION_REVIEW_SQL)
                     .bind($ids::bind(id))

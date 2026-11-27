@@ -11,6 +11,11 @@
 //! on a result whose caller writes its own reply (owl phase 1): the tier of
 //! the most sensitive stream it serves, and whether provider-written text
 //! passes through it.
+//!
+//! A tool that writes declares what it stores beside what it reads
+//! ([`WriteKind`], carnet#1511 call 16): free text a later prompt reads, or a
+//! structured value on its caller's own account. The member-read refusals
+//! decide a write by it.
 
 use dravr_barrage::{Stream, Tier};
 use serde_json::Value;
@@ -30,6 +35,23 @@ pub struct StreamsByArgument {
     argument: &'static str,
     /// Each value and the streams a call naming it reads.
     cases: &'static [(&'static str, &'static [Stream])],
+}
+
+/// What a tool that writes stores (carnet#1511 call 16).
+///
+/// The member-read refusals (`coach_seat::MemberReads`) decide a write by
+/// it: what a turn drew on may reach every later prompt through free text,
+/// never through a structured value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WriteKind {
+    /// Free text a later prompt reads: a fact in the dossier, an agent's
+    /// system prompt, a commitment's statement, a recipe, a goal. Refused on
+    /// a turn that drew on any other member's data, as fact extraction is.
+    FreeText,
+    /// A structured value on the caller's own account (a physiology figure,
+    /// a setting, a deletion): refused only on a turn that read another
+    /// member wider than its room's own view.
+    Structured,
 }
 
 /// What one registered tool reads.
@@ -61,6 +83,14 @@ pub struct ToolData {
     connection_metadata: bool,
     /// The part of `streams` one call reads, when an argument picks it.
     by_argument: Option<StreamsByArgument>,
+    /// What it stores, for a tool that writes; `None` for one that writes
+    /// nothing.
+    writes: Option<WriteKind>,
+    /// Whether it serves the athlete's training beyond their activities
+    /// beside what its streams read: their saved physiology (thresholds,
+    /// zones, maximum or resting heart rate) or their plan (carnet#1511
+    /// calls 23 and 27).
+    beyond_activities: bool,
 }
 
 impl ToolData {
@@ -75,6 +105,8 @@ impl ToolData {
             whole_history: false,
             connection_metadata: false,
             by_argument: None,
+            writes: None,
+            beyond_activities: false,
         }
     }
 
@@ -91,6 +123,8 @@ impl ToolData {
             whole_history: false,
             connection_metadata: false,
             by_argument: None,
+            writes: None,
+            beyond_activities: false,
         }
     }
 
@@ -169,6 +203,30 @@ impl ToolData {
         })
     }
 
+    /// This tool, serving the athlete's saved physiology or their plan
+    /// beside its streams: a coach's read through it is of their training
+    /// beyond activities, which no peer sharing covers (carnet#1511 calls 23
+    /// and 27).
+    #[must_use]
+    pub const fn with_beyond_activities(mut self) -> Self {
+        self.beyond_activities = true;
+        self
+    }
+
+    /// This tool, writing what `kind` names (carnet#1511 call 16).
+    #[must_use]
+    pub const fn writes(mut self, kind: WriteKind) -> Self {
+        self.writes = Some(kind);
+        self
+    }
+
+    /// What it stores, as it declared; `None` for a tool that writes
+    /// nothing.
+    #[must_use]
+    pub const fn write_kind(&self) -> Option<WriteKind> {
+        self.writes
+    }
+
     /// The streams a grant must hold for it to be called: those it declares,
     /// less an incidental route.
     pub(crate) fn required_streams(&self) -> impl Iterator<Item = Stream> + '_ {
@@ -204,6 +262,17 @@ impl ToolData {
         self.streams.iter().map(|stream| stream.tier()).max()
     }
 
+    /// Every tier its declared streams reach, ascending and each once: what
+    /// a coach's read through it carries (`subject::coach_read`). Empty for a
+    /// tool declaring none.
+    #[must_use]
+    pub(crate) fn tiers(&self) -> Vec<Tier> {
+        let mut tiers: Vec<Tier> = self.streams.iter().map(|stream| stream.tier()).collect();
+        tiers.sort_unstable();
+        tiers.dedup();
+        tiers
+    }
+
     /// Whether every call to it reads a stream of `tier`: its whole
     /// declaration does (a call naming no case reads that), and so does each
     /// case its argument may pick. A tool every call of which reads T3 is one
@@ -223,6 +292,28 @@ impl ToolData {
     #[must_use]
     pub(crate) const fn streams(&self) -> &'static [Stream] {
         self.streams
+    }
+
+    /// Whether it reads a member's activities alone: it declares streams,
+    /// and every one is an activity's (a session, its samples or route, the
+    /// load or daily activity derived from them). What a group member's peer
+    /// sharing covers (carnet#1511 call 23); a training read of anything
+    /// else (thresholds, zones, the profile, [`Self::with_beyond_activities`])
+    /// or of no declared stream is read the coach way alone.
+    #[must_use]
+    pub(crate) fn activities_only(&self) -> bool {
+        !self.beyond_activities
+            && !self.streams.is_empty()
+            && self.streams.iter().all(|stream| {
+                matches!(
+                    stream,
+                    Stream::Workout
+                        | Stream::WorkoutRaw
+                        | Stream::WorkoutRoute
+                        | Stream::TrainingLoad
+                        | Stream::ActivityDaily
+                )
+            })
     }
 
     /// Whether its result passes unchecked written text through.

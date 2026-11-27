@@ -21,7 +21,7 @@ use std::fmt;
 use std::mem;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use pierre_core::models::{AddMessageParams, TenantId, TurnOrigin};
+use pierre_core::models::{AddMessageParams, CarriedRead, TenantId, TurnOrigin};
 use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::ChatRepository;
 use pierre_llm::call_record::LlmCallRecorder;
@@ -29,7 +29,7 @@ use pierre_services::llm_usage_recorder::{LlmUsageSink, UsageRepoCallRecorder};
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
 use pierre_tool_runtime::tool_loop_io::{ToolMessageRecorder, ToolRoundRecord};
 use tokio::runtime::Handle;
-use tracing::{info, warn};
+use tracing::warn;
 
 use crate::supervised::{spawn_supervised, TaskOwner};
 use crate::{ChatPipelineContext, TurnInput};
@@ -133,19 +133,9 @@ impl ChatRepoToolMessageRecorder {
 
 impl ToolMessageRecorder for ChatRepoToolMessageRecorder {
     fn record(&self, record: ToolRoundRecord) {
-        // A round's rows name the one group member it read, so a member who
-        // withdraws or deletes their account takes them out of every later
-        // prompt (carnet#1174). A round that read several cannot name them
-        // all in one row: it is kept for no later turn, which then reads the
-        // members again under their consent of the moment. This turn's model
-        // has already consumed it.
-        if record.members_read.len() > 1 {
-            info!(
-                members = record.members_read.len(),
-                "tool round read several group members; not kept for later turns"
-            );
-            return;
-        }
+        // A round's rows carry every member read it made, with how it was
+        // made, so a member who withdraws or deletes their account takes them
+        // out of every later prompt (carnet#1174, carnet#1511 call 19).
         // Stamped here, inside the turn's provenance: neither the spawned
         // write nor a held one runs inside what the round was derived from.
         let stamp = RoundStamp {
@@ -206,8 +196,9 @@ impl ToolRoundRows {
         // pure scaffolding reduces to empty and is skipped.
         let assistant_text = chat_tool_loop::strip_simulation_artifacts(&record.assistant_text);
         let tool_result_text = chat_tool_loop::strip_simulation_artifacts(&record.tool_result_text);
-        // The member the round read, on both of its rows (carnet#1174).
-        let about_user_id = ai_scope::sole(&record.members_read);
+        // Every read the round made, on both of its rows (carnet#1174,
+        // carnet#1511 call 19), in each row's own transaction.
+        let carried: Vec<CarriedRead> = record.members_read.iter().cloned().collect();
         if !assistant_text.is_empty() {
             let params = AddMessageParams {
                 tenant_id: self.tenant_id,
@@ -222,11 +213,11 @@ impl ToolRoundRows {
                 content_blocks: None,
                 transport_policy: stamp.transport_policy,
                 channel_type: None,
-                about_user_id,
+                about_user_id: None,
                 turn_attempted_write: None,
                 ai_consent_sources: &stamp.ai_consent_sources,
             };
-            if let Err(e) = self.chat.add_message(&params).await {
+            if let Err(e) = self.chat.add_message_about(&params, &carried).await {
                 warn!("Failed to persist tool_call message: {e}");
                 return;
             }
@@ -245,11 +236,11 @@ impl ToolRoundRows {
                 content_blocks: None,
                 transport_policy: stamp.transport_policy,
                 channel_type: None,
-                about_user_id,
+                about_user_id: None,
                 turn_attempted_write: None,
                 ai_consent_sources: &stamp.ai_consent_sources,
             };
-            if let Err(e) = self.chat.add_message(&params).await {
+            if let Err(e) = self.chat.add_message_about(&params, &carried).await {
                 warn!("Failed to persist tool_result message: {e}");
             }
         }

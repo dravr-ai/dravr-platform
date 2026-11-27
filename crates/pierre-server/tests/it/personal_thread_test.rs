@@ -30,6 +30,7 @@ use pierre_core::models::{
     AGENT_WELCOME_FINISH_REASON, DIVIDER_FINISH_REASON,
 };
 use pierre_core::transport::TransportPolicy;
+use pierre_database::repositories::MemberReplay;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::{
     ChatRoutes, ConversationListResponse, ConversationResponse, MessageResponse,
@@ -231,7 +232,7 @@ async fn prompt_history(
         &user_id.to_string(),
         tenant_id,
         160,
-        &[],
+        MemberReplay::about_nobody(),
     )
     .await
     .unwrap()

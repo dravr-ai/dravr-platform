@@ -104,6 +104,11 @@ pub trait SeederRepository: Send + Sync {
     /// Get the `tenant_id` for a user
     async fn seed_get_user_tenant(&self, user_id: Uuid) -> AppResult<Option<String>>;
 
+    /// Every person a row of a conversation `user_id` owns is about or drew
+    /// on: its `about_user_id`, and each member its carried reads name.
+    /// Across tenants, whatever the thread's state (carnet#1511 call 29).
+    async fn seed_conversation_read_members(&self, user_id: Uuid) -> AppResult<Vec<Uuid>>;
+
     /// Find a user by email address (returns full User if found)
     async fn seed_find_user_by_email(&self, email: &str) -> AppResult<Option<User>>;
 
@@ -155,6 +160,23 @@ pub trait SeederRepository: Send + Sync {
     /// for a deleted account and is no account's id.
     async fn seed_insert_demo_user(&self, user: &SeedDemoUser) -> AppResult<()>;
 
+    /// Create an account and the personal tenant it owns, as a sign-up does,
+    /// in one transaction: the user row, the tenant, its owner row, the user's
+    /// `tenant_id`, and the analytics answer a sign-up always sends, unticked
+    /// (carnet#1366).
+    ///
+    /// Returns `false`, having written nothing, when an account at that email
+    /// already exists: its password and every other column stay as they are,
+    /// so of two runs racing to create one, the one that loses changes
+    /// nothing and leaves no tenant behind. Any failure part way rolls the
+    /// whole account back, so no account is ever left without its tenant.
+    /// The nil UUID is `invalid_input`.
+    async fn seed_create_account(
+        &self,
+        user: &SeedDemoUser,
+        tenant: &SeedTenant,
+    ) -> AppResult<bool>;
+
     /// Insert a tenant row
     async fn seed_insert_tenant(&self, tenant: &SeedTenant) -> AppResult<()>;
 
@@ -181,6 +203,21 @@ pub trait SeederRepository: Send + Sync {
         user_id: Uuid,
         joined_at: Timestamp,
     ) -> AppResult<()>;
+
+    /// Whether `user_id`, a member under `tenant_id`, once belonged to
+    /// `group_id` and left it: a membership no group read returns, and that
+    /// no join adds back (one row per member and group).
+    async fn seed_member_has_left(
+        &self,
+        tenant_id: &str,
+        group_id: Uuid,
+        user_id: Uuid,
+    ) -> AppResult<bool>;
+
+    /// Whether a workspace holds `slug`, whoever owns it or whether anyone
+    /// does: the slug is unique across every tenant, so a workspace whose
+    /// owner's account was deleted still holds it.
+    async fn seed_slug_taken(&self, slug: &str) -> AppResult<bool>;
 
     /// Check if an API key exists by name, returning its ID if found
     async fn seed_check_api_key_by_name(&self, name: &str) -> AppResult<Option<Uuid>>;
@@ -496,6 +533,23 @@ pub(crate) const ADMIN_USER_EMAIL_SQL: &str =
 /// A user's tenant column, which is TEXT on both backends.
 pub(crate) const USER_TENANT_SQL: &str = "SELECT tenant_id FROM users WHERE id = $1";
 
+/// Whom the rows of the conversations `$1` owns are about, drew on, or were
+/// written by: a participant's own words stay in the thread, and are served
+/// to its owner, after the participant is removed from it.
+pub(crate) const CONVERSATION_READ_MEMBERS_SQL: &str = r"
+    SELECT m.about_user_id AS person FROM chat_messages m
+    JOIN chat_conversations c ON c.id = m.conversation_id
+    WHERE c.user_id = $1 AND m.about_user_id IS NOT NULL
+    UNION
+    SELECT m.author_user_id AS person FROM chat_messages m
+    JOIN chat_conversations c ON c.id = m.conversation_id
+    WHERE c.user_id = $1 AND m.author_user_id IS NOT NULL AND m.author_user_id <> $1
+    UNION
+    SELECT r.member_user_id AS person FROM chat_message_members r
+    JOIN chat_messages m ON m.id = r.message_id
+    JOIN chat_conversations c ON c.id = m.conversation_id
+    WHERE c.user_id = $1";
+
 /// Drop a tenant's LLM usage; `llm_usage.tenant_id` is text on both.
 pub(crate) const DELETE_LLM_USAGE_BY_TENANT_SQL: &str =
     "DELETE FROM llm_usage WHERE tenant_id = $1";
@@ -550,6 +604,26 @@ pub(crate) const UPSERT_DEMO_USER_SQL: &str = "INSERT INTO users \
               display_name = EXCLUDED.display_name, \
               locale = EXCLUDED.locale";
 
+/// Insert a demo user unless one exists at the email: an existing account
+/// keeps its password (`seed_create_account`). `$10` serves both
+/// `created_at` and `last_active`.
+///
+/// The conflict names no target, so every unique index arbitrates it: on
+/// PostgreSQL `users` holds a second one, `idx_users_email_lower`, and a
+/// racing run inserting the same normalized email would otherwise fail on
+/// it instead of writing nothing. Valid on SQLite and PostgreSQL alike.
+pub(crate) const INSERT_ACCOUNT_USER_IF_ABSENT_SQL: &str = "INSERT INTO users \
+             (id, email, display_name, password_hash, tier, is_active, user_status, \
+              role, approved_at, created_at, last_active, auth_provider, locale) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, 'email', $11) \
+             ON CONFLICT DO NOTHING";
+
+/// Insert a new account's personal tenant: a slug already taken fails the
+/// account's transaction rather than refreshing another tenant.
+pub(crate) const INSERT_ACCOUNT_TENANT_SQL: &str = "INSERT INTO tenants \
+             (id, name, slug, subscription_tier, is_active, created_at, updated_at) \
+             VALUES ($1, $2, $3, $4, TRUE, $5, $6)";
+
 /// Insert or refresh a tenant; `ON CONFLICT(slug)` makes a re-run safe.
 pub(crate) const UPSERT_TENANT_SQL: &str = "INSERT INTO tenants \
              (id, name, slug, subscription_tier, is_active, created_at, updated_at) \
@@ -572,6 +646,13 @@ pub(crate) const UPDATE_USER_TENANT_SQL: &str = "UPDATE users SET tenant_id = $1
 pub(crate) const BACKDATE_MEMBERSHIP_SQL: &str = "UPDATE coaching_group_members \
      SET joined_at = $1, consent_given_at = $1, coach_sharing_consent_at = $1 \
      WHERE tenant_id = $2 AND group_id = $3 AND user_id = $4 AND left_at IS NULL";
+
+/// A membership that ended (`seed_member_has_left`).
+pub(crate) const MEMBER_HAS_LEFT_SQL: &str = "SELECT 1 FROM coaching_group_members \
+     WHERE tenant_id = $1 AND group_id = $2 AND user_id = $3 AND left_at IS NOT NULL";
+
+/// A workspace holding a slug (`seed_slug_taken`), with no owner join.
+pub(crate) const SLUG_TAKEN_SQL: &str = "SELECT 1 FROM tenants WHERE slug = $1";
 
 /// An API key's id by name; `api_keys.id` is text on both.
 pub(crate) const API_KEY_ID_BY_NAME_SQL: &str = "SELECT id FROM api_keys WHERE name = $1";

@@ -37,6 +37,11 @@ macro_rules! subject_shared {
 /// lives: "unread" is a question about one participant, so it is answered
 /// from that row and never from the conversation.
 ///
+/// The preview is the newest row as stored: whether its reader may read the
+/// group members it restates is asked per reader after the read
+/// (`pierre_services::transcript_reading::withhold_previews`, carnet#1422),
+/// by the rule the transcript serves under, which needs each member's consent.
+///
 /// A thread bound to one athlete names them through the same join a group
 /// row names its group by: their display name and email come back for the
 /// row parser to apply the roster naming rule to, so a page of athlete
@@ -61,6 +66,10 @@ pub(crate) const LIST_CONVERSATIONS_SQL: &str = concat!(
              WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
                AND (m.first_party_only = FALSE OR $6)
              ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_content_head,
+           (SELECT m.id FROM chat_messages m
+             WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
+               AND (m.first_party_only = FALSE OR $6)
+             ORDER BY m.created_at DESC, m.id DESC LIMIT 1) AS last_id,
            (SELECT m.role FROM chat_messages m
              WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
                AND (m.first_party_only = FALSE OR $6)
@@ -109,3 +118,33 @@ pub(crate) const COUNT_PARTICIPATING_SQL: &str = concat!(
       AND ",
     subject_shared!("$4"),
 );
+
+/// Whether `$1` shares a private conversation with another account: a
+/// participant in one another account owns, or the owner of one another
+/// account was added to. No group is bound to it, as a room or as a subject
+/// thread; across tenants.
+/// Every athlete a thread `$1` owns is about (`subject_user_id`), across
+/// tenants, archived threads included: whom the account's coach threads name
+/// and hold notes about, whether it still coaches them or not.
+pub(crate) const SUBJECT_THREAD_ATHLETES_SQL: &str = r"
+    SELECT DISTINCT c.subject_user_id AS athlete FROM chat_conversations c
+    WHERE c.user_id = $1 AND c.subject_user_id IS NOT NULL";
+
+/// The groups of every room conversation `$1` owns or takes part in.
+///
+/// Across tenants, whatever the thread's state or the account's membership
+/// now: a room conversation stays listed to its participants after they
+/// leave the group or stop coaching it.
+pub(crate) const ROOM_THREAD_GROUPS_SQL: &str = r"
+    SELECT DISTINCT CAST(c.group_id AS TEXT) AS group_id FROM chat_conversations c
+    LEFT JOIN conversation_participants p ON p.conversation_id = c.id AND p.user_id = $1
+    WHERE c.group_id IS NOT NULL AND (c.user_id = $1 OR p.user_id IS NOT NULL)";
+
+pub(crate) const SHARES_PRIVATE_THREAD_SQL: &str = r"
+    SELECT EXISTS (
+      SELECT 1 FROM conversation_participants p
+      JOIN chat_conversations c ON c.id = p.conversation_id
+      WHERE c.group_id IS NULL
+        AND ((p.user_id = $1 AND c.user_id <> $1)
+          OR (c.user_id = $1 AND p.user_id <> $1))
+    )";

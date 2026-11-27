@@ -47,6 +47,7 @@ mod roster_overview_tests {
     use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
     use pierre_tool_runtime::implementations::group_roster::GetRosterOverviewTool;
     use pierre_tool_runtime::runtime::ToolRuntime;
+    use pierre_tool_runtime::tool_access::CallerRole;
     use serde_json::{json, Value};
     use std::sync::{Arc, Mutex};
     use tokio::task::spawn_blocking;
@@ -471,6 +472,8 @@ mod roster_overview_tests {
             mentioned_agent: None,
             steps_after: None,
             grant: OAuthScope::self_grant(),
+            // The role the web route resolves for the coach's turn.
+            role: CallerRole::resolve(&resources.common.repos, coach.user).await,
         };
         let ctx = resources.chat_pipeline_context();
         ai_scope::serve_over(
@@ -1060,9 +1063,9 @@ mod roster_overview_tests {
     }
 
     /// carnet#1421 through a real turn: the chat pipeline hands the turn's
-    /// audience to every tool it dispatches. In a conversation with no group,
-    /// a turn other people read gets no roster and a direct-message turn
-    /// reviews both of the coach's groups.
+    /// audience to the listing and to every tool it dispatches. In a
+    /// conversation with no group, a turn other people read is offered no
+    /// roster and a direct-message turn reviews both of the coach's groups.
     #[tokio::test]
     async fn a_turn_tells_the_roster_who_reads_the_reply() {
         let model = Arc::new(RosterModel::new());
@@ -1112,19 +1115,12 @@ mod roster_overview_tests {
         let (bruno, bruno_tenant) = seed_athlete(&resources, "Bruno").await;
         add_member(&resources, trail, bruno, bruno_tenant, true).await;
 
+        // A turn other people read is not offered the roster at all: its
+        // gate would refuse it there (carnet#1422), so the model never calls
+        // it and is handed nothing.
         let shared = roster_on_turn(&resources, &model, &coach, false).await;
         assert!(
-            !shared.is_empty(),
-            "the model of a turn others read was handed the roster call's result"
-        );
-        // The model reads a refusal as its message alone, so the room's
-        // refusal is told apart from any other error by what it says.
-        assert!(
-            shared.iter().all(
-                |result| result.contains("could not be confirmed as private to you")
-                    && !result.contains("Alice")
-                    && !result.contains("Bruno")
-            ),
+            shared.is_empty(),
             "a turn other people read in a chat with no group gets no roster: {shared:#?}"
         );
 

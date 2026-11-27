@@ -17,10 +17,11 @@ use pierre_llm::ChatMessage;
 use pierre_providers::ai_scope;
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_services::provider_error_filter::detect_leaked_provider_error;
-use pierre_tool_runtime::chat_catalogue::{self, measure_catalogue, SwitchedOff};
+use pierre_tool_runtime::chat_catalogue::{self, measure_catalogue, SwitchedOff, TurnReaders};
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::protocol::UniversalExecutor;
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::tool_access::CallerRole;
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
 use pierre_tool_runtime::tool_loop_io::{ToolLoopParams, ToolLoopResult, ToolMessageRecorder};
 use tracing::{info, warn};
@@ -67,6 +68,7 @@ pub(crate) fn turn_executor(
 #[derive(Debug, Clone)]
 pub(crate) struct TurnBinding {
     grant: Vec<OAuthScope>,
+    role: CallerRole,
     conversation_id: String,
     conversation_tenant_id: TenantId,
     turn_id: String,
@@ -77,6 +79,7 @@ impl TurnBinding {
     pub(crate) fn of(input: &TurnInput) -> Self {
         Self {
             grant: input.grant.clone(),
+            role: input.role,
             conversation_id: input.conversation_id.clone(),
             conversation_tenant_id: input.conversation_tenant_id,
             turn_id: input.turn_id.0.to_string(),
@@ -102,6 +105,8 @@ pub(crate) fn executor_on(
 ) -> UniversalExecutor {
     UniversalExecutor::new(runtime)
         .with_scopes(binding.grant.clone())
+        // Its calls are decided for the role its catalogue was built for.
+        .with_turn_role(binding.role)
         // Bound so a tool that spawns detached work (e.g. a historical
         // activity backfill) can route a completion notice back to the channel
         // that triggered it, and so a coach's thread resolves its athlete.
@@ -178,6 +183,10 @@ pub(crate) struct DispatchLlmInputs<'a> {
     /// training read reads the thread's athlete, and a wellness read too under
     /// their wellness grant.
     pub seat: TurnSeat,
+    /// Who reads what the turn writes, as prompt assembly named it: the
+    /// declarations offer `athlete` only where the caller alone reads the
+    /// reply, as dispatch takes a name only there.
+    pub readers: TurnReaders,
     /// The tools an admin switched off for the sender, resolved once per
     /// turn. Left out of the declarations and the loopback listing, as
     /// `tools/list` leaves them out.
@@ -248,6 +257,7 @@ pub(crate) async fn dispatch_llm_with_tools(
         peer_roster,
         turn_agent_id,
         seat,
+        readers,
         switched_off,
         defer_tools,
     } = inputs;
@@ -402,6 +412,7 @@ pub(crate) async fn dispatch_llm_with_tools(
                     .open_tool_session(ToolSessionTurn {
                         user_id: &input.user_id,
                         tenant_id: input.tool_tenant_id,
+                        conversation_tenant_id: input.conversation_tenant_id,
                         conversation_id: &input.conversation_id,
                         // Same Guardian turn key the in-process executor binds
                         // above, so the agent's loopback calls land in this
@@ -412,6 +423,7 @@ pub(crate) async fn dispatch_llm_with_tools(
                         seat,
                         switched_off,
                         grant: &input.grant,
+                        role: input.role,
                     })
                     .await
             }
@@ -461,8 +473,15 @@ pub(crate) async fn dispatch_llm_with_tools(
         &ctx.tool_registry,
         seat,
         switched_off,
-        ai_scope::declared_transport(),
-        &input.grant,
+        chat_catalogue::OfferedTo {
+            transport: ai_scope::declared_transport(),
+            grant: &input.grant,
+            role: input.role,
+            readers,
+            // A write that could only act on the sender is withheld once the
+            // turn read another member, its replayed history included.
+            member_reads: super::group_subject::member_reads(&input.user_id),
+        },
         &ctx.config,
     ));
     if defer_tools {

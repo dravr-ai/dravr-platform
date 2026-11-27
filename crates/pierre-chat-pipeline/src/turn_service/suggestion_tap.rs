@@ -10,13 +10,14 @@
 
 use pierre_contremaitre::messaging_strings::KEY_USE_CASES_UNAVAILABLE;
 use pierre_core::errors::AppResult;
-use pierre_core::models::ConversationRecord;
+use pierre_core::models::{CarriedRead, ConversationRecord};
+use pierre_database::repositories::UNATTRIBUTED_READ_KEY;
 use pierre_services::first_run;
 use tracing::warn;
 
 use super::{CommandTurn, TurnRequest};
 use crate::next_steps::StepsAfter;
-use crate::suggestions::{self, Resolution, SuggestionEvent, TapContext};
+use crate::suggestions::{self, Resolution, SuggestionEvent, SuggestionSource, TapContext};
 use crate::surface_profile::SurfaceProfile;
 use crate::team_offer::{self, OfferFor};
 use crate::ChatPipelineContext;
@@ -56,14 +57,29 @@ pub(super) async fn resolve_suggestion_tap(
         agent_tenant_id: request.tool_tenant_id,
         locale: &profile.locale,
     };
-    match suggestions::resolve(
+    let resolution = suggestions::resolve(
         &ctx.repos,
         &ctx.messaging_strings_registry,
         &tap,
         &request.content,
     )
-    .await?
-    {
+    .await?;
+    if let Resolution::Resolved { postback, .. } = &resolution {
+        // The model wrote a quick reply's words from a reply in this thread:
+        // when the thread drew on another member's data, stored as the
+        // sender's own no rule would withhold them, so the tap is answered as
+        // one that no longer resolves (carnet#1511 call 21: dropped, not
+        // stamped).
+        if postback.source() == SuggestionSource::Model
+            && Box::pin(thread_read_another_member(ctx, request, conversation)).await?
+        {
+            return Ok(TapOutcome::Answered(Box::new(unavailable_suggestion(
+                ctx,
+                &profile.locale,
+            ))));
+        }
+    }
+    match resolution {
         Resolution::NotAPostback => Ok(TapOutcome::Proceed { steps_after: None }),
         Resolution::Resolved { content, postback } => {
             // Read before this tap is recorded, which would make every tap
@@ -148,6 +164,46 @@ pub(super) async fn resolve_suggestion_tap(
             Ok(TapOutcome::Answered(Box::new(platform_line(text))))
         }
     }
+}
+
+/// Whether a row of `conversation`'s current topic carries a read of anyone
+/// but the turn's sender: what a reply there may restate, and the model's
+/// quick replies with it. No conversation yet holds no row.
+///
+/// Read since the newest divider, as the offer decides by the reads the
+/// turn's replay notes ([`crate::next_steps::for_reply`]): a quick reply
+/// offered after `/reset` or "+" by a turn that drew on no one is taken:
+/// no read stops it. Another participant's own words count as theirs. A legacy
+/// row no read names ([`UNATTRIBUTED_READ_KEY`], carnet#1511 A8) names no
+/// member, and the offer, which reads the turn's carried reads, counts none
+/// for it: it is no read here either, so the offer and the tap agree.
+async fn thread_read_another_member(
+    ctx: &ChatPipelineContext,
+    request: &TurnRequest<'_>,
+    conversation: Option<&ConversationRecord>,
+) -> AppResult<bool> {
+    let Some(conversation) = conversation else {
+        return Ok(false);
+    };
+    let reads = ctx
+        .repos
+        .chat
+        .list_member_reads(
+            &conversation.id,
+            &request.user_id.to_string(),
+            request.conversation_tenant_id,
+        )
+        .await?;
+    Ok(reads
+        .iter()
+        .map(|read| &read.key)
+        .filter(|key| key.as_str() != UNATTRIBUTED_READ_KEY)
+        .any(|key| {
+            let member = CarriedRead::from_key(key)
+                .map(|read| read.member)
+                .or_else(|| CarriedRead::legacy_about_member(key));
+            member != Some(request.user_id)
+        }))
 }
 
 /// Whether the athlete tapped the catalogue entry `id` before this tap. An

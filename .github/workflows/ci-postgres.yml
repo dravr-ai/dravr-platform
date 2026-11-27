@@ -1,5 +1,5 @@
 # ABOUTME: The backend suite on real PostgreSQL 16 — full suite on schedule/plain dispatch and on any push or scoped bump dispatch whose diff from a proven base reaches the server's build; *_postgresql_test.rs smoke plus edited targets otherwise.
-# ABOUTME: One job builds every test binary; four shards download and run them. Runs when ANY crate or migration changes, so a newly-extracted crate can never silently skip the suite.
+# ABOUTME: One job builds every test binary; five shards download and run them. Runs when ANY crate or migration changes, so a newly-extracted crate can never silently skip the suite.
 name: "CI: Backend (PostgreSQL)"
 
 on:
@@ -106,7 +106,7 @@ env:
   CARGO_NET_GIT_FETCH_WITH_CLI: true
 
 jobs:
-  # One job compiles every test binary the lane runs, and the four shards
+  # One job compiles every test binary the lane runs, and the five shards
   # download them (carnet#1115). Until then each shard ran its own
   # `cargo test --no-run`: four runners compiling the same dependency tree and
   # linking the same 415 MB `it` binary, 6-11 minutes apiece, before any test
@@ -141,7 +141,7 @@ jobs:
       # feature/, features/ or claude/ run already took through this whole lane,
       # green: 13 main commits on Oct 22-29, 734 runner-minutes (carnet#1258).
       # Main then skips the lane. Only when that run chose the full suite and
-      # passed the build and all four shards: a branch run scoped to the smoke
+      # passed the build and all five shards: a branch run scoped to the smoke
       # passes the same jobs having run a fraction of the suites
       # (carnet#1282). Anything less, or a lookup that fails, runs the lane.
       - name: Skip the lane when a full-suite branch passed this exact tree
@@ -209,7 +209,7 @@ jobs:
         #
         # What the push is judged against (scripts/ci/scope-base.sh): on a
         # branch, its fork point from main; on main, the newest ancestor whose
-        # run passed this lane's build and four shards, so main tests what
+        # run passed this lane's build and five shards, so main tests what
         # changed since the last tree it proved. A bump lane's dispatch sets
         # `scope` and is judged like a push from the same base. A schedule run,
         # a dispatch without `scope`, a pull request, a lookup that fails or a
@@ -300,7 +300,7 @@ jobs:
           # environment, never interpolated into the script text.
           LANE_EDITED: ${{ steps.lane.outputs.edited }}
         run: |
-          SHARDS=4
+          SHARDS=5
           PACK="$RUNNER_TEMP/pg-pack"
           mkdir -p "$PACK"
           # Gate on list's exit status: `mapfile < <(...)` would discard it,
@@ -545,7 +545,7 @@ jobs:
             ${{ runner.temp }}/pg-pack/lane
 
   postgres-tests:
-    name: Database Tests (PostgreSQL ${{ matrix.shard }}/4)
+    name: Database Tests (PostgreSQL ${{ matrix.shard }}/5)
     runs-on: ubuntu-24.04
     needs: build-tests
     if: needs.build-tests.outputs.skip != 'true'
@@ -568,7 +568,7 @@ jobs:
       # verdict, and a real failure should not be masked by a sibling shard.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5]
 
     services:
       postgres:
@@ -671,7 +671,7 @@ jobs:
         # Using --test-threads=4 - concurrent tests use #[serial] for isolation (issue #36)
         run: |
           SHARD=${{ matrix.shard }}
-          SHARDS=4
+          SHARDS=5
           PACK="$RUNNER_TEMP/pg-pack"
           MAP="$PACK/test-binaries.tsv"
           LANE="$(cat "$PACK/lane")"

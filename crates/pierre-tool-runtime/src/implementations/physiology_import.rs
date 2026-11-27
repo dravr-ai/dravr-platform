@@ -41,7 +41,7 @@
 //! paired with `critical_power_watts`; the two are not interchangeable.
 
 use crate::annotations::{annotations, Effect, Reach};
-use crate::tool_data::ToolData;
+use crate::tool_data::{ToolData, WriteKind};
 use dravr_barrage::Stream;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -593,7 +593,8 @@ impl McpTool<dyn ToolRuntime> for ImportProviderThresholdsTool {
 // numbers only, no third-party text; nothing is sent outbound beyond the read.
 crate::declare_security!(
     ImportProviderThresholdsTool => empty,
-    reads: ToolData::own(&[Stream::Fitness, Stream::Profile]),
+    reads: ToolData::own(&[Stream::Fitness, Stream::Profile])
+        .writes(WriteKind::Structured),
 );
 
 #[cfg(test)]

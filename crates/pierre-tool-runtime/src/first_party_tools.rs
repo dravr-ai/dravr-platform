@@ -81,6 +81,34 @@ pub fn refusal(tool_name: &str) -> UniversalResponse {
     }
 }
 
+/// `error_code` of the refusal of a write naming an athlete over an external
+/// transport.
+pub const EXTERNAL_WRITE_ERROR_CODE: &str = "external_athlete_write";
+
+/// The in-band refusal of a call to `tool_name`, a tool that writes, naming
+/// an athlete over an external transport (carnet#1533).
+///
+/// The athlete consented to their coach inside Dravr. An MCP, A2A or API-key
+/// client acting for the coach is outside that agreement, so it writes
+/// nothing of the athlete's, whoever the caller is: the listing offers no
+/// such tool the argument, and the dispatch chokepoint refuses it the same
+/// way, before the tool body runs.
+#[must_use]
+pub(crate) fn external_write_refusal(tool_name: &str) -> UniversalResponse {
+    UniversalResponse {
+        success: false,
+        result: Some(json!({
+            "error_code": EXTERNAL_WRITE_ERROR_CODE,
+            "reason": EXTERNAL_TRANSPORT_REASON,
+        })),
+        error: Some(format!(
+            "'{tool_name}' names an athlete: a coach writes an athlete's data from Dravr's own \
+             app or channels, not over this interface."
+        )),
+        metadata: None,
+    }
+}
+
 /// What the caller reads when it names a tool kept on Dravr's own surfaces.
 fn refusal_message(tool_name: &str) -> String {
     format!("'{tool_name}' is not available over this interface: it runs in Dravr's own app or channels.")
@@ -213,10 +241,47 @@ mod tests {
                 transport: Some(Transport::WebApp),
                 ..athlete
             };
-            let mut schemas = registry.all_schemas();
-            let before = schemas.len();
+            let all = registry.all_schemas();
+            let mut schemas = all.clone();
             retain_offered(&registry, &mut schemas, &in_app);
-            assert_eq!(schemas.len(), before, "an in-app listing keeps every tool");
+            let kept: Vec<&str> = schemas.iter().map(|schema| schema.name.as_str()).collect();
+            let mut dropped: Vec<&str> = all
+                .iter()
+                .map(|schema| schema.name.as_str())
+                .filter(|name| !kept.contains(name))
+                .collect();
+            dropped.sort_unstable();
+            let mut expected: Vec<&str> = all
+                .iter()
+                .map(|schema| schema.name.as_str())
+                .filter(|name| {
+                    *name == "propose_athlete_link"
+                        || registry.get(name).is_some_and(|tool| {
+                            tool.audience() == Audience::Coach && !tool.serves_group_peers()
+                        })
+                })
+                .collect();
+            expected.sort_unstable();
+            assert_eq!(
+                dropped, expected,
+                "an athlete's in-app listing drops the coach-only tools and the one that needs \
+                 an athlete they are not offered: the turn offers nothing it would refuse for \
+                 their role (carnet#1511 I7)"
+            );
+            assert_eq!(
+                dropped,
+                [
+                    "get_group_member_plan_status",
+                    "get_roster_overview",
+                    "propose_athlete_link"
+                ],
+                "the roster, the plan status and the link proposal; a member's activities stay \
+                 for the peers who read them"
+            );
+            assert!(
+                kept.contains(&"get_group_member_activities"),
+                "bug: a peer is withheld a member's activities in the app"
+            );
         }
     }
 }

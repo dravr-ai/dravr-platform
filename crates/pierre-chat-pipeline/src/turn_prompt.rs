@@ -49,6 +49,7 @@ pub(crate) async fn store_turn_prompt(
             &input.user_id,
             room_relay::RelayedRow::MemberPost,
             &msg_result.message.content,
+            None,
         )
         .await;
     }

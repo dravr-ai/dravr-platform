@@ -1041,7 +1041,7 @@ async fn what_the_coach_says_of_the_athlete_in_her_thread_is_learned_by_nobody()
 // ════════════════════════════════════════════════════════════════════════
 
 /// In the athlete thread no memory write is declared to the model, and one it
-/// calls anyway is refused: no fact or commitment lands on
+/// calls anyway is refused as not offered: no fact or commitment lands on
 /// the coach or the athlete. In the coach's own conversation the same calls
 /// are offered and written.
 #[tokio::test]
@@ -1066,8 +1066,9 @@ async fn a_write_on_the_coachs_own_account_is_neither_offered_nor_run_in_her_thr
         .find(|c| !c.tool_results.is_empty())
         .expect("the model read what its calls answered");
     for write in OWN_ACCOUNT_WRITES {
-        let refusal =
-            format!("'{write}' is not available here: this thread is the coach's workspace");
+        // Not offered, so refused before the seat's own rule is reached
+        // (carnet#1511 design call 13).
+        let refusal = format!("Tool '{write}' not found. Available tools");
         assert!(
             answered.tool_results.contains(&refusal),
             "{write} was not refused: {}",

@@ -291,13 +291,12 @@ async fn agent_reply_drawn_from(
             source_conversation_id: Some(&conversation.id),
             source_message_id: Some(&message.id),
             transport_policy: TransportPolicy::AnyTransport,
+            carried: &[],
         })
         .await
         .unwrap();
     // The newest entry the athlete is the author of is the one just written.
-    let entries = repos
-        .groups
-        .list_transcript_visible_to(&group.to_string(), athlete.id, 1)
+    let entries = helpers::room_reads::visible_to(repos, &group.to_string(), athlete.id, 1)
         .await
         .unwrap();
     assert_eq!(entries[0].content, content);
@@ -343,6 +342,14 @@ async fn squad(
     athletes: &[(&Person, bool)],
 ) -> Uuid {
     let group = coached_group(res, coach.tenant, coach.id, agent, name).await;
+    // A coach reads through the coach's view only while holding coach access
+    // (the coaching gates, carnet#1511 Z4).
+    res.common
+        .repos
+        .users
+        .set_manages_roster(coach.id, true)
+        .await
+        .unwrap();
     for (athlete, shares_with_coach) in athletes {
         join_group(
             res,
@@ -982,9 +989,7 @@ async fn deleting_the_athletes_account_reaches_what_their_coach_holds_about_them
             .all(|id| !reply_ids(&after).contains(id)),
         "{after}"
     );
-    let room = repos
-        .groups
-        .list_transcript_visible_to(&w.casey_group.to_string(), w.casey.id, 50)
+    let room = helpers::room_reads::visible_to(repos, &w.casey_group.to_string(), w.casey.id, 50)
         .await
         .unwrap();
     assert!(
@@ -1297,9 +1302,26 @@ async fn a_correction_keeps_its_author_after_the_coach_is_reassigned() {
         .set_group_coach_user(&w.casey_group.to_string(), Some(w.dana.id), w.casey.tenant)
         .await
         .unwrap());
+    // A reply written in Casey's seat is not Dana's to review through the
+    // coach's view: she reads it only as the room does, and Alex does not
+    // share with the room (carnet#1511 round 11, A2).
     let (status, body) = post(
         &w.router,
         &format!("/api/coach/replies/{}/corrections", w.replies.alex_later),
+        &w.dana.auth,
+        &json!({ "content": dana_said }),
+    )
+    .await;
+    assert_eq!(
+        status, 404,
+        "bug: a replacement coach reviewed the earlier seat's reply: {body}"
+    );
+    // One written in her own seat is.
+    let (dana_era, _) =
+        agent_reply(&w.res, w.casey_group, &w.alex, "Keep it steady this week.").await;
+    let (status, body) = post(
+        &w.router,
+        &format!("/api/coach/replies/{dana_era}/corrections"),
         &w.dana.auth,
         &json!({ "content": dana_said }),
     )
@@ -1360,9 +1382,20 @@ async fn a_deleted_coachs_correction_stays_in_the_room_unnamed() {
         .set_group_coach_user(&group, Some(hana.id), w.casey.tenant)
         .await
         .unwrap());
+    w.res
+        .common
+        .repos
+        .users
+        .set_manages_roster(hana.id, true)
+        .await
+        .unwrap();
+    // A reply written in Hana's own seat: the earlier seat's are not hers to
+    // review (carnet#1511 round 11, A2).
+    let (hana_era, _) =
+        agent_reply(&w.res, w.casey_group, &w.alex, "Keep it steady this week.").await;
     let (status, body) = post(
         &w.router,
-        &format!("/api/coach/replies/{}/corrections", w.replies.alex_first),
+        &format!("/api/coach/replies/{hana_era}/corrections"),
         &hana.auth,
         &json!({ "content": hana_said }),
     )

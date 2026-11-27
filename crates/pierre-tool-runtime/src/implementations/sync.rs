@@ -6,7 +6,7 @@
 
 use crate::annotations::{annotations, Effect, Reach};
 use crate::read_subject::DataClass;
-use crate::tool_data::ToolData;
+use crate::tool_data::{ToolData, WriteKind};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -350,4 +350,5 @@ crate::declare_security!(
     reads: ToolData::of(DataClass::Training, &[])
         .with_connection_metadata(),
 );
-crate::declare_security!(RefreshProviderDataTool => empty, reads: ToolData::own(&[]));
+crate::declare_security!(RefreshProviderDataTool => empty, reads: ToolData::own(&[])
+        .writes(WriteKind::Structured));

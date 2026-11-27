@@ -12,6 +12,8 @@
 
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use dravr_cageux::algorithms::training_load::{DailyTrainingLoad, TrainingLoadAlgorithm};
@@ -27,6 +29,7 @@ use pierre_core::models::groups::{
 use pierre_core::models::{Activity, ProviderConnection, TenantId};
 use pierre_core::models::{FormBand, FormReading};
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
+use pierre_database::RepositoryRegistry;
 use pierre_fitness_compute::route_track::RouteTrack;
 use pierre_fitness_compute::AthleteInputs;
 use pierre_providers::core::ActivityQueryParams;
@@ -431,7 +434,8 @@ async fn fetch_member_activities_across_tenants(
     let mut parts = Vec::with_capacity(tenants.len());
     let mut any_stale = false;
     for &tenant_id in tenants {
-        let (sessions, served_stale) = fetch_member_activities(runtime, user_id, tenant_id).await;
+        let (sessions, served_stale) =
+            Box::pin(fetch_member_activities(runtime, user_id, tenant_id)).await;
         parts.push(sessions);
         any_stale = any_stale || served_stale;
     }
@@ -442,6 +446,28 @@ async fn fetch_member_activities_across_tenants(
         GarminSessions::merge_all(parts, &DedupConfig::from_env()),
         any_stale,
     )
+}
+
+/// [`fetch_member_activities_across_tenants`] under the member's own AI
+/// consents, built and boxed in a frame of its own.
+///
+/// A debug build lays a future out on the stack of the frame that builds
+/// it, and the snapshot's async body would keep that slot under every
+/// provider read of the member: a coach's roster of several members over
+/// the API-key route overflowed the 2 MB test thread with it.
+fn member_activities_under_consent<'a>(
+    runtime: &'a Arc<dyn ToolRuntime>,
+    repos: &'a RepositoryRegistry,
+    fallback_tenant_id: TenantId,
+    user_id: Uuid,
+    tenants: &'a [TenantId],
+) -> Pin<Box<dyn Future<Output = (GarminSessions, bool)> + Send + 'a>> {
+    Box::pin(under_ai_consent(
+        repos,
+        fallback_tenant_id.as_uuid(),
+        user_id,
+        fetch_member_activities_across_tenants(runtime, user_id, tenants),
+    ))
 }
 
 /// Fetch a single member's fitness snapshot.
@@ -482,11 +508,12 @@ async fn fetch_single_member_snapshot(
     let tenants = member_connection_tenants(user_id, &connections, fallback_tenant_id);
     // The member's data reaches the requester's model under the member's own
     // AI consents, not the requester's (carnet#726).
-    let (merged, served_stale) = under_ai_consent(
+    let (merged, served_stale) = member_activities_under_consent(
+        runtime,
         data.repos(),
-        fallback_tenant_id.as_uuid(),
+        fallback_tenant_id,
         user_id,
-        fetch_member_activities_across_tenants(runtime, user_id, &tenants),
+        &tenants,
     )
     .await;
     let activities = &merged.sessions;

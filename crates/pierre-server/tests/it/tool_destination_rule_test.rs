@@ -12,7 +12,7 @@ use std::mem;
 
 use dravr_tronc::mcp::tool::ToolCapabilities;
 use pierre_tool_runtime::read_subject::DataClass;
-use pierre_tool_runtime::tool_data::ToolData;
+use pierre_tool_runtime::tool_data::{ToolData, WriteKind};
 use serde_json::{json, Value};
 
 use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
@@ -104,8 +104,16 @@ fn serves_a_stream(data: &ToolData) -> bool {
         .iter()
         .map(|class| ToolData::of(*class, &[]))
         .chain([ToolData::own(&[])]);
+    // What a write stores (carnet#1511 call 16) is no stream.
     !streamless
         .flat_map(|form| [form, form.with_athlete_text()])
+        .flat_map(|form| {
+            [
+                form,
+                form.writes(WriteKind::FreeText),
+                form.writes(WriteKind::Structured),
+            ]
+        })
         .any(|form| form == *data)
 }
 

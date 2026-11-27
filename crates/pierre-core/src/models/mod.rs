@@ -218,8 +218,8 @@ pub use season::{SeasonConditions, SeasonTopic};
 pub use sport_family::SportFamily;
 pub use training_history::{DailyTrainingKey, DailyTrainingState};
 pub use workout_template::{
-    CalendarEventRef, CalendarEventSource, CalendarKey, LibraryWorkoutRef, PlannedSession,
-    PlannedSessionKind, PrescribedWorkout,
+    CalendarEventRef, CalendarEventSource, CalendarKey, LibraryWorkoutRef, PlannedCalendar,
+    PlannedSession, PlannedSessionKind, PrescribedWorkout, PushedEventPairing,
 };
 pub use zones::{HrZoneSet, PowerZoneSet, ZoneDistribution};
 
@@ -327,6 +327,9 @@ pub use user_mcp_token::{
 mod conversation;
 // A coach's quote of their athlete's group-room words (carnet#1249)
 mod room_quote;
+// A group member's data a stored row drew on, and how (carnet#1511 call 19)
+pub mod carried_read;
+pub use carried_read::{CarriedRead, ReadWay};
 pub use conversation::{
     is_in_app_channel, is_turn_marker_block, split_visuals, AddMessageParams, AgentRuntimeContext,
     ConversationLastMessage, ConversationPage, ConversationParticipant, ConversationRecord,
@@ -403,6 +406,8 @@ pub mod messaging;
 
 /// A coaching group's chat connected from the web app (carnet#1683), re-exported from [`groups`].
 mod group_chat;
+/// One entry of a group's room as one member reads it, re-exported from [`groups`].
+mod group_room;
 /// Coaching group models for multi-person AI coaching
 pub mod groups;
 /// Notification screen vocabulary — the app-side destinations a push notification names

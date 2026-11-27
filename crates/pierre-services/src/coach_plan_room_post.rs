@@ -276,6 +276,9 @@ async fn write_room_entry(
         source_conversation_id: None,
         source_message_id: None,
         transport_policy: post.transport_policy,
+        // The athlete's own plan, posted at their request: no other
+        // member's data.
+        carried: &[],
     };
     if let Err(e) = repos.groups.append_transcript_entry(&entry).await {
         warn!(group_id = %post.group_id, error = %e, "plan room post: the room entry could not be written; not posted");

@@ -30,7 +30,7 @@
 //!    direct message; a conversation id that does not resolve there IS a
 //!    shared room (it lives under the bot tenant), and a messaging group chat
 //!    whose binding failed keeps no group either (carnet#1422). The room
-//!    classifier (`call_room::CallRoom::of`) decides.
+//!    classifier (`call_room::of`) decides.
 //! 2. **The coach rule.** The athlete must be an active member of a group
 //!    the requester is `coach_user_id` of, and the requester must hold coach
 //!    access: the roster rule, which the name match and the by-id check both
@@ -110,8 +110,9 @@
 use std::future::Future;
 use std::sync::Arc;
 
+use dravr_tronc::mcp::tool::ToolCapabilities;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_core::models::{ConversationRecord, ConversationSubject, TenantId};
+use pierre_core::models::{CarriedRead, ConversationRecord, ConversationSubject, TenantId};
 use pierre_database::repositories::CoachReadClass;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
@@ -124,8 +125,9 @@ use serde_json::json;
 use tracing::info;
 use uuid::Uuid;
 
-use super::call_room::CallRoom;
+use super::call_room;
 use super::training_plan_authorship::resolve_turn_agent;
+use crate::coach_seat;
 use crate::context::ToolExecutionContext;
 use crate::first_party_tools::EXTERNAL_TRANSPORT_REASON;
 use crate::guardian::{
@@ -353,9 +355,11 @@ pub async fn coached_plan_read_access(
         CoachReadClass::Training,
     )
     .await?;
-    // What the caller derives from here on carries the athlete's plan
-    // (carnet#1174).
-    ai_scope::note_member_read(access.athlete_user_id);
+    // What the caller derives from here on carries the athlete's plan, read
+    // through the coach's view (carnet#1174, carnet#1511 call 19).
+    ai_scope::note_member_read(
+        CarriedRead::coach(access.athlete_user_id, access.group.id, coach).beyond_activities(),
+    );
     Ok(Ok(access))
 }
 
@@ -464,7 +468,10 @@ pub async fn resolve_plan_scope(
     // conversation, one the requester's own tenant cannot resolve (a shared
     // room's row under the bot tenant), and a chat with no group on a turn
     // not marked a direct message (carnet#1422).
-    if !CallRoom::of(request.context, request.conversation).is_private() {
+    if !call_room::of(request.context, request.conversation)
+        .await
+        .is_private()
+    {
         return Ok(Err(refusal(
             "act on an athlete's plan from your direct chat with me — a room would publish it \
              to every member. The athlete can post their own plan in the room with `/plan share`.",
@@ -593,6 +600,22 @@ async fn acting_for(
         }))));
     }
 
+    // Free text lands on the athlete's account only from a topic that drew
+    // on no other member (carnet#1511 call 24), in every round of the turn;
+    // a read of the athlete is the write's own.
+    if let Some(message) = coach_seat::after_member_read_athlete_refusal(
+        request.context.resources.tool_registry(),
+        request.tool_name,
+        request.context.user_id,
+        access.athlete_user_id,
+        ai_scope::current_provenance().as_ref(),
+    ) {
+        return Ok(Err(ToolResult::error(json!({
+            "error": message,
+            "error_code": coach_seat::MEMBER_READ_ERROR_CODE,
+            "reason": "member_read",
+        }))));
+    }
     info!(
         requester = %request.context.user_id,
         athlete = %access.athlete_user_id,
@@ -615,9 +638,29 @@ async fn acting_for(
         CoachReadClass::Training,
     )
     .await?;
-    // What the call reads and writes from here on is the athlete's
-    // (carnet#1174).
-    ai_scope::note_member_read(access.athlete_user_id);
+    // What the call reads and writes from here on is the athlete's, read
+    // through the coach's view (carnet#1174, carnet#1511 call 19). A write
+    // acts on them and is stamped as one, drawing on no one in this turn or
+    // on a replay of it, the stored physiology it admits included (calls 26
+    // and 35): the coach's next session for them, or for another athlete,
+    // is still taken.
+    let read = CarriedRead::coach(
+        access.athlete_user_id,
+        access.group.id,
+        request.context.user_id,
+    )
+    .beyond_activities();
+    if request
+        .context
+        .resources
+        .tool_registry()
+        .get(request.tool_name)
+        .is_some_and(|tool| tool.capabilities().contains(ToolCapabilities::WRITES_DATA))
+    {
+        ai_scope::note_member_written(read);
+    } else {
+        ai_scope::note_member_read(read);
+    }
     Ok(Ok(PlanScope {
         tenant: access.tenant,
         user_id: access.athlete_user_id,

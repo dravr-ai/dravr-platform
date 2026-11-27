@@ -57,12 +57,26 @@ macro_rules! group_columns {
 // coaching_groups
 // ============================================================================
 
-/// One group, active from the start; `$13` serves both timestamps. `$14` is
-/// the human coach it starts with, `NULL` until one is attached.
-pub(crate) const INSERT_GROUP_SQL: &str = r"INSERT INTO coaching_groups (id, tenant_id, name, description, agent_id, owner_id,
+/// The insert of one group, shared by [`INSERT_GROUP_SQL`] and
+/// [`INSERT_GROUP_IF_ABSENT_SQL`].
+macro_rules! insert_group_sql {
+    () => {
+        r"INSERT INTO coaching_groups (id, tenant_id, name, description, agent_id, owner_id,
               peer_data_sharing, max_members, is_active, channel_type, channel_chat_id,
               respond_mode, digest_mode, created_at, updated_at, coach_user_id)
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, $9, $10, $11, $12, $13, $13, $14)";
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, $9, $10, $11, $12, $13, $13, $14)"
+    };
+}
+
+/// One group, active from the start; `$13` serves both timestamps. `$14` is
+/// the human coach it starts with, `NULL` until one is attached.
+pub(crate) const INSERT_GROUP_SQL: &str = insert_group_sql!();
+
+/// [`INSERT_GROUP_SQL`] under an id the caller chose, unless a group holds
+/// that id already: of two writers racing on one id, one inserts and the
+/// other writes nothing.
+pub(crate) const INSERT_GROUP_IF_ABSENT_SQL: &str =
+    concat!(insert_group_sql!(), " ON CONFLICT (id) DO NOTHING");
 
 /// One group by id. Coaching groups are intentionally cross-tenant: members
 /// join the same group from different tenants, so the group's globally
@@ -134,6 +148,16 @@ pub(crate) const LIST_ATHLETES_COACHED_BY_SQL: &str = r"SELECT DISTINCT m.user_i
                 AND m.left_at IS NULL
               ORDER BY m.user_id";
 
+/// Every group a user coaches, owns, or is a live member of, active or
+/// archived, across tenants: each group whose reach the user holds now or
+/// gets back when it is switched back on (an archive keeps its coach and its
+/// members).
+pub(crate) const LIST_GROUPS_HELD_BY_SQL: &str = r"SELECT g.id AS group_id FROM coaching_groups g
+              WHERE g.coach_user_id = $1 OR g.owner_id = $1
+              UNION
+              SELECT m.group_id AS group_id FROM coaching_group_members m
+              WHERE m.user_id = $1 AND m.left_at IS NULL";
+
 /// Every active group of a tenant, newest first.
 pub(crate) const LIST_ACTIVE_GROUPS_FOR_TENANT_SQL: &str = concat!(
     "SELECT ",
@@ -172,6 +196,11 @@ pub(crate) const RELEASE_GROUP_MEMBERS_SQL: &str = r"UPDATE coaching_group_membe
 /// Attach or detach the human coach of a group under its tenant.
 pub(crate) const SET_GROUP_COACH_USER_SQL: &str = r"UPDATE coaching_groups SET coach_user_id = $1, updated_at = $2
               WHERE id = $3 AND tenant_id = $4";
+
+/// Attach a human coach to an active group under its tenant only while it
+/// has none: a coach a racing writer attached first is never overwritten.
+pub(crate) const ATTACH_COACH_TO_COACHLESS_GROUP_SQL: &str = r"UPDATE coaching_groups SET coach_user_id = $1, updated_at = $2
+              WHERE id = $3 AND tenant_id = $4 AND coach_user_id IS NULL AND is_active = TRUE";
 
 // ============================================================================
 // Context queries (the transcript's statements: `super::group_transcript`)

@@ -54,6 +54,7 @@ fn block(id: &str, first_id: &str, last_id: &str, summary: &str, seconds: u32) -
             .unwrap(),
         transport_policy: TransportPolicy::AnyTransport,
         about_user_id: None,
+        audience_recorded: true,
         ai_consent_sources: Vec::new(),
     }
 }

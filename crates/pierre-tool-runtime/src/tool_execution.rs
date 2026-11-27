@@ -54,6 +54,7 @@ use pierre_core::errors::AppError;
 use pierre_llm::call_record::{emit_call_record_with_text, CallRecordInputs};
 use pierre_llm::{
     ChatMessage, ChatRequest, ChatResponse, FunctionCall, FunctionResponse, HeadlessToolResponse,
+    MessageRole,
 };
 
 // ============================================================================
@@ -114,6 +115,7 @@ pub(crate) async fn run_api_tool_loop(
                     members_read,
                 } = execute_function_calls(
                     &params.executor,
+                    params.tools,
                     function_calls,
                     params.user_id,
                     params.tenant_id,
@@ -233,6 +235,7 @@ pub(crate) async fn run_api_tool_loop(
                 members_read,
             } = execute_function_calls(
                 &params.executor,
+                params.tools,
                 &text_tool_calls,
                 params.user_id,
                 params.tenant_id,
@@ -311,6 +314,31 @@ pub(crate) async fn run_api_tool_loop(
 /// CLI providers are slower (subprocess per call), so keep this conservative.
 const CLI_MAX_TOOL_ITERATIONS: usize = 5;
 
+/// Re-write the text catalogue `injected` in the system prompt when what the
+/// turn offers now ([`crate::protocol::UniversalExecutor::offered_now`]) no
+/// longer matches it:
+/// a round's member read narrowed the writes the turn takes.
+fn refresh_catalog(
+    params: &ToolLoopParams<'_>,
+    llm_messages: &mut [ChatMessage],
+    injected: &mut String,
+) {
+    let offered = params.executor.offered_now(params.tools, params.user_id);
+    let current = tool_simulation::generate_tool_catalog(&offered.function_declarations);
+    if current == *injected {
+        return;
+    }
+    if let Some(system) = llm_messages
+        .first_mut()
+        .filter(|message| message.role == MessageRole::System)
+    {
+        if system.content.contains(injected.as_str()) {
+            system.content = system.content.replacen(injected.as_str(), &current, 1);
+            *injected = current;
+        }
+    }
+}
+
 /// Executes the tool loop using text-based tool calling for CLI providers.
 ///
 /// Uses embacle's [`tool_simulation`] module for catalog generation, tool call
@@ -352,11 +380,17 @@ pub async fn run_cli_tool_loop(
     // isn't part of my real toolset" to a catalog, and taking the prose route
     // means it never opens an MCP session, so the server's `initialize`
     // instructions — the caller's persona — never reach its system prompt.
-    if params.mcp_servers.is_empty() {
-        let tool_catalog =
-            tool_simulation::generate_tool_catalog(&params.tools.function_declarations);
+    // The catalogue offers what the turn offers now: its declarations,
+    // narrowed by a member read a tool made since they were built, and
+    // re-written before each later call once a round narrows them further,
+    // so a write dispatch would refuse is never offered mid-turn
+    // (carnet#1511 I7, call 16).
+    let mut catalog = params.mcp_servers.is_empty().then(|| {
+        let offered = params.executor.offered_now(params.tools, params.user_id);
+        let tool_catalog = tool_simulation::generate_tool_catalog(&offered.function_declarations);
         tool_simulation::inject_tool_catalog(llm_messages, &tool_catalog);
-    }
+        tool_catalog
+    });
 
     let mut tally = ToolLoopTally::default();
     let max_iterations = params.max_iterations.min(CLI_MAX_TOOL_ITERATIONS);
@@ -368,6 +402,9 @@ pub async fn run_cli_tool_loop(
         let (response, asked) = if let Some(reply) = first_reply.take() {
             (reply, None)
         } else {
+            if let Some(injected) = catalog.as_mut() {
+                refresh_catalog(params, llm_messages, injected);
+            }
             let (reply, asked) = cli_loop_call(params, llm_messages, call_seq).await?;
             (reply, Some(asked))
         };
@@ -429,6 +466,7 @@ pub async fn run_cli_tool_loop(
             members_read,
         } = execute_function_calls(
             &params.executor,
+            params.tools,
             &parsed_tool_calls,
             params.user_id,
             params.tenant_id,

@@ -56,7 +56,8 @@ pub struct ServerContextOptions {
     /// no-auth stub tool to exercise the tool-execution loop
     /// end-to-end without requiring a real provider connection.
     /// Production callers leave this empty — the default registry
-    /// already holds every user-facing tool.
+    /// already holds every user-facing tool. Each lands in the `data`
+    /// category, so a chat turn offers it.
     pub extra_tools: Vec<Arc<dyn RuntimeTool>>,
     /// Billing provider backing `/api/billing/*` and `/webhooks/{provider}`.
     ///

@@ -41,6 +41,8 @@ pub(crate) fn instant_from_rfc3339(text: &str) -> AppResult<Timestamp> {
 /// shell must `use` every one of them.
 macro_rules! impl_messaging_repository {
     ($ty:ty, $row:ty, $ids:ident) => {
+        $crate::repositories::messaging_session_chat::impl_session_chat!($ty);
+
         /// A NOT NULL text column via `try_get` only: `Row::get` is
         /// `try_get().unwrap()`, and an unwind here takes the whole
         /// container down with every in-flight request on it.
@@ -117,6 +119,8 @@ macro_rules! impl_messaging_repository {
                 "channel_user_id": text_column(row, "channel_user_id")?,
                 "channel_conversation_id": text_column_opt(row, "channel_conversation_id")?,
                 "pierre_conversation_id": text_column_opt(row, "pierre_conversation_id")?,
+                "is_direct_message": row.try_get::<Option<bool>, _>("is_direct_message")
+                    .map_err(|e| messaging_column_error("is_direct_message", &e))?,
                 "last_message_at": stamp_column(row, "last_message_at")?,
                 "created_at": stamp_column(row, "created_at")?,
             }))
@@ -412,6 +416,31 @@ macro_rules! impl_messaging_repository {
                         AppError::database(format!("Failed to get session by conversation: {e}"))
                     })?;
                 row.as_ref().map(session_json).transpose()
+            }
+
+            async fn get_session(
+                &self,
+                tenant_id: TenantId,
+                session_id: &str,
+            ) -> AppResult<Option<Value>> {
+                self.session_by_id(tenant_id, session_id).await
+            }
+
+            async fn session_chats(
+                &self,
+                tenant_id: TenantId,
+                pierre_conversation_id: &str,
+            ) -> AppResult<Vec<SessionChat>> {
+                self.chats_of_sessions(tenant_id, pierre_conversation_id).await
+            }
+
+            async fn record_session_chat(
+                &self,
+                tenant_id: TenantId,
+                session_id: &str,
+                direct: bool,
+            ) -> AppResult<()> {
+                self.stamp_session_chat(tenant_id, session_id, direct).await
             }
 
             async fn touch_session(&self, session_id: &str) -> AppResult<()> {

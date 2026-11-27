@@ -72,7 +72,7 @@ use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::GroupMember;
-use pierre_core::models::Activity;
+use pierre_core::models::{Activity, CarriedRead};
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_mcp_schema::PropertySchema;
 use pierre_providers::core::ActivityQueryParams;
@@ -414,7 +414,9 @@ const fn shares_with_requester(row: &MemberMatch) -> bool {
 struct AuthorizedRead {
     /// The member's display name.
     display_name: String,
-    /// The group the read is authorized through.
+    /// The id of the group the read is authorized through.
+    group_id: Uuid,
+    /// That group's name.
     group_name: String,
     /// What the coaching gates answered, when the requester reads them as
     /// that group's human coach; `None` for a peer's read.
@@ -453,6 +455,7 @@ async fn authorize(
                 Ok(access) => {
                     return Ok(Ok(AuthorizedRead {
                         display_name: access.display_name.clone(),
+                        group_id: row.group_id,
                         group_name: access.group.name.clone(),
                         as_coach: Some(access),
                         membership: row.member.clone(),
@@ -466,6 +469,7 @@ async fn authorize(
         } else if member_reads::peer_read_allowed(row.group_allows_sharing, &row.member) {
             return Ok(Ok(AuthorizedRead {
                 display_name: row.display_name.clone(),
+                group_id: row.group_id,
                 group_name: row.group_name.clone(),
                 as_coach: None,
                 membership: row.member.clone(),
@@ -798,9 +802,13 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
                 )
                 .await?;
             }
-            // What the turn derives from here on carries this member's data
-            // (carnet#1174).
-            ai_scope::note_member_read(peer_id);
+            // What the turn derives from here on carries this member's data,
+            // read as the coach or as a peer (carnet#1174, carnet#1511 call 19).
+            ai_scope::note_member_read(if resolved.as_coach.is_some() {
+                CarriedRead::coach(peer_id, resolved.group_id, requester)
+            } else {
+                CarriedRead::peer(peer_id, Some(resolved.group_id))
+            });
 
             // Query params.
             let limit = args
@@ -926,7 +934,7 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
 // (`crate::coach_assistant`).
 // A coach's group: its members' sessions by name, and their plans.
 crate::declare_security!(
-    GetGroupMemberActivitiesTool => empty; coach,
+    GetGroupMemberActivitiesTool => empty; coach_in_any_group_room,
     reads: ToolData::own(&[Stream::Workout, Stream::WorkoutRoute])
         .with_athlete_text(),
 );
