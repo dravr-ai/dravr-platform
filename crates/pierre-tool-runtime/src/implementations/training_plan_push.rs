@@ -74,9 +74,10 @@ pub struct LedgerRead {
     pub diff: LedgerDiff,
 }
 
-/// The one diff of `weeks` against the ledger on `backend` that the calendar
-/// block, the publish's preview and the athlete's « Envoyer » count all read
-/// (carnet#1841), so none of them recomputes it its own way.
+/// The one diff of `weeks` against the ledger on `backend` (carnet#1841).
+///
+/// The calendar block, the publish's preview and the athlete's « Envoyer »
+/// count all read it, so none of them recomputes it its own way.
 ///
 /// The days render with the push's own disclosure
 /// ([`FuelingDisclosure::for_athletes_calendar`]), so the pending entries are
@@ -892,7 +893,7 @@ pub(super) async fn push_active_plan_for(
         }
         scope.record_coach_write(trigger, attempted);
         if scope.athlete_name().is_none() {
-            own_send_landed(context, tenant, user_id, &report).await;
+            Box::pin(own_send_landed(context, tenant, user_id, &report)).await;
         }
         Ok(PlanPush::Pushed(report))
     })
