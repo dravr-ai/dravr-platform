@@ -32,8 +32,10 @@ use crate::envelope_words::{anchor_sentence, finding_sentence, stated_param};
 use crate::implementations::plan_scope::PlanWriter;
 use crate::runtime::ToolRuntime;
 
-/// The athlete on their own plan (carnet#1841): no coach, no group, no
-/// coaching gate. The families are the catalogue's own, since no agent's
+/// The athlete on their own plan (carnet#1841).
+///
+/// No coach, no group, no coaching gate. The families are the catalogue's
+/// own, since no agent's
 /// turn names a package, and a day the athlete writes names no agent.
 #[derive(Debug, Clone, Copy)]
 pub struct OwnPlan {
@@ -283,8 +285,10 @@ fn finding_text(words: EditorWords<'_>, finding: &EnvelopeFinding) -> String {
     })
 }
 
-/// The session `build` makes on `date` for the editor's athlete, generated
-/// on their stored anchors as the save generates it, read under their AI
+/// The session `build` makes on `date` for the editor's athlete.
+///
+/// It is generated on their stored anchors as the save generates it, read
+/// under their AI
 /// consents, and worded for whoever edits: a coach reads the athlete's
 /// anchors in their own units, the athlete their own (carnet#1841). Nothing
 /// is written.

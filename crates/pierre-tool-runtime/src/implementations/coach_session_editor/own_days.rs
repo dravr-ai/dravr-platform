@@ -185,7 +185,7 @@ async fn save_live(
     let inputs: Vec<PlanWeekInput<'_>> = weeks.iter().map(WeekWrite::input).collect();
     // The season the athlete's first session starts: no race yet, no
     // phases, nothing said of it; a race or an agent's outline comes later.
-    let outline = lay_season.then(|| PlanOutlineInput {
+    let outline = lay_season.then_some(PlanOutlineInput {
         goal_race: None,
         races: Some(&[]),
         strategy: "",

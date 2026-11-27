@@ -133,8 +133,9 @@ pub async fn revert_draft_date(
     as_athletes_write(repos, target, write).await
 }
 
-/// Refuse what the athlete's own overlay proposes on `date` (carnet#1841):
-/// the live plan's entries are put back on that date of the overlay, whole,
+/// Refuse what the athlete's own overlay proposes on `date` (carnet#1841).
+///
+/// The live plan's entries are put back on that date of the overlay, whole,
 /// as [`revert_draft_date`] puts them back on a coach's draft. The live plan
 /// is never touched. Recorded as the athlete's `date_revert`; the week keeps
 /// the agent that proposed it as its author.

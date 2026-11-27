@@ -325,8 +325,10 @@ pub struct SendReview {
     pub edited_on_provider: Vec<String>,
 }
 
-/// Review what the athlete's own « Envoyer » would send of `weeks`, their
-/// live plan, from `today` on: [`own_pending_send`], with each update whose
+/// Review what the athlete's own « Envoyer » would send of `weeks` from `today` on.
+///
+/// `weeks` is their live plan. The review is [`own_pending_send`], with each
+/// update whose
 /// entry the athlete changed on the provider since Dravr wrote it named
 /// (decision 3, Phil 2026-11-26). Reads the provider's calendar; writes
 /// nothing.
@@ -366,8 +368,10 @@ pub async fn review_own_send(
     }))
 }
 
-/// The athlete's own « Envoyer » (carnet#1841): their live plan put on their
-/// calendar by the push `push_training_plan` runs, its every gate first,
+/// The athlete's own « Envoyer » (carnet#1841).
+///
+/// Their live plan is put on their calendar by the push `push_training_plan`
+/// runs, its every gate first,
 /// overwriting the entries they edited on the provider only on the dates
 /// `replace_edited` names. `weeks` and `today` are what the send is judged
 /// on before it runs: the dates it changed are recorded in the plan's change
@@ -438,14 +442,13 @@ fn offered_calendars(choose: &ToolResult) -> Vec<String> {
         .content
         .get("calendars")
         .and_then(Value::as_array)
-        .map(|offered| {
+        .map_or_default(|offered| {
             offered
                 .iter()
                 .filter_map(|calendar| calendar.get("provider").and_then(Value::as_str))
                 .map(str::to_owned)
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 /// The calendar block: every entry Dravr has live on the athlete's calendar

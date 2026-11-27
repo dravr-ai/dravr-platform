@@ -704,9 +704,10 @@ pub(super) const NO_CALENDAR: &str = "no_calendar";
 /// gates and then failed.
 pub(super) const PUSH_FAILED: &str = "push_failed";
 
-/// What a coach's publish did to the athlete's calendar on its own
-/// (carnet#1492): the plan reconciled onto their chosen calendar, or why
-/// nothing was written there. An athlete's own save sends nothing: their
+/// What a coach's publish did to the athlete's calendar on its own (carnet#1492).
+///
+/// The plan reconciled onto their chosen calendar, or why nothing was written
+/// there. An athlete's own save sends nothing: their
 /// « Envoyer » does (carnet#1841).
 ///
 /// The write it follows never fails because of it. A gate that refuses the

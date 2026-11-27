@@ -388,8 +388,9 @@ pub fn external_write_error(object: &str) -> AppError {
     error
 }
 
-/// The refusal of a write to the caller's own plan from an outside client
-/// (carnet#1841): the plan tab's writes are Dravr's own app's, as a coach's
+/// The refusal of a write to the caller's own plan from an outside client.
+///
+/// The Plan tab's writes are Dravr's own app's (carnet#1841), as a coach's
 /// writes to a coached athlete's plan are ([`external_write_error`]), with the
 /// same `details.reason`.
 #[must_use]
