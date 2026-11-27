@@ -96,12 +96,10 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["float_roundtrip"] }
 # The Dravr date types (Timestamp, CivilDate, Zone...): serde, schemas and
 # the IANA zone database compiled in (carnet#1620).
-dravr-tronc = { workspace = true, features = ["zones", "schemars1"] }
+dravr-tronc = { workspace = true, features = ["zones", "text", "schemars1"] }
 uuid = { version = "1.29", features = ["v4", "serde"] }
 base64 = "0.22"
 tracing = "0.1"
-# NFD behind `text_fold::fold_for_match`.
-unicode-normalization = { workspace = true }
 
 # Optional: HTTP response support
 axum = { version = "0.8", optional = true, default-features = false, features = ["json"] }

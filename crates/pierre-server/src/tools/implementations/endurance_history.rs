@@ -12,13 +12,12 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use dravr_cageux::form_reading::{FormInterpretation, FormReading};
+use dravr_tronc::dates::civil_clock::{local_date, resolve_zone};
 use dravr_tronc::dates::{CivilDate, Elapsed};
-use pierre_core::civil_time::{local_date, resolve_zone};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::coverage::{Completeness, Coverage, CoverageWindow, IncompleteReason};
-use pierre_core::models::{
-    DailyTrainingState, FormBand, FormInterpretation, FormReading, TenantId,
-};
+use pierre_core::models::{DailyTrainingState, FormBand, TenantId};
 use pierre_fitness_compute::training_history_compute::MAX_BACKFILL_DAYS;
 use pierre_providers::{ai_scope, backend_resolver};
 use pierre_services::training_history_read::user_timezone;

@@ -24,6 +24,7 @@ use bytes::Bytes;
 use dravr_barrage::blob::BlobKey;
 use dravr_barrage::store::{PageReq, RecordQuery};
 use dravr_barrage::Scope;
+use dravr_colleur::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::admin::models::ValidatedAdminToken;
 use pierre_core::errors::{AppResult, ErrorCode};
@@ -46,7 +47,6 @@ use pierre_database::repositories::{
 use pierre_mcp_server::a2a::client::ClientRegistrationRequest;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::archive_import::sweeps::erase_deleted_accounts;
-use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use pierre_providers::upload_provider::file_sha256;
 use pierre_routes_admin::handlers::types::ResetAccountRequest;
 use pierre_routes_admin::handlers::user_removal::handle_reset_user;

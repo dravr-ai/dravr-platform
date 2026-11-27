@@ -27,9 +27,9 @@ use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
+use dravr_tronc::dates::civil_clock::monday_of;
 use dravr_tronc::dates::Elapsed;
 use dravr_tronc::dates::{CivilDate, Timestamp, Zone};
-use pierre_core::civil_time::monday_of;
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::{Activity, ActivityBuilder, SportType, Tenant, TenantId};
 use pierre_core::transport::TransportPolicy;

@@ -14,12 +14,29 @@ publish = false
 name = "pierre-cli"
 path = "src/main.rs"
 
+# LLM measurement tools for the claim checker and coaching models: run by hand,
+# never by CI. They read dravr-colleur's datasets, so they need its feature.
+[[bin]]
+name = "claim_catch_rate"
+path = "src/bin/claim_catch_rate.rs"
+required-features = ["tools-verification"]
+
+[[bin]]
+name = "judge_bakeoff"
+path = "src/bin/judge_bakeoff.rs"
+required-features = ["tools-verification"]
+
+[[bin]]
+name = "coaching_model_bench"
+path = "src/bin/coaching_model_bench.rs"
+required-features = ["tools-verification"]
+
 [features]
 default = []
 postgresql = ["pierre-database/postgresql", "pierre-services/postgresql"]
 # Enables the GCP Cloud KMS KEK target for `pierre-cli key rewrap-kek`.
 gcp-kms = ["pierre-auth/gcp-kms"]
-tools-verification = ["dep:pierre-evals", "pierre-services/tools-verification", "pierre-services/health-sync"]
+tools-verification = ["dep:dravr-colleur", "dep:pierre-contremaitre", "pierre-services/tools-verification", "pierre-services/health-sync"]
 # `user mint-session`: signs an account in with no credential, for the mobile
 # E2E lanes' seeded sessions (carnet#1201). Only those lanes and the dev stack's
 # --maestro run build it; the server image's feature list never names it, so
@@ -45,7 +62,9 @@ pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context"
 pierre-agent-parser = { version = "0.3.0", path = "../pierre-agent-parser" }
 pierre-core = { version = "0.3.0", path = "../pierre-core" }
 pierre-database = { version = "0.3.0", path = "../pierre-database" }
-pierre-evals = { version = "0.3.0", path = "../pierre-evals", optional = true }
+# The compiled-in evidence corpus claim_catch_rate scores against.
+pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre", optional = true }
+dravr-colleur = { workspace = true, optional = true }
 # LlmChain: the model a seeded conversation gets, as the server resolves it.
 pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
 # mask_email: the canonical redactor for an address in an INFO+ log line.
@@ -78,8 +97,6 @@ urlencoding = "2.1"
 uuid = { version = "1.29", features = ["v4", "serde"] }
 
 [dev-dependencies]
-# The claim-verdict types the grading-sheet test seeds its database with.
-pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
 # The offline provider registry the session-mint test's auth service holds.
 pierre-test-support = { version = "0.3.0", path = "../pierre-test-support", features = ["providers"] }
 

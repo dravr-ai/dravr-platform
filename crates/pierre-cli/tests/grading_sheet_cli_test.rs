@@ -15,6 +15,7 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command, Output};
 
+use dravr_colleur::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use pierre_auth::key_management::KeyManager;
 #[cfg(feature = "postgresql")]
 use pierre_core::config::database::PostgresPoolConfig;
@@ -22,7 +23,6 @@ use pierre_core::models::{Tenant, TenantId, User};
 use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::{factory::Database, DatabaseProvider};
 use pierre_database::repositories::InsertClaimVerdictParams;
-use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use serde_json::Value;
 use uuid::Uuid;
 

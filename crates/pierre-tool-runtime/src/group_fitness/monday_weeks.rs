@@ -6,8 +6,8 @@
 
 use std::sync::Arc;
 
+use dravr_tronc::dates::civil_clock::monday_of;
 use dravr_tronc::dates::{CivilDate, Elapsed};
-use pierre_core::civil_time::monday_of;
 use pierre_core::constants::units::METERS_PER_KM;
 use pierre_core::models::groups::MemberFitnessSnapshot;
 use pierre_core::models::TenantId;

@@ -234,7 +234,7 @@ pub(crate) enum AssertionSpec {
     /// Every other kind here reads the reply or the tool calls, which is why
     /// the Annual Vision plan's fortnight line — "references templates on ≥5
     /// of 7 days and lands inside the phase's TID target" — could be graded
-    /// neither in `pierre-evals` (no database, no state-reading kind) nor
+    /// neither in `dravr-colleur` (no database, no state-reading kind) nor
     /// here, until the driver could execute a save for real.
     ///
     /// Both halves matter and they fail differently. A week of prose days

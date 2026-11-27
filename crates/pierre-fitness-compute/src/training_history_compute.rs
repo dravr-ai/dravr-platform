@@ -49,8 +49,8 @@ use dravr_cageux::error::IntelligenceResult;
 use dravr_cageux::models::activity::Activity;
 use dravr_cageux::periodization::load_metrics::{self, RAMP_RATE_LOOKBACK_DAYS};
 use dravr_cageux::training_load::{TrainingLoad, TrainingLoadCalculator};
+use dravr_tronc::dates::civil_clock::resolve_zone;
 use dravr_tronc::dates::{CivilDate, Elapsed};
-use pierre_core::civil_time::resolve_zone;
 use pierre_core::models::{DailyTrainingState, UserPhysiologicalProfile};
 
 /// Default chronic window (Coggan).

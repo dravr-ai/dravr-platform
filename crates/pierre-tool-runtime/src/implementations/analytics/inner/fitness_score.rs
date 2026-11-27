@@ -22,13 +22,14 @@ use crate::protocols::ProtocolError;
 #[cfg(feature = "client-notifications")]
 use crate::runtime::ToolRuntime;
 use dravr_cageux::config::intelligence::IntelligenceConfig;
+use dravr_cageux::form_reading::FormReading;
 use dravr_cageux::performance_analyzer::AdvancedPerformanceAnalyzer;
 use dravr_cageux::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
 use dravr_cageux::training_load::TrainingLoadCalculator;
 use dravr_cageux::zones::HrZones;
 use dravr_tronc::dates::{Elapsed, Timestamp, Zone};
 use pierre_core::models::zones::{athlete_hr_zones, HrZonesUnavailable};
-use pierre_core::models::{Activity, FormReading};
+use pierre_core::models::Activity;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_fitness_compute::AthleteInputs;
 #[cfg(feature = "client-notifications")]

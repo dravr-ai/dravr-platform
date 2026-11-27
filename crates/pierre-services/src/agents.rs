@@ -10,9 +10,10 @@ use std::hash::BuildHasher;
 
 use serde::Deserialize;
 
+use dravr_cageux::models::sport_alias::{resolve_sport_type, sport_matches_family};
 use pierre_config::agent_recommendations::AgentRecommendationConfig;
 use pierre_core::models::agents::{Agent, AgentPrerequisites};
-use pierre_core::models::{resolve_sport_type, sport_matches_family, SportProfile, SportType};
+use pierre_core::models::{SportProfile, SportType};
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;

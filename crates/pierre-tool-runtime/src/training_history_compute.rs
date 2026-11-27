@@ -40,7 +40,7 @@ use serde::Serialize;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use pierre_core::civil_time::{clock_date, resolve_zone};
+use dravr_tronc::dates::civil_clock::{clock_date, resolve_zone};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::coverage::{Coverage, Pending};
 use pierre_core::models::{DailyTrainingState, TenantId};

@@ -12,13 +12,13 @@ publish = false
 
 [features]
 default = ["provider-whoop", "provider-strava", "provider-sciotte"]
-provider-strava = []
+provider-strava = ["dep:dravr-cageux"]
 provider-garmin = ["dep:dravr-cageux"]
 provider-terra = []
 provider-whoop = []
 provider-coros = []
 provider-sciotte = ["dep:dravr-sciotte"]
-provider-intervals-icu = []
+provider-intervals-icu = ["dep:dravr-cageux"]
 provider-wahoo = ["dep:base64", "dep:dravr-cageux"]
 all-providers = [
     "provider-strava",

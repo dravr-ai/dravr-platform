@@ -29,9 +29,9 @@ use dravr_tronc::dates::Timestamp;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::sport_type_alias::sport_matches_family;
 use super::SportType;
 use crate::errors::{AppError, AppResult};
+use dravr_cageux::models::sport_alias::sport_matches_family;
 
 /// The warning distance a pair takes unless the athlete sets another: 500 km,
 /// the threshold the athlete who asked for the ledger named (carnet#711).

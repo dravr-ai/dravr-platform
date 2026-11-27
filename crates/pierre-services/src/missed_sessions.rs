@@ -36,8 +36,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use dravr_cageux::models::sport_alias::sport_family_head;
 use dravr_tronc::dates::{CivilDate, Timestamp};
-use pierre_core::models::{sport_family_head, SportType};
+use pierre_core::models::SportType;
 
 /// Who decides whether a planned session was done.
 #[derive(Debug, Clone, PartialEq, Eq)]

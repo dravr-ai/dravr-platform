@@ -27,6 +27,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
+use dravr_colleur::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::groups::{
@@ -41,7 +42,6 @@ use pierre_database::repositories::{InsertClaimVerdictParams, NewSubjectConversa
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::ChatRoutes;
 use pierre_mcp_server::routes::coach_replies::CoachReplyRoutes;
-use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use pierre_test_support::account::delete_account;
 use serde_json::{json, Value};
 use uuid::Uuid;

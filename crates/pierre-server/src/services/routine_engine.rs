@@ -48,8 +48,8 @@ use std::collections::{BTreeSet, HashSet};
 use std::fmt;
 use std::sync::{Arc, Weak};
 
+use dravr_tronc::dates::civil_clock::resolve_zone;
 use dravr_tronc::dates::{Elapsed, Timestamp, Zone};
-use pierre_core::civil_time::resolve_zone;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     LeftOut, Routine, RoutineKind, RoutineScope, RunOutcome, Schedule, Tenant, TenantId,

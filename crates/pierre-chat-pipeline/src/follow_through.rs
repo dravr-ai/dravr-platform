@@ -188,7 +188,7 @@ pub(crate) async fn persist_verdicts_for_turn(
     input: &TurnInput,
     conv: &ConversationRecord,
     assistant_message_id: &str,
-    pending_verdicts: &[(pierre_evals::ExtractedClaim, pierre_evals::VerdictOutcome)],
+    pending_verdicts: &[(dravr_colleur::ExtractedClaim, dravr_colleur::VerdictOutcome)],
 ) {
     if pending_verdicts.is_empty() {
         return;

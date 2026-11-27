@@ -36,8 +36,8 @@ use serde::Deserialize;
 use serde_json::{json, to_value, Value};
 use tracing::info;
 
+use dravr_tronc::dates::civil_clock::UTC_MINUTE;
 use pierre_core::admin::models::ValidatedAdminToken;
-use pierre_core::civil_time::UTC_MINUTE;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{normalize_email, InvitationKind};
 use pierre_middleware::redaction::mask_email;

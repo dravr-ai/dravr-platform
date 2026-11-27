@@ -20,6 +20,8 @@ workflows:
         - 'actions/checkout@v6'
     '.github/workflows/bump-canot.yml':
         - 'actions/checkout@v6'
+    '.github/workflows/bump-colleur.yml':
+        - 'actions/checkout@v6'
     '.github/workflows/bump-commere.yml':
         - 'actions/checkout@v6'
     '.github/workflows/bump-embacle.yml':

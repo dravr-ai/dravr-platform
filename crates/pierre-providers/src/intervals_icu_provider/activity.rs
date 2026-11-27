@@ -10,8 +10,8 @@
 //! endpoints and hands it to [`map_activity`]; [`parse_local_dt`] reads the
 //! timestamps back in the same dialect the provider's queries send.
 
+use dravr_tronc::dates::civil_clock;
 use dravr_tronc::dates::{CivilDateTime, Timestamp};
-use pierre_core::civil_time;
 use serde::Deserialize;
 
 use super::QUERY_DATETIME_FORMAT;
@@ -210,7 +210,7 @@ fn start_instant(raw: &IntervalsIcuActivity) -> Option<Timestamp> {
 /// zone is absent or unknown, the clock does not parse, or the clock falls in
 /// the zone's spring-forward gap.
 fn wall_clock_in_zone(wall_clock: &str, zone: Option<&str>) -> Option<Timestamp> {
-    let zone = civil_time::parse_zone(zone)?;
+    let zone = civil_clock::parse_zone(zone)?;
     let naive = CivilDateTime::parse_from_str(wall_clock, QUERY_DATETIME_FORMAT).ok()?;
     zone.resolve(naive).earliest()
 }

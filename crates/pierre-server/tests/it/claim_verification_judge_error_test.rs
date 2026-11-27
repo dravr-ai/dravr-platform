@@ -18,6 +18,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use common::{create_test_server_resources_with_chat_provider, create_test_user_with_plan};
+use dravr_colleur::claims::{ClaimStatus, VerdictLayer};
+use dravr_colleur::{EvidenceCorpus, VerificationConfig, VerificationFallback};
 use pierre_chat_pipeline::envelope::VerdictChip;
 use pierre_chat_pipeline::stages::verification::{
     apply_claim_verification, persist_pending_verdicts, ClaimVerificationOutcome,
@@ -29,9 +31,7 @@ use pierre_core::llm::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, MessageRole,
 };
 use pierre_core::models::TenantId;
-use pierre_evals::{EvidenceCorpus, VerificationConfig, VerificationFallback};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_memory::claims::{ClaimStatus, VerdictLayer};
 use pierre_test_support::log_capture::{self, CapturedEvent, CapturedLog};
 use regex::Regex;
 use tracing::Level;

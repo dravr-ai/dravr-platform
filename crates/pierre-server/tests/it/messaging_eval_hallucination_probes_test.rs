@@ -197,10 +197,10 @@ fn probe_fabricated_tool_flagged_by_empty_tools_called() {
 /// extraction and categorisation steps are exactly where it used to be lost.
 #[test]
 fn probe_providerless_fabrication_contradicted_by_athlete_data_layer() {
+    use dravr_colleur::athlete_data::{check as athlete_check, AthleteRecord};
+    use dravr_colleur::claim_extractor::extract_heuristic;
+    use dravr_colleur::claims::{ClaimCategory, ClaimStatus};
     use dravr_tronc::dates::CivilDate;
-    use pierre_evals::athlete_data::{check as athlete_check, AthleteRecord};
-    use pierre_evals::claim_extractor::extract_heuristic;
-    use pierre_memory::{ClaimCategory, ClaimStatus};
 
     let hallucinated_reply =
         "Nice 12 km ride yesterday, that was a solid effort! Keep that consistency going.";
@@ -243,11 +243,11 @@ fn probe_providerless_fabrication_contradicted_by_athlete_data_layer() {
 /// mention a run the athlete actually did.
 #[test]
 fn probe_providerless_check_does_not_flag_a_real_ride() {
+    use dravr_colleur::athlete_data::{check as athlete_check, AthleteRecord, RecordedActivity};
+    use dravr_colleur::claim_extractor::extract_heuristic;
+    use dravr_colleur::claims::{ClaimCategory, ClaimStatus};
     use dravr_tronc::dates::CivilDate;
     use pierre_core::models::SportType;
-    use pierre_evals::athlete_data::{check as athlete_check, AthleteRecord, RecordedActivity};
-    use pierre_evals::claim_extractor::extract_heuristic;
-    use pierre_memory::{ClaimCategory, ClaimStatus};
 
     let truthful_reply = "Nice 12 km ride yesterday, that was a solid effort! Keep it going.";
     let ride = |km: f64, min: f64| RecordedActivity {

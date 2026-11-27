@@ -19,6 +19,8 @@ tokio = { version = "1.54", features = ["rt", "time", "sync"] }
 tracing = "0.1"
 futures-util = "0.3"
 dravr-tronc = { workspace = true }
+# The judge model trait its claim judge implements (claim_judge.rs).
+dravr-colleur = { workspace = true }
 # quota-redis: the quota router shares its readings and penalties across
 # instances through the deployment's Redis (see router_store.rs).
 embacle = { version = "0.48.1", features = ["copilot-headless", "copilot-sdk", "http-api", "quota-http", "quota-redis"] }

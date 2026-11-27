@@ -6,9 +6,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use dravr_tronc::dates::civil_clock;
 use dravr_tronc::dates::{CivilDate, Timestamp, Zone};
 use pierre_config::coach_home::CoachHomeConfig;
-use pierre_core::civil_time;
 use pierre_core::models::FormBand;
 use serde_json::Value;
 
@@ -121,7 +121,7 @@ fn last_received(source: &str, at: Timestamp, zone: &Zone) -> AttentionEvidence 
         key: "coachHome.evidence.lastReceived",
         params: params([
             ("provider", Value::String(source.to_owned())),
-            ("date", day(civil_time::local_date(at, zone))),
+            ("date", day(civil_clock::local_date(at, zone))),
         ]),
         source: EvidenceSource::with(EvidenceSourceKind::Provider, vec![source.to_owned()]),
         at,
@@ -165,7 +165,7 @@ fn refused(training: &TrainingSignals<'_>, provider: &str, zone: &Zone) -> Atten
             key: "coachHome.evidence.sourceRefusedSince",
             params: params([
                 ("provider", name),
-                ("date", day(civil_time::clock_date(*since, zone))),
+                ("date", day(civil_clock::clock_date(*since, zone))),
             ]),
             source,
             at: *since,
@@ -342,7 +342,7 @@ pub(super) fn deep_fatigue_streak(
         evidence.push(AttentionEvidence {
             key: "coachHome.evidence.lastSession",
             params: params([
-                ("date", day(civil_time::local_date(*at, zone))),
+                ("date", day(civil_clock::local_date(*at, zone))),
                 ("sport", Value::String(sport.to_owned())),
                 ("duration_seconds", Value::from(seconds)),
             ]),
@@ -428,7 +428,7 @@ fn plan_draft_waiting(draft: &DraftSignals) -> AttentionReason {
 fn new_member_no_plan(inputs: &AttentionInputs<'_>) -> AttentionReason {
     let joined = inputs.joined;
     // A moment the server recorded, never a date-only row: it always converts.
-    let joined_day = day(civil_time::clock_date(joined.at, inputs.zone));
+    let joined_day = day(civil_clock::clock_date(joined.at, inputs.zone));
     let mut evidence = vec![AttentionEvidence {
         key: "coachHome.evidence.joinedGroup",
         params: params([

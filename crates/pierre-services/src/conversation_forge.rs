@@ -25,6 +25,7 @@
 
 use std::fmt;
 
+use dravr_tronc::dates::civil_clock::resolve_zone;
 use dravr_tronc::dates::Timestamp;
 use photograveur::Locale;
 use pierre_config::constants::usage_quotas::{
@@ -33,7 +34,6 @@ use pierre_config::constants::usage_quotas::{
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_ARCHIVED_CONVERSATION_QUOTA, KEY_RESET_QUOTA,
 };
-use pierre_core::civil_time::resolve_zone;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{ConversationRecord, CoverageMap, GuidedFlow, OnboardingState, TenantId};
 use pierre_core::usage_log::{self, LimitHit};

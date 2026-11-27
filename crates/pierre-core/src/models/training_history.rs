@@ -9,7 +9,7 @@ use dravr_tronc::dates::CivilDate;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::FormReading;
+use dravr_cageux::form_reading::FormReading;
 
 /// One day of derived training-state metrics for a single user.
 ///

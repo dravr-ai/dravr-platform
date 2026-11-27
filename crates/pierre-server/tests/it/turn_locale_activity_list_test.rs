@@ -20,13 +20,13 @@ use async_trait::async_trait;
 use common::{
     create_test_server_resources, create_test_server_resources_with_llm, create_test_user,
 };
+use dravr_tronc::dates::civil_clock::format_civil_day;
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use futures_util::stream;
 use pierre_chat_pipeline::{
     CommandPersistence, InputSource, PipelineHooks, ReplyBlock, ServedTurn, SurfaceProfile,
     TurnOrigin, TurnRequest,
 };
-use pierre_core::civil_time::format_civil_day;
 use pierre_core::errors::AppError;
 use pierre_core::llm::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, MessageRole, StreamChunk,

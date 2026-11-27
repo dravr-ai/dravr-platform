@@ -11,8 +11,11 @@ use crate::common;
 
 use anyhow::Result;
 use dravr_cageux::config::intelligence::{AlgorithmConfig, TrainingZonesConfig};
+use dravr_colleur::claims::{ClaimCategory, ClaimStatus};
+use dravr_colleur::personalized::check as personalized_check;
+use dravr_colleur::{ClaimSource, ConservativeStrategy, ExtractedClaim, PersonalizedContext};
+use dravr_tronc::dates::civil_clock::{clock_date, resolve_zone};
 use dravr_tronc::dates::{Elapsed, Timestamp};
-use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::{
@@ -20,10 +23,7 @@ use pierre_core::models::{
     UserPhysiologicalProfile,
 };
 use pierre_core::transport::TransportPolicy;
-use pierre_evals::personalized::check as personalized_check;
-use pierre_evals::{ClaimSource, ConservativeStrategy, ExtractedClaim, PersonalizedContext};
 use pierre_fitness_compute::{compute_training_history, AthleteInputs};
-use pierre_memory::claims::{ClaimCategory, ClaimStatus};
 use pierre_providers::ai_scope;
 use pierre_services::athlete_snapshot::build_athlete_metrics;
 use uuid::Uuid;

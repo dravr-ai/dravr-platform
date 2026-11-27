@@ -93,7 +93,7 @@ pub(crate) trait ScenarioDriver {
 /// Every other field of [`DriverTurnOutput`] is model *behaviour* — what it
 /// said, what it asked for. This is the outcome: the rows that exist because
 /// the turn ran. It is the thing no assertion kind could see before, which is
-/// why a claim about a saved plan could be graded in neither `pierre-evals`
+/// why a claim about a saved plan could be graded in neither `dravr-colleur`
 /// nor here.
 ///
 /// Deliberately narrow. A general "snapshot of the database" would invite

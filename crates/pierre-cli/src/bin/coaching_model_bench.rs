@@ -15,8 +15,10 @@
 //!
 //! Usage:
 //! ```text
-//! cargo run -p pierre-evals --bin coaching_model_bench -- [--only SUBSTR] [--limit N] [--out PATH] [--md PATH]
+//! cargo run -p pierre-cli --features tools-verification --bin coaching_model_bench -- [--scenario PATH] [--turns PATH] [--only SUBSTR] [--limit N] [--out PATH] [--md PATH]
 //! ```
+//! Without `--scenario` and `--turns`, it runs the French scenario and turns
+//! `dravr_colleur::datasets` ships.
 
 // A pub item this binary never uses is reachable from nowhere: the lint is
 // crate-level because a library's test harness is a binary too, where it
@@ -27,6 +29,7 @@ use std::env;
 use std::fs;
 use std::time::Instant;
 
+use dravr_colleur::datasets;
 use pierre_llm::config::LlmProviderType;
 use pierre_llm::{http_env, ChatMessage, ChatRequest, EmbacleProvider, LlmProvider};
 use serde::{Deserialize, Serialize};
@@ -88,21 +91,30 @@ struct BenchReport {
 #[tokio::main]
 async fn main() -> Result<(), String> {
     let args: Vec<String> = env::args().collect();
-    let scenario_path = arg_value(&args, "--scenario")
-        .unwrap_or_else(|| "crates/pierre-evals/fixtures/coaching_scenario_fr.json".to_owned());
-    let turns_path = arg_value(&args, "--turns")
-        .unwrap_or_else(|| "crates/pierre-evals/fixtures/coaching_turns_fr.jsonl".to_owned());
+    // Without --scenario and --turns, the French scenario dravr-colleur ships.
+    let (scenario_path, scenario_text) = source(
+        &args,
+        "--scenario",
+        "the dravr-colleur coaching scenario",
+        datasets::COACHING_SCENARIO_FR_JSON,
+    )?;
+    let (turns_path, turns_text) = source(
+        &args,
+        "--turns",
+        "the dravr-colleur coaching turns",
+        datasets::COACHING_TURNS_FR_JSONL,
+    )?;
     let out_path = arg_value(&args, "--out").unwrap_or_else(|| "coaching-bench.json".to_owned());
     let md_path = arg_value(&args, "--md").unwrap_or_else(|| "coaching-bench-blind.md".to_owned());
     let only = arg_value(&args, "--only");
     let limit = arg_value(&args, "--limit").and_then(|s| s.parse::<usize>().ok());
 
-    let scenario = load_scenario(&scenario_path)?;
+    let scenario = parse_scenario(&scenario_path, &scenario_text)?;
     let system_prompt = format!(
         "{}\n\n{}\n\n{}",
         scenario.agent_persona, scenario.athlete_context, scenario.directive
     );
-    let all_turns = load_turns(&turns_path)?;
+    let all_turns = parse_turns(&turns_path, &turns_text)?;
     let turns: &[Turn] = limit.map_or(&all_turns[..], |n| &all_turns[..n.min(all_turns.len())]);
 
     let candidates = default_candidates();
@@ -231,15 +243,30 @@ fn arg_value(args: &[String], flag: &str) -> Option<String> {
         .cloned()
 }
 
-/// Parse the scenario JSON.
-fn load_scenario(path: &str) -> Result<Scenario, String> {
-    let text = fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
-    serde_json::from_str(&text).map_err(|e| format!("parse {path}: {e}"))
+/// The file `flag` names, read, with its path; without the flag, `shipped`
+/// under `label`.
+fn source(
+    args: &[String],
+    flag: &str,
+    label: &str,
+    shipped: &str,
+) -> Result<(String, String), String> {
+    match arg_value(args, flag) {
+        Some(path) => {
+            let text = fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))?;
+            Ok((path, text))
+        }
+        None => Ok((label.to_owned(), shipped.to_owned())),
+    }
 }
 
-/// Parse the turns JSONL.
-fn load_turns(path: &str) -> Result<Vec<Turn>, String> {
-    let text = fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
+/// Parse the scenario JSON, read from `path`.
+fn parse_scenario(path: &str, text: &str) -> Result<Scenario, String> {
+    serde_json::from_str(text).map_err(|e| format!("parse {path}: {e}"))
+}
+
+/// Parse the turns JSONL, read from `path`.
+fn parse_turns(path: &str, text: &str) -> Result<Vec<Turn>, String> {
     let mut turns = Vec::new();
     for (lineno, line) in text.lines().enumerate() {
         if line.trim().is_empty() {

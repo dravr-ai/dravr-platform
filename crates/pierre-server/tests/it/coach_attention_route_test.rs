@@ -19,6 +19,7 @@ mod coach_attention_route_tests {
     use std::slice;
     use std::sync::Arc;
 
+    use dravr_colleur::claims::ClaimStatus;
     use dravr_tronc::dates::{CivilDate, CivilTime, Elapsed, Timestamp};
     use pierre_core::models::periodization::PhaseKind;
     use pierre_core::models::{Activity, TenantId};
@@ -26,7 +27,6 @@ mod coach_attention_route_tests {
     use pierre_database::repositories::training_plans::{DraftOwner, PlanAuthor, SaveDraftParams};
     use pierre_database::repositories::{AttentionDismissalKey, PlanOutlineInput};
     use pierre_mcp_server::mcp::resources::ServerContext;
-    use pierre_memory::claims::ClaimStatus;
     use pierre_memory::training_plans::{GoalRace, RacePriority};
     use serde_json::{json, Value};
     use uuid::Uuid;

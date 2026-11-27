@@ -14,7 +14,7 @@
 //!
 //! Usage:
 //! ```text
-//! cargo run -p pierre-evals --bin claim_catch_rate -- [--fixture PATH] [--out PATH] [--judge]
+//! cargo run -p pierre-cli --features tools-verification --bin claim_catch_rate -- [--fixture PATH] [--out PATH] [--judge]
 //! ```
 //! Without `--judge` the claims production would hand to the judge are
 //! reported as `JudgeDecides`, and the catch rate as a floor and a ceiling.
@@ -29,18 +29,13 @@
 use std::env;
 use std::fs;
 
-use pierre_evals::evidence_retriever::EvidenceCorpus;
-use pierre_evals::judge::ClaimJudge;
-use pierre_evals::seeded_fabrications::{run, FabricationCorpus};
+use dravr_colleur::judge::ClaimJudge;
+use dravr_colleur::seeded_fabrications::{self, FabricationCorpus, SHIPPED_CORPUS_JSON};
+use pierre_contremaitre::evidence_registry;
+use pierre_llm::claim_judge::RecordedJudge;
 use pierre_llm::config::LlmChain;
 use pierre_llm::prompts::CLAIM_JUDGE_PROMPT;
 use pierre_llm::ChatProvider;
-
-/// The corpus this crate ships, found from any working directory.
-const DEFAULT_FIXTURE: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/fixtures/seeded_fabrications.json"
-);
 
 /// Read `--flag value` style argument.
 fn arg_value(args: &[String], flag: &str) -> Option<String> {
@@ -53,10 +48,19 @@ fn arg_value(args: &[String], flag: &str) -> Option<String> {
 #[tokio::main]
 async fn main() -> Result<(), String> {
     let args: Vec<String> = env::args().collect();
-    let fixture = arg_value(&args, "--fixture").unwrap_or_else(|| DEFAULT_FIXTURE.to_owned());
-    let json = fs::read_to_string(&fixture).map_err(|e| format!("read {fixture}: {e}"))?;
+    // Without --fixture, the corpus dravr-colleur ships.
+    let (fixture, json) = match arg_value(&args, "--fixture") {
+        Some(path) => {
+            let json = fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))?;
+            (path, json)
+        }
+        None => (
+            "the dravr-colleur corpus".to_owned(),
+            SHIPPED_CORPUS_JSON.to_owned(),
+        ),
+    };
     let corpus = FabricationCorpus::from_json(&json).map_err(|e| e.to_string())?;
-    let evidence = EvidenceCorpus::compiled_in().map_err(|e| e.to_string())?;
+    let evidence = evidence_registry::compiled_in_corpus();
 
     let provider = if args.iter().any(|a| a == "--judge") {
         Some(
@@ -67,11 +71,11 @@ async fn main() -> Result<(), String> {
     } else {
         None
     };
-    let judge = provider.as_ref().map(|p| ClaimJudge {
-        provider: p,
+    let judge_model = provider.as_ref().map(|p| RecordedJudge::new(p, None));
+    let judge = judge_model.as_ref().map(|model| ClaimJudge {
+        provider: model,
         system_prompt: CLAIM_JUDGE_PROMPT.trim(),
         model: None,
-        recorder: None,
     });
 
     println!(
@@ -79,7 +83,7 @@ async fn main() -> Result<(), String> {
         corpus.cases.len(),
         evidence.len()
     );
-    let report = run(&corpus, &evidence, judge)
+    let report = seeded_fabrications::run(&corpus, evidence, judge)
         .await
         .map_err(|e| e.to_string())?;
     print!("{}", report.render());

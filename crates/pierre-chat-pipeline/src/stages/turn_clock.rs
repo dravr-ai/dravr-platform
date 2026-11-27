@@ -15,7 +15,7 @@
 //! message after Tier-1 compaction, like the activity refresh, so it is never
 //! summarized, never persisted and never replayed into a later turn.
 
-use pierre_core::civil_time::{format_clock_stamp, monday_of, resolve_zone};
+use dravr_tronc::dates::civil_clock::{format_clock_stamp, monday_of, resolve_zone};
 use pierre_llm::ChatMessage;
 
 /// Opening sentence of the turn-clock message.

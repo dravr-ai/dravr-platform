@@ -8,14 +8,15 @@
 //!
 //! A measurement tool, not a test. It loads a labeled golden set of
 //! (claim, evidence, `expected_verdict`) triples and runs the exact production
-//! Layer-5 judge ([`pierre_evals::judge::judge_claim`]) through each candidate
+//! Layer-5 judge ([`dravr_colleur::judge::judge_claim`]) through each candidate
 //! provider, then reports per-model accuracy, per-class precision/recall/F1, a
 //! confusion matrix, latency percentiles, and a rate-card cost estimate.
 //!
 //! Usage:
 //! ```text
-//! cargo run -p pierre-evals --bin judge_bakeoff -- [--golden PATH] [--only SUBSTR] [--limit N] [--out PATH]
+//! cargo run -p pierre-cli --features tools-verification --bin judge_bakeoff -- [--golden PATH] [--only SUBSTR] [--limit N] [--out PATH]
 //! ```
+//! Without `--golden`, it scores the golden set `dravr_colleur::datasets` ships.
 //! `--only` filters candidates by a label substring (e.g. `--only local` or
 //! `--only gemini`). API candidates are skipped with a warning when their key
 //! env var is absent; local candidates require Ollama serving on :11434.
@@ -30,7 +31,9 @@ use std::env;
 use std::fs;
 use std::time::{Duration, Instant};
 
-use pierre_evals::judge::{judge_claim, ClaimJudge};
+use dravr_colleur::datasets;
+use dravr_colleur::judge::{judge_claim, ClaimJudge};
+use pierre_llm::claim_judge::RecordedJudge;
 use pierre_llm::config::LlmChain;
 use pierre_llm::prompts::CLAIM_JUDGE_PROMPT;
 use pierre_llm::{http_env, ChatProvider, EmbacleProvider, LlmProvider, OpenAiCompatibleConfig};
@@ -142,8 +145,17 @@ struct BakeoffReport {
 #[tokio::main]
 async fn main() -> Result<(), String> {
     let args: Vec<String> = env::args().collect();
-    let golden_path = arg_value(&args, "--golden")
-        .unwrap_or_else(|| "crates/pierre-evals/fixtures/claim_judge_golden.jsonl".to_owned());
+    // Without --golden, the golden set dravr-colleur ships.
+    let (golden_path, golden_text) = match arg_value(&args, "--golden") {
+        Some(path) => {
+            let text = fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))?;
+            (path, text)
+        }
+        None => (
+            "the dravr-colleur golden set".to_owned(),
+            datasets::CLAIM_JUDGE_GOLDEN_JSONL.to_owned(),
+        ),
+    };
     let out_path =
         arg_value(&args, "--out").unwrap_or_else(|| "judge-bakeoff-results.json".to_owned());
     let only = arg_value(&args, "--only");
@@ -152,7 +164,7 @@ async fn main() -> Result<(), String> {
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(0);
 
-    let all_rows = load_golden(&golden_path)?;
+    let all_rows = parse_golden(&golden_path, &golden_text)?;
     let rows: &[GoldenRow] = limit.map_or(&all_rows[..], |n| &all_rows[..n.min(all_rows.len())]);
     println!(
         "Loaded {} golden claims from {golden_path} (running {})\n",
@@ -303,9 +315,8 @@ fn arg_value(args: &[String], flag: &str) -> Option<String> {
         .cloned()
 }
 
-/// Parse the golden JSONL file into rows.
-fn load_golden(path: &str) -> Result<Vec<GoldenRow>, String> {
-    let text = fs::read_to_string(path).map_err(|e| format!("read {path}: {e}"))?;
+/// Parse the golden JSONL, read from `path`, into rows.
+fn parse_golden(path: &str, text: &str) -> Result<Vec<GoldenRow>, String> {
     let mut rows = Vec::new();
     for (lineno, line) in text.lines().enumerate() {
         if line.trim().is_empty() {
@@ -368,11 +379,11 @@ async fn run_candidate(
         // the catalogue's `claim_judge` prompt as compiled into this build.
         // Each candidate is a provider built on its own model, and a bake-off
         // bills no turn, so the judge asks for no model and records nothing.
+        let model = RecordedJudge::new(provider, None);
         let judge = ClaimJudge {
-            provider,
+            provider: &model,
             system_prompt: CLAIM_JUDGE_PROMPT.trim(),
             model: None,
-            recorder: None,
         };
         let outcome = judge_claim(judge, &row.claim, &row.evidence_context).await;
         let latency_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);

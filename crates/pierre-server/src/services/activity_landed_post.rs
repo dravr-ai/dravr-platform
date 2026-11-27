@@ -39,11 +39,11 @@
 use std::fmt;
 use std::sync::{Arc, Weak};
 
+use dravr_tronc::dates::civil_clock::resolve_zone;
+use dravr_tronc::dates::civil_clock::LOCAL_MINUTE;
 use dravr_tronc::dates::{Elapsed, Timestamp, Zone};
 use pierre_config::activity_landed::{LandingDigest, LandingFrequency, DIGEST_KEY, FREQUENCY_KEY};
 use pierre_contremaitre::messaging_strings::KEY_PLATFORM_POST_ACTIVITY_LANDED_PROMPT;
-use pierre_core::civil_time::resolve_zone;
-use pierre_core::civil_time::LOCAL_MINUTE;
 use pierre_core::models::{CheckInCadence, PostPurpose, TenantId, UserStatus};
 use pierre_core::transport::TransportPolicy;
 use pierre_runtime_context::{AdminConfigLookup, ConfigLookupScope};

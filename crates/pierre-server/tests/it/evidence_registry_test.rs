@@ -7,10 +7,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use dravr_colleur::claims::ClaimCategory;
 use pierre_contremaitre::evidence_registry::parse_evidence_markdown;
 use pierre_contremaitre::manifest::compute_sha256;
 use pierre_contremaitre::EvidenceRegistry;
-use pierre_memory::ClaimCategory;
 
 const NUTRITION_MD: &str = "---
 id: doi:10.1/sample

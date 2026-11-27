@@ -12,7 +12,7 @@
 //! living in, taken from the IANA zone on their user row and falling back to
 //! UTC when there is none.
 //!
-//! The arithmetic belongs to [`pierre_core::civil_time`], which owns the
+//! The arithmetic belongs to [`dravr_tronc::dates::civil_clock`], which owns the
 //! zone-resolution and clock-reading rules and the incidents behind them. What
 //! lives here is the half that needs the database: the users-table read that
 //! supplies the zone. That read is why the function cannot sit in
@@ -25,8 +25,8 @@
 //! caller passing the wrong string got a plausible date instead of a type
 //! error. Every caller already holds the `Uuid`.
 
+use dravr_tronc::dates::civil_clock::{clock_date, resolve_zone};
 use dravr_tronc::dates::{CivilDate, Timestamp, Zone};
-use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
 

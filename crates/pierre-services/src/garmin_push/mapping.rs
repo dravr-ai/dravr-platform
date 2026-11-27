@@ -20,7 +20,7 @@
 //! cageux's [`NormalizedPowerCalculator`], so a ride's intensity, efficiency
 //! and variability factors can be read off it like any provider's.
 
-use pierre_core::civil_time::day_start_utc;
+use dravr_tronc::dates::civil_clock::day_start_utc;
 use std::collections::BTreeMap;
 
 use dravr_cageux::visitor::NormalizedPowerCalculator;

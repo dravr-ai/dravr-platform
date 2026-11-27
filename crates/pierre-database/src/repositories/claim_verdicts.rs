@@ -13,12 +13,12 @@ use dravr_tronc::dates::Timestamp;
 use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::{AppError, AppResult};
 
-use pierre_core::models::TenantId;
-use pierre_memory::claims::GradingPool;
-use pierre_memory::{
+use dravr_colleur::claims::GradingPool;
+use dravr_colleur::claims::{
     ClaimCategory, ClaimStatus, ClaimVerdict, DispositionReason, EvidenceStrength,
     VerdictDisposition, VerdictLayer,
 };
+use pierre_core::models::TenantId;
 
 mod health;
 use health::ratio;
@@ -752,10 +752,9 @@ where
         disposed_at: row
             .try_get("disposed_at")
             .map_err(|e| col("disposed_at", e))?,
-        transport_policy: TransportPolicy::from_first_party_only(
-            row.try_get("first_party_only")
-                .map_err(|e| col("first_party_only", e))?,
-        ),
+        first_party_only: row
+            .try_get("first_party_only")
+            .map_err(|e| col("first_party_only", e))?,
     })
 }
 
@@ -831,7 +830,7 @@ macro_rules! impl_claim_verdict_repository {
                     disposition_note: None,
                     disposed_by: None,
                     disposed_at: None,
-                    transport_policy: params.transport_policy,
+                    first_party_only: params.transport_policy.is_first_party_only(),
                 })
             }
 

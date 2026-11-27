@@ -31,8 +31,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use dravr_tronc::dates::civil_clock::resolve_zone;
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
-use pierre_core::civil_time::resolve_zone;
 use pierre_core::models::TenantId;
 use pierre_memory::commitments::{
     Commitment, CommitmentStatus, MAX_STATEMENT_LEN, MAX_TARGET_SESSIONS, MAX_WINDOW_DAYS,

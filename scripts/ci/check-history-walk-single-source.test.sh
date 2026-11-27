@@ -170,9 +170,9 @@ expect_fires "a Coverage alias in another crate" \
 
 # Types named for something else that contain `Coverage`, in any file.
 scaffold
-mkdir -p "$WORK/root/crates/pierre-evals/src/athlete_data/period"
+mkdir -p "$WORK/root/crates/pierre-tool-runtime/src/athlete_data"
 printf '%s\n' 'pub struct SourceCoverage { pub last_sync: Option<i64> }' \
-    > "$WORK/root/crates/pierre-evals/src/athlete_data/period/coverage.rs"
+    > "$WORK/root/crates/pierre-tool-runtime/src/athlete_data/coverage.rs"
 mkdir -p "$WORK/root/crates/pierre-services/src"
 printf '%s\n' 'pub enum CoverageReading { Covered, RunningOut }' \
     > "$WORK/root/crates/pierre-services/src/fortnight.rs"

@@ -20,6 +20,10 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::{Extension, Json};
+use dravr_colleur::claims::{
+    ClaimCategory, ClaimStatus, ClaimVerdict, DispositionReason, EvidenceStrength,
+    VerdictDisposition, VerdictLayer,
+};
 use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
@@ -38,10 +42,6 @@ use pierre_database::repositories::{
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_memory::claims::{
-    ClaimCategory, ClaimStatus, ClaimVerdict, DispositionReason, EvidenceStrength,
-    VerdictDisposition, VerdictLayer,
-};
 use pierre_routes_admin::handlers::claim_verdicts::{
     handle_get_claim_verdict, handle_list_claim_verdicts, handle_list_verdicts_by_message,
     handle_set_verdict_disposition, knob_for, ListVerdictsQuery, MessageVerdictsQuery,
@@ -873,7 +873,7 @@ async fn put_disposition_writes_the_row_and_answers_with_the_knob() {
     assert_eq!(json["knob"]["kind"], "deterministic_bounds");
     assert_eq!(
         json["knob"]["location"],
-        "crates/pierre-evals/src/deterministic_bounds.rs"
+        "dravr-colleur/src/deterministic_bounds.rs"
     );
     assert!(json["knob"]["detail"]
         .as_str()
@@ -1417,12 +1417,12 @@ fn every_layer_has_a_knob_whose_location_is_a_path() {
             disposition_note: None,
             disposed_by: None,
             disposed_at: None,
-            transport_policy: TransportPolicy::AnyTransport,
+            first_party_only: false,
         };
         let knob = knob_for(&verdict, &registry);
         assert_eq!(knob.layer, layer.as_str());
         assert!(
-            knob.location.starts_with("crates/")
+            knob.location.starts_with("dravr-colleur/src/")
                 || knob.location.starts_with("evidence/")
                 || knob.location.starts_with("prompts/"),
             "{layer:?}: {}",

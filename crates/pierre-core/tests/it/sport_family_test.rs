@@ -6,8 +6,9 @@
 
 #![allow(missing_docs, clippy::unwrap_used)]
 
+use dravr_cageux::models::sport_alias::sport_family_head;
+use pierre_core::models::SportFamily;
 use pierre_core::models::SportType;
-use pierre_core::models::{sport_family_head, SportFamily};
 
 #[test]
 fn variants_fold_into_their_family() {

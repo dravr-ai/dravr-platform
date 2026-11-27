@@ -12,7 +12,6 @@
 //! copy of the crate. Only a suite that writes the process environment stays
 //! one, because the environment is shared by every test in a binary.
 
-mod claims_test;
 mod commitments_test;
 mod compaction_test;
 mod facts_test;

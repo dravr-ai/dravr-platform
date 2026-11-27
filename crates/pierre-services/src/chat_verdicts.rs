@@ -15,11 +15,12 @@
 use pierre_providers::ai_scope;
 use serde::{Deserialize, Serialize};
 
+use dravr_colleur::claims::{ClaimVerdict, EvidenceCitation};
 use pierre_contremaitre::EvidenceRegistry;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
+use pierre_core::transport::TransportPolicy;
 use pierre_database::AgentRepos;
-use pierre_memory::{ClaimVerdict, EvidenceCitation};
 
 /// User-facing wire shape for a claim verdict.
 ///
@@ -147,7 +148,9 @@ pub async fn list_for_conversation(
         .await?;
     // A verdict quotes the reply it judged: one on a reply derived from
     // first-party-only data is withheld from an external caller (carnet#769).
-    ai_scope::retain_admitted(&mut verdicts, |verdict| verdict.transport_policy);
+    ai_scope::retain_admitted(&mut verdicts, |verdict| {
+        TransportPolicy::from_first_party_only(verdict.first_party_only)
+    });
 
     let rows: Vec<ChatVerdictRow> = verdicts
         .into_iter()

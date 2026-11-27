@@ -12,9 +12,9 @@ use pierre_database::repositories::SubjectThreads;
 use pierre_middleware::mask_email;
 
 use common::{create_test_server_resources, create_test_user_with_plan};
+use dravr_colleur::claims::{ClaimStatus, VerdictLayer};
 use pierre_core::errors::ErrorCode;
 use pierre_core::transport::TransportPolicy;
-use pierre_memory::{ClaimStatus, VerdictLayer};
 use pierre_seeders::verdict_conversation::{
     run, SeedArgs, CLAIM, CONVERSATION_TITLE, EVIDENCE_REF, QUESTION,
 };
@@ -96,9 +96,8 @@ async fn the_seeder_leaves_one_reply_with_a_supported_verdict() {
     assert_eq!(verdict.layer_fired, VerdictLayer::Evidence);
     assert_eq!(verdict.evidence_refs.as_deref(), Some(EVIDENCE_REF));
     assert!(verdict.explanation.is_some(), "the sheet's findings line");
-    assert_eq!(
-        verdict.transport_policy,
-        TransportPolicy::AnyTransport,
+    assert!(
+        !verdict.first_party_only,
         "a verdict every surface may serve"
     );
 

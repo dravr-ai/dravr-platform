@@ -21,7 +21,7 @@ use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::refresh_due;
 use crate::models::{
     activity::{utc_offset_seconds_if_civil, Lap, Split},
-    resolve_sport_type, Activity, ActivityBuilder, Athlete, GearRef, SportType, TimeSeriesData,
+    Activity, ActivityBuilder, Athlete, GearRef, SportType, TimeSeriesData,
 };
 use crate::pagination::{Cursor, CursorPage, PaginationDirection, PaginationParams};
 use crate::request_budget;
@@ -32,6 +32,7 @@ use crate::strava_types::{
 };
 use crate::utils;
 use async_trait::async_trait;
+use dravr_cageux::models::sport_alias::resolve_sport_type;
 use dravr_tronc::dates::Timestamp;
 use pierre_core::models::PhysiologicalSex;
 use secrecy::{ExposeSecret, SecretString};

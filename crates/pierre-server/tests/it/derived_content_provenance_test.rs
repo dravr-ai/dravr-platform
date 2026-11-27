@@ -16,6 +16,7 @@ use std::sync::Arc;
 use std::time::Duration as StdDuration;
 use tokio::time::sleep;
 
+use dravr_colleur::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::{
@@ -30,7 +31,6 @@ use pierre_database::repositories::{
     PlanWeekInput, RecordedOutcome, SavePlanBundleParams, UpsertUserFactParams,
 };
 use pierre_database::RepositoryRegistry;
-use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use pierre_memory::playbooks::{
     AdviceStatus, Band, Intervention, InterventionKind, LabelSource, MetricBaseline, OutcomeLabel,
     OutcomeMetric, PendingAdvice, TriggerKind, TriggerPattern,
@@ -399,7 +399,7 @@ async fn verdicts_profiles_and_prescriptions_keep_their_stamp() {
         .list_verdicts_for_conversation(&conversation.id, tenant)
         .await
         .unwrap();
-    assert_eq!(verdicts[0].transport_policy, FirstPartyOnly);
+    assert!(verdicts[0].first_party_only);
 
     let mut profile = UserPhysiologicalProfile::new(user_id, SportType::Ride);
     profile.ftp_watts = Some(280);

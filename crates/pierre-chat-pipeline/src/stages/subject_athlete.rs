@@ -55,8 +55,8 @@
 
 use std::fmt::Write as _;
 
+use dravr_tronc::dates::civil_clock::UTC_MINUTE;
 use dravr_tronc::dates::{CivilDate, Timestamp};
-use pierre_core::civil_time::UTC_MINUTE;
 use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::{CarriedRead, ConversationSubject, TenantId};
 use pierre_core::untrusted::{display_line, ROSTER_NAME_MAX_CHARS};

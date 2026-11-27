@@ -6,6 +6,7 @@
 
 use async_trait::async_trait;
 use dravr_canot::commands::CommandResponse;
+use dravr_tronc::dates::civil_clock::UTC_MINUTE;
 use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_READS_FORMER_COACH, KEY_GROUP_READS_HEADER, KEY_GROUP_READS_LINE,
     KEY_GROUP_READS_NONE, KEY_GROUP_READS_SERVED_TO_ASSISTANT, KEY_GROUP_READS_SOURCE_COACH_THREAD,
@@ -16,7 +17,6 @@ use pierre_contremaitre::messaging_strings::{
     KEY_GROUP_READS_SOURCE_ROSTER, KEY_GROUP_READS_SOURCE_WEEKLY_DIGEST,
     KEY_GROUP_READS_SUPPORT_READ, KEY_GROUP_READS_TRAINING, KEY_GROUP_READS_WELLNESS,
 };
-use pierre_core::civil_time::UTC_MINUTE;
 use pierre_core::errors::AppError;
 use pierre_database::repositories::{CoachReadClass, CoachReadSurface};
 use pierre_services::athlete_display_name::fetch_user_display_name;

@@ -16,13 +16,12 @@ use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor
 use crate::protocols::ProtocolError;
 use dravr_cageux::algorithms::PREDICTABLE_VDOT;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
+use dravr_cageux::models::sport_alias::{resolve_sport_type, sport_matches_family};
 use dravr_cageux::performance_prediction::{PerformancePredictor, VdotReading, VdotSource};
 use dravr_cageux::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
 use dravr_cageux::training_load::TrainingLoadCalculator;
 use dravr_tronc::dates::{Timestamp, Zone};
-use pierre_core::models::{
-    resolve_sport_type, sport_matches_family, Activity, SportType, UserPhysiologicalProfile,
-};
+use pierre_core::models::{Activity, SportType, UserPhysiologicalProfile};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_fitness_compute::AthleteInputs;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};

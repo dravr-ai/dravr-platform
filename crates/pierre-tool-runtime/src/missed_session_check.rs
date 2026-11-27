@@ -35,9 +35,9 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
+use dravr_tronc::dates::civil_clock;
 use dravr_tronc::dates::{CivilDate, Timestamp, Zone};
 use pierre_config::coach_home::CoachHomeConfig;
-use pierre_core::civil_time;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{CalendarKey, TenantId};
 use pierre_database::repositories::CoachReadClass;
@@ -282,7 +282,7 @@ async fn recorded_activities(
     Ok(Some(
         kept.iter()
             .map(|activity| DoneActivity {
-                date: civil_time::local_date(activity.start_date(), zone),
+                date: civil_clock::local_date(activity.start_date(), zone),
                 sport: activity.sport_type().clone(),
             })
             .collect(),

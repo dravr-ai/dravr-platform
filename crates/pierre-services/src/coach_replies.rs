@@ -33,17 +33,18 @@
 
 use std::collections::{BTreeMap, HashMap};
 
+use dravr_colleur::claims::{ClaimStatus, ClaimVerdict, VerdictLayer};
+use dravr_tronc::dates::civil_clock::monday_of;
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_contremaitre::EvidenceRegistry;
-use pierre_core::civil_time::monday_of;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     CoachReply, CoachReplyCorrection, CoachReplyFilter, CoachReplyFlag, CoachReplyReview,
     CoachReviewWeek, NewReplyCorrection, NewReplyFlag, ReplyFlagReason, ReplyReviewKind,
     ReplyReviewStamp, TenantId,
 };
+use pierre_core::transport::TransportPolicy;
 use pierre_database::RepositoryRegistry;
-use pierre_memory::{ClaimStatus, ClaimVerdict, VerdictLayer};
 use pierre_providers::ai_scope;
 use serde::Serialize;
 use tracing::info;
@@ -534,7 +535,9 @@ async fn reply_view(
                 .claim_verdicts
                 .list_verdicts_for_message(tenant.into(), message_id)
                 .await?;
-            ai_scope::retain_admitted(&mut verdicts, |v| v.transport_policy);
+            ai_scope::retain_admitted(&mut verdicts, |v| {
+                TransportPolicy::from_first_party_only(v.first_party_only)
+            });
             verdicts
         }
         _ => Vec::new(),
@@ -563,8 +566,7 @@ async fn reply_view(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pierre_core::transport::TransportPolicy;
-    use pierre_memory::{ClaimCategory, EvidenceStrength};
+    use dravr_colleur::claims::{ClaimCategory, EvidenceStrength};
 
     fn verdict(layer: VerdictLayer, status: ClaimStatus, claim: &str) -> ClaimVerdict {
         ClaimVerdict {
@@ -588,7 +590,7 @@ mod tests {
             disposition_note: None,
             disposed_by: None,
             disposed_at: None,
-            transport_policy: TransportPolicy::AnyTransport,
+            first_party_only: false,
         }
     }
 

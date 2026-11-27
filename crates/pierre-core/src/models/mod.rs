@@ -118,14 +118,6 @@ pub use dravr_cageux::models::planned_workout::{PlannedWorkout, PlannedWorkoutBu
 // surface reads the same edges; see `FormBand` for why raw TSB is never banded.
 pub use dravr_cageux::training_load::FormBand;
 
-/// One reading of an athlete's form — the single serializer every TSB surface
-/// renders through, so a bare absolute number cannot reach an agent again.
-pub mod form_reading;
-pub use form_reading::{FormInterpretation, FormReading};
-
-mod sport_type_alias;
-pub use sport_type_alias::{resolve_sport_type, sport_family_head, sport_matches_family};
-
 mod sport_profile;
 pub use sport_profile::SportProfile;
 

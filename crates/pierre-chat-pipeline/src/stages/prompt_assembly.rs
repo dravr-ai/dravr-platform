@@ -13,9 +13,9 @@ use dravr_tronc::dates::Timestamp;
 use tracing::{debug, field, info, trace, warn, Span};
 
 use crate::ChatPipelineContext;
+use dravr_tronc::dates::civil_clock::{clock_date, resolve_zone};
 use pierre_contremaitre::messaging_strings::KEY_TURN_LANGUAGE;
 use pierre_contremaitre::PromptRegistry;
-use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::errors::AppResult;
 use pierre_core::models::agents::AgentCategory;
 use pierre_core::models::{AgentRuntimeContext, CoachingPersona, MemberFitnessSnapshot, User};

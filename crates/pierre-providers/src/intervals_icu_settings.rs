@@ -46,9 +46,8 @@ use tracing::warn;
 use crate::constants::units::METERS_PER_KM;
 use crate::intervals_icu_calendar::event_sport;
 use crate::intervals_icu_planned::lenient;
-use crate::models::{
-    sport_family_head, sport_matches_family, ProviderThreshold, ProviderThresholds, SportType,
-};
+use crate::models::{ProviderThreshold, ProviderThresholds, SportType};
+use dravr_cageux::models::sport_alias::{sport_family_head, sport_matches_family};
 
 /// The origin an imported threshold's provenance names.
 const ORIGIN: &str = "intervals.icu";

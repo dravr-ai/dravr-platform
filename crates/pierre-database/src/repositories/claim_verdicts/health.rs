@@ -6,9 +6,9 @@
 
 use std::collections::BTreeMap;
 
+use dravr_colleur::claims::VerdictDisposition;
 use pierre_core::constants::oauth_providers::column_excluded_from_ai_evaluation;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_memory::VerdictDisposition;
 
 use super::{
     VerdictAgentHealth, VerdictCategoryHealth, VerdictHealthDay, VerdictHealthStats,

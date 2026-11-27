@@ -16,13 +16,13 @@ use pierre_core::transport::TransportPolicy;
 use std::time::Duration;
 
 use anyhow::Result;
+use dravr_colleur::VerificationConfig;
 use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{
     AddMessageParams, AgentCategory, CreateAgentRequest, Tenant, TenantId, User,
 };
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
-use pierre_evals::VerificationConfig;
 use pierre_services::claim_verdict_backfill::{run_backfill, BackfillParams};
 use pierre_test_support::db::create_test_db_with_key;
 use uuid::Uuid;

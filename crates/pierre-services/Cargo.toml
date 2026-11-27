@@ -21,7 +21,7 @@ postgresql = [
     "pierre-test-support/postgresql",
 ]
 # Bullshit detector services (claim_verification, claim_verdict_backfill)
-tools-verification = ["dep:pierre-evals"]
+tools-verification = []
 # Messaging-related services (messaging_outbound, messaging_seed, channel_error_reply, messaging_status_bridge)
 client-messaging = [
     "dep:dravr-canot",
@@ -46,7 +46,7 @@ pierre-config = { version = "0.3.0", path = "../pierre-config" }
 # Emails the admins about each coach-access request opened.
 pierre-email = { version = "0.3.0", path = "../pierre-email" }
 pierre-contremaitre = { version = "0.3.0", path = "../pierre-contremaitre" }
-pierre-evals = { version = "0.3.0", path = "../pierre-evals", optional = true }
+dravr-colleur = { workspace = true }
 dravr-cageux = { workspace = true }
 # The FIT decoder a Garmin push activity file is read with, and the activity
 # store every provider read is kept in: records on SQLite locally, on the

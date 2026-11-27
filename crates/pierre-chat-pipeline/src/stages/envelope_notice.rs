@@ -22,12 +22,12 @@
 //! plan card is, so a reload shows it again; the envelope renders it as its
 //! own block where the surface has one and folds it into the prose otherwise.
 
+use dravr_tronc::dates::civil_clock::format_civil_day;
 use pierre_contremaitre::anchor_strings::AnchorReader;
 use pierre_contremaitre::messaging_strings::{
     envelope_purpose_key, MessagingStringsRegistry, KEY_ENVELOPE_DAY, KEY_ENVELOPE_HEADING,
     KEY_ENVELOPE_RELABELLED,
 };
-use pierre_core::civil_time::format_civil_day;
 use pierre_core::models::{UnitSystem, ENVELOPE_NOTICE_BLOCK_TYPE};
 use pierre_database::database::ConversationRecord;
 use pierre_memory::training_plans;

@@ -29,6 +29,9 @@ use serde_json::json;
 use tracing::{error, info};
 use uuid::Uuid;
 
+use dravr_colleur::claims::{
+    ClaimCategory, ClaimStatus, ClaimVerdict, DispositionReason, VerdictDisposition, VerdictLayer,
+};
 use pierre_contremaitre::EvidenceRegistry;
 use pierre_core::admin::models::{AdminPermission, ValidatedAdminToken};
 use pierre_core::admin::scope::AdminScope;
@@ -37,9 +40,6 @@ use pierre_core::models::TenantId;
 use pierre_database::repositories::{
     DispositionFilter, SetVerdictDispositionParams, VerdictCalibrationStats, VerdictHealthStats,
     VerdictListFilter, VerdictStatusBreakdown, UNDISPOSED_FILTER,
-};
-use pierre_memory::claims::{
-    ClaimCategory, ClaimStatus, ClaimVerdict, DispositionReason, VerdictDisposition, VerdictLayer,
 };
 
 use super::admin_scope::{audit_cross_tenant_sentences, console_read_scope};
@@ -661,7 +661,7 @@ pub fn knob_for(verdict: &ClaimVerdict, registry: &EvidenceRegistry) -> VerdictK
         VerdictLayer::Rhetoric => VerdictKnob {
             layer,
             kind: "rhetoric_filter".to_owned(),
-            location: "crates/pierre-evals/src/rhetoric_detector.rs".to_owned(),
+            location: "dravr-colleur/src/rhetoric_detector.rs".to_owned(),
             detail: "`classify` marks a claim rhetorical when it opens with one of \
                      RHETORICAL_PREFIXES, is a bare ask opening with one of \
                      ASKS_OF_THE_ATHLETE, or carries one of QUESTION_MARKERS. A factual claim \
@@ -673,18 +673,18 @@ pub fn knob_for(verdict: &ClaimVerdict, registry: &EvidenceRegistry) -> VerdictK
         VerdictLayer::Deterministic => VerdictKnob {
             layer,
             kind: "deterministic_bounds".to_owned(),
-            location: "crates/pierre-evals/src/deterministic_bounds.rs".to_owned(),
+            location: "dravr-colleur/src/deterministic_bounds.rs".to_owned(),
             detail: deterministic_detail(verdict),
             propositions: Vec::new(),
         },
         VerdictLayer::Personalized => VerdictKnob {
             layer,
             kind: "personalized_tolerance".to_owned(),
-            location: "crates/pierre-evals/src/personalized.rs".to_owned(),
+            location: "dravr-colleur/src/personalized.rs".to_owned(),
             detail: "The contradiction margin is DEFAULT_MARGIN_FRAC in personalized.rs, \
                      overridden per agent by `verification_config.personalized.margin_frac` \
                      in the agent's system-prompt frontmatter (PersonalizedConfig in \
-                     crates/pierre-evals/src/verification_config.rs); the layer does not fire \
+                     dravr-colleur/src/verification_config.rs); the layer does not fire \
                      under MIN_DATA_DAYS of history. The explanation quotes the athlete's \
                      range the claim fell outside of."
                 .to_owned(),
@@ -693,7 +693,7 @@ pub fn knob_for(verdict: &ClaimVerdict, registry: &EvidenceRegistry) -> VerdictK
         VerdictLayer::AthleteData => VerdictKnob {
             layer,
             kind: "athlete_data_record".to_owned(),
-            location: "crates/pierre-evals/src/athlete_data.rs".to_owned(),
+            location: "dravr-colleur/src/athlete_data.rs".to_owned(),
             detail: "`check` compares the figures the claim asserts against the athlete's \
                      AthleteRecord within MATCH_TOLERANCE; a named activity is matched by \
                      `check_named_activity`, and a figure stated over a period (\"42 km this \
@@ -710,7 +710,7 @@ pub fn knob_for(verdict: &ClaimVerdict, registry: &EvidenceRegistry) -> VerdictK
         VerdictLayer::Consistency => VerdictKnob {
             layer,
             kind: "consistency_check".to_owned(),
-            location: "crates/pierre-evals/src/consistency.rs".to_owned(),
+            location: "dravr-colleur/src/consistency.rs".to_owned(),
             detail: "`find_contradiction` pairs this claim with a sibling in the same reply \
                      that shares a subject and disagrees: a negation from NEGATION_MARKERS, \
                      or numbers further apart than NUMERIC_TOLERANCE. The explanation names \
@@ -782,7 +782,7 @@ fn evidence_knob(verdict: &ClaimVerdict, registry: &EvidenceRegistry) -> Verdict
         return VerdictKnob {
             layer,
             kind: "athlete_data_record".to_owned(),
-            location: "crates/pierre-evals/src/verdict_engine.rs".to_owned(),
+            location: "dravr-colleur/src/verdict_engine.rs".to_owned(),
             detail: "The corpus holds no `athlete_data` propositions by design, so this claim \
                      reached the evidence layer because `run_layers_1_to_4` was given no \
                      AthleteRecord: build_athlete_record in \
@@ -805,7 +805,7 @@ fn evidence_knob(verdict: &ClaimVerdict, registry: &EvidenceRegistry) -> Verdict
                  (dravr_contremaitre::evidence::SPORTS_SCIENCE). Cited records: {}. The \
                  category's minimum strength \
                  is `verification_config.categories.{category}.min_strength` \
-                 (CategoryConfig in crates/pierre-evals/src/verification_config.rs).",
+                 (CategoryConfig in dravr-colleur/src/verification_config.rs).",
                 cited_list(&cited)
             ),
             propositions: Vec::new(),
@@ -845,7 +845,7 @@ fn evidence_knob(verdict: &ClaimVerdict, registry: &EvidenceRegistry) -> Verdict
         format!(
             "No proposition under evidence/sports_science/{category}/ shares a 4+ letter \
              word with the claim, which is what `EvidenceCorpus::retrieve` scores on \
-             (crates/pierre-evals/src/evidence_retriever.rs). Cited records: {}. A true \
+             (dravr-colleur/src/evidence_retriever.rs). Cited records: {}. A true \
              claim with no match needs a proposition added there, or a keyword added to \
              the one that covers it.",
             cited_list(&cited)
@@ -853,10 +853,10 @@ fn evidence_knob(verdict: &ClaimVerdict, registry: &EvidenceRegistry) -> Verdict
     } else {
         format!(
             "{} proposition(s) under evidence/sports_science/{category}/ keyword-match the \
-             claim (crates/pierre-evals/src/evidence_retriever.rs, `retrieve`); the cited \
+             claim (dravr-colleur/src/evidence_retriever.rs, `retrieve`); the cited \
              ones are marked. A verdict below the required strength is decided by \
              `verification_config.categories.{category}.min_strength` (CategoryConfig in \
-             crates/pierre-evals/src/verification_config.rs) against the best match's \
+             dravr-colleur/src/verification_config.rs) against the best match's \
              `strength:` frontmatter.",
             propositions.len()
         )

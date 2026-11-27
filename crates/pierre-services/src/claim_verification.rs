@@ -15,13 +15,13 @@
 //! compiles in, so the service works offline. The runners without a corpus
 //! argument verify against that compiled-in fallback.
 
-use pierre_contremaitre::evidence_registry::compiled_in_corpus;
-use pierre_evals::{
+use dravr_colleur::claims::EvidenceStrength;
+use dravr_colleur::{
     athlete_data::AthleteRecord, check_claim, claim_extractor::ExtractedClaim,
     evidence_retriever::EvidenceCorpus, extract_heuristic, PersonalizedContext, VerdictOutcome,
     VerificationConfig,
 };
-use pierre_memory::claims::EvidenceStrength;
+use pierre_contremaitre::evidence_registry::compiled_in_corpus;
 use std::slice;
 use tracing::warn;
 
@@ -116,7 +116,7 @@ pub fn verify_reply_with_config_and_corpus(
 /// Used by the `verify_claim` MCP tool to honor the runtime registry
 /// without leaking the singleton through its API surface. `athlete` and
 /// `athlete_record` are the inputs the chat pipeline hands
-/// [`pierre_evals::verify_reply`], built by
+/// [`dravr_colleur::verify_reply`], built by
 /// [`crate::athlete_claim_context`]: with them the personalized and
 /// athlete-data layers judge the claim against the athlete it is about, as
 /// they do for a reply Dravr writes (carnet#852).

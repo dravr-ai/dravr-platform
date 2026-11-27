@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use axum::Router;
+use dravr_colleur::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
@@ -30,7 +31,6 @@ use pierre_database::repositories::{
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::coach_attention::CoachAttentionRoutes;
 use pierre_mcp_server::routes::coach_roster::CoachRosterRoutes;
-use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
 use serde_json::Value;
 use uuid::Uuid;

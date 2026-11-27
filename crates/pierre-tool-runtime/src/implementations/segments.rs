@@ -41,13 +41,13 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use dravr_tronc::dates::civil_clock::{self, clock_date, resolve_zone};
 use dravr_tronc::dates::{CivilDate, Timestamp, Zone};
-use pierre_core::civil_time::{self, clock_date, resolve_zone};
+use dravr_tronc::text::fold_for_match;
 use pierre_core::constants::oauth::providers::STRAVA;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::coverage::{Completeness, IncompleteReason, Pending};
 use pierre_core::models::TenantId;
-use pierre_core::text_fold::fold_for_match;
 use pierre_mcp_schema::PropertySchema;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::activity_origin;
@@ -169,7 +169,7 @@ fn parse_ask(args: &Value, today: CivilDate) -> AppResult<SegmentAsk> {
 /// The window `[from 00:00, to + 1 00:00)` on the athlete's clock, as UTC
 /// instants.
 fn window_instants(ask: &SegmentAsk, zone: &Zone) -> (Timestamp, Timestamp) {
-    let midnight = |day: CivilDate| civil_time::day_start_utc(day, zone);
+    let midnight = |day: CivilDate| civil_clock::day_start_utc(day, zone);
     let end = ask.to.succ().map_or_else(Timestamp::now, midnight);
     (midnight(ask.from), end)
 }

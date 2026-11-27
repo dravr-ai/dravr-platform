@@ -23,19 +23,19 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use dravr_cageux::config::intelligence::{AlgorithmConfig, TrainingZonesConfig};
-use dravr_tronc::dates::{CivilDate, Timestamp};
-use pierre_core::ai_policy::ProviderTerms;
-use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
-use pierre_core::constants::provider_capture::current_capture_version;
-use pierre_core::models::{default_locale, Activity, TenantId};
-use pierre_core::text_fold::fold_for_match;
-use pierre_database::repositories::{historical_depth_covered, BackfillCoverage};
-use pierre_database::RepositoryRegistry;
-use pierre_evals::athlete_data::{
+use dravr_colleur::athlete_data::{
     AthleteRecord, BackfillDepth, CacheRead, HistoryInputs, PeriodHistory, RecordedActivity,
     SourceCoverage, SourceSessions, ATHLETE_RECORD_WINDOW,
 };
-use pierre_evals::{AthleteMetrics, PersonalizedConfig, ToleranceStrategy};
+use dravr_colleur::{AthleteMetrics, PersonalizedConfig, ToleranceStrategy};
+use dravr_tronc::dates::civil_clock::{clock_date, local_date, resolve_zone};
+use dravr_tronc::dates::{CivilDate, Timestamp};
+use dravr_tronc::text::fold_for_match;
+use pierre_core::ai_policy::ProviderTerms;
+use pierre_core::constants::provider_capture::current_capture_version;
+use pierre_core::models::{default_locale, Activity, TenantId};
+use pierre_database::repositories::{historical_depth_covered, BackfillCoverage};
+use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::PlanPhase;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver;

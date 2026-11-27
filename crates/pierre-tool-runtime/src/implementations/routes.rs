@@ -32,11 +32,12 @@ use crate::conversions::{answers_with, ok_typed, tool_definition, tool_result_to
 use crate::route_store::{self, StoredRoute};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
+use dravr_cageux::models::sport_alias::resolve_sport_type;
 use dravr_meteo::{GeocodeError, Geocoder, Place};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{resolve_sport_type, SportType, TenantId};
+use pierre_core::models::{SportType, TenantId};
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_tools_core::ToolResult;
 
@@ -794,7 +795,7 @@ fn parse_effort(args: &Value) -> AppResult<Option<Effort>> {
 /// and a handful of common aliases so the LLM's tool-call args don't have to
 /// match the enum exactly. Unknown values fall back to [`SportType::Run`]
 /// in the caller — we return `None` here so the caller can apply its default.
-/// Thin wrapper around [`pierre_core::models::resolve_sport_type`] —
+/// Thin wrapper around [`dravr_cageux::models::sport_alias::resolve_sport_type`] —
 /// the canonical resolver covers route-relevant variants plus EN/FR
 /// aliases, so this tool reuses it instead of duplicating a partial map.
 fn parse_sport_type(raw: &str) -> Option<SportType> {

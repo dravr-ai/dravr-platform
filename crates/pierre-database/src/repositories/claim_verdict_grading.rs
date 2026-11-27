@@ -4,10 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use dravr_colleur::claims::{GradingCandidate, GradingPool, GradingWithheld};
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
-use pierre_memory::claims::{GradingCandidate, GradingPool, GradingWithheld};
 
 use super::claim_verdicts::{verdict_columns, verdict_from_row};
 

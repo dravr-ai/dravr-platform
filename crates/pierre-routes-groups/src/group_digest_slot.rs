@@ -24,8 +24,8 @@
 //! share ([`group_zone`]). With none on file the slot is read on the UTC clock
 //! and opens at [`NO_ZONE_SLOT_START_HOUR_UTC`] instead — the no-zone rule.
 
+use dravr_tronc::dates::civil_clock::{clock_date, monday_of, parse_zone};
 use dravr_tronc::dates::{CivilDate, Timestamp, Zone};
-use pierre_core::civil_time::{clock_date, monday_of, parse_zone};
 
 /// Local hour the digest lands at on Monday, and the first hour of the day
 /// any catch-up may use.

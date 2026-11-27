@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use std::fmt::Write;
 
 use async_trait::async_trait;
+use dravr_tronc::dates::civil_clock::{format_local_day, resolve_zone};
 use dravr_tronc::dates::Timestamp;
-use pierre_core::civil_time::{format_local_day, resolve_zone};
 use pierre_core::duration_text::clock;
 use pierre_core::models::FormBand;
 

@@ -26,7 +26,7 @@ tools-groups = [
     "pierre-tool-runtime/tools-groups",
 ]
 tools-verification = [
-    "dep:pierre-evals",
+    "dep:dravr-colleur",
     # The claim-verification stage runs behind its own panic boundary
     # (futures_util::FutureExt::catch_unwind), so the dep rides with the
     # feature that turns the stage on.
@@ -66,7 +66,7 @@ dravr-tronc = { workspace = true }
 
 # Optional crates (feature-gated)
 dravr-enforme = { workspace = true, optional = true }
-pierre-evals = { version = "0.3.0", path = "../pierre-evals", optional = true }
+dravr-colleur = { workspace = true, optional = true }
 pierre-groups = { version = "0.3.0", path = "../pierre-groups", optional = true }
 futures-util = { version = "0.3", optional = true }
 

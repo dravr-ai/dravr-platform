@@ -35,19 +35,20 @@ use crate::implementations::field_dictionary::served_header;
 use crate::implementations::session_merge_summary::FragmentDedupSummary;
 use crate::protocol::types::UniversalResponse;
 use crate::runtime::ToolRuntime;
+use dravr_cageux::models::sport_alias::resolve_sport_type;
 use dravr_cageux::physiological_constants::api_limits::{
     CLAUDE_CONTEXT_TOKENS, CONTEXT_WARNING_THRESHOLD_PERCENT, TOKENS_PER_ACTIVITY_DETAILED,
     TOKENS_PER_ACTIVITY_SUMMARY, USABLE_CONTEXT_TOKENS,
 };
+use dravr_tronc::dates::civil_clock::parse_zone;
+use dravr_tronc::dates::civil_clock::zoned_rfc3339;
 use dravr_tronc::dates::Timestamp;
 use pierre_cache::{Cache, CacheKey, CacheResource};
 use pierre_core::ai_policy::ProviderTerms;
-use pierre_core::civil_time::parse_zone;
-use pierre_core::civil_time::zoned_rfc3339;
 use pierre_core::config::fitness::{DETAIL_WINDOW_DAYS, EXPLICIT_DETAIL_CAP};
 use pierre_core::json_value::to_value_as_written;
 use pierre_core::models::coverage::{Completeness, IncompleteReason};
-use pierre_core::models::{resolve_sport_type, Activity, PlaceRef, SportType, TenantId};
+use pierre_core::models::{Activity, PlaceRef, SportType, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_formatters::{format_output, OutputFormat};
 use pierre_providers::ai_scope;
@@ -701,7 +702,7 @@ const SPORT_WILDCARDS: &[&str] = &[
 /// The LLM (or a UI) passes a free-form string like `nordicski`, `xc_ski`,
 /// `ski de fond`, or `cross_country_skiing`. The filter resolves the input
 /// to a canonical [`SportType`] via
-/// [`pierre_core::models::resolve_sport_type`] and compares enum-to-enum
+/// [`dravr_cageux::models::sport_alias::resolve_sport_type`] and compares enum-to-enum
 /// against each activity's `sport_type` — so all of those inputs match
 /// [`SportType::CrossCountrySkiing`] without requiring per-call alias logic
 /// in the prompt or upstream callers.

@@ -21,8 +21,8 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use dravr_tronc::dates::civil_clock::{day_start_utc, local_date};
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp, Zone};
-use pierre_core::civil_time::{day_start_utc, local_date};
 use pierre_core::errors::AppResult;
 use pierre_database::repositories::{CachedActivityRow, CachedRowCursor, CachedRowsQuery};
 use pierre_providers::ai_scope;
@@ -335,7 +335,7 @@ pub async fn visit_stored_workouts(
 
 #[cfg(test)]
 mod tests {
-    use pierre_core::civil_time::resolve_zone;
+    use dravr_tronc::dates::civil_clock::resolve_zone;
 
     use super::*;
 

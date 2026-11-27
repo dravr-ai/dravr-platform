@@ -14,11 +14,10 @@
 
 use std::iter;
 
+use dravr_cageux::models::sport_alias::sport_matches_family;
+use dravr_tronc::text::fold_for_match;
 use pierre_core::constants::oauth::providers::STRAVA_ARCHIVE;
-use pierre_core::models::{
-    sport_matches_family, Activity, ActivityTag, SegmentEffort, SportFamily, SportType,
-};
-use pierre_core::text_fold::fold_for_match;
+use pierre_core::models::{Activity, ActivityTag, SegmentEffort, SportFamily, SportType};
 use pierre_services::workouts::Workout;
 
 use super::segment_keys;

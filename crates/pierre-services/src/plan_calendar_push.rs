@@ -46,11 +46,12 @@ use pierre_core::transport::TransportPolicy;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use dravr_cageux::models::sport_alias::resolve_sport_type;
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    resolve_sport_type, CalendarEventRef, CalendarEventSource, CalendarKey, PlannedSession,
-    PlannedSessionKind, PrescribedWorkout, RelativeIntensity, SportType, TenantId, WorkoutStep,
+    CalendarEventRef, CalendarEventSource, CalendarKey, PlannedSession, PlannedSessionKind,
+    PrescribedWorkout, RelativeIntensity, SportType, TenantId, WorkoutStep,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek, PlannedDay, TrainingPlan};

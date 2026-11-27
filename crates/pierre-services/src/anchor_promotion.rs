@@ -29,9 +29,9 @@
 //! The rule decides which number fills the profile; the training science that
 //! scores against it stays in dravr-cageux and pierre-fitness-compute.
 
+use dravr_tronc::dates::civil_clock::clock_date;
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::ai_policy::ProviderTerms;
-use pierre_core::civil_time::clock_date;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{AnchorProvenance, AnchorStamp, TenantId, UserPhysiologicalProfile};
 use pierre_core::transport::TransportPolicy;

@@ -11,6 +11,7 @@ repository = "https://github.com/dravr-ai/cdn-platform"
 publish = false
 
 [dependencies]
+dravr-colleur = { workspace = true }
 secrecy = { workspace = true }
 pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
 pierre-config = { version = "0.3.0", path = "../pierre-config" }

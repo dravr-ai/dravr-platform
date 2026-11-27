@@ -16,6 +16,7 @@ sqlite = []
 postgresql = ["sqlx/postgres", "pierre-core/sqlx-postgres", "pierre-test-support/postgresql"]
 
 [dependencies]
+dravr-colleur = { workspace = true }
 # Workspace crates
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "admin-jwt"] }
 pierre-memory = { version = "0.3.0", path = "../pierre-memory" }

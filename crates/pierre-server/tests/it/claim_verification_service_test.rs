@@ -14,9 +14,9 @@
 
 use std::collections::HashSet;
 
+use dravr_colleur::claims::{ClaimCategory, ClaimStatus, EvidenceStrength};
+use dravr_colleur::VerificationConfig;
 use pierre_contremaitre::evidence_registry::compiled_in_corpus;
-use pierre_evals::VerificationConfig;
-use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength};
 use pierre_services::claim_verification::{
     verify_reply_heuristic, verify_reply_with_config, warm_corpus,
 };

@@ -21,7 +21,7 @@ use dravr_cageux::pattern_detection::{
 use dravr_cageux::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
 use dravr_cageux::training_load::RiskLevel;
 use dravr_cageux::zones::HrZones;
-use pierre_core::civil_time::resolve_zone;
+use dravr_tronc::dates::civil_clock::resolve_zone;
 use pierre_core::models::zones::HrZonesUnavailable;
 use pierre_core::models::Activity;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;

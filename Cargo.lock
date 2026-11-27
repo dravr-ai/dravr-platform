@@ -1454,8 +1454,8 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-barrage"
-version = "0.35.2"
-source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.35.2#832ebe5ae36ba8f24538e595f011a955f2361d3e"
+version = "0.35.3"
+source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.35.3#576ed2eaac42ea845e840e38adf1e0def2f24ced"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1500,8 +1500,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.61.0"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.61.0#6850a51505fc73b32f4cd4c19505d77090be8c22"
+version = "0.62.0"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.62.0#22d30f55bf3f177130e64a889050822d24fc1138"
 dependencies = [
  "async-trait",
  "dravr-tronc",
@@ -1543,6 +1543,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "dravr-colleur"
+version = "0.2.0"
+source = "git+https://github.com/dravr-ai/dravr-colleur.git?tag=v0.2.0#ff54b379d13f233ee28ab0f033bed2e03addd742"
+dependencies = [
+ "async-trait",
+ "dravr-cageux",
+ "dravr-tronc",
+ "futures-util",
+ "serde",
+ "serde-saphyr",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
 name = "dravr-commere"
 version = "0.12.0"
 source = "git+https://github.com/dravr-ai/dravr-commere.git?tag=v0.12.0#7f69369b4347abdd5553dd0f671c6e096cb104d7"
@@ -1568,8 +1584,8 @@ source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=fae85f9ab76
 
 [[package]]
 name = "dravr-enforme"
-version = "0.24.0"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.24.0#26e8f272c02b891671c51b3d4ee0a87af1e25706"
+version = "0.24.1"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.24.1#bfba02756de10a3fcdcfd7f15bda087d4c29d929"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1703,6 +1719,7 @@ dependencies = [
  "tower",
  "tracing",
  "tracing-subscriber",
+ "unicode-normalization",
  "url",
  "uuid",
  "webpki-roots 1.0.11",
@@ -3982,6 +3999,7 @@ version = "0.3.0"
 dependencies = [
  "async-trait",
  "dravr-canot",
+ "dravr-colleur",
  "dravr-contremaitre",
  "dravr-enforme",
  "dravr-tronc",
@@ -3999,7 +4017,6 @@ dependencies = [
  "pierre-contremaitre",
  "pierre-core",
  "pierre-database",
- "pierre-evals",
  "pierre-fitness-compute",
  "pierre-groups",
  "pierre-llm",
@@ -4027,6 +4044,7 @@ dependencies = [
  "bcrypt",
  "clap",
  "dirs 7.0.0",
+ "dravr-colleur",
  "dravr-sciotte",
  "dravr-tronc",
  "glob",
@@ -4035,11 +4053,10 @@ dependencies = [
  "pierre-auth",
  "pierre-cache",
  "pierre-config",
+ "pierre-contremaitre",
  "pierre-core",
  "pierre-database",
- "pierre-evals",
  "pierre-llm",
- "pierre-memory",
  "pierre-middleware",
  "pierre-providers",
  "pierre-runtime-context",
@@ -4110,14 +4127,13 @@ dependencies = [
  "brotli",
  "brotli-decompressor",
  "dravr-cageux",
+ "dravr-colleur",
  "dravr-contremaitre",
  "dravr-tronc",
  "hex",
  "pierre-core",
  "pierre-database",
- "pierre-evals",
  "pierre-llm",
- "pierre-memory",
  "regex",
  "reqwest",
  "serde",
@@ -4168,7 +4184,6 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
- "unicode-normalization",
  "uuid",
 ]
 
@@ -4178,6 +4193,7 @@ version = "0.3.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
+ "dravr-colleur",
  "dravr-riviere",
  "dravr-tronc",
  "hex",
@@ -4224,25 +4240,6 @@ dependencies = [
  "html-escape",
  "pierre-core",
  "reqwest",
- "tracing",
-]
-
-[[package]]
-name = "pierre-evals"
-version = "0.3.0"
-dependencies = [
- "async-trait",
- "dravr-cageux",
- "dravr-contremaitre",
- "dravr-tronc",
- "futures-util",
- "pierre-core",
- "pierre-llm",
- "pierre-memory",
- "serde",
- "serde-saphyr",
- "serde_json",
- "tokio",
  "tracing",
 ]
 
@@ -4312,6 +4309,7 @@ name = "pierre-llm"
 version = "0.3.0"
 dependencies = [
  "async-trait",
+ "dravr-colleur",
  "dravr-contremaitre",
  "dravr-tronc",
  "embacle",
@@ -4491,6 +4489,7 @@ name = "pierre-routes-admin"
 version = "0.3.0"
 dependencies = [
  "axum",
+ "dravr-colleur",
  "dravr-tronc",
  "pierre-auth",
  "pierre-cache",
@@ -4723,6 +4722,7 @@ dependencies = [
  "bcrypt",
  "clap",
  "dravr-cageux",
+ "dravr-colleur",
  "dravr-tronc",
  "glob",
  "pierre-agent-parser",
@@ -4752,6 +4752,7 @@ dependencies = [
  "dravr-barrage",
  "dravr-cageux",
  "dravr-canot",
+ "dravr-colleur",
  "dravr-enforme",
  "dravr-equilibre",
  "dravr-meteo",
@@ -4771,7 +4772,6 @@ dependencies = [
  "pierre-core",
  "pierre-database",
  "pierre-email",
- "pierre-evals",
  "pierre-fitness-compute",
  "pierre-groups",
  "pierre-llm",
@@ -4838,6 +4838,7 @@ dependencies = [
  "bitflags 2.13.2",
  "dravr-barrage",
  "dravr-cageux",
+ "dravr-colleur",
  "dravr-enforme",
  "dravr-meteo",
  "dravr-riviere",
@@ -4853,7 +4854,6 @@ dependencies = [
  "pierre-contremaitre",
  "pierre-core",
  "pierre-database",
- "pierre-evals",
  "pierre-external",
  "pierre-fitness-compute",
  "pierre-formatters",
@@ -4910,6 +4910,7 @@ dependencies = [
  "dravr-barrage",
  "dravr-cageux",
  "dravr-canot",
+ "dravr-colleur",
  "dravr-contremaitre",
  "dravr-enforme",
  "dravr-equilibre",
@@ -4941,7 +4942,6 @@ dependencies = [
  "pierre-database",
  "pierre-dev-fixture",
  "pierre-email",
- "pierre-evals",
  "pierre-fitness-compute",
  "pierre-formatters",
  "pierre-groups",

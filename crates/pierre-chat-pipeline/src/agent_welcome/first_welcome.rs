@@ -49,6 +49,7 @@
 
 use std::collections::BTreeMap;
 
+use dravr_tronc::dates::civil_clock::{clock_date, local_date};
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_contremaitre::messaging_strings::{
     format_template, MessagingStringsRegistry, KEY_AGENT_WELCOME_FIGURES_DISTANCE_TIME,
@@ -58,7 +59,6 @@ use pierre_contremaitre::messaging_strings::{
     KEY_AGENT_WELCOME_GOAL_WHY, KEY_AGENT_WELCOME_HISTORY_NEEDED, KEY_AGENT_WELCOME_WHY_ONLY,
     KEY_REPLY_GARMIN_ATTRIBUTION,
 };
-use pierre_core::civil_time::{clock_date, local_date};
 use pierre_core::constants::oauth_providers::garmin_recorded;
 use pierre_core::duration_text;
 use pierre_core::errors::AppResult;

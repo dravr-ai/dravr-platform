@@ -20,9 +20,10 @@
 //! is what makes the arms distinguishable in practice — schemars emits
 //! `anyOf` for an untagged enum, so the schema does not assert that for you.
 
+use dravr_cageux::form_reading::FormInterpretation;
 use dravr_cageux::zones::HeartRateReading;
 use pierre_core::models::provider_context::ProviderActivityContext;
-use pierre_core::models::{FormBand, FormInterpretation};
+use pierre_core::models::FormBand;
 use pierre_fitness_compute::weather::WeatherDifficulty;
 use serde::{Deserialize, Serialize};
 

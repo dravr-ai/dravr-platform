@@ -20,8 +20,8 @@
 
 use axum::http::StatusCode;
 use axum::response::Response;
+use dravr_tronc::dates::civil_clock::UTC_MINUTE;
 use dravr_tronc::dates::Timestamp;
-use pierre_core::civil_time::UTC_MINUTE;
 use tracing::{info, warn};
 
 use pierre_core::admin::models::ValidatedAdminToken;

@@ -33,15 +33,15 @@ use serde::{Deserialize, Serialize};
 use tokio::time::sleep;
 use tracing::{info, warn};
 
+use dravr_colleur::claim_extractor::ExtractedClaim;
+use dravr_colleur::claims::{ClaimCategory, ClaimStatus};
+use dravr_colleur::evidence_retriever::EvidenceCorpus;
+use dravr_colleur::{VerdictOutcome, VerificationConfig};
 use pierre_contremaitre::evidence_registry::compiled_in_corpus;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::Database;
 use pierre_database::repositories::{AssistantMessage, InsertClaimVerdictParams};
 use pierre_database::RepositoryRegistry;
-use pierre_evals::claim_extractor::ExtractedClaim;
-use pierre_evals::evidence_retriever::EvidenceCorpus;
-use pierre_evals::{VerdictOutcome, VerificationConfig};
-use pierre_memory::claims::{ClaimCategory, ClaimStatus};
 
 use pierre_core::errors::{AppError, AppResult};
 

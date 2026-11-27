@@ -24,8 +24,8 @@ use std::sync::Arc;
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
+use dravr_tronc::dates::civil_clock::monday_of;
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
-use pierre_core::civil_time::monday_of;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{Activity, ActivityBuilder, ConnectionType, SportType, TenantId};
 use pierre_mcp_server::mcp::resources::ServerContext;

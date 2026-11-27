@@ -30,13 +30,12 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 use std::hash::BuildHasher;
 
+use dravr_cageux::models::sport_alias::resolve_sport_type;
 use pierre_contremaitre::messaging_strings::{
     KEY_AGENTS_TEAM_REASON_FUELLING, KEY_AGENTS_TEAM_REASON_MOBILITY,
     KEY_AGENTS_TEAM_REASON_RECOVERY,
 };
-use pierre_core::models::{
-    resolve_sport_type, Dossier, Pillar, SportProfile, SportType, LONG_SESSION_MIN,
-};
+use pierre_core::models::{Dossier, Pillar, SportProfile, SportType, LONG_SESSION_MIN};
 use pierre_memory::{FactKind, PredicateCode};
 use serde::{Deserialize, Serialize};
 

@@ -6,9 +6,9 @@
 
 use std::fmt::Write as _;
 
+use dravr_tronc::dates::civil_clock::format_local_day;
 use dravr_tronc::dates::Zone;
 use pierre_core::ai_policy::first_party_only;
-use pierre_core::civil_time::format_local_day;
 use pierre_core::constants::oauth_providers::activity_attribution;
 use pierre_core::models::Activity;
 use pierre_core::transport::TransportPolicy;

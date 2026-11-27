@@ -41,6 +41,7 @@
 //! pierre-cli seed coach-home
 //! ```
 
+use dravr_colleur::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::{GroupRole, NewGroupTranscriptEntry, TranscriptSpeaker};
@@ -53,7 +54,6 @@ use pierre_database::repositories::{
 };
 use pierre_database::seed_models::SeedSyntheticActivity;
 use pierre_database::RepositoryRegistry;
-use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use pierre_memory::training_plans::{PlannedDay, RacePriority};
 use pierre_middleware::mask_email;
 use pierre_services::live_activities::{LiveActivityStore, WriteOrigin};
@@ -810,8 +810,9 @@ mod tests {
     use std::collections::BTreeSet;
 
     use dravr_cageux::config::intelligence::AlgorithmConfig;
+    use dravr_cageux::form_reading::FormReading;
     use dravr_cageux::training_load::TrainingLoadCalculator;
-    use pierre_core::models::{FormBand, FormReading};
+    use pierre_core::models::FormBand;
     use pierre_fitness_compute::AthleteInputs;
 
     use super::seasons::DISCIPLINES;

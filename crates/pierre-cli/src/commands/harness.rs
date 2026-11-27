@@ -24,13 +24,13 @@ use clap::Subcommand;
 use dravr_tronc::dates::Timestamp;
 use tracing::info;
 
+use dravr_colleur::blind_grading::{build_export, ExportSpec, GradingExport, GradingKey};
+use dravr_colleur::blind_grading_score::{read_grades, score};
+use dravr_colleur::{ColleurError, VerificationConfig};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
-use pierre_evals::blind_grading::{build_export, ExportSpec, GradingExport, GradingKey};
-use pierre_evals::blind_grading_score::{read_grades, score};
-use pierre_evals::VerificationConfig;
 use pierre_services::claim_verdict_backfill::{
     run_backfill, BackfillParams, DEFAULT_MESSAGES_SCANNED,
 };
@@ -226,6 +226,12 @@ fn write_export(export: &GradingExport, dir: &Path) -> AppResult<Vec<PathBuf>> {
     Ok(files.into_iter().map(|(path, _)| path).collect())
 }
 
+/// A grading sheet or key the checker refused, as the CLI's error: every
+/// refusal names a file the admin handed in.
+fn refused(e: &ColleurError) -> AppError {
+    AppError::invalid_input(e.to_string())
+}
+
 fn read_file(path: &Path) -> AppResult<String> {
     fs::read_to_string(path)
         .map_err(|e| AppError::invalid_input(format!("{}: {e}", path.display())))
@@ -262,13 +268,15 @@ pub(crate) fn score_grades(
         .map_err(|e| AppError::invalid_input(format!("{}: {e}", key.display())))?;
     let sheets = specs
         .into_iter()
-        .map(|(name, path)| read_grades(name.trim(), &read_file(Path::new(path))?))
+        .map(|(name, path)| {
+            read_grades(name.trim(), &read_file(Path::new(path))?).map_err(|e| refused(&e))
+        })
         .collect::<AppResult<Vec<_>>>()?;
     let adjudication = adjudication
-        .map(|path| read_grades("adjudication", &read_file(path)?))
+        .map(|path| read_grades("adjudication", &read_file(path)?).map_err(|e| refused(&e)))
         .transpose()?;
 
-    let report = score(&key, &sheets, adjudication.as_ref())?;
+    let report = score(&key, &sheets, adjudication.as_ref()).map_err(|e| refused(&e))?;
     print!("{}", report.render());
     if let Some(out) = out {
         let json = serde_json::to_string_pretty(&report)

@@ -7,8 +7,8 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::sport_type_alias::sport_family_head;
 use super::SportType;
+use dravr_cageux::models::sport_alias::sport_family_head;
 
 /// The family a session belongs to, for questions that care whether an
 /// athlete trains one discipline or several — not for anything that needs

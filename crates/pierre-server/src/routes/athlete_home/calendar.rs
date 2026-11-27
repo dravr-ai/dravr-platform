@@ -27,14 +27,14 @@
 //! and starts no refresh and no historical backfill. Freshness is the recent
 //! list's job, which every Home load already runs.
 
-use pierre_core::civil_time::day_start_utc;
+use dravr_tronc::dates::civil_clock::day_start_utc;
 use pierre_runtime_context::require_tenant;
 use std::sync::Arc;
 
 use axum::extract::{Query, State};
 use axum::Json;
+use dravr_tronc::dates::civil_clock::{clock_date, local_date, resolve_zone};
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp, Zone};
-use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
 use pierre_core::constants::oauth_providers::{self, GarminContribution};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::CachedRowsQuery;

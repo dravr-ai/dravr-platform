@@ -9,6 +9,10 @@
 
 use std::fmt::Debug;
 
+use dravr_colleur::claims::{
+    ClaimCategory, ClaimStatus, DispositionReason, EvidenceStrength, VerdictDisposition,
+    VerdictLayer,
+};
 use dravr_tronc::dates::Timestamp;
 use pierre_core::models::TenantId;
 use pierre_core::permissions::UserRole;
@@ -22,10 +26,6 @@ use pierre_database::repositories::{
     UpsertUserFactParams,
 };
 use pierre_database::seed_models::{SeedApiKey, SeedDemoUser};
-use pierre_memory::claims::{
-    ClaimCategory, ClaimStatus, DispositionReason, EvidenceStrength, VerdictDisposition,
-    VerdictLayer,
-};
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 use pierre_test_support::db::create_test_db_with_key;
 use uuid::Uuid;

@@ -11,6 +11,9 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+use dravr_colleur::claims::{
+    ClaimCategory, ClaimStatus, ClaimVerdict, EvidenceStrength, GradingWithheld, VerdictLayer,
+};
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
@@ -20,9 +23,6 @@ use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::InsertClaimVerdictParams;
 use pierre_database::RepositoryRegistry;
-use pierre_memory::claims::{
-    ClaimCategory, ClaimStatus, ClaimVerdict, EvidenceStrength, GradingWithheld, VerdictLayer,
-};
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 

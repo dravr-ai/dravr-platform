@@ -15,7 +15,7 @@
 //! ## Whose clock this is
 //!
 //! The athlete's. Every timestamp here renders in their timezone, through
-//! [`pierre_core::civil_time::format_local_stamp`] — the same helper
+//! [`dravr_tronc::dates::civil_clock::format_local_stamp`] — the same helper
 //! `pierre_chat_pipeline::stages::turn_clock::format_current_date` uses for
 //! the turn clock, so both carry the same `%Y-%m-%d <weekday> %H:%M` shape.
 //! That agreement is the point, and it is load-bearing.
@@ -38,12 +38,12 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::hash::BuildHasher;
 
-use dravr_tronc::dates::{CivilDate, Timestamp};
-use pierre_core::civil_time::LOCAL_MINUTE;
-use pierre_core::civil_time::{
+use dravr_tronc::dates::civil_clock::LOCAL_MINUTE;
+use dravr_tronc::dates::civil_clock::{
     clock_date, format_civil_day, format_local_stamp, local_date, relative_day, relative_day_label,
     resolve_zone,
 };
+use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_core::constants::oauth_providers::activity_attribution;
 use pierre_core::duration_text::clock;
 use pierre_core::models::Activity;

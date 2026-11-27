@@ -31,8 +31,8 @@ use std::iter;
 use std::mem;
 use std::sync::Arc;
 
+use dravr_tronc::dates::civil_clock::{monday_of, resolve_zone};
 use dravr_tronc::dates::CivilDate;
-use pierre_core::civil_time::{monday_of, resolve_zone};
 use pierre_core::constants::oauth::providers::{companion_keys, is_user_provided, STRAVA};
 use pierre_core::constants::oauth_providers::{garmin_contribution, GarminContribution};
 use pierre_core::errors::{AppError, AppResult};
@@ -410,9 +410,9 @@ fn labelled(mut groups: Vec<QueryGroup>, folded: &Folded, gate: ReadGate) -> Vec
 
 #[cfg(test)]
 mod tests {
+    use dravr_tronc::dates::civil_clock::resolve_zone;
     use dravr_tronc::dates::{CivilDate, Timestamp, Zone};
     use dravr_tronc::dates::{CivilDateTime, Elapsed};
-    use pierre_core::civil_time::resolve_zone;
     use pierre_core::models::{
         Activity, ActivityBuilder, GearRef, PlaceRef, SegmentEffort, SportFamily, SportType,
     };

@@ -16,8 +16,8 @@
 use std::collections::{BTreeMap, HashMap};
 
 use dravr_tronc::date_pattern;
+use dravr_tronc::dates::civil_clock::{local_date, monday_of};
 use dravr_tronc::dates::{CivilDate, Pattern, Zone};
-use pierre_core::civil_time::{local_date, monday_of};
 use pierre_core::models::coverage::WindowTotals;
 use pierre_core::models::{Activity, PlaceRef, SportFamily};
 use pierre_core::untrusted::display_line;

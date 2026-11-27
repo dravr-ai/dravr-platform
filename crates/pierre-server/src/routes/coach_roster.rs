@@ -56,11 +56,12 @@ use axum::{
 };
 use std::time::Duration;
 
+use dravr_colleur::claims::ClaimStatus;
+use dravr_tronc::dates::civil_clock;
 use dravr_tronc::dates::{CivilDate, Timestamp, Zone};
 use futures_util::stream::{self, StreamExt, TryStreamExt};
 use pierre_config::coach_home::CoachHomeConfig;
 use pierre_core::ai_policy::ProviderTerms;
-use pierre_core::civil_time;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::{CoachingGroup, MemberFitnessSnapshot};
 use pierre_core::models::TenantId;
@@ -68,7 +69,7 @@ use pierre_database::repositories::training_plans::DraftOwner;
 use pierre_database::repositories::CoachReadSurface;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, GoalRace, RacePriority, TrainingPlan};
-use pierre_memory::{ClaimStatus, PlanPhase};
+use pierre_memory::PlanPhase;
 use pierre_middleware::AuthenticatedUser;
 use pierre_providers::ai_scope;
 use pierre_services::athlete_clock::athlete_zone;
@@ -639,7 +640,7 @@ async fn row(
         missed_sessions: None,
     };
     let zone = athlete_zone(repos, athlete).await;
-    let today = civil_time::clock_date(Timestamp::now(), &zone);
+    let today = civil_clock::clock_date(Timestamp::now(), &zone);
     let snapshot = read.snapshots.get(&athlete);
     let replies = read.replies.signals_for(athlete);
     let plan = if member.member.status == RosterAthleteStatus::Shared {
@@ -946,7 +947,7 @@ impl WeekReplies {
 /// Read the reply review newest first, back to this week's Monday, through
 /// the same service and checker rules as `GET /api/coach/replies`.
 async fn replies_this_week(resources: &ServerContext, coach: Uuid) -> AppResult<WeekReplies> {
-    let since = civil_time::monday_of(Timestamp::now().utc_date())
+    let since = civil_clock::monday_of(Timestamp::now().utc_date())
         .at_midnight()
         .and_utc()?;
     let mut week = WeekReplies::default();

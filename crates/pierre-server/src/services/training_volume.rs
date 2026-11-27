@@ -20,8 +20,8 @@
 
 use std::collections::BTreeMap;
 
+use dravr_tronc::dates::civil_clock::monday_of;
 use dravr_tronc::dates::{CivilDate, Elapsed};
-use pierre_core::civil_time::monday_of;
 use pierre_core::constants::oauth_providers::GarminContribution;
 use pierre_tool_runtime::activity_query::{GroupKey, KeyValue, QueryAnswer, QueryMetric};
 use serde::Serialize;

@@ -22,8 +22,8 @@ use std::collections::HashSet;
 use std::fmt;
 use std::sync::Arc;
 
+use dravr_tronc::dates::civil_clock::{local_date, resolve_zone};
 use dravr_tronc::dates::{CivilDate, Timestamp};
-use pierre_core::civil_time::{local_date, resolve_zone};
 use pierre_core::errors::AppResult;
 use pierre_core::models::coverage::WindowTotals;
 use pierre_core::models::{Activity, TenantId};

@@ -36,10 +36,10 @@
 //! ride uploaded and also synced by a provider scores once.
 
 use dravr_cageux::config::intelligence::AlgorithmConfig;
+use dravr_tronc::dates::civil_clock::{local_date, resolve_zone};
 use dravr_tronc::dates::{CivilDate, Elapsed};
 use pierre_config::environment::default_provider;
 use pierre_core::ai_policy::ProviderTerms;
-use pierre_core::civil_time::{local_date, resolve_zone};
 use pierre_core::constants::oauth_providers::GarminContribution;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::coverage::{

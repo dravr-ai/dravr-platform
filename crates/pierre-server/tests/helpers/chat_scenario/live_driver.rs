@@ -129,7 +129,7 @@ const FRAGMENT_DENSITY_THRESHOLD: usize = 5;
 /// `{"status":"unsupported"}` — including `save_training_plan`. A scenario
 /// asserting on what the agent SAVED therefore had nothing to read, because
 /// nothing was ever written. That is why the Annual Vision plan's fortnight
-/// verification line could live neither in `pierre-evals` (no database, no
+/// verification line could live neither in `dravr-colleur` (no database, no
 /// assertion kind that reads state) nor here.
 ///
 /// Optional on purpose: a scenario that only grades prose should not pay for

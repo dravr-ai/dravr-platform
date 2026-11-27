@@ -7,11 +7,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use dravr_colleur::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
+use dravr_colleur::{extract_heuristic, ClaimSource, ExtractedClaim, VerdictOutcome};
 use pierre_chat_pipeline::stages::verification::{
     actionable_problems, warn_affordance, warning_bullets, FlaggedClaim, WarnAffordance,
 };
-use pierre_evals::{extract_heuristic, ClaimSource, ExtractedClaim, VerdictOutcome};
-use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 
 fn claim(text: &str, category: ClaimCategory) -> ExtractedClaim {
     ExtractedClaim {

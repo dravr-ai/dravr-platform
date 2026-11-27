@@ -10,12 +10,13 @@
 
 use dravr_cageux::algorithms::training_load::DailyTrainingLoad;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
+use dravr_cageux::form_reading::FormReading;
 use dravr_cageux::training_load::{TrainingLoad, TrainingLoadCalculator};
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp, Zone};
 use pierre_core::models::groups::{FlagEvidence, HealthFlagSeverity, MemberFlag};
 use pierre_core::models::groups::{MemberFitnessSnapshot, OvertrainingRiskLevel};
 use pierre_core::models::{Activity, SportType};
-use pierre_core::models::{ActivityBuilder, FormBand, FormReading};
+use pierre_core::models::{ActivityBuilder, FormBand};
 use pierre_fitness_compute::AthleteInputs;
 use pierre_groups::strategies::summarization::{
     GroupSummarizationStrategy, RosterCardSummarizer, WeeklyDigestSummarizer,

@@ -91,9 +91,6 @@ pub mod json_value;
 /// Neutralizing untrusted text before it is interpolated into a structured destination
 pub mod untrusted;
 
-/// Folding text for matching: accents, case and spacing set aside
-pub mod text_fold;
-
 /// Authorization header parsing helpers (bearer token extraction, API key detection)
 pub mod auth_header;
 
@@ -123,9 +120,6 @@ pub mod gcp_token;
 /// Outbound W3C trace-context propagation middleware for the shared HTTP clients
 #[cfg(feature = "telemetry")]
 pub mod trace_propagation;
-
-/// The athlete's civil clock — local-zone rendering and localized weekday names
-pub mod civil_time;
 
 /// One structured log line for every usage limit an athlete is refused by or warned about
 pub mod usage_log;

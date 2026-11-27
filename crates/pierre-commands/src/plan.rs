@@ -7,6 +7,7 @@
 use async_trait::async_trait;
 use dravr_canot::commands::CommandResponse;
 use dravr_canot::rich_text::escape_markdown;
+use dravr_tronc::dates::civil_clock::{clock_date, resolve_zone};
 use dravr_tronc::dates::{CivilDate, Timestamp};
 use pierre_contremaitre::evidence_strings::{self, KEY_PLAN_SESSION_NOTES};
 use pierre_contremaitre::messaging_strings::{
@@ -17,7 +18,6 @@ use pierre_contremaitre::messaging_strings::{
     KEY_PLAN_PHASE_LINE, KEY_PLAN_REST, KEY_PLAN_RESUMES, KEY_PLAN_SHARED_HEADER,
     KEY_PLAN_STALE_GOAL, KEY_PLAN_TODAY, KEY_PLAN_TOMORROW, KEY_PLAN_WEEK_HEADER,
 };
-use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::errors::AppError;
 use pierre_core::models::{TenantId, User};
 use pierre_database::repositories::CoachReadSurface;

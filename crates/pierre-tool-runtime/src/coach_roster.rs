@@ -29,7 +29,7 @@ use futures_util::stream::{self, StreamExt, TryStreamExt};
 use serde::Serialize;
 use uuid::Uuid;
 
-use pierre_core::civil_time::{local_date, resolve_zone};
+use dravr_tronc::dates::civil_clock::{local_date, resolve_zone};
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::MemberFitnessSnapshot;
 use pierre_core::models::{FormBand, TenantId};

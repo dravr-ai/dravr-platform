@@ -43,9 +43,9 @@
 //! pierre-cli seed coach-plan-thread
 //! ```
 
+use dravr_tronc::dates::civil_clock::monday_of;
 use dravr_tronc::dates::CivilDate;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
-use pierre_core::civil_time::monday_of;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::GroupRole;
 use pierre_core::models::{AddMessageParams, ConversationSubject};

@@ -11,10 +11,10 @@ use crate::common;
 
 use anyhow::Result;
 use dravr_cageux::config::intelligence::{AlgorithmConfig, TrainingZonesConfig};
+use dravr_colleur::AthleteMetrics;
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::{Activity, ProfileVdot, SportType, TenantId, UserPhysiologicalProfile};
-use pierre_evals::AthleteMetrics;
 use pierre_services::athlete_snapshot::build_athlete_metrics;
 use uuid::Uuid;
 

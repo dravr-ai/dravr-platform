@@ -19,6 +19,10 @@ use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Extension;
+use dravr_colleur::claims::{
+    ClaimCategory, ClaimStatus, DispositionReason, EvidenceStrength, VerdictDisposition,
+    VerdictLayer,
+};
 use dravr_tronc::dates::Timestamp;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
@@ -32,10 +36,6 @@ use pierre_database::repositories::{
 };
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
-use pierre_memory::claims::{
-    ClaimCategory, ClaimStatus, DispositionReason, EvidenceStrength, VerdictDisposition,
-    VerdictLayer,
-};
 use pierre_routes_admin::handlers::claim_verdicts::{handle_verdict_health, VerdictHealthQuery};
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;

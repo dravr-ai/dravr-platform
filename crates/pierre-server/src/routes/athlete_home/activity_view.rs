@@ -8,7 +8,7 @@
 //! the rows of the workout's splits and laps, and the projection of its
 //! merged session into [`ActivityDetailResponse`].
 
-use pierre_core::civil_time;
+use dravr_tronc::dates::civil_clock;
 use pierre_core::models::{Lap, Split};
 use serde::Serialize;
 
@@ -112,7 +112,7 @@ impl ActivityDetailResponse {
             // would be midnight UTC moved by the offset a recording filled in.
             utc_offset_seconds: session
                 .utc_offset_seconds()
-                .filter(|_| !civil_time::is_date_only(session.start_date())),
+                .filter(|_| !civil_clock::is_date_only(session.start_date())),
         }
     }
 }

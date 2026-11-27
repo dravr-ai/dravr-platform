@@ -14,8 +14,8 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use dravr_cageux::zones::{AerobicThresholdPace, AerobicThresholdPower, HrZones};
+use dravr_tronc::dates::civil_clock::{clock_date, resolve_zone};
 use dravr_tronc::dates::{Elapsed, Timestamp};
-use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::zones::athlete_hr_zones;
 use pierre_core::models::{Activity, PhysiologicalSex, TenantId, UserPhysiologicalProfile};

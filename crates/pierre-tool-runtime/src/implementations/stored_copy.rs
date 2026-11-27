@@ -27,8 +27,8 @@ use std::sync::Arc;
 
 #[cfg(any(feature = "tools-goals", feature = "tools-analytics"))]
 use async_trait::async_trait;
+use dravr_tronc::dates::civil_clock::UTC_MINUTE;
 use dravr_tronc::dates::Timestamp;
-use pierre_core::civil_time::UTC_MINUTE;
 #[cfg(any(feature = "tools-goals", feature = "tools-analytics"))]
 use pierre_core::constants::oauth_providers;
 #[cfg(feature = "tools-analytics")]

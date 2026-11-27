@@ -8,7 +8,7 @@
 //!
 //! [`build_athlete_metrics`] assembles the [`AthleteMetrics`] snapshot that the
 //! personalized-physiology layer scores claims against. It is the one
-//! place that reaches for the athlete's data — the `pierre_evals` crate stays
+//! place that reaches for the athlete's data — the `dravr_colleur` crate stays
 //! dependency-light and only sees the resulting plain struct.
 //!
 //! Three reads (physiology profile, recent activities, synced nights) plus
@@ -39,18 +39,17 @@ use std::collections::BTreeMap;
 
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::config::intelligence::{TrainingZonesConfig, VO2MaxCalculator};
+use dravr_cageux::form_reading::FormReading;
+use dravr_colleur::personalized_recovery::BASELINE_DAYS;
+use dravr_colleur::{AthleteMetrics, NightlyMetric, RecoveryReadings, StoredMetric};
+use dravr_tronc::dates::civil_clock::{clock_date, local_date, resolve_zone};
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp, Zone};
 use pierre_core::ai_policy::ProviderTerms;
-use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
 use pierre_core::constants::time_constants::SECONDS_PER_HOUR_F64;
-use pierre_core::models::ProvenancedValue;
-use pierre_core::models::{
-    Activity, DailyTrainingState, FormReading, TenantId, UserPhysiologicalProfile,
-};
+use pierre_core::models::{Activity, DailyTrainingState, TenantId, UserPhysiologicalProfile};
+use pierre_core::models::{MeasurementKind, ProvenancedValue, ATHLETE_REPORTED_ORIGIN};
 use pierre_core::models::{Merged, StoredRecoveryMetrics, StoredSleepSession};
 use pierre_database::RepositoryRegistry;
-use pierre_evals::personalized_recovery::BASELINE_DAYS;
-use pierre_evals::{AthleteMetrics, NightlyMetric, RecoveryReadings, StoredMetric};
 use pierre_fitness_compute::{compute_training_history, AthleteInputs};
 use pierre_providers::ai_scope;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
@@ -86,12 +85,17 @@ async fn load_user_timezone(repos: &RepositoryRegistry, user_id: Uuid) -> Option
 }
 
 /// The verifier's copy of a provenanced profile value: the number, whether it
-/// is an estimate the reply must quote as one, and who produced it.
+/// is an estimate the reply must quote as one, and who produced it. An
+/// athlete-reported origin names no test, so citing it attributes nothing.
 fn stored_metric<T>(stored: &ProvenancedValue<T>, value: f64) -> StoredMetric {
+    let origin = stored.provenance.origin.clone();
     StoredMetric {
         value,
-        kind: stored.provenance.kind,
-        origin: stored.provenance.origin.clone(),
+        measured: stored.provenance.kind == MeasurementKind::Measured,
+        origin_attributes: origin
+            .as_deref()
+            .is_some_and(|o| o.trim().to_lowercase() != ATHLETE_REPORTED_ORIGIN),
+        origin,
     }
 }
 

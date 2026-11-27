@@ -49,6 +49,7 @@
 //! all, since only a "Yes" raises a flag — a clean answer only ever removes
 //! the flag an earlier "Yes" to the same question left.
 
+use dravr_tronc::text::fold_for_match;
 use pierre_contremaitre::messaging_strings::{
     KEY_INTAKE_CHECK_IN, KEY_INTAKE_PARQ_CHEST_PAIN, KEY_INTAKE_PARQ_CHRONIC_CONDITION,
     KEY_INTAKE_PARQ_DIZZINESS, KEY_INTAKE_PARQ_HEART_CONDITION, KEY_INTAKE_PARQ_JOINT_PROBLEM,
@@ -56,7 +57,6 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{CheckInCadence, TenantId, TopicSlug};
-use pierre_core::text_fold::fold_for_match;
 use pierre_database::repositories::{
     HarnessMemoryRepository, OnboardingStepRecord, TenantRepository, UserOnboardingRepository,
 };

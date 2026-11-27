@@ -19,7 +19,7 @@
 //!   (`activity_list_render.rs`), pinned through that function in
 //!   `pierre-tool-runtime`'s `date_tool_output_golden_test`;
 //! - the prompt stamps (`2026-09-01 lun 18:30`) are written by
-//!   `pierre_core::civil_time`, and are asserted through those functions here.
+//!   `dravr_tronc::dates::civil_clock`, and are asserted through those functions here.
 //!
 //! `start_date_local` is assembled inside a tool handler that no public
 //! function of these crates reaches without a server, so its rows go through
@@ -29,7 +29,7 @@
 //! that replaces it (2026f) agree on every row: Toronto and Kolkata are not
 //! among the zones that differ.
 
-use pierre_core::civil_time::{
+use dravr_tronc::dates::civil_clock::{
     format_civil_day, format_clock_stamp, format_local_day, format_local_stamp, local_date,
     parse_zone,
 };

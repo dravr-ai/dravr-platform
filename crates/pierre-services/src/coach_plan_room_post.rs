@@ -34,13 +34,13 @@
 //! says: it is held to one bounded line, and the room's copy escapes it as
 //! Markdown, so a name shaped like a link is drawn as the text it is.
 
+use dravr_tronc::dates::civil_clock::weekday_short;
 use dravr_tronc::dates::CivilDate;
 use photograveur::Locale;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PLAN_PUBLISHED_ROOM_POST, KEY_PLAN_PUBLISHED_ROOM_POST_MORE,
     KEY_PLAN_PUBLISHED_ROOM_POST_NEW,
 };
-use pierre_core::civil_time::weekday_short;
 use pierre_core::models::groups::{CoachingGroup, NewGroupTranscriptEntry, TranscriptSpeaker};
 use pierre_core::transport::TransportPolicy;
 use pierre_core::untrusted::{self, ROSTER_NAME_MAX_CHARS};

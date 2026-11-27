@@ -14,6 +14,7 @@ use common::{
     create_test_server_resources, create_test_user, create_test_user_with_email,
     generate_test_token,
 };
+use dravr_colleur::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_notify, named, only};
 use pierre_core::models::{CreateGroupRequest, TenantId};
@@ -26,7 +27,6 @@ use pierre_database::database::Agent;
 use pierre_database::repositories::InsertClaimVerdictParams;
 use pierre_groups::strategies::tier::EnterpriseTierStrategy;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_memory::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use pierre_routes_agents::build_store_router;
 use pierre_routes_agents::store::{
     BrowseAgentsResponse, InstallAgentResponse, InstallationsResponse, SearchAgentsResponse,

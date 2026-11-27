@@ -18,6 +18,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use anyhow::Result;
+use dravr_colleur::evidence_retriever::EvidenceCorpus;
 use dravr_contremaitre::training;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_agent_parser::read_package_artefacts;
@@ -27,7 +28,6 @@ use pierre_core::models::periodization::WorkoutFilter;
 use pierre_core::models::{ArtefactKind, PackageArtefact, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::RepositoryRegistry;
-use pierre_evals::evidence_retriever::EvidenceCorpus;
 use pierre_memory::training_plans::TemplateSource;
 use pierre_services::agent_package::{
     load_agent_package, review_package, CatalogueTier, PackagedCatalogue,

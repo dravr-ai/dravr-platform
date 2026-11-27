@@ -285,10 +285,10 @@ fn a_viz_extraction_prints_the_size_of_the_reply_never_its_text() {
 #[cfg(feature = "tools-verification")]
 #[test]
 fn a_claim_verification_outcome_prints_sizes_never_the_reply_or_its_claims() {
+    use dravr_colleur::claims::ClaimCategory;
+    use dravr_colleur::{ClaimSource, ExtractedClaim, VerdictOutcome};
     use pierre_chat_pipeline::stages::verification::ClaimVerificationOutcome;
     use pierre_chat_pipeline::VerdictChip;
-    use pierre_evals::{ClaimSource, ExtractedClaim, VerdictOutcome};
-    use pierre_memory::claims::ClaimCategory;
 
     let content = "sentinel-reply-7f3a your VO2max is 71";
     let outcome = ClaimVerificationOutcome {

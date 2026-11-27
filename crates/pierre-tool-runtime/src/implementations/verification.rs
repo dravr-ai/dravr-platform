@@ -34,11 +34,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use dravr_colleur::claim_extractor::{ClaimSource, ExtractedClaim};
+use dravr_colleur::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
+use dravr_colleur::{PersonalizedConfig, PersonalizedContext};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::InsertClaimVerdictParams;
-use pierre_evals::claim_extractor::{ClaimSource, ExtractedClaim};
-use pierre_evals::{PersonalizedConfig, PersonalizedContext};
-use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use schemars::JsonSchema;
 use serde::Serialize;
 use serde_json::Value;

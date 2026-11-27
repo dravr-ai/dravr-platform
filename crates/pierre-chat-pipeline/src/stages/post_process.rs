@@ -53,14 +53,14 @@ use pierre_tool_runtime::envelope_notices::NoticeDay;
 ///
 /// The `pending_verdicts` field is compiled out when
 /// `tools-verification` is disabled to keep the struct free of
-/// `pierre_evals` types.
+/// `dravr_colleur` types.
 pub(crate) struct PostProcessedReply {
     /// Final assistant content ready to be persisted and returned.
     pub content: String,
     /// Verdicts waiting for their assistant `message_id`. Always empty
     /// when the verification feature is disabled.
     #[cfg(feature = "tools-verification")]
-    pub pending_verdicts: Vec<(pierre_evals::ExtractedClaim, pierre_evals::VerdictOutcome)>,
+    pub pending_verdicts: Vec<(dravr_colleur::ExtractedClaim, dravr_colleur::VerdictOutcome)>,
     /// Ordered visual blocks lifted out of the reply's prose, JSON-encoded,
     /// plus the plan card on a turn that saved a plan.
     /// `Some` only when at least one fenced `dravr-viz` block validated; the
@@ -571,7 +571,7 @@ pub(crate) async fn post_process_assistant_reply(
     #[cfg(feature = "tools-verification")]
     let (pending_verdicts, verdict_chips, provider_stop) = {
         let verification_config = agent_ctx.map_or_default(|c| {
-            pierre_evals::VerificationConfig::parse_from_system_prompt(&c.system_prompt)
+            dravr_colleur::VerificationConfig::parse_from_system_prompt(&c.system_prompt)
         });
         let judge_recorder = turn_call_recorder(ctx, input, LlmStage::ClaimJudge.call_type());
         let ClaimVerificationOutcome {

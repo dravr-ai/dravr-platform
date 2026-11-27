@@ -17,11 +17,12 @@ use crate::common;
 use std::sync::Arc;
 
 use common::TestLlmProvider;
+use dravr_colleur::claims::{ClaimStatus, VerdictLayer};
+use dravr_colleur::{verify_reply, ClaimJudge, EvidenceCorpus, VerificationConfig};
 use pierre_chat_pipeline::stages::verification::resolve_claim_judge;
-use pierre_evals::{verify_reply, ClaimJudge, EvidenceCorpus, VerificationConfig};
+use pierre_llm::claim_judge::RecordedJudge;
 use pierre_llm::prompts::CLAIM_JUDGE_PROMPT;
 use pierre_llm::{ChatProvider, LlmProvider};
-use pierre_memory::claims::{ClaimStatus, VerdictLayer};
 
 fn chat_provider() -> Arc<ChatProvider> {
     Arc::new(ChatProvider::Custom(Arc::new(TestLlmProvider::valid())))
@@ -90,10 +91,9 @@ async fn a_wired_judge_decides_claims_the_deterministic_layers_cannot() {
         &config,
         &empty_corpus,
         Some(ClaimJudge {
-            provider: &judge,
+            provider: &RecordedJudge::new(&judge, None),
             system_prompt: CLAIM_JUDGE_PROMPT,
             model: None,
-            recorder: None,
         }),
         None,
         None,

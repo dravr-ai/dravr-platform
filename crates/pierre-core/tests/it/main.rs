@@ -20,8 +20,6 @@ mod billing_dummy_test;
 #[cfg(feature = "billing-stripe")]
 mod billing_stripe_test;
 mod calibration_topic_test;
-mod civil_time_clock_date_test;
-mod civil_time_relative_day_test;
 mod date_arithmetic_golden_test;
 mod date_hand_parser_golden_test;
 mod date_inbound_golden_test;
@@ -35,7 +33,6 @@ mod date_zoned_output_golden_test;
 mod debug_redaction_test;
 mod feature_flags_test;
 mod field_update_test;
-mod form_reading_test;
 mod guided_window_test;
 mod hosted_page_css_test;
 mod identity_leak_context_test;
@@ -57,7 +54,6 @@ mod reply_chunking_test;
 mod safety_test;
 mod season_topic_test;
 mod sport_family_test;
-mod sport_type_alias_test;
 mod tokens_test;
 #[cfg(feature = "telemetry")]
 mod trace_propagation_test;

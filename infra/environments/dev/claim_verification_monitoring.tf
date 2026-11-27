@@ -91,7 +91,7 @@ resource "google_logging_metric" "claim_verification_failed" {
   project = var.project_id
   name    = "dravr-claim-verification-failed"
 
-  description = "Counts agent replies in which the LLM judge failed on at least one claim. Emitted once per reply by verify_and_apply in crates/pierre-chat-pipeline/src/stages/verification.rs when pierre_evals::verify_reply (crates/pierre-evals/src/verdict_engine.rs) recorded a claim as not checked; the judge is the only step that can fail, so this is the judge provider refusing, timing out or answering unparseable JSON. Each such claim is persisted as unverifiable / judge / 'Not checked: judge error' and every other claim keeps its verdict. The reply is delivered with those claims unchecked, or replaced by the agent's block fallback when its fallback is Block. Added 2026-09-21 (carnet#455)."
+  description = "Counts agent replies in which the LLM judge failed on at least one claim. Emitted once per reply by verify_and_apply in crates/pierre-chat-pipeline/src/stages/verification.rs when dravr_colleur::verify_reply (dravr-colleur/src/verdict_engine.rs) recorded a claim as not checked; the judge is the only step that can fail, so this is the judge provider refusing, timing out or answering unparseable JSON. Each such claim is persisted as unverifiable / judge / 'Not checked: judge error' and every other claim keeps its verdict. The reply is delivered with those claims unchecked, or replaced by the agent's block fallback when its fallback is Block. Added 2026-09-21 (carnet#455)."
 
   filter = <<-EOT
     resource.type="cloud_run_revision"
@@ -165,7 +165,7 @@ resource "google_monitoring_alert_policy" "claim_verification_panicked" {
 
       The payload names the panicking expression. Reproduce it with the
       reply text from the conversation the turn belonged to (the turn's span
-      carries conversation_id) against `pierre_evals::verdict_engine::check_claim`
+      carries conversation_id) against `dravr_colleur::verdict_engine::check_claim`
       in a test, fix the scanner, and re-verify the message through the
       admin triage tab's message lookup once the fix is deployed — the
       message has no verdict rows until then.

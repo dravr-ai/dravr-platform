@@ -37,6 +37,8 @@ pub mod call_record;
 pub mod chain_guard;
 /// The FallbackObserver that drives the chain guard and emits the notify events
 mod chain_observer;
+/// The platform's judge model for dravr-colleur's LLM layers
+pub mod claim_judge;
 /// LLM configuration types (provider selection, model settings)
 pub mod config;
 /// The one facade over every embacle runner, chain included

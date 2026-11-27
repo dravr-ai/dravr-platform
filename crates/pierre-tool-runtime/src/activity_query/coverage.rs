@@ -22,9 +22,9 @@
 
 use std::sync::Arc;
 
+use dravr_tronc::dates::civil_clock::day_start_utc;
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::ai_policy::first_party_only;
-use pierre_core::civil_time::day_start_utc;
 use pierre_core::constants::oauth::providers::is_user_provided;
 use pierre_core::errors::AppResult;
 use pierre_core::models::coverage::{

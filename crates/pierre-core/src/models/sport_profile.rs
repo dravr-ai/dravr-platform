@@ -8,8 +8,9 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::models::{
-    resolve_sport_type, sport_family_head, sport_matches_family, Activity, SportType,
+use crate::models::{Activity, SportType};
+use dravr_cageux::models::sport_alias::{
+    resolve_sport_type, sport_family_head, sport_matches_family,
 };
 
 /// A user's recent sport mix, derived from their connected providers'

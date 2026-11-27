@@ -22,8 +22,6 @@
 //!   the raw history when the context window fills up
 //! - [`AgentSession`] — a long-lived container above `chat_conversation` that
 //!   binds a user + agent pair across channels
-//! - [`ClaimVerdict`] — the output of the bullshit detector pipeline
-//!   for a single claim emitted by an agent persona
 //! - [`Playbook`] — a learned `trigger -> intervention` coaching pattern,
 //!   reinforced by automatic outcome labels; [`PendingAdvice`] tracks
 //!   in-flight advice awaiting its observed outcome
@@ -31,8 +29,6 @@
 //!   agent confirmed ("three easy runs this week"), counted against real
 //!   activity data once its window closes
 
-/// Claim verdicts from the verification pipeline.
-pub mod claims;
 /// Athlete commitments: countable, time-boxed promises swept against real data.
 pub mod commitments;
 /// Summaries that replace earlier conversation turns in long sessions.
@@ -50,8 +46,6 @@ pub mod sessions;
 /// Agent-authored training plans: outline (macrocycle) + weekly microcycles.
 pub mod training_plans;
 
-pub use claims::{ClaimCategory, ClaimStatus, ClaimVerdict, EvidenceStrength, VerdictLayer};
-pub use claims::{DispositionReason, EvidenceCitation, VerdictDisposition};
 pub use commitments::{
     Commitment, CommitmentOutcome, CommitmentStatus, MAX_STATEMENT_LEN, MAX_TARGET_SESSIONS,
     MAX_WINDOW_DAYS, MIN_TARGET_SESSIONS,

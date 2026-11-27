@@ -14,6 +14,12 @@ use std::collections::BTreeSet;
 use anyhow::Result;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::config::intelligence::TrainingZonesConfig;
+use dravr_colleur::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
+use dravr_colleur::ClaimSource;
+use dravr_colleur::{
+    check_claim, claim_extractor::ExtractedClaim, evidence_retriever::EvidenceCorpus,
+    extract_heuristic, AthleteMetrics, ConservativeStrategy, PersonalizedContext, RecoveryReadings,
+};
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use pierre_core::ai_policy::Withheld;
 use pierre_core::config::profiles::FitnessLevel;
@@ -27,12 +33,6 @@ use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_database::repositories::InsertClaimVerdictParams;
 use pierre_database::repositories::WellnessWriteMode;
 use pierre_database::RepositoryRegistry;
-use pierre_evals::ClaimSource;
-use pierre_evals::{
-    check_claim, claim_extractor::ExtractedClaim, evidence_retriever::EvidenceCorpus,
-    extract_heuristic, AthleteMetrics, ConservativeStrategy, PersonalizedContext, RecoveryReadings,
-};
-use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use pierre_providers::ai_scope::{ai_read, serve_over, with_ai_consent};
 use pierre_services::athlete_snapshot::build_athlete_metrics;
 use uuid::Uuid;

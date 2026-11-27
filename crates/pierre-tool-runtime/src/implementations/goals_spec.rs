@@ -13,8 +13,9 @@
 use dravr_tronc::dates::Timestamp;
 use serde_json::{from_value, Map, Value};
 
+use dravr_cageux::models::sport_alias::{resolve_sport_type, sport_matches_family};
 use pierre_core::errors::{AppError, AppResult, JsonResultExt};
-use pierre_core::models::{resolve_sport_type, sport_matches_family, Activity, SportType};
+use pierre_core::models::{Activity, SportType};
 use pierre_mcp_schema::json_schemas::SetGoalParams;
 
 /// The goal types the goal tools measure, each with the unit its target is in.

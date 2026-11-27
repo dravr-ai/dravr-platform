@@ -24,6 +24,7 @@ mod coach_roster_route_tests {
     use std::collections::BTreeMap;
     use std::sync::Arc;
 
+    use dravr_colleur::claims::ClaimStatus;
     use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
     use dravr_tronc::mcp::tool::{McpTool, ToolContext};
     use pierre_core::models::periodization::PhaseKind;
@@ -34,7 +35,6 @@ mod coach_roster_route_tests {
     };
     use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
     use pierre_mcp_server::mcp::resources::ServerContext;
-    use pierre_memory::claims::ClaimStatus;
     use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
     use pierre_providers::ai_scope;
     use pierre_tool_runtime::implementations::group_roster::GetRosterOverviewTool;

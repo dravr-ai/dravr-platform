@@ -33,7 +33,7 @@ pub struct AthleteIdentity {
     pub display_name: String,
     /// IANA timezone from the member's own user row, `None` when unset or the
     /// row could not be read. Callers resolve it through
-    /// [`pierre_core::civil_time::resolve_zone`], which falls back to UTC.
+    /// [`dravr_tronc::dates::civil_clock::resolve_zone`], which falls back to UTC.
     pub timezone: Option<String>,
 }
 

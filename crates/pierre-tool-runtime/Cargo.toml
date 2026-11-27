@@ -39,7 +39,7 @@ tools-memory = []          # coach-authored memory (fact recall)
 tools-nutrition = ["dep:pierre-external"]  # daily_nutrition, nutrient_timing, food search (USDA via pierre-external)
 tools-recipes = ["dep:pierre-external"]  # recipe tools (USDA validation via pierre-external)
 tools-sleep = []           # sleep_quality, recovery_score, rest_day
-tools-verification = ["dep:pierre-evals", "pierre-services/tools-verification"]  # verify_claim claim-verification tool
+tools-verification = ["dep:dravr-colleur", "pierre-services/tools-verification"]  # verify_claim claim-verification tool
 
 [dependencies]
 arc-swap = "1.9"
@@ -67,7 +67,7 @@ pierre-formatters = { version = "0.3.0", path = "../pierre-formatters" }
 pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
 pierre-notifications = { version = "0.3.0", path = "../pierre-notifications", optional = true }
 dravr-enforme = { workspace = true, optional = true }
-pierre-evals = { version = "0.3.0", path = "../pierre-evals", optional = true }
+dravr-colleur = { workspace = true, optional = true }
 pierre-external = { version = "0.3.0", path = "../pierre-external", optional = true }
 
 dravr-meteo = { workspace = true }

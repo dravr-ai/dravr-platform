@@ -20,6 +20,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use common::{create_test_server_resources, generate_test_token};
+use dravr_colleur::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::admin::scope::AdminScope;
@@ -33,7 +34,6 @@ use pierre_database::repositories::{
 };
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
 use pierre_routes_admin::{
     AdminApiContext, AdminApiContextInit, AdminRoutes, LlmConsumptionRoutes,

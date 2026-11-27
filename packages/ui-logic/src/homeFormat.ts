@@ -107,7 +107,7 @@ export function formatInstant(instant: string, language: string, options: Intl.D
 
 /**
  * The day an activity is listed under, in the app's language. A start at exactly
- * midnight UTC is a date-only provider row (`civil_time::is_date_only` on the
+ * midnight UTC is a date-only provider row (`civil_clock::is_date_only` on the
  * server): it names a day, not a moment, so it is drawn in UTC. In the device's
  * zone it would read as the day before everywhere west of Greenwich, while the
  * week strip, which the server buckets by the same rule, marks the right one.

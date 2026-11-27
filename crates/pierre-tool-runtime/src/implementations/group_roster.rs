@@ -63,11 +63,11 @@ use serde_json::Value;
 use tracing::info;
 
 use dravr_tronc::date_pattern;
+use dravr_tronc::dates::civil_clock::{local_date, resolve_zone};
 use dravr_tronc::dates::{CivilDate, Pattern};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::ai_policy::ProviderTerms;
-use pierre_core::civil_time::{local_date, resolve_zone};
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::{CoachingGroup, MemberFitnessSnapshot};
 use pierre_core::models::CarriedRead;

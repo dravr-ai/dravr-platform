@@ -18,16 +18,17 @@ use std::sync::Arc;
 
 use dravr_cageux::algorithms::training_load::{DailyTrainingLoad, TrainingLoadAlgorithm};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
+use dravr_cageux::form_reading::FormReading;
 use dravr_cageux::training_load::TrainingLoadCalculator;
+use dravr_tronc::dates::civil_clock::{clock_date, local_date, resolve_zone};
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp, Zone};
 use futures_util::future::join_all;
-use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
 use pierre_core::constants::units::METERS_PER_KM;
 use pierre_core::models::groups::{
     FormMorning, MemberFitnessSnapshot, OvertrainingRiskLevel, RosterActivity,
 };
+use pierre_core::models::FormBand;
 use pierre_core::models::{Activity, ProviderConnection, TenantId};
-use pierre_core::models::{FormBand, FormReading};
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_database::RepositoryRegistry;
 use pierre_fitness_compute::route_track::RouteTrack;

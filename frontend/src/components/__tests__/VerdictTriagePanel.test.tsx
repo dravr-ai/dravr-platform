@@ -33,7 +33,7 @@ function verdict(id: string, overrides: Partial<ClaimVerdict> = {}): ClaimVerdic
 const knob: VerdictKnob = {
   layer: 'deterministic',
   kind: 'deterministic_bounds',
-  location: 'crates/pierre-evals/src/deterministic_bounds.rs',
+  location: 'dravr-colleur/src/deterministic_bounds.rs',
   detail: '`check_physiological` holds the population bounds for `physiological`.',
   propositions: [],
 };
@@ -50,7 +50,7 @@ describe('VerdictTriagePanel', () => {
       <VerdictTriagePanel verdict={verdict('v1')} knob={knob} onSetDisposition={onSetDisposition} />,
     );
     expect(screen.getByText('Deterministic bounds')).toBeInTheDocument();
-    expect(screen.getByText('crates/pierre-evals/src/deterministic_bounds.rs')).toBeInTheDocument();
+    expect(screen.getByText('dravr-colleur/src/deterministic_bounds.rs')).toBeInTheDocument();
     expect(screen.getByText(/holds the population bounds/)).toBeInTheDocument();
   });
 

@@ -25,9 +25,10 @@
 use std::collections::HashMap;
 use std::sync::{OnceLock, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+use dravr_colleur::claims::{ClaimCategory, EvidenceCitation};
+use dravr_colleur::evidence_retriever::EvidenceCorpus;
+use dravr_contremaitre::evidence::SPORTS_SCIENCE;
 use dravr_tronc::dates::Timestamp;
-use pierre_evals::evidence_retriever::EvidenceCorpus;
-use pierre_memory::{ClaimCategory, EvidenceCitation};
 use tracing::error;
 
 use super::errors::ContremaitreError;
@@ -46,7 +47,7 @@ static COMPILED_IN: OnceLock<EvidenceCorpus> = OnceLock::new();
 #[must_use]
 pub fn compiled_in_corpus() -> &'static EvidenceCorpus {
     COMPILED_IN.get_or_init(|| {
-        EvidenceCorpus::compiled_in().unwrap_or_else(|e| {
+        EvidenceCorpus::from_markdown_files(SPORTS_SCIENCE.iter().copied()).unwrap_or_else(|e| {
             error!("Failed to parse embedded sports-science corpus: {e}");
             EvidenceCorpus::default()
         })

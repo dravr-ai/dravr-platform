@@ -27,7 +27,9 @@
 //! Tables hold strings and integers only. Everything that names the date engine
 //! lives in [`engine`].
 
-use pierre_core::civil_time::{clock_date, is_date_only, local_date, parse_zone, resolve_zone};
+use dravr_tronc::dates::civil_clock::{
+    clock_date, is_date_only, local_date, parse_zone, resolve_zone,
+};
 
 /// Everything in this file that names the date engine.
 mod engine {

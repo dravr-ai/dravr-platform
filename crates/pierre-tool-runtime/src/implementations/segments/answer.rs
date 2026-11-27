@@ -10,8 +10,8 @@
 use std::collections::{BTreeMap, HashSet};
 
 use dravr_tronc::date_pattern;
+use dravr_tronc::dates::civil_clock::local_date;
 use dravr_tronc::dates::{CivilDate, Pattern, Timestamp, Zone};
-use pierre_core::civil_time::local_date;
 use pierre_core::models::coverage::Coverage;
 use pierre_core::models::SegmentEffort;
 use pierre_core::untrusted::display_line;

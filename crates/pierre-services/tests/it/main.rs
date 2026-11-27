@@ -25,6 +25,7 @@ mod commitment_sweep_test;
 mod data_access_request_sweep_test;
 mod debug_redaction_test;
 mod fact_sentence_test;
+mod form_locale_contract_test;
 mod fortnight_decision_test;
 mod llm_probe_skip_test;
 mod memory_dedup_test;

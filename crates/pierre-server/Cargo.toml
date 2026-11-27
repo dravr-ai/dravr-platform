@@ -201,6 +201,8 @@ server-full = ["protocol-all", "transport-all", "client-all", "client-messaging"
 server-production = ["protocol-all", "transport-all", "client-all", "client-messaging", "oauth", "provider-whoop", "provider-strava", "provider-garmin", "provider-sciotte", "provider-intervals-icu", "provider-wahoo", "tools-all", "toon", "health-sync", "analytics-posthog", "gcp-kms", "language-detection"]
 
 [dependencies]
+# Claim types the coach roster reads, and the claim checker the tests drive.
+dravr-colleur = { workspace = true }
 embacle = { version = "0.48.1" }
 embacle-tool-host = { version = "0.48.1", optional = true }
 # Workspace crates (sibling crates under crates/)
@@ -354,7 +356,6 @@ argon2 = "0.5"
 bcrypt = "0.16"
 jsonwebtoken = { version = "12", features = ["rust_crypto", "use_pem"], default-features = false }
 pierre-agent-parser = { version = "0.3.0", path = "../pierre-agent-parser" }
-pierre-evals = { version = "0.3.0", path = "../pierre-evals" }
 pierre-formatters = { version = "0.3.0", path = "../pierre-formatters" }
 pierre-seeders = { version = "0.3.0", path = "../pierre-seeders" }
 rand_chacha = "0.9"

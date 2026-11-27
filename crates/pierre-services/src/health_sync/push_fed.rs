@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use pierre_core::civil_time::day_start_utc;
+use dravr_tronc::dates::civil_clock::day_start_utc;
 use std::future::Future;
 
 use dravr_tronc::dates::{CivilDate, Timestamp};

@@ -26,13 +26,13 @@
 //! pierre-cli seed verdict-conversation
 //! ```
 
+use dravr_colleur::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::AddMessageParams;
 use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::InsertClaimVerdictParams;
 use pierre_database::repositories::SubjectThreads;
 use pierre_database::RepositoryRegistry;
-use pierre_memory::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use pierre_middleware::mask_email;
 use tracing::info;
 

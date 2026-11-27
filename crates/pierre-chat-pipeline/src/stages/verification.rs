@@ -6,14 +6,14 @@
 
 //! Claim verification.
 //!
-//! Runs the `pierre_evals` heuristic pipeline over the assistant reply to
+//! Runs the `dravr_colleur` heuristic pipeline over the assistant reply to
 //! detect unsupported claims, persists verdicts for the admin dashboard,
 //! and reacts per the agent's `VerificationConfig` (parsed from YAML
 //! frontmatter on the agent's system prompt). Pure-Rust in Phase A, no
 //! measurable latency.
 //!
 //! Gated behind `#[cfg(feature = "tools-verification")]` because the
-//! evidence corpus and `pierre_evals` dependency are not built in every
+//! evidence corpus and `dravr_colleur` dependency are not built in every
 //! workspace configuration.
 
 use std::fmt;
@@ -21,15 +21,15 @@ use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
-use futures_util::FutureExt;
-use pierre_core::error_helpers::panic_payload_str;
-use pierre_database::repositories::InsertClaimVerdictParams;
-use pierre_evals::athlete_data::AthleteRecord;
-use pierre_evals::{
+use dravr_colleur::athlete_data::AthleteRecord;
+use dravr_colleur::claims::{ClaimCategory, ClaimStatus, VerdictLayer};
+use dravr_colleur::{
     verify_reply, AthleteMetrics, ClaimJudge, ClaimSource, ExtractedClaim, PersonalizedContext,
     ResolvedAction, ToleranceStrategy, VerdictOutcome, VerificationConfig, VerificationFallback,
 };
-use pierre_memory::claims::{ClaimCategory, ClaimStatus, VerdictLayer};
+use futures_util::FutureExt;
+use pierre_core::error_helpers::panic_payload_str;
+use pierre_database::repositories::InsertClaimVerdictParams;
 
 use super::reply_locale::resolve_banner_locale;
 use crate::envelope::VerdictChip;
@@ -39,6 +39,7 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::models::TenantId;
 use pierre_llm::call_record::LlmCallRecorder;
+use pierre_llm::claim_judge::RecordedJudge;
 use pierre_llm::stage::LlmStage;
 use pierre_llm::{ChatProvider, LlmProvider};
 use pierre_providers::ai_scope;
@@ -578,12 +579,18 @@ async fn verify_and_apply(params: ClaimVerificationParams<'_>) -> ClaimVerificat
     let judge_prompt = ctx.prompt_registry.claim_judge_prompt();
     // The judge runs on its stage model when the provider is the platform's
     // head, and every claim it is asked about writes its own usage row.
-    let judge: Option<ClaimJudge<'_>> = judge_provider.as_deref().map(|p| ClaimJudge {
-        provider: p,
-        system_prompt: judge_prompt.trim(),
-        model: p.stage_model(LlmStage::ClaimJudge),
-        recorder: judge_recorder,
+    let judge_model = judge_provider.as_deref().map(|p| {
+        (
+            RecordedJudge::new(p, judge_recorder),
+            p.stage_model(LlmStage::ClaimJudge),
+        )
     });
+    let judge: Option<ClaimJudge<'_>> =
+        judge_model.as_ref().map(|(model, stage_model)| ClaimJudge {
+            provider: model,
+            system_prompt: judge_prompt.trim(),
+            model: *stage_model,
+        });
 
     // The personalized layer — build the athlete snapshot + tolerance strategy when the agent
     // enabled personalized verification. The snapshot owns its data so its
@@ -810,11 +817,11 @@ pub async fn persist_pending_verdicts(
 
 #[cfg(test)]
 mod tests {
-    use pierre_evals::{
+    use dravr_colleur::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
+    use dravr_colleur::{
         ClaimSource, ExtractedClaim, ResolvedAction, VerdictOutcome, VerificationConfig,
         VerificationFallback,
     };
-    use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 
     use super::{
         actionable_problems, reply_action, resolved_action, warn_affordance,

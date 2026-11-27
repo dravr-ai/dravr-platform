@@ -18,8 +18,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use dravr_colleur::{VerificationConfig, VerificationFallback};
 use pierre_chat_pipeline::stages::verification::{degrade_to_unverified, ClaimVerificationOutcome};
-use pierre_evals::{VerificationConfig, VerificationFallback};
 use tokio::task::yield_now;
 
 const REPLY: &str = "Ta semaine 4 est un pic: 5 séances, dont une sortie longue de 3 h.";
