@@ -2712,7 +2712,7 @@ async fn the_send_review_names_an_entry_edited_on_the_provider_and_the_send_repl
         .expect("the review reads the calendar");
     assert_eq!(
         review.edited_on_provider,
-        [monday_key.clone()],
+        [monday_key.as_str()],
         "bug: the review names the entry the athlete edited on the provider"
     );
 

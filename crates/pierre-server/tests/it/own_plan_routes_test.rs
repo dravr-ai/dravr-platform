@@ -34,7 +34,7 @@ use pierre_database::repositories::{
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::ChatRoutes;
-use pierre_memory::training_plans::{GoalRace, PlannedDay, RacePriority};
+use pierre_memory::training_plans::{GoalRace, PlanWeek, PlannedDay, RacePriority};
 use pierre_services::coach_plan_draft::CoachDraftTarget;
 use pierre_services::plan_change_history::{record_plan_change, PlanChange};
 use pierre_tool_runtime::implementations::training_plans::GetTrainingPlanTool;
@@ -277,7 +277,7 @@ impl Fixture {
     }
 
     /// The athlete's live weeks, as stored.
-    async fn live_weeks(&self) -> Vec<pierre_memory::training_plans::PlanWeek> {
+    async fn live_weeks(&self) -> Vec<PlanWeek> {
         let tenant = self.athlete.tenant.to_string();
         let user = self.athlete.id.to_string();
         let repos = self.repos();
@@ -319,17 +319,14 @@ fn live_on(body: &Value, date: &str) -> Vec<String> {
 }
 
 fn on_card(card: &Value, date: &str) -> Vec<String> {
-    card["weeks"]
-        .as_array()
-        .map(|weeks| {
-            weeks
-                .iter()
-                .flat_map(|week| week["days"].as_array().cloned().unwrap_or_default())
-                .filter(|day| day["date"] == date)
-                .map(|day| day["workout"].as_str().unwrap_or_default().to_owned())
-                .collect()
-        })
-        .unwrap_or_default()
+    card["weeks"].as_array().map_or_default(|weeks| {
+        weeks
+            .iter()
+            .flat_map(|week| week["days"].as_array().cloned().unwrap_or_default())
+            .filter(|day| day["date"] == date)
+            .map(|day| day["workout"].as_str().unwrap_or_default().to_owned())
+            .collect()
+    })
 }
 
 fn expect(workout: &str) -> Value {
