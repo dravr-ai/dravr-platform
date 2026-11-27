@@ -150,9 +150,10 @@ impl RequestedDetails {
     }
 }
 
-/// A request's `authorization_details`, split by what each detail grants:
-/// reading (a data-access detail, perhaps narrowed), proposing records (an
-/// agent-write detail), or both in one request (owl PDPP §4.1).
+/// A request's `authorization_details`, split by what each detail grants.
+///
+/// Reading (a data-access detail, perhaps narrowed), proposing records (an agent-write detail),
+/// or both in one request (owl PDPP §4.1).
 #[derive(Debug)]
 pub struct ParsedDetails {
     /// The read grant asked for; `None` for an agent-write detail alone, a
@@ -172,12 +173,12 @@ pub(super) struct CheckedConstraints {
     pub(super) budgets: Option<BudgetsRequest>,
 }
 
-/// Parse an `authorization_details` parameter (RFC 9396 §2): a JSON array
-/// of at most one data-access detail naming a preset, at most one
-/// health-constraints detail applying to it, and at most one agent-write
-/// detail. An agent-write detail alone is a profile grant (owl PDPP §4.1);
-/// beside a data-access detail it is bound by the MCP package
-/// (`sender_constraint: none`), since no one token serves both a profile
+/// Parse an `authorization_details` parameter (RFC 9396 §2).
+///
+/// A JSON array of at most one data-access detail naming a preset, at most one
+/// health-constraints detail applying to it, and at most one agent-write detail. An agent-write
+/// detail alone is a profile grant (owl PDPP §4.1); beside a data-access detail it is bound by
+/// the MCP package (`sender_constraint: none`), since no one token serves both a profile
 /// endpoint and `/mcp` (PDPP §5.1).
 ///
 /// # Errors

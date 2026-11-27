@@ -283,9 +283,10 @@ where
     })
 }
 
-/// Decode one ended child row of `oauth_client_grants`, of either kind: an
-/// agent-write child (scope `pdpp:agent_write`) as its grant alone, since it
-/// records no Host Profile, a step-up child with its terms.
+/// Decode one ended child row of `oauth_client_grants`, of either kind.
+///
+/// An agent-write child (scope `pdpp:agent_write`) as its grant alone, since it records no Host
+/// Profile, a step-up child with its terms.
 ///
 /// # Errors
 /// As [`client_grant_from_row`] and [`child_grant_from_row`].

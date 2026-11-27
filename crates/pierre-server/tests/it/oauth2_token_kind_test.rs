@@ -354,9 +354,10 @@ async fn discovery_names_the_kinds_and_the_dpop_algorithms() {
     );
 }
 
-/// A third party's token whose scope is exactly `pdpp:agent_write` is the
-/// `agent_write` kind (owl PDPP §5.1, carnet#1544 slice 4c); one holding it
-/// beside another scope stays `client`, and so does Dravr's own app.
+/// A third party's token whose scope is exactly `pdpp:agent_write` is the `agent_write` kind
+/// (owl PDPP §5.1, carnet#1544 slice 4c).
+///
+/// One holding it beside another scope stays `client`, and so does Dravr's own app.
 #[tokio::test]
 async fn an_agent_write_scope_alone_is_the_agent_write_kind() {
     let world = world().await;

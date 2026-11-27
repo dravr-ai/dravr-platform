@@ -75,10 +75,11 @@ impl OAuth2AuthorizationServer {
         Ok(Some(one_off_details(step_up, source)))
     }
 
-    /// The request's `authorization_details`, parsed and resolved for tokens
-    /// bound to `resource`, an agent-write detail checked against the
-    /// binding it asks for ([`Self::bind_agent_write`]); empty when it asks
-    /// for none.
+    /// The request's `authorization_details`, parsed and resolved for tokens bound to
+    /// `resource`, an agent-write detail checked against the binding it asks for
+    /// ([`Self::bind_agent_write`]).
+    ///
+    /// Empty when it asks for none.
     ///
     /// # Errors
     /// `invalid_authorization_details` as

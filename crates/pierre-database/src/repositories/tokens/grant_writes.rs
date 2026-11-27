@@ -248,10 +248,10 @@ macro_rules! find_live_parent_grant_sql {
 }
 pub(crate) use find_live_parent_grant_sql;
 
-/// Soft-delete the live child of parent `$1` of one kind, held by `$2` in
-/// `$3`: its agent-write child when `$4` is true, its step-up child
-/// otherwise. Storing a child of one kind never ends the other (plan
-/// revision 21 §21.4). Returns it, with its step-up columns.
+/// Soft-delete the live child of parent `$1` of one kind, held by `$2` in `$3`.
+///
+/// Its agent-write child when `$4` is true, its step-up child otherwise. Storing a child of one
+/// kind never ends the other (plan revision 21 §21.4). Returns it, with its step-up columns.
 pub(crate) const REVOKE_LIVE_CHILD_GRANTS_OF_KIND_SQL: &str = r"
             UPDATE oauth_client_grants
             SET revoked_at = CURRENT_TIMESTAMP
@@ -263,9 +263,10 @@ pub(crate) const REVOKE_LIVE_CHILD_GRANTS_OF_KIND_SQL: &str = r"
                       host_profile_tier
             ";
 
-/// Soft-delete every live child of parent `$1`, held by `$2` in `$3`, of
-/// either kind: the parent's end, or a re-consent that renews it, ends its
-/// whole package (owl PDPP §7.7). Returns them, with their step-up columns.
+/// Soft-delete every live child of parent `$1`, held by `$2` in `$3`, of either kind.
+///
+/// The parent's end, or a re-consent that renews it, ends its whole package (owl PDPP §7.7).
+/// Returns them, with their step-up columns.
 pub(crate) const REVOKE_LIVE_CHILD_GRANTS_SQL: &str = r"
             UPDATE oauth_client_grants
             SET revoked_at = CURRENT_TIMESTAMP

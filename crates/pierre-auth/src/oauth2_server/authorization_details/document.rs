@@ -16,7 +16,7 @@ use super::ResolvedDetails;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GrantDocument {
     /// A preset read grant, narrowed by its constraints
-    DataAccess(ResolvedDetails),
+    DataAccess(Box<ResolvedDetails>),
     /// An agent-write grant: records a client may propose, never read
     AgentWrite(ResolvedAgentWrite),
 }
@@ -40,7 +40,8 @@ impl GrantDocument {
         if is_agent_write {
             ResolvedAgentWrite::from_document(document).map(Self::AgentWrite)
         } else {
-            ResolvedDetails::from_document(document).map(Self::DataAccess)
+            ResolvedDetails::from_document(document)
+                .map(|details| Self::DataAccess(Box::new(details)))
         }
     }
 
@@ -48,7 +49,7 @@ impl GrantDocument {
     #[must_use]
     pub fn data_access(self) -> Option<ResolvedDetails> {
         match self {
-            Self::DataAccess(details) => Some(details),
+            Self::DataAccess(details) => Some(*details),
             Self::AgentWrite(_) => None,
         }
     }
@@ -89,7 +90,7 @@ mod tests {
         let document = read.to_document().unwrap();
         assert_eq!(
             GrantDocument::from_document(&document).unwrap(),
-            GrantDocument::DataAccess(read)
+            GrantDocument::DataAccess(Box::new(read))
         );
         let write =
             ResolvedAgentWrite::for_write_scope(&[dravr_barrage::Stream::RecoveryDaily]).unwrap();

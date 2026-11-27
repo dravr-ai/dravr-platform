@@ -55,10 +55,11 @@ pub(crate) const LIST_CLIENT_GRANT_HISTORY_SQL: &str = r"
             WHERE user_id = $1 AND tenant_id = $2 AND client_id = $3 AND parent_grant_id IS NULL
             ";
 
-/// The live step-up children of a user's grants to client `$3` in tenant
-/// `$2`, with their step-up columns. An agent-write child (scope
-/// `pdpp:agent_write`) is not a step-up child: it reads nothing, and is never
-/// a read ceiling.
+/// The live step-up children of a user's grants to client `$3` in tenant `$2`, with their
+/// step-up columns.
+///
+/// An agent-write child (scope `pdpp:agent_write`) is not a step-up child: it reads nothing,
+/// and is never a read ceiling.
 pub(crate) const LIST_CLIENT_LIVE_CHILD_GRANTS_SQL: &str = r"
             SELECT id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
                    consent_version, consent_locale, authorization_details, expires_at,

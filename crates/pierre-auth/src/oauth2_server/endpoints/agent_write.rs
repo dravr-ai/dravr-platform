@@ -31,9 +31,9 @@ impl OAuth2AuthorizationServer {
         self.agent_write_offered
     }
 
-    /// `write`, the agent-write detail a request bound to `resource` asks
-    /// for beside a read grant or not (`with_read`), checked against its
-    /// binding:
+    /// `write`, the agent-write detail a request bound to `resource` asks for beside a read
+    /// grant or not (`with_read`), checked against its binding.
+    ///
     /// - `dpop` (binding A) is its own profile grant: bound to the
     ///   agent-write resource, and the request carries `dpop_jkt`, so its
     ///   code is redeemed with a proof only;
@@ -94,10 +94,10 @@ impl OAuth2AuthorizationServer {
         Ok(Some(write))
     }
 
-    /// The scope an authorization asking `details` and `write` carries:
-    /// [`AGENT_WRITE_SCOPE`] for a profile grant (binding A), which reads
-    /// nothing and opens no tool; `scope` otherwise, a package child's code
-    /// naming its parent's.
+    /// The scope an authorization asking `details` and `write` carries.
+    ///
+    /// [`AGENT_WRITE_SCOPE`] for a profile grant (binding A), which reads nothing and opens no
+    /// tool; `scope` otherwise, a package child's code naming its parent's.
     pub(super) fn agent_write_scope(
         scope: String,
         details: Option<&ResolvedDetails>,

@@ -133,10 +133,10 @@ pub(super) fn step_up_offered(strings: &MessagingStringsRegistry) -> bool {
 /// section's title on the consent screen (carnet#1544 slice 4c).
 pub(super) const KEY_AGENT_WRITE_TITLE: &str = "oauth.agentWrite.title";
 
-/// Whether the catalogue words an agent-write consent, in English at least:
-/// an agent-write request is resolved only then, and refused before sign-in
-/// "agent writes are not offered yet" otherwise (`consent-agent-write` in
-/// `feature-phases.yaml`).
+/// Whether the catalogue words an agent-write consent, in English at least.
+///
+/// An agent-write request is resolved only then, and refused before sign-in "agent writes are
+/// not offered yet" otherwise (`consent-agent-write` in `feature-phases.yaml`).
 pub(super) fn agent_write_offered(strings: &MessagingStringsRegistry) -> bool {
     !ConsentText::new(strings, "en")
         .line(KEY_AGENT_WRITE_TITLE)

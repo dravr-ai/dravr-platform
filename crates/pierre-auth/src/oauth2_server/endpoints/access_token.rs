@@ -14,9 +14,11 @@ use crate::auth::{DelegatedGrant, TokenLineage};
 use crate::oauth2_server::authorization_details::{is_agent_write_scope, AGENT_WRITE_SCOPE};
 
 impl OAuth2AuthorizationServer {
-    /// The scope a token response and a refresh row state for `granted`, the
-    /// grant a stored `scope` decided: `pdpp:agent_write` for an agent-write
-    /// family, the rendered grant otherwise; `None` for an empty one.
+    /// The scope a token response and a refresh row state for `granted`, the grant a stored
+    /// `scope` decided.
+    ///
+    /// `pdpp:agent_write` for an agent-write family, the rendered grant otherwise; `None` for
+    /// an empty one.
     pub(super) fn minted_scope(granted: &[OAuthScope], stored: Option<&str>) -> Option<String> {
         if is_agent_write_scope(stored) {
             return Some(AGENT_WRITE_SCOPE.to_owned());

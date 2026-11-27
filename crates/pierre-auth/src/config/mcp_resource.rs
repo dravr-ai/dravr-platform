@@ -293,10 +293,10 @@ impl OAuth2ServerConfig {
         format!("{}{AGENT_WRITE_RESOURCE_PATH}", self.protocol_origin())
     }
 
-    /// Every identifier of the agent-write resource, canonical first: its
-    /// path on each origin that serves `/mcp`. None is an MCP or A2A
-    /// identifier, so a token bound to one is good at the write endpoint
-    /// alone.
+    /// Every identifier of the agent-write resource, canonical first.
+    ///
+    /// Its path on each origin that serves `/mcp`. None is an MCP or A2A identifier, so a token
+    /// bound to one is good at the write endpoint alone.
     #[must_use]
     pub fn agent_write_resources(&self) -> Vec<String> {
         let mut identifiers: Vec<String> = Vec::new();
