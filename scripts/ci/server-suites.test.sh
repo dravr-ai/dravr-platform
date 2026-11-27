@@ -130,7 +130,7 @@ expect_targets "a client package file no crate reads selects none" "" packages/i
 expect_targets "an unclassified root path selects every target" "$FULL" mystery/file.txt
 expect_targets "a path under crates/ in no member selects every target" "$FULL" crates/removed-crate/src/lib.rs
 expect_targets "docs, clients and CI select none" "" docs/guide.md frontend/src/App.tsx \
-    frontend-mobile/src/App.tsx packages/api-client/src/index.ts .github/workflows/ci.yml README.md \
+    packages/api-client/src/index.ts .github/workflows/ci.yml README.md \
     scripts/ci/x.sh
 expect_targets "one closure path among docs still selects every target" "$FULL" docs/a.md crates/pierre-core/src/x.rs
 expect_targets "a test and a closure path select every target" "$FULL" \

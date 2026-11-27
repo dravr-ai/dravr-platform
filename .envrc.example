@@ -19,7 +19,6 @@
 # 5. Features       | FITNESS_*, CACHE_*, LLM, etc.                | All optional
 # 6. Development    | OAUTH_DEFAULT_*, ADMIN_EMAIL/PASSWORD         | Dev/test scripts
 # 7. Frontend       | VITE_BACKEND_URL, VITE_FIREBASE_*            | Web frontend
-# 8. Mobile         | EXPO_PUBLIC_API_URL, EXPO_PUBLIC_FIREBASE_*   | Mobile app
 #
 # Scripts will FAIL FAST if:
 #   - .envrc is missing
@@ -249,26 +248,6 @@ export GARMIN_REDIRECT_URI=http://localhost:8081/api/oauth/callback/garmin
 # export VITE_FIREBASE_STORAGE_BUCKET="your-project.firebasestorage.app"
 # export VITE_FIREBASE_MESSAGING_SENDER_ID="your-sender-id"
 # export VITE_FIREBASE_APP_ID="your-app-id"
-
-# Mobile Firebase Configuration (Expo uses EXPO_PUBLIC_ prefix)
-# export EXPO_PUBLIC_FIREBASE_API_KEY="your-firebase-api-key"
-# export EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN="your-project.firebaseapp.com"
-# export EXPO_PUBLIC_FIREBASE_PROJECT_ID="your-firebase-project-id"
-# export EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET="your-project.firebasestorage.app"
-# export EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID="your-sender-id"
-# export EXPO_PUBLIC_FIREBASE_APP_ID="your-app-id"
-
-# Google OAuth Client IDs for Mobile (from Google Cloud Console)
-# export EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID="your-web-client-id.apps.googleusercontent.com"
-# export EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID="your-ios-client-id.apps.googleusercontent.com"
-# export EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID="your-android-client-id.apps.googleusercontent.com"
-
-# ============================================================================
-# MOBILE APP CONFIGURATION
-# ============================================================================
-
-# Mobile API base URL (defaults to localhost in dev, set for physical device testing)
-# export EXPO_PUBLIC_API_URL="http://localhost:8081"
 
 # ============================================================================
 # OAUTH2 SERVER CONFIGURATION

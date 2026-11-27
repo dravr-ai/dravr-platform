@@ -9,10 +9,10 @@
 # by accident (carnet#160). This monitor is the reader those runs lack.
 #
 # The unit is the RUN, not the workflow. Selecting only workflows without a
-# `push` trigger read as equivalent and is not: nine lanes carry both, and they
+# `push` trigger read as equivalent and is not: several lanes carry both, and they
 # are the heaviest scheduled coverage in the fleet — ci-backend's nightly
 # SQLite shards (the only lane that runs several hundred server test files),
-# ci-postgres, ci-redis, mcp-scan, both mobile E2E nightlies. Their cron
+# ci-postgres, ci-redis, mcp-scan. Their cron
 # verdicts had no reader at all. ci-backend's 2026-09-05 nightly was red and
 # went unread; on 2026-09-06 its dispatched run caught a contremaitre bump that
 # had moved a pinned catalogue count, and that sat red for over an hour until

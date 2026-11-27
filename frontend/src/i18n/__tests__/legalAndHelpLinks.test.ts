@@ -10,11 +10,9 @@ import { describe, it, expect } from 'vitest';
 import { SUPPORTED_LANGUAGES, EMBEDDED_RESOURCES } from '@pierre/i18n';
 import { HELP_URL, LEGAL_URL } from '@pierre/shared-constants';
 
-/** Every athlete-facing source tree either client ships. */
+/** Every athlete-facing source tree the web client ships. */
 const ROOTS = [
   path.join(__dirname, '../../../src'),
-  path.join(__dirname, '../../../../frontend-mobile/src'),
-  path.join(__dirname, '../../../../frontend-mobile/app'),
   path.join(__dirname, '../../../../packages/shared-constants/src'),
 ];
 

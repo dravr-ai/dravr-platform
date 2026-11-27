@@ -16,15 +16,15 @@ import { isControlHost } from './control-host';
 // `bun e2e-real/home-sync-control.ts` — a long-running process beside a
 // Pierre server started with DRAVR_SCIOTTE_REMOTE_URL naming the double
 // (SCIOTTE_DOUBLE_PORT, 8097). The mobile Home sync flow
-// (frontend-mobile/.maestro/home-sync/) calls it over HTTP from its
+// (dravr-pitoune frontend-mobile/.maestro/home-sync/) calls it over HTTP from its
 // `runScript` steps: Maestro runs on the host, so 127.0.0.1 reaches it on both
 // platforms. The athlete is the one the flow signs in as; its service state is
 // reset on every setup, so a retried attempt starts where the first did.
-// The onboarding group flow (frontend-mobile/.maestro/onboarding/) asks the
+// The onboarding group flow (dravr-pitoune frontend-mobile/.maestro/onboarding/) asks the
 // same process for a fresh coach (`POST /onboarding-coach`), whose Strava is
 // connected through this double, and for what the step left on the server
 // (`GET /onboarding-coach/state`). The coach plan-thread flow
-// (frontend-mobile/.maestro/coach-plan/) asks it for a coach and athlete
+// (dravr-pitoune frontend-mobile/.maestro/coach-plan/) asks it for a coach and athlete
 // seeded with an open draft (`POST /coach-plan-thread`), made by the
 // `pierre-cli` that PIERRE_CLI names, and for the athlete's season once the
 // draft is published (`GET /coach-plan-thread/state`). Every flow that is not

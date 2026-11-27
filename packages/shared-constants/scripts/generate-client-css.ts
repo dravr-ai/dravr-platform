@@ -299,9 +299,23 @@ function outputRoot(argv: readonly string[]): string {
   return resolve(process.cwd(), target);
 }
 
+/** `--only <client>` limits the run to one client: a checkout that holds one client's source has no use for the other's block. */
+function selectedClients(argv: readonly string[]): Client[] {
+  const all = Object.keys(CLIENT_CSS_PATHS) as Client[];
+  const at = argv.indexOf('--only');
+  if (at === -1) {
+    return all;
+  }
+  const wanted = all.find((client) => client === argv[at + 1]);
+  if (!wanted) {
+    throw new Error(`--only needs one of: ${all.join(', ')}`);
+  }
+  return [wanted];
+}
+
 if (import.meta.main) {
   const root = outputRoot(process.argv.slice(2));
-  for (const client of Object.keys(CLIENT_CSS_PATHS) as Client[]) {
+  for (const client of selectedClients(process.argv.slice(2))) {
     const out = resolve(root, CLIENT_CSS_PATHS[client]);
     const css = renderClientCss(client);
     mkdirSync(dirname(out), { recursive: true });

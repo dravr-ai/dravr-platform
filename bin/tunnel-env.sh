@@ -1,18 +1,16 @@
 #!/usr/bin/env bash
-# ABOUTME: The one place BASE_URL and EXPO_PUBLIC_API_URL are armed for a tunnel and reset to local
-# ABOUTME: Sourced by start-tunnel.sh, stop-tunnel.sh, start-server.sh, stop-all.sh, the setup script and sciotte-local.sh
+# ABOUTME: The one place BASE_URL is armed for a tunnel and reset to local
+# ABOUTME: Sourced by start-tunnel.sh, stop-tunnel.sh, stop-server.sh, stop-all.sh, the setup script and sciotte-local.sh
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 #
 # A cloudflared quick tunnel's hostname lives exactly as long as its process.
-# .envrc and frontend-mobile/.env outlive it, so a hostname left behind in
-# either resolves NXDOMAIN on the next run and the provider reconnect link an
-# athlete taps — built from BASE_URL — reaches a browser that cannot find the
-# host. Both files also hold values nothing here owns: .envrc carries every
-# secret, and frontend-mobile/.env carries the Firebase and Google client ids.
-# Every write below rewrites exactly one anchored line and passes every other
-# line through untouched.
+# .envrc outlives it, so a hostname left behind there resolves NXDOMAIN on the
+# next run and the provider reconnect link an athlete taps — built from
+# BASE_URL — reaches a browser that cannot find the host. .envrc also carries
+# every secret, which nothing here owns: every write below rewrites exactly one
+# anchored line and passes every other line through untouched.
 
 # True when a URL names a cloudflared quick tunnel — the only kind these
 # scripts create, and the only kind whose host stops resolving on its own.
@@ -35,19 +33,6 @@ tunnel_env_get_export() { # file key
     [ -f "$file" ] || return 0
     line="$(grep "^export ${key}=" "$file" 2>/dev/null | tail -1)" || return 0
     value="${line#export "${key}"=}"
-    case "$value" in
-        \"*\") value="${value#\"}" && value="${value%\"}" ;;
-        \'*\') value="${value#\'}" && value="${value%\'}" ;;
-    esac
-    echo "$value"
-}
-
-# Same, for the KEY=value form Expo reads.
-tunnel_env_get_plain() { # file key
-    local file="$1" key="$2" line value
-    [ -f "$file" ] || return 0
-    line="$(grep "^${key}=" "$file" 2>/dev/null | tail -1)" || return 0
-    value="${line#"${key}"=}"
     case "$value" in
         \"*\") value="${value#\"}" && value="${value%\"}" ;;
         \'*\') value="${value#\'}" && value="${value%\'}" ;;
@@ -99,42 +84,18 @@ tunnel_env_set_export() { # file key value
     fi
 }
 
-# Same, for the KEY=value form Expo reads.
-tunnel_env_set_plain() { # file key value
-    local file="$1" key="$2" value="$3"
-    if [ -f "$file" ] && grep -q "^${key}=" "$file"; then
-        tunnel_env_edit_line "$file" "s|^${key}=.*|${key}=\"${value}\"|"
-    else
-        echo "${key}=\"${value}\"" >>"$file"
-    fi
-}
-
-# Point both files at a live tunnel.
+# Point .envrc at a live tunnel.
 tunnel_env_arm() { # root url
-    local root="$1" url="$2"
-    tunnel_env_set_export "$root/.envrc" BASE_URL "$url"
-    tunnel_env_set_plain "$root/frontend-mobile/.env" EXPO_PUBLIC_API_URL "$url"
+    tunnel_env_set_export "$1/.envrc" BASE_URL "$2"
 }
 
-# Point back at the local server every value that names a quick tunnel, and
-# leave every other value alone. Each key is judged on its own: start-server.sh
-# --tunnel writes the mobile file while exporting BASE_URL only in-process, so
-# one can name a dead tunnel while the other is already local. Returns 0 when
-# something was rewritten, 1 when both values were left as the operator set
-# them — which is also the answer when a tunnel died on its own and the files
-# were already clean.
+# Point BASE_URL back at the local server when it names a quick tunnel, and
+# leave any other value alone. Returns 0 when it was rewritten, 1 when it was
+# left as the operator set it — which is also the answer when a tunnel died on
+# its own and the file was already clean.
 tunnel_env_reset() { # root
-    local root="$1" local_url current reset=1
-    local_url="$(tunnel_env_local_base_url "$root/.envrc")"
+    local root="$1" current
     current="$(tunnel_env_get_export "$root/.envrc" BASE_URL)"
-    if tunnel_env_is_ephemeral_url "$current"; then
-        tunnel_env_set_export "$root/.envrc" BASE_URL "$local_url"
-        reset=0
-    fi
-    current="$(tunnel_env_get_plain "$root/frontend-mobile/.env" EXPO_PUBLIC_API_URL)"
-    if tunnel_env_is_ephemeral_url "$current"; then
-        tunnel_env_set_plain "$root/frontend-mobile/.env" EXPO_PUBLIC_API_URL "$local_url"
-        reset=0
-    fi
-    return "$reset"
+    tunnel_env_is_ephemeral_url "$current" || return 1
+    tunnel_env_set_export "$root/.envrc" BASE_URL "$(tunnel_env_local_base_url "$root/.envrc")"
 }

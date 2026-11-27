@@ -14,7 +14,7 @@ require_ledger = true
 # validation calls the gate with no directories so it reads this line, and bilan asks
 # `limitation-gates.sh --list-files` for the same set when it decides whether a marker
 # credits an issue — two tools, one list.
-scan_dirs = "crates,frontend/src,frontend-mobile/src,packages"
+scan_dirs = "crates,frontend/src,packages"
 
 # verify_tracker stays off: pre-push runs on machines that hold no dravr-carnet token. The weekly
 # `Monitor: Limitation Register Reconciliation` lane runs the online check instead

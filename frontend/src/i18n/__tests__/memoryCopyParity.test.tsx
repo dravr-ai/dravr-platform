@@ -26,7 +26,7 @@ vi.mock('../../services/api', async () => ({
  * Nothing kept them in step, so a wording change landed on one client only.
  *
  * This is the browser's half. The phone's half is the "copy shared with the
- * web panel" block of frontend-mobile/__tests__/MemoryScreen.test.tsx, which
+ * web panel" block of frontend-mobile/__tests__/MemoryScreen.test.tsx in dravr-pitoune, which
  * renders the screen against the same keys; change this list and that one
  * together. Each half renders its client in French, where the two copies had
  * drifted, and compares what is on screen with the catalogue's own string. A

@@ -49,9 +49,8 @@ require_fixture() {
 # guard and a `bun` on PATH for the two scripts it runs.
 STUBS="check-inline-paths.sh architectural-validation.sh check-contremaitre-sync.sh \
 check-phantom-surfaces.sh check-turn-envelope.sh check-moved-symbols.sh check-backend-pairs.sh \
-pre-push-frontend-tests.sh design-system-validation.sh pre-push-mobile-tests.sh check-workflow-test-targets.sh \
-check-merge-risk.sh check-unused-deps.sh check-actions-lock.sh check-actions-lock.test.sh \
-check-eas-submit-config.sh check-maestro-assertions.sh"
+pre-push-frontend-tests.sh design-system-validation.sh check-workflow-test-targets.sh \
+check-merge-risk.sh check-unused-deps.sh check-actions-lock.sh check-actions-lock.test.sh"
 
 make_repo() {
   local dir
@@ -148,11 +147,9 @@ dir="$(make_repo)"
 run_change "$dir" packages/i18n/src/locales/en/translation.json '{"common":{"probe":"probe"}}'
 expect_contains "locale diff runs the frontend tier" "Tier 5: Frontend Validation"
 expect_contains "locale diff runs the design system tier" "Tier 5b: Design System Validation"
-expect_contains "locale diff runs the mobile tier" "Tier 7: Mobile Validation"
 expect_absent "locale diff leaves the SDK tier alone" "Tier 6: SDK Validation"
 expect_contains "the echo block names the package" "Changed packages: i18n"
 expect_contains "the echo block shows why the web tier ran" "Frontend: false (tier runs: true)"
-expect_contains "the echo block shows why the mobile tier ran" "Mobile: false (tier runs: true)"
 expect_contains "the catalogue flag still reaches Tier 1b" "Tier 1b: Contremaitre Coupling Sync"
 expect_contains "the shared-package flag still reaches Tier 1d" "Tier 1d: Turn Envelope Convergence"
 expect_contains "the Merge-Risk tier runs whatever the diff touches" "Tier 1o: Merge-Risk one-way doors"
@@ -166,7 +163,6 @@ run_change "$dir" packages/mcp-types/src/tools.ts "export const PROBE_TOOL = 'pr
 expect_contains "mcp-types diff runs the SDK tier" "Tier 6: SDK Validation"
 expect_contains "the echo block shows why the SDK tier ran" "SDK: false (tier runs: true)"
 expect_absent "mcp-types diff leaves the frontend tier alone" "Tier 5: Frontend Validation"
-expect_absent "mcp-types diff leaves the mobile tier alone" "Tier 7: Mobile Validation"
 expect_contains "the mcp-types flag still reaches Tier 1b" "Tier 1b: Contremaitre Coupling Sync"
 expect_exit "mcp-types diff passes" 0
 
@@ -185,7 +181,6 @@ echo "  case 4: packages/api-client only"
 dir="$(make_repo)"
 run_change "$dir" packages/api-client/src/domains/probe.ts "export const probeEndpoint = '/api/probe';"
 expect_contains "api-client diff runs the frontend tier" "Tier 5: Frontend Validation"
-expect_contains "api-client diff runs the mobile tier" "Tier 7: Mobile Validation"
 expect_contains "the api-client flag still reaches Tier 1c" "Tier 1c: Phantom Surface Detection"
 expect_contains "the echo block names the package" "Changed packages: api-client"
 expect_exit "api-client diff passes" 0
@@ -197,7 +192,6 @@ dir="$(make_repo)"
 run_change "$dir" frontend/src/App.tsx "export const App = () => null;"
 expect_contains "frontend diff runs the frontend tier" "Tier 5: Frontend Validation"
 expect_contains "the echo block reads true for its own directory" "Frontend: true (tier runs: true)"
-expect_absent "frontend diff leaves the mobile tier alone" "Tier 7: Mobile Validation"
 expect_absent "frontend diff names no changed package" "Changed packages:"
 expect_exit "frontend diff passes" 0
 
@@ -210,7 +204,6 @@ expect_contains "Rust diff still runs the formatting tier" "Tier 0: Code Formatt
 expect_contains "Rust diff still runs the moved-symbol tier" "Tier 1e-move: moved-symbol importer check"
 expect_absent "Rust diff pays no frontend tier" "Tier 5: Frontend Validation"
 expect_absent "Rust diff pays no SDK tier" "Tier 6: SDK Validation"
-expect_absent "Rust diff pays no mobile tier" "Tier 7: Mobile Validation"
 expect_absent "Rust diff names no changed package" "Changed packages:"
 expect_absent "Rust source outside tests/ pays no workflow-target tier" "Tier 1m: Workflow test targets"
 expect_exit "Rust diff passes" 0
@@ -266,7 +259,6 @@ echo "  case 10: root package.json only"
 dir="$(make_repo)"
 run_change "$dir" package.json '{"scripts":{"typecheck:packages":"true","test:packages":"true"},"overrides":{"react":"19.2.3"}}'
 expect_contains "root manifest diff runs the frontend tier" "Tier 5: Frontend Validation"
-expect_contains "root manifest diff runs the mobile tier" "Tier 7: Mobile Validation"
 expect_absent "root manifest diff leaves the SDK tier alone" "Tier 6: SDK Validation"
 expect_contains "the echo block shows why the client tiers ran" "Root manifest: true"
 expect_exit "root manifest diff passes" 0
@@ -276,7 +268,6 @@ echo "  case 11: root bun.lock only"
 dir="$(make_repo)"
 run_change "$dir" bun.lock '{"lockfileVersion":1,"workspaces":{}}'
 expect_contains "root lockfile diff runs the frontend tier" "Tier 5: Frontend Validation"
-expect_contains "root lockfile diff runs the mobile tier" "Tier 7: Mobile Validation"
 expect_absent "root lockfile diff leaves the SDK tier alone" "Tier 6: SDK Validation"
 expect_exit "root lockfile diff passes" 0
 
@@ -285,7 +276,6 @@ echo "  case 12: frontend/package.json only"
 dir="$(make_repo)"
 run_change "$dir" frontend/package.json '{"name":"probe-frontend"}'
 expect_contains "the nested manifest reads as not the root one" "Root manifest: false"
-expect_absent "a web manifest leaves the mobile tier alone" "Tier 7: Mobile Validation"
 expect_exit "web manifest diff passes" 0
 
 # 13. Tier 1o takes the base as given, not the HEAD~1 fallback. It judges
@@ -419,9 +409,8 @@ expect_contains "the advice names the crate the push reaches" "this push reaches
 expect_absent "the advice prints no local clippy command" "cargo clippy -p probe"
 
 # 19. A branch CI proof of HEAD's tree skips a compile tier, and only that tier. The
-#     frontend and mobile suites are stubbed to fail here, so a pass is the proof they
-#     were not run; with no proof the same failing suite fails the push. The mobile tier
-#     keeps its compile-free checks when proven.
+#     frontend suite is stubbed to fail here, so a pass is the proof it was not run; with
+#     no proof the same failing suite fails the push.
 echo "  case 19: a tier branch CI proved is skipped, one it did not prove runs"
 dir="$(make_repo)"
 printf '#!/bin/sh\necho "frontend suite ran"\nexit 1\n' >"$dir/scripts/ci/pre-push-frontend-tests.sh"
@@ -438,21 +427,6 @@ run_change "$dir" frontend/src/App.tsx "export const App = () => null;"
 expect_contains "no proof says why" "branch CI (tier 5): no proof: fixture"
 expect_contains "no proof runs the suite" "frontend suite ran"
 expect_exit "no proof leaves the suite's verdict in charge" 1
-dir="$(make_repo)"
-printf '#!/bin/sh\necho "mobile suite ran"\nexit 1\n' >"$dir/scripts/ci/pre-push-mobile-tests.sh"
-printf '#!/bin/sh\necho "maestro check ran"\nexit 0\n' >"$dir/scripts/ci/check-maestro-assertions.sh"
-export FIXTURE_PROVEN="7"
-run_change "$dir" frontend-mobile/src/App.tsx "export const App = () => null;"
-unset FIXTURE_PROVEN
-expect_absent "a proven mobile tier skips the compiled suite" "mobile suite ran"
-expect_contains "a proven mobile tier still runs its compile-free checks" "maestro check ran"
-expect_exit "a proven mobile push passes" 0
-dir="$(make_repo)"
-printf '#!/bin/sh\necho "maestro check failed"\nexit 1\n' >"$dir/scripts/ci/check-maestro-assertions.sh"
-export FIXTURE_PROVEN="7"
-run_change "$dir" frontend-mobile/src/App.tsx "export const App = () => null;"
-unset FIXTURE_PROVEN
-expect_exit "a compile-free failure still fails a proven mobile push" 1
 
 echo ""
 if [ "$failures" -ne 0 ]; then

@@ -12,7 +12,7 @@ import { attemptSignIn, type SignInOutcome } from './first-party-sign-in';
 //
 // Why this exists: the seeded credential table is restated in at least five
 // places (the setup script's summary, .claude/settings.json's session banner,
-// the setup-server + test-web-app skills, frontend-mobile/.maestro/config.yaml,
+// the setup-server + test-web-app skills, dravr-pitoune's frontend-mobile/.maestro/config.yaml,
 // and assorted READMEs) while the single source of truth is the seeder itself
 // — crates/pierre-seeders/src/demo_data.rs. Nothing proved those agreed, and
 // they drifted: the session banner advertised `MobileTest123!` for months while

@@ -20,7 +20,6 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
  */
 const CONFIGS = [
   { name: 'web', cwd: path.join(REPO_ROOT, 'frontend'), file: 'src/components/Fixture.tsx' },
-  { name: 'mobile', cwd: path.join(REPO_ROOT, 'frontend-mobile'), file: 'src/screens/Fixture.tsx' },
   { name: 'shared packages', cwd: path.join(REPO_ROOT, 'packages'), file: 'ui-logic/src/fixture.ts' },
 ] as const;
 

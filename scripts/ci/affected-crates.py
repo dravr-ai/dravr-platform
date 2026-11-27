@@ -87,7 +87,7 @@ WORKSPACE_WIDE = ("rust-toolchain", ".cargo/", "clippy.toml")
 # nothing.
 KNOWN_INPUTS = ("migrations/", "migrations_pg/", "templates/", "commands/", "sdk/", "test_data/", "build.rs")
 NONE_PREFIXES = (
-    "docs/", "frontend/", "frontend-mobile/", "packages/", ".github/", "scripts/",
+    "docs/", "frontend/", "packages/", ".github/", "scripts/",
     "bin/", "load-tests/", "docker/", "infra/", "examples/",
     ".claude/", ".agents/", ".build", ".savoir/", ".pi/", ".vscode/",
 )

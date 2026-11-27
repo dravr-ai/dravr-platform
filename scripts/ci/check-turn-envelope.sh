@@ -1,7 +1,7 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
-# ABOUTME: Compile-free gate on the converged turn envelope — one shape, one transport, two clients.
+# ABOUTME: Compile-free gate on the converged turn envelope — one shape, one transport, every block rendered.
 # ABOUTME: Fails when a change reintroduces channel identity, a half-rendered block, or a hand-rolled send.
 
 # WHY THIS EXISTS
@@ -29,8 +29,8 @@
 # base. Only a root commit, with nothing before it, skips it now.
 #
 # Three of the four checks are whole-tree rather than diff-scoped, because the
-# tree satisfies them today: a block kind rendered by one client and not the
-# other, or a stale generated catalogue, is wrong however it got there. Only
+# tree satisfies them today: a block kind the web client does not render, or a
+# stale generated catalogue, is wrong however it got there. Only
 # the hand-rolled-transport check is diff-scoped — `fetch(` is a normal thing
 # for a client to do, and it is only the chat endpoint it must not aim at.
 
@@ -57,7 +57,6 @@ SURFACE_PROFILE="crates/pierre-chat-pipeline/src/surface_profile.rs"
 GENERATED="packages/shared-constants/src/surface-capabilities.generated.ts"
 NOTIFICATION_SCREENS="crates/pierre-core/src/models/notifications.rs"
 WEB_RENDERER="frontend/src/components/chat/MessageItem.tsx"
-MOBILE_RENDERER="frontend-mobile/src/screens/chat/MessageList.tsx"
 REGENERATE="cd packages/shared-constants && bun run generate"
 
 echo -e "${BLUE}==== Turn Envelope Convergence Gate ====${NC}"
@@ -65,7 +64,7 @@ echo -e "${BLUE}==== Turn Envelope Convergence Gate ====${NC}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-for required in "$WIRE_TYPES" "$PIPELINE_ENVELOPE" "$SURFACE_PROFILE" "$WEB_RENDERER" "$MOBILE_RENDERER" "$NOTIFICATION_SCREENS"; do
+for required in "$WIRE_TYPES" "$PIPELINE_ENVELOPE" "$SURFACE_PROFILE" "$WEB_RENDERER" "$NOTIFICATION_SCREENS"; do
     if [[ ! -f "$required" ]]; then
         echo -e "${RED}❌ ${required} not found — this gate is stale.${NC}"
         FAILED=true
@@ -85,7 +84,7 @@ fi
 # never on which product the turn came from.
 IDENTITY_HITS="$(grep -rn --include='*.rs' --include='*.ts' --include='*.tsx' \
     -E '\bis_messaging\b|\bisMessaging\b|\bChannelProfile\b' \
-    crates frontend/src frontend-mobile/src packages sdk/src 2>/dev/null \
+    crates frontend/src packages sdk/src 2>/dev/null \
     | grep -v "$(basename "$0")" || true)"
 
 if [[ -n "$IDENTITY_HITS" ]]; then
@@ -100,12 +99,12 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Check 2: every reply block is rendered by BOTH clients
+# Check 2: every reply block is rendered by the web client (the phone app lives in dravr-pitoune)
 # ---------------------------------------------------------------------------
-# The wire union in shared-types is the vocabulary; each client switches on
-# `block.type`. A kind one client has an arm for and the other does not is a
-# block an athlete sees on one platform and not the other — silently, because
-# an unmatched switch arm renders nothing and throws nothing.
+# The wire union in shared-types is the vocabulary; the web client switches on
+# `block.type`. A kind it has no arm for is a block the server sends and the
+# athlete never sees — silently, because an unmatched switch arm renders
+# nothing and throws nothing.
 grep -oE "type: '[a-z_]+'" "$WIRE_TYPES" | sed -E "s/type: '([a-z_]+)'/\1/" \
     | sort -u > "$TMP/wire_kinds.txt"
 
@@ -133,25 +132,19 @@ else
     while read -r kind; do
         [[ -z "$kind" ]] && continue
         WEB_ARM=$(grep -c "case '${kind}':" "$WEB_RENDERER" || true)
-        MOBILE_ARM=$(grep -c "case '${kind}':" "$MOBILE_RENDERER" || true)
-        if [[ "$WEB_ARM" -eq 0 && "$MOBILE_ARM" -eq 0 ]]; then
-            MISSING+="   ${kind}: neither client renders it\n"
-        elif [[ "$WEB_ARM" -eq 0 ]]; then
-            MISSING+="   ${kind}: mobile renders it, web has no arm (${WEB_RENDERER})\n"
-        elif [[ "$MOBILE_ARM" -eq 0 ]]; then
-            MISSING+="   ${kind}: web renders it, mobile has no arm (${MOBILE_RENDERER})\n"
+        if [[ "$WEB_ARM" -eq 0 ]]; then
+            MISSING+="   ${kind}: web has no arm (${WEB_RENDERER})\n"
         fi
     done < "$TMP/wire_kinds.txt"
 
     if [[ -n "$MISSING" ]]; then
-        echo -e "${RED}❌ Reply blocks rendered by only one client:${NC}"
+        echo -e "${RED}❌ Reply blocks the web client does not render:${NC}"
         printf '%b' "$MISSING"
-        echo -e "${YELLOW}   A block kind ships to both in-app clients or to neither. Add the${NC}"
-        echo -e "${YELLOW}   missing arm in this same change — the server already decided the${NC}"
-        echo -e "${YELLOW}   block exists, so the other client is simply dropping it.${NC}"
+        echo -e "${YELLOW}   Add the missing arm in this same change — the server already decided${NC}"
+        echo -e "${YELLOW}   the block exists, so the client is simply dropping it.${NC}"
         FAILED=true
     else
-        echo -e "${GREEN}✅ Reply blocks: all ${WIRE_N} kinds have an arm in both client renderers.${NC}"
+        echo -e "${GREEN}✅ Reply blocks: all ${WIRE_N} kinds have an arm in the web renderer.${NC}"
     fi
 fi
 
@@ -241,7 +234,7 @@ if [[ -n "$BASE_REF" ]]; then
     echo -e "${BLUE}---- New in this change (vs ${BASE_REF}) ----${NC}"
 
     ADDED="$(git diff -U0 "${BASE_REF}...HEAD" -- \
-        'frontend/src' 'frontend-mobile/src' 'packages/*/src' 'sdk/src' 2>/dev/null \
+        'frontend/src' 'packages/*/src' 'sdk/src' 2>/dev/null \
         | grep '^+' | grep -v '^+++' || true)"
 
     # A client that builds its own request to the chat endpoint is a second

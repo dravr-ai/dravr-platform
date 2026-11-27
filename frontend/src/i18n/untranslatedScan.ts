@@ -312,10 +312,10 @@ const WEB_ENTRY_POINTS = [
  */
 
 /** Resolve one relative import to a real file, following barrels. */
-/** The monorepo root above a `frontend/`, `frontend-mobile/` or `packages/` file. */
+/** The monorepo root above a `frontend/` or `packages/` file. */
 function repoRootOf(file: string): string | null {
   const parts = file.split(path.sep);
-  const at = parts.findIndex((p) => p === 'frontend' || p === 'frontend-mobile' || p === 'packages');
+  const at = parts.findIndex((p) => p === 'frontend' || p === 'packages');
   return at <= 0 ? null : parts.slice(0, at).join(path.sep);
 }
 
@@ -425,20 +425,9 @@ function webRootOf(file: string): string | null {
   return at === -1 ? null : file.slice(0, at + marker.length - 1);
 }
 
-/**
- * Whether a component renders on a surface an athlete can reach.
- *
- * Mobile is unconditional: the app has no admin console, so every file in it
- * is athlete-facing. Fifteen `screens/*` fragments used to stand in for that
- * rule, and anything outside `screens/` fell through — which is how
- * `Server unreachable`, `Checking...` and `Something went wrong. Please try
- * again.` shipped in English to an app whose default locale is French.
- */
+/** Whether a component renders on a surface an athlete can reach. */
 export function isAthleteSurface(file: string): boolean {
   const normalized = file.split(path.sep).join('/');
-  if (normalized.includes('/frontend-mobile/')) {
-    return true;
-  }
   if (normalized.includes('/packages/')) {
     // A shared package is athlete surface when an athlete entry point of the
     // web app imports it, directly or through a barrel — the walk decides,

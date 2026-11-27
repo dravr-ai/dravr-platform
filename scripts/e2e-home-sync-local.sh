@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ABOUTME: Runs the real-backend Home sync spec (web) or Maestro flow (--mobile) locally, on an isolated Pierre server pointed at the session-reader double
+# ABOUTME: Runs the real-backend Home sync spec (web) locally, on an isolated Pierre server pointed at the session-reader double
 # ABOUTME: Own ports, own SQLite file, own processes: the dev stack on 8081 and the real session-read service it talks to are left alone
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
@@ -14,32 +14,13 @@
 # admin, the server, the SPA proxied to it — runs the spec, and stops
 # everything it started, whatever the outcome.
 #
-# With --mobile it runs the mobile half instead,
-# frontend-mobile/.maestro/home-sync/, on the booted simulator or emulator:
-# the seeded Maestro athlete, the double behind its control API
-# (frontend/e2e-real/home-sync-control.ts), and Metro serving Expo Go on 8082
-# with the app pointed at the isolated server. Other flows that call the same
-# control process run beside it when named as extra arguments, e.g.
-# `.maestro/coach-plan/01-publish-draft-from-athlete-thread.yaml`, whose pairs
-# the control seeds with the pierre-cli this script builds.
-#
-# Usage: scripts/e2e-home-sync-local.sh [--mobile] [extra playwright or maestro args]
-# Ports: E2E_PIERRE_PORT (8095), E2E_VITE_PORT (5185), SCIOTTE_DOUBLE_PORT (8097),
-#        SCIOTTE_CONTROL_PORT (8098, --mobile), Metro 8082 (--mobile, fixed by the flows' deep link).
+# Usage: scripts/e2e-home-sync-local.sh [extra playwright args]
+# Ports: E2E_PIERRE_PORT (8095), E2E_VITE_PORT (5185), SCIOTTE_DOUBLE_PORT (8097).
 # Server log level: E2E_RUST_LOG (warn); the log path is printed on exit.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-MOBILE=false
-if [ "${1:-}" = "--mobile" ]; then
-    MOBILE=true
-    shift
-fi
-CONTROL_PORT="${SCIOTTE_CONTROL_PORT:-8098}"
-METRO_PORT=8082
-MOBILE_EMAIL="mobiletest@pierre.dev"
-MOBILE_PASSWORD="MobileTest1234"
 PIERRE_PORT="${E2E_PIERRE_PORT:-8095}"
 VITE_PORT="${E2E_VITE_PORT:-5185}"
 DOUBLE_PORT="${SCIOTTE_DOUBLE_PORT:-8097}"
@@ -54,12 +35,7 @@ ROUTE_ANSWER_SECS=5
 # about an athlete, and the CLI that seeds one, need a model to record.
 E2E_MODEL="local-e2e-model"
 
-PORTS=("$PIERRE_PORT" "$DOUBLE_PORT")
-if [ "$MOBILE" = true ]; then
-    PORTS+=("$CONTROL_PORT" "$METRO_PORT")
-else
-    PORTS+=("$VITE_PORT")
-fi
+PORTS=("$PIERRE_PORT" "$DOUBLE_PORT" "$VITE_PORT")
 for port in "${PORTS[@]}"; do
     if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
         echo "port $port is in use; set E2E_PIERRE_PORT / E2E_VITE_PORT / SCIOTTE_DOUBLE_PORT to free ones" >&2
@@ -71,8 +47,6 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/e2e-home-sync.XXXXXX")"
 DATABASE_PATH="$WORK/e2e-home-sync.db"
 SERVER_PID=""
 VITE_PID=""
-CONTROL_PID=""
-METRO_PID=""
 
 # Stop one process this script started: SIGTERM, then SIGKILL once it has had
 # the server's own drain budget (a few seconds) to finish. The server drains
@@ -89,12 +63,10 @@ stop() {
 }
 
 cleanup() {
-    stop "$METRO_PID"
-    stop "$CONTROL_PID"
     stop "$VITE_PID"
     stop "$SERVER_PID"
     wait 2>/dev/null || true
-    echo "logs: $WORK/server.log $WORK/vite.log $WORK/control.log $WORK/metro.log"
+    echo "logs: $WORK/server.log $WORK/vite.log"
 }
 trap cleanup EXIT
 
@@ -110,10 +82,8 @@ wait_for() {
     return 1
 }
 
-# pierre-cli with e2e-seeded-sessions: the control process mints every seeded
-# session with its `user mint-session` (carnet#1201), as in the CI lanes.
 echo "building pierre-mcp-server and pierre-cli"
-(cd "$ROOT" && cargo build --bin pierre-mcp-server --bin pierre-cli --features pierre-cli/e2e-seeded-sessions)
+(cd "$ROOT" && cargo build --bin pierre-mcp-server --bin pierre-cli)
 
 export DATABASE_URL="sqlite:$DATABASE_PATH"
 export PIERRE_MASTER_ENCRYPTION_KEY="$MASTER_KEY"
@@ -136,45 +106,6 @@ echo "starting Pierre on $PIERRE_PORT, its session reader at the double on $DOUB
 ) >"$WORK/server.log" 2>&1 &
 SERVER_PID=$!
 wait_for "http://127.0.0.1:$PIERRE_PORT/health" "Pierre"
-
-if [ "$MOBILE" = true ]; then
-    "$ROOT/target/debug/pierre-cli" user create --email "$MOBILE_EMAIL" --password "$MOBILE_PASSWORD" --force
-
-    echo "starting the session-reader double on $DOUBLE_PORT behind its control API on $CONTROL_PORT"
-    (
-        cd "$ROOT/frontend"
-        PIERRE_URL="http://127.0.0.1:$PIERRE_PORT" \
-            SCIOTTE_DOUBLE_PORT="$DOUBLE_PORT" \
-            SCIOTTE_CONTROL_PORT="$CONTROL_PORT" \
-            E2E_REAL_DATABASE_PATH="$DATABASE_PATH" \
-            HOME_SYNC_EMAIL="$MOBILE_EMAIL" \
-            HOME_SYNC_PASSWORD="$MOBILE_PASSWORD" \
-            PIERRE_CLI="$ROOT/target/debug/pierre-cli" \
-            PIERRE_LLM_DEFAULT_MODEL="$E2E_MODEL" \
-            exec bun e2e-real/home-sync-control.ts
-    ) >"$WORK/control.log" 2>&1 &
-    CONTROL_PID=$!
-    wait_for "http://127.0.0.1:$CONTROL_PORT/health" "the double's control API"
-
-    # The flows start signed in through the E2E bundle's seeded-session link
-    # (carnet#1201), which Metro serves only with EXPO_PUBLIC_E2E_SEEDED_SESSIONS=1
-    # and a local API; the app redeems the link's code at the control process
-    # on the API's host, on EXPO_PUBLIC_E2E_CONTROL_PORT.
-    echo "starting Metro on $METRO_PORT for Expo Go, the app pointed at Pierre"
-    (
-        cd "$ROOT/frontend-mobile"
-        EXPO_PUBLIC_API_URL="http://127.0.0.1:$PIERRE_PORT" EXPO_PUBLIC_E2E_SEEDED_SESSIONS=1 \
-            EXPO_PUBLIC_E2E_CONTROL_PORT="$CONTROL_PORT" CI=1 \
-            exec bunx expo start --go --port "$METRO_PORT"
-    ) >"$WORK/metro.log" 2>&1 &
-    METRO_PID=$!
-    wait_for "http://127.0.0.1:$METRO_PORT/status" "Metro"
-
-    cd "$ROOT/frontend-mobile"
-    maestro test --env CONTROL_URL="http://127.0.0.1:$CONTROL_PORT" "$@" \
-        .maestro/home-sync/01-sync-failed-retry-lands-rides-and-map.yaml
-    exit $?
-fi
 
 echo "starting the SPA on $VITE_PORT, proxied to Pierre"
 (

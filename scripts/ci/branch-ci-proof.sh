@@ -76,15 +76,10 @@ tier_requirements() {
         6) printf '%s\n' server-e2e.yml \
             "SDK Test Suite|Build SDK bridge" \
             "SDK Test Suite|Run SDK unit tests" ;;
-        7) printf '%s\n' mobile-unit-tests.yml \
-            "Typecheck, Lint & Tests|Type check" \
-            "Typecheck, Lint & Tests|Lint" \
-            "Typecheck, Lint & Tests|Run unit tests" \
-            "Typecheck, Lint & Tests|Run app integration specs" ;;
         *) return 1 ;;
     esac
 }
-COVERED_TIERS="1e 1f 4 5 6 7"
+COVERED_TIERS="1e 1f 4 5 6"
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "no proof: not inside a git checkout"; exit 1; }
 cd "$ROOT"

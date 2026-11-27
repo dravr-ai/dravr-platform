@@ -43,7 +43,6 @@
 [gates]
 backend  = "ci-backend.yml ci-postgres.yml server-e2e.yml"
 frontend = "frontend-tests.yml"
-mobile   = "mobile-unit-tests.yml"
 
 # ---------------------------------------------------------------------------
 # Satellites with a lane today
@@ -68,9 +67,7 @@ companions = "dravr-sciotte:from-manifest dravr-equilibre:from-manifest dravr-ca
 [photograveur]
 repo          = "dravr-photograveur"
 source        = "git-tag"
-# mobile: the rewrite regenerates packages/scene-types, which the mobile app
-# imports (@pierre/scene-types) as well as the web one.
-gates         = "backend frontend mobile"
+gates         = "backend frontend"
 after_rewrite = "scripts/ci/regen-scene-types.sh"
 
 # ---------------------------------------------------------------------------

@@ -276,7 +276,6 @@ describe('the scanner does NOT flag things that are not copy', () => {
  */
 describe('athlete scope is derived, and pinned where we know the answer', () => {
   const web = path.join(__dirname, '../..');
-  const mobile = path.join(__dirname, '../../../../frontend-mobile/src');
 
   it.each([
     // Reached only through `UserSettings` — the case the old list got wrong.
@@ -316,16 +315,6 @@ describe('athlete scope is derived, and pinned where we know the answer', () => 
     expect(isAthleteSurface(path.join(packages, 'shared-types/src/verdict.ts'))).toBe(true);
   });
 
-  it('every file in the mobile app is athlete, including outside screens/', () => {
-    // There is no admin console in the mobile app, so no file in it can be
-    // admin chrome. Fifteen `screens/*` fragments used to stand in for that
-    // rule and anything outside them fell through — which is how the offline
-    // banner shipped in English to an app whose default locale is French.
-    expect(isAthleteSurface(path.join(mobile, 'components/ServerStatusBanner.tsx'))).toBe(true);
-    expect(isAthleteSurface(path.join(mobile, 'providers/QueryProvider.tsx'))).toBe(true);
-    expect(isAthleteSurface(path.join(mobile, 'screens/chat/ChatScreen.tsx'))).toBe(true);
-  });
-
   it('does not swallow the whole console into athlete scope', () => {
     // The mirror failure of shrinking: a walk that over-includes makes the
     // ceiling of 0 pass vacuously and dissolves the 663 English-by-decision
@@ -336,11 +325,11 @@ describe('athlete scope is derived, and pinned where we know the answer', () => 
   });
 
   it('no import specifier is computed, because the walk could not follow one', () => {
-    // The walk resolves string literals. Every dynamic import in both apps is
+    // The walk resolves string literals. Every dynamic import in the web app is
     // one today, so this boundary has no surface — and this test is what keeps
     // it that way: add `import(someVariable)` and the walk stops seeing whatever
     // is behind it, silently. Failing here is the warning.
-    const roots = [web, path.join(web, '../../frontend-mobile/src')];
+    const roots = [web];
     const offenders: string[] = [];
     const walk = (dir: string): void => {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -351,10 +340,9 @@ describe('athlete scope is derived, and pinned where we know the answer', () => 
           }
         } else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) {
           // Why this reads source: it guards the untranslated-string scanner's
-          // own blind spot across both apps. The scanner follows string-literal
-          // import specifiers through the tree; a computed one in either app
-          // hides files from it silently. The mobile tree is outside this
-          // package's ESLint config, so no single lint covers both roots.
+          // own blind spot. The scanner follows string-literal import
+          // specifiers through the tree; a computed one hides files from it
+          // silently.
           const source = fs.readFileSync(full, 'utf-8');
           for (const m of source.matchAll(/import\(\s*([^'"\s)])/g)) {
             offenders.push(`${path.relative(web, full)}: import(${m[1]}…`);

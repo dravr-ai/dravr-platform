@@ -78,7 +78,7 @@ function tailwindTheme(): TailwindTheme['theme']['extend'] {
 }
 
 function mobileScale(): Record<string, Step> {
-  const path = resolve(FRONTEND_ROOT, '../frontend-mobile/src/constants/typeScale.js');
+  const path = resolve(FRONTEND_ROOT, 'design-system/sources/typeScale.cjs');
   return (require(path) as { TYPE_SCALE: Record<string, Step> }).TYPE_SCALE;
 }
 
@@ -153,7 +153,7 @@ function typeTokens(notes: TokenNotes) {
       let lineHeight: string;
       if (group.scale === 'mobile') {
         const step = mobile[s.step];
-        if (!step) throw new Error(`typeScale.js has no step "${s.step}"`);
+        if (!step) throw new Error(`typeScale.cjs has no step "${s.step}"`);
         fontSize = `${step.fontSize}px`;
         lineHeight = `${step.lineHeight}px`;
       } else {
@@ -212,7 +212,7 @@ export function buildTokens(source: SourceRef, components: Record<string, string
       ref: source.ref,
       package: 'frontend',
       paths: {
-        tokens: ['packages/shared-constants/src/design-system.ts', 'frontend/tailwind.config.cjs', 'frontend-mobile/src/constants/typeScale.js'],
+        tokens: ['packages/shared-constants/src/design-system.ts', 'frontend/tailwind.config.cjs', 'frontend/design-system/sources/typeScale.cjs'],
         fonts: ['frontend/index.html'],
         assets: ['frontend/public/brand/', 'frontend/public/favicon.svg'],
         docs: ['frontend/DESIGN.md', 'frontend/BRAND.md', 'frontend/design-system/'],

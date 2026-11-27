@@ -12,7 +12,7 @@ except ImportError:
 
 FRONTEND = Path(__file__).resolve().parent.parent
 REPO = FRONTEND.parent
-MASTER = REPO / "frontend-mobile" / "assets" / "sources" / "boreal-ripple-mark.png"
+MASTER = FRONTEND / "design-system" / "sources" / "boreal-ripple-mark.png"
 PUBLIC = FRONTEND / "public"
 BRAND = PUBLIC / "brand"
 

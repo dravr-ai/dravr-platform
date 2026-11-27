@@ -48,7 +48,7 @@ const MESSAGING_MAX_TOOL_ITERATIONS: usize = 5;
 pub enum SurfaceId {
     /// Web browser chat (`frontend/`).
     Web,
-    /// React Native app chat (`frontend-mobile/`).
+    /// React Native app chat (the app in `dravr-ai/dravr-pitoune`).
     ///
     /// Split from [`Self::Web`] because one identity for two clients is
     /// exactly what makes a client-specific gap invisible: a coverage

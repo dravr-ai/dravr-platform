@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
-# ABOUTME: Fails when "operator" names an admin again in crates/, frontend/, frontend-mobile/ or packages/
+# ABOUTME: Fails when "operator" names an admin again in crates/, frontend/ or packages/
 # ABOUTME: Every remaining "operator" must match one entry of the allowlist below, each with its reason
 
 # carnet#1644. Directive from ChefFamille, 2026-11-13: "Please use admin and
@@ -32,7 +32,7 @@ PROJECT_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
 
 if [ "$#" -eq 0 ]; then
     cd "$PROJECT_ROOT"
-    set -- crates frontend frontend-mobile packages
+    set -- crates frontend packages
 fi
 
 for root in "$@"; do

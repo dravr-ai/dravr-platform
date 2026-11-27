@@ -22,8 +22,6 @@ const ROOTS = [
   path.join(__dirname, '../../components'),
   path.join(__dirname, '../../onboarding'),
   path.join(__dirname, '../../App.tsx'),
-  path.join(__dirname, '../../../../frontend-mobile/src'),
-  path.join(__dirname, '../../../../frontend-mobile/app'),
   // The shared packages both clients read their label tables and chrome
   // constants from. `SLASH_HINT` and the onboarding stepper labels lived here
   // as English literals for a month while the gate reported zero, because no

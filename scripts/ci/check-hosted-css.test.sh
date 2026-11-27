@@ -29,8 +29,6 @@ PATHS=(
     frontend/public/brand/mark-ink-96.png
     frontend/src/index.css
     frontend/src/boreal-tokens.generated.css
-    frontend-mobile/global.css
-    frontend-mobile/boreal-tokens.generated.css
 )
 
 scaffold() {
@@ -79,23 +77,22 @@ else
     fail "did not catch the drifted web block (status $STATUS)"
 fi
 
-# 3. Catch: a hand edit to the phone's generated block.
+# 3. Catch: a hand edit to the web client's generated block.
 scaffold
-replace_in "$WORK/repo/frontend-mobile/boreal-tokens.generated.css" "--color-primary: 37 95 77;" "--color-primary: 0 36 26;"
+replace_in "$WORK/repo/frontend/src/boreal-tokens.generated.css" "--color-primary: 37 95 77;" "--color-primary: 0 36 26;"
 OUT="$(run_check)"; STATUS=$?
-if [ "$STATUS" -ne 0 ] && echo "$OUT" | grep -q "frontend-mobile/boreal-tokens.generated.css is stale"; then
-    pass "fails on a drifted mobile block, and names it"
+if [ "$STATUS" -ne 0 ] && echo "$OUT" | grep -q "frontend/src/boreal-tokens.generated.css is stale"; then
+    pass "fails on a drifted client block, and names it"
 else
-    fail "did not catch the drifted mobile block (status $STATUS)"
+    fail "did not catch the drifted client block (status $STATUS)"
 fi
 
 # 4. Catch: a token moved in the source and the blocks were not regenerated.
 scaffold
 replace_in "$WORK/repo/packages/shared-constants/src/design-system.ts" "  surfaceContainerLowest: '#0b0e0b'," "  surfaceContainerLowest: '#191c19',"
 OUT="$(run_check)"; STATUS=$?
-if [ "$STATUS" -ne 0 ] && echo "$OUT" | grep -q "frontend/src/boreal-tokens.generated.css is stale" \
-    && echo "$OUT" | grep -q "frontend-mobile/boreal-tokens.generated.css is stale"; then
-    pass "fails when the tokens move under both committed blocks"
+if [ "$STATUS" -ne 0 ] && echo "$OUT" | grep -q "frontend/src/boreal-tokens.generated.css is stale"; then
+    pass "fails when the tokens move under the committed block"
 else
     fail "did not catch blocks left behind by a token change (status $STATUS)"
 fi
@@ -122,9 +119,9 @@ fi
 
 # 7. Catch: a client stylesheet that stops importing its block.
 scaffold
-replace_in "$WORK/repo/frontend-mobile/global.css" "@import './boreal-tokens.generated.css';" ""
+replace_in "$WORK/repo/frontend/src/index.css" "@import './boreal-tokens.generated.css';" ""
 OUT="$(run_check)"; STATUS=$?
-if [ "$STATUS" -ne 0 ] && echo "$OUT" | grep -q "frontend-mobile/global.css: does not import its generated block"; then
+if [ "$STATUS" -ne 0 ] && echo "$OUT" | grep -q "frontend/src/index.css: does not import its generated block"; then
     pass "fails on a stylesheet that no longer imports its block"
 else
     fail "did not catch a missing import (status $STATUS)"

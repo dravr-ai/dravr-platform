@@ -25,7 +25,8 @@ A family is the cache's purpose, not one key:
 
 * ``rust:<shared-key>`` — Swatinem/rust-cache entries, ``v0-rust-<key>-<OS>-<arch>-...``
 * ``mobile-server:<OS>`` — the full target/ of ``cargo build --release`` that
-  mobile-e2e-*.yml save and server-e2e.yml's build-server job restores
+  server-e2e.yml's nightly run on main saves and its build-server job restores
+  (named for the mobile e2e lane, now in dravr-pitoune, that wrote it first)
 * anything else is grouped by the key's text before its first hash.
 
 Exit status: 0 with a report, 1 when the entries could not be read, and 2 when
@@ -48,8 +49,7 @@ QUOTA_BYTES = 10 * 10**9
 
 # What the push lanes restore: the plan's ranking (Q15), with the Linux
 # mobile-server entry added before the macOS one. The plan listed it to fold or
-# drop; it is kept because server-e2e's build-server job and the Android
-# lane both restore it, and dropping it would build thin release cold on most
+# drop; it is kept because server-e2e's build-server job restores it, and dropping it would build thin release cold on most
 # branch pushes (carnet#1114).
 PRIORITY_FAMILIES = (
     "rust:postgres-tests",

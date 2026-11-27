@@ -104,10 +104,9 @@ components:
 > spec it replaced (sections §1–§10) is history: `git show d12fed7d4:frontend/DESIGN.md`.
 > Nothing cites it. Tokens live once, in
 > `../packages/shared-constants/src/design-system.ts`; the client CSS blocks
-> (`src/boreal-tokens.generated.css`,
-> `../frontend-mobile/boreal-tokens.generated.css`) and both Tailwind configs
-> (`tailwind.config.cjs`, `../frontend-mobile/tailwind.config.js`) are
-> generated or mapped from it. Paths are relative to this file. A
+> (`src/boreal-tokens.generated.css` here, and the phone app's own block in
+> dravr-pitoune) and the Tailwind configs (`tailwind.config.cjs` here, the
+> phone app's in dravr-pitoune) are generated or mapped from it. Paths are relative to this file. A
 > browsable copy with live previews: `bun run design-system` from the web app directory.
 
 ## Overview
@@ -315,7 +314,7 @@ those two. On both clients the mark is also the way Home.
 Two-layer ring: 2px solid `primary` plus a 2px outer halo in `rgba(255,255,255,.95)` (light) or `rgba(0,0,0,.85)` (dark). Class `.focus-ring` on `:focus`; `.focus-ring-visible` on `:focus-visible` for controls a pointer clicks and leaves. Never `outline: 0` without a replacement.
 
 ### Phone
-The phone shares every token and differs where a thumb and a system ladder make it differ. Its type ladder is declared once in `../frontend-mobile/src/constants/typeScale.js`.
+The phone shares every token and differs where a thumb and a system ladder make it differ. Its type ladder is declared in the phone app (dravr-pitoune); the design-system build here reads a copy, `design-system/sources/typeScale.cjs`.
 
 | Piece | Rule |
 |---|---|

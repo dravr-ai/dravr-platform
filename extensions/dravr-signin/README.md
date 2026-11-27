@@ -74,7 +74,7 @@ manifest for Firefox. The one expected warning is that Firefox does not use
 
 | File | What it is |
 |---|---|
-| `icons/` | The Dravr mark: the reduced Boreal Ripple (`frontend/public/favicon.svg`) at 16 and 32 px, the app icon (`frontend-mobile/assets/icon.png`) at 48 and 128 px |
+| `icons/` | The Dravr mark: the reduced Boreal Ripple (`frontend/public/favicon.svg`) at 16 and 32 px, the app icon (`frontend-mobile/assets/icon.png` in dravr-pitoune) at 48 and 128 px |
 | `manifest.json` | MV3 manifest: `cookies` and `storage`, host permissions for the four providers only; `bridge.js` declared as the content script on app.dravr.ai |
 | `_locales/` | The extension's text in English, French, Spanish, German and Portuguese |
 | `notice.html`, `notice.js` | The notice the athlete accepts before the first sign-in |

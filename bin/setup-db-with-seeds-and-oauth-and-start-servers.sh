@@ -17,30 +17,19 @@ NC='\033[0m'
 # Parse command line args
 BUILD_MODE="debug"
 TARGET_DIR="debug"
-NATIVE_BUILD=false
-MOBILE_PLATFORM="ios"   # --android targets the booted emulator instead of the iOS simulator
 STREAM_LOGS=false
 START_TUNNEL=false
-# --maestro: also run the Maestro control process and serve the E2E bundle, so
-# flows outside login/ start signed in against this stack (carnet#1201). Opt-in
-# like --tunnel, because it adds a way to sign the app in from a link: a
-# pierre-cli that can mint a session for any account, and a Metro bundle that
-# carries the route redeeming one. Neither belongs in a stack nobody is driving
-# with Maestro.
+# --maestro: also run the Maestro control process, so the app's flows outside
+# login/ start signed in against this stack (carnet#1201). Opt-in like --tunnel,
+# because it adds a way to sign the app in from a link: a pierre-cli that can
+# mint a session for any account. It does not belong in a stack nobody is
+# driving with Maestro.
 START_MAESTRO_CONTROL=false
 for arg in "$@"; do
     case $arg in
         --release)
             BUILD_MODE="release"
             TARGET_DIR="release"
-            shift
-            ;;
-        --native)
-            NATIVE_BUILD=true
-            shift
-            ;;
-        --android)
-            MOBILE_PLATFORM="android"
             shift
             ;;
         --stream-logs)
@@ -62,7 +51,6 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$SCRIPT_DIR/dev-processes.sh"
-. "$SCRIPT_DIR/ios-simulator.sh"
 . "$SCRIPT_DIR/tunnel-env.sh"
 cd "$PROJECT_ROOT"
 
@@ -73,9 +61,7 @@ mkdir -p "$LOG_DIR"
 # Log files
 SERVER_LOG="$LOG_DIR/pierre-server.log"
 FRONTEND_LOG="$LOG_DIR/frontend.log"
-EXPO_LOG="$LOG_DIR/expo.log"
 CONTROL_LOG="$LOG_DIR/maestro-control.log"  # --maestro only
-METRO_LOG="$LOG_DIR/metro.log"  # --native runs the Xcode build and Metro side by side
 
 # Credentials - use .envrc values or defaults
 # These are set after sourcing .envrc below
@@ -95,7 +81,7 @@ print_step() {
     echo -e "${GREEN}[$1/$TOTAL_STEPS]${NC} $2"
 }
 
-TOTAL_STEPS=9
+TOTAL_STEPS=8
 
 echo ""
 echo -e "${BLUE}============================================================================${NC}"
@@ -105,7 +91,6 @@ echo -e "${BLUE}================================================================
 echo ""
 echo -e "${CYAN}=== Configuration ===${NC}"
 echo -e "  Build mode:      ${YELLOW}$BUILD_MODE${NC}"
-echo -e "  Native build:    $( [ "$NATIVE_BUILD" = "true" ] && echo "${GREEN}yes${NC}" || echo "no" )"
 echo -e "  Tunnel:          $( [ "$START_TUNNEL" = "true" ] && echo "${GREEN}yes${NC}" || echo "no" )"
 echo -e "  Maestro control: $( [ "$START_MAESTRO_CONTROL" = "true" ] && echo "${GREEN}yes${NC}" || echo "no" )"
 echo -e "  Stream logs:     $( [ "$STREAM_LOGS" = "true" ] && echo "${GREEN}yes${NC}" || echo "no" )"
@@ -115,7 +100,6 @@ echo ""
 # below overwrites the environment it is given, so the caller's values are held
 # here and reasserted after the load.
 HTTP_PORT_REQUESTED="${HTTP_PORT:-}"
-EXPO_PORT_REQUESTED="${EXPO_PORT:-}"
 
 # Load environment
 if [ ! -f "$PROJECT_ROOT/.envrc" ]; then
@@ -144,17 +128,15 @@ fi
 echo -e "${GREEN}Environment validated successfully${NC}"
 echo ""
 
-# Ports, resolved after .envrc is loaded. HTTP_PORT and EXPO_PORT are the
-# overrides the rest of bin/ already honours, so a second checkout can bring its
+# Ports, resolved after .envrc is loaded. HTTP_PORT is the
+# override the rest of bin/ already honours, so a second checkout can bring its
 # whole stack up beside a first instead of fighting for 8081.
 SERVER_PORT="${HTTP_PORT_REQUESTED:-${HTTP_PORT:-8081}}"
 FRONTEND_PORT=5173
-EXPO_PORT="${EXPO_PORT_REQUESTED:-${EXPO_PORT:-8082}}"
 FIXTURE_PORT=9555  # dev fixture API serving seeded Strava/Garmin activities
 # The server binary and stop-all.sh both read HTTP_PORT from the environment, so
 # the resolved port has to reach them and not just this script's own variable.
 export HTTP_PORT="$SERVER_PORT"
-export EXPO_PORT
 
 # Refuse a session-read service that would share this server's port before anything is
 # stopped, deleted or built: Pierre takes its port by killing what holds it
@@ -413,7 +395,7 @@ echo "    Server ready (PID: $SERVER_PID)"
 # pierre-cli built above, against this stack's SQLite database, and serves the
 # onboarding and coach plan-thread setups. It also runs the session-read double the
 # home-sync/ flow scripts, which this server is not pointed at: that flow
-# still needs scripts/e2e-home-sync-local.sh --mobile.
+# needs a server started with DRAVR_SCIOTTE_REMOTE_URL naming the double.
 CONTROL_PID=""
 CONTROL_PORT=8098
 if [ "$START_MAESTRO_CONTROL" = "true" ]; then
@@ -436,15 +418,9 @@ if [ "$START_MAESTRO_CONTROL" = "true" ]; then
         else
             echo -e "${YELLOW}    The control process did not become healthy; seeded sign-ins will fail. Check: tail -f $CONTROL_LOG${NC}"
         fi
-        # Metro serves the seeded-session route only with this set, in a
-        # development bundle whose API is local (metro.config.js): the Expo Go
-        # starts below on the simulator or emulator. Not --tunnel, nor a --native
-        # build without a local EXPO_PUBLIC_API_URL.
-        export EXPO_PUBLIC_E2E_SEEDED_SESSIONS=1
-        export EXPO_PUBLIC_E2E_CONTROL_PORT="$CONTROL_PORT"
-        if [ "$START_TUNNEL" = "true" ]; then
-            echo -e "${YELLOW}    --tunnel points the app at a public URL, so Metro leaves the seeded-session route out: flows that start signed in will stop at the login screen.${NC}"
-        fi
+        # The app's Metro (dravr-pitoune) serves the seeded-session route only
+        # with these two set, in a development bundle whose API is local.
+        echo "    Start the app's Metro with EXPO_PUBLIC_E2E_SEEDED_SESSIONS=1 EXPO_PUBLIC_E2E_CONTROL_PORT=$CONTROL_PORT"
     fi
 fi
 
@@ -476,11 +452,9 @@ if [ "$START_TUNNEL" = "true" ]; then
         if [ -n "$TUNNEL_URL" ]; then
             echo "    Tunnel URL: $TUNNEL_URL"
 
-            # One anchored line in each file: .envrc holds every secret this
-            # project has, and frontend-mobile/.env holds the Firebase and
-            # Google client ids beside the API base.
+            # One anchored line: .envrc holds every secret this project has.
             tunnel_env_arm "$PROJECT_ROOT" "$TUNNEL_URL"
-            echo "    .envrc and frontend-mobile/.env point at the tunnel"
+            echo "    .envrc points at the tunnel"
 
             # Restart server so it picks up BASE_URL for OAuth callbacks
             dev_stop pierre-server "Pierre MCP Server"
@@ -515,11 +489,6 @@ if [ -d "$PROJECT_ROOT/frontend" ]; then
     bun install --frozen-lockfile > /dev/null 2>&1
     echo "    frontend/ dependencies installed"
 fi
-if [ -d "$PROJECT_ROOT/frontend-mobile" ]; then
-    cd "$PROJECT_ROOT/frontend-mobile"
-    bun install --frozen-lockfile > /dev/null 2>&1
-    echo "    frontend-mobile/ dependencies installed"
-fi
 cd "$PROJECT_ROOT"
 
 # Step 7: Start web frontend
@@ -539,104 +508,9 @@ else
     FRONTEND_PID=""
 fi
 
-# Step 8: Start Expo Mobile
-print_step 8 "Starting Expo Mobile (port $EXPO_PORT)..."
-if [ -d "$PROJECT_ROOT/frontend-mobile" ]; then
-    cd "$PROJECT_ROOT/frontend-mobile"
-
-    # Xcode 27 has no Simulator.app, which is what `expo start --ios` opens to
-    # boot a device, and Device Hub (its replacement) boots nothing when it
-    # opens. So on Xcode 27 the device is booted with simctl here, and the Expo
-    # Go path below installs Expo Go and opens the URL itself once Metro
-    # answers. Xcode 16 and 26 keep the --ios path unchanged.
-    IOS_DEVICE_HUB=false
-    IOS_SIM_BOOTED=""
-    if [ "$MOBILE_PLATFORM" = "ios" ] && ! ios_sim_has_simulator_app; then
-        IOS_DEVICE_HUB=true
-        if IOS_SIM_BOOTED="$(ios_sim_ensure_booted)"; then
-            ios_sim_show "$IOS_SIM_BOOTED"
-            echo "    Device Hub (Xcode 27): $(ios_sim_device_name "$IOS_SIM_BOOTED") ($IOS_SIM_BOOTED) is booted"
-        else
-            IOS_SIM_BOOTED=""
-            echo -e "${YELLOW}    Could not boot an iOS simulator. Boot one, then rerun:${NC}"
-            ios_sim_boot_hint
-        fi
-    fi
-
-    if [ "$NATIVE_BUILD" = "true" ]; then
-        # --native flag: build native app with Xcode (for speech recognition, native MMKV)
-        echo "    Native build requested — using bin/build-native-app.sh..."
-        # The device booted above, when there was one to boot, is the one built for.
-        IOS_SIM_UDID="${IOS_SIM_UDID:-$IOS_SIM_BOOTED}" \
-            dev_spawn expo-build "$EXPO_LOG" "$PROJECT_ROOT/bin/build-native-app.sh" --no-bundler
-        echo "    Building native iOS app (this may take several minutes)..."
-        echo "    Watch progress: tail -f $EXPO_LOG"
-        # Start Metro in dev-client mode since native build uses --no-bundler.
-        # Metro is what holds $EXPO_PORT, so it is the pid the summary checks.
-        dev_spawn expo "$METRO_LOG" npx expo start --dev-client --port "$EXPO_PORT"
-        EXPO_PID=$DEV_SPAWNED_PID
-    else
-        # Default: use Expo Go (fast, no Xcode needed)
-        # --ios / --android installs Expo Go if missing and launches it on the
-        # booted simulator or emulator; --go forces Expo Go mode (not dev client).
-        # The Android emulator reaches the host as 10.0.2.2, and a process-level
-        # EXPO_PUBLIC_API_URL beats the one in frontend-mobile/.env, so a stale
-        # Cloud Run URL there cannot silently redirect the emulator to deployed dev.
-        EXPO_IOS_FLAGS=(--ios)
-        if [ "$IOS_DEVICE_HUB" = "true" ]; then
-            EXPO_IOS_FLAGS=()
-        fi
-        if [ "$MOBILE_PLATFORM" = "android" ]; then
-            # A previously installed Expo Go that is older than the one the SDK
-            # recommends makes `expo start` ask "Install the recommended Expo Go
-            # version?", and in a spawned, non-interactive process that question
-            # is fatal ("Input is required"); CI=1 does not bypass it. The
-            # fresh-install path asks nothing, so an installed copy is removed
-            # first. The APK comes from Expo's local cache after the first run.
-            "${ANDROID_HOME:?ANDROID_HOME must point at the Android SDK}/platform-tools/adb" \
-                uninstall host.exp.exponent >/dev/null 2>&1 || true
-            EXPO_PUBLIC_API_URL="http://10.0.2.2:$SERVER_PORT" \
-                dev_spawn expo "$EXPO_LOG" npx expo start --android --go --port "$EXPO_PORT"
-        elif [ "$START_TUNNEL" = "true" ]; then
-            # The tunnel wrote its public URL into frontend-mobile/.env, and a
-            # process-level EXPO_PUBLIC_API_URL would beat it.
-            dev_spawn expo "$EXPO_LOG" npx expo start "${EXPO_IOS_FLAGS[@]}" --go --port "$EXPO_PORT"
-        else
-            # The app's own default is localhost:8081, so the simulator is told
-            # this checkout's port, as the Android branch does.
-            EXPO_PUBLIC_API_URL="${EXPO_PUBLIC_API_URL:-http://localhost:$SERVER_PORT}" \
-                dev_spawn expo "$EXPO_LOG" npx expo start "${EXPO_IOS_FLAGS[@]}" --go --port "$EXPO_PORT"
-        fi
-        EXPO_PID=$DEV_SPAWNED_PID
-
-        # Device Hub: what --ios would have done, done by hand. A failure here
-        # leaves Metro and the rest of the stack running and says what to do.
-        if [ "$IOS_DEVICE_HUB" = "true" ] && [ -n "$IOS_SIM_BOOTED" ]; then
-            EXPO_GO_URL="exp://127.0.0.1:$EXPO_PORT"
-            if ! ios_sim_ensure_expo_go "$IOS_SIM_BOOTED" "$PROJECT_ROOT/frontend-mobile"; then
-                echo -e "${YELLOW}    Expo Go is not installed on $IOS_SIM_BOOTED. Install it with: ./bin/install-expo-go.sh${NC}"
-            elif ! ios_sim_wait_for_metro "$EXPO_PORT" 120; then
-                echo -e "${YELLOW}    Metro did not answer on $EXPO_PORT within 120s (see $EXPO_LOG). Then run:${NC}"
-                echo "    xcrun simctl openurl $IOS_SIM_BOOTED $EXPO_GO_URL"
-            elif ios_sim_open_in_expo_go "$IOS_SIM_BOOTED" "$EXPO_GO_URL"; then
-                echo "    Opened $EXPO_GO_URL in Expo Go $(ios_sim_expo_go_version "$IOS_SIM_BOOTED")"
-                echo "    iOS 27 asks \"Open in Expo Go?\" first: tap Open on the simulator."
-            else
-                echo -e "${YELLOW}    Could not open $EXPO_GO_URL. Run: xcrun simctl openurl $IOS_SIM_BOOTED $EXPO_GO_URL${NC}"
-            fi
-        fi
-    fi
-
-    cd "$PROJECT_ROOT"
-    echo "    Expo starting (PID: $EXPO_PID)"
-else
-    echo -e "${YELLOW}    frontend-mobile/ not found, skipping${NC}"
-    EXPO_PID=""
-fi
-
-# Step 9: Generate admin token
-print_step 9 "Generating admin API token..."
-# The password grant is gone (carnet#787): sign in as the mobile app does, through
+# Step 8: Generate admin token
+print_step 8 "Generating admin API token..."
+# The password grant is gone (carnet#787): sign in as the first-party apps do, through
 # the hosted login page with an authorization code and PKCE.
 ADMIN_LOGIN=$(printf '%s\n' "$ADMIN_PASSWORD" \
     | "$PROJECT_ROOT/scripts/auth/first-party-sign-in.sh" "http://127.0.0.1:$SERVER_PORT" "$ADMIN_EMAIL" -) \
@@ -687,8 +561,8 @@ printf "%-15s %-35s %-10s %-8s\n" "───────────────
 # Every row asks whether the process THIS run started is the one behind the
 # port, not merely whether the port answers: a neighbour's server on the same
 # port answers identically, and would print "Running" beside a pid whose log
-# ends in "Address already in use". The check spans process groups, so bun's and
-# Expo's forked listeners count as their recorded supervisor's.
+# ends in "Address already in use". The check spans process groups, so bun's
+# forked listeners count as their recorded supervisor's.
 
 # Check server
 if dev_pid_owns_port "$SERVER_PID" "$SERVER_PORT"; then
@@ -704,15 +578,6 @@ elif dev_pid_owns_port "$FRONTEND_PID" "$FRONTEND_PORT"; then
     printf "%-15s %-35s ${GREEN}%-10s${NC} %-8s\n" "Web Frontend" "http://localhost:$FRONTEND_PORT" "Running" "$FRONTEND_PID"
 else
     printf "%-15s %-35s ${YELLOW}%-10s${NC} %-8s\n" "Web Frontend" "http://localhost:$FRONTEND_PORT" "Starting" "$FRONTEND_PID"
-fi
-
-# Check Expo
-if [ -z "$EXPO_PID" ]; then
-    printf "%-15s %-35s ${YELLOW}%-10s${NC} %-8s\n" "Expo Mobile" "http://localhost:$EXPO_PORT" "Skipped" "-"
-elif dev_pid_owns_port "$EXPO_PID" "$EXPO_PORT"; then
-    printf "%-15s %-35s ${GREEN}%-10s${NC} %-8s\n" "Expo Mobile" "http://localhost:$EXPO_PORT" "Running" "$EXPO_PID"
-else
-    printf "%-15s %-35s ${YELLOW}%-10s${NC} %-8s\n" "Expo Mobile" "http://localhost:$EXPO_PORT" "Starting" "$EXPO_PID"
 fi
 
 # Check the Maestro control process
@@ -734,14 +599,6 @@ echo -e "${CYAN}=== Log Files ===${NC}"
 echo ""
 echo "  Pierre Server:  tail -f $SERVER_LOG"
 echo "  Web Frontend:   tail -f $FRONTEND_LOG"
-if [ "$NATIVE_BUILD" = "true" ]; then
-    # --native runs two mobile processes: the Xcode build writes $EXPO_LOG and
-    # Metro writes $METRO_LOG. Both are named because both are watched.
-    echo "  Native build:   tail -f $EXPO_LOG"
-    echo "  Metro bundler:  tail -f $METRO_LOG"
-else
-    echo "  Expo Mobile:    tail -f $EXPO_LOG"
-fi
 if [ -n "$CONTROL_PID" ]; then
     echo "  Maestro control: tail -f $CONTROL_LOG"
 fi
@@ -760,7 +617,5 @@ echo ""
 if [ "$STREAM_LOGS" = "true" ]; then
     echo -e "${CYAN}Streaming all logs (Ctrl+C to stop)...${NC}"
     echo ""
-    STREAMED_LOGS=("$SERVER_LOG" "$FRONTEND_LOG" "$EXPO_LOG")
-    [ "$NATIVE_BUILD" = "true" ] && STREAMED_LOGS+=("$METRO_LOG")
-    tail -f "${STREAMED_LOGS[@]}" 2>/dev/null
+    tail -f "$SERVER_LOG" "$FRONTEND_LOG" 2>/dev/null
 fi

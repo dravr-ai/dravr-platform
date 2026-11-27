@@ -1,7 +1,7 @@
 name: "CI: Design System"
 
-# DESIGN.md is one system with two renderers, so this gate spans web AND mobile
-# and gets its own trigger set rather than riding either platform's test suite.
+# DESIGN.md's web ratchets get their own trigger set rather than riding the web
+# test suite.
 # It is compile-free (grep + counts), so it reports in seconds.
 
 on:
@@ -17,15 +17,8 @@ on:
       - 'frontend/design-system/**'
       - 'frontend/scripts/**'
       - 'frontend/.impeccable/**'
-      - 'frontend-mobile/__tests__/**'
-      - 'frontend-mobile/eslint.config.js'
-      - 'frontend-mobile/app.config.js'
-      - 'frontend-mobile/assets/sources/**'
       - 'crates/pierre-core/src/hosted_page.css'
       - 'frontend/tailwind.config.cjs'
-      - 'frontend-mobile/src/**'
-      - 'frontend-mobile/*.css'
-      - 'frontend-mobile/tailwind.config.js'
       - 'packages/shared-constants/**'
       - 'scripts/ci/design-system-validation.sh'
       - '.github/workflows/design-system.yml'
@@ -41,15 +34,8 @@ on:
       - 'frontend/design-system/**'
       - 'frontend/scripts/**'
       - 'frontend/.impeccable/**'
-      - 'frontend-mobile/__tests__/**'
-      - 'frontend-mobile/eslint.config.js'
-      - 'frontend-mobile/app.config.js'
-      - 'frontend-mobile/assets/sources/**'
       - 'crates/pierre-core/src/hosted_page.css'
       - 'frontend/tailwind.config.cjs'
-      - 'frontend-mobile/src/**'
-      - 'frontend-mobile/*.css'
-      - 'frontend-mobile/tailwind.config.js'
       - 'packages/shared-constants/**'
       - 'scripts/ci/design-system-validation.sh'
       - '.github/workflows/design-system.yml'

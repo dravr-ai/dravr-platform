@@ -29,7 +29,6 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 . "$SCRIPT_DIR/dev-processes.sh"
-. "$SCRIPT_DIR/tunnel-env.sh"
 
 echo -e "${BLUE}=== Pierre MCP Server Startup ===${NC}"
 echo -e "Project root: ${PROJECT_ROOT}"
@@ -113,10 +112,6 @@ if [ "$START_TUNNEL" = "true" ]; then
             # Exported for the server spawned below, not written into .envrc:
             # this script's BASE_URL lives as long as the process it starts.
             export BASE_URL="$TUNNEL_URL"
-            # The mobile app reads its API base from a file Expo loads at build
-            # time, so that one is rewritten — a single anchored line, leaving
-            # the Firebase and Google client ids beside it intact.
-            tunnel_env_set_plain "$PROJECT_ROOT/frontend-mobile/.env" EXPO_PUBLIC_API_URL "$TUNNEL_URL"
         else
             echo -e "${RED}Failed to get tunnel URL. Check: tail -f $TUNNEL_LOG${NC}"
         fi

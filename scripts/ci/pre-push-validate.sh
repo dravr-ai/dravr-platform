@@ -69,7 +69,6 @@ HAS_RUST_SRC_CHANGES=false
 HAS_CARGO_CHANGES=false
 HAS_FRONTEND_CHANGES=false
 HAS_SDK_CHANGES=false
-HAS_MOBILE_CHANGES=false
 HAS_INFRA_CHANGES=false
 HAS_INFRA_MODULE_CHANGES=false
 HAS_MCP_TYPES_CHANGES=false
@@ -77,7 +76,6 @@ HAS_I18N_CATALOGUE_CHANGES=false
 HAS_API_CLIENT_CHANGES=false
 HAS_SHARED_PACKAGE_CHANGES=false
 HAS_WEB_INPUT_PACKAGE_CHANGES=false
-HAS_MOBILE_INPUT_PACKAGE_CHANGES=false
 HAS_SDK_INPUT_PACKAGE_CHANGES=false
 HAS_ROOT_MANIFEST_CHANGES=false
 
@@ -107,25 +105,22 @@ while IFS= read -r file; do
         packages/api-client/*) HAS_API_CLIENT_CHANGES=true; HAS_SHARED_PACKAGE_CHANGES=true ;;
         packages/*) HAS_SHARED_PACKAGE_CHANGES=true ;;
         sdk/*) HAS_SDK_CHANGES=true ;;
-        frontend-mobile/*) HAS_MOBILE_CHANGES=true ;;
         infra/modules/*) HAS_INFRA_CHANGES=true; HAS_INFRA_MODULE_CHANGES=true ;;
         infra/*) HAS_INFRA_CHANGES=true ;;
     esac
     # Which client a shared package feeds. The clients compile against packages/
     # as directly as against their own src: frontend/src/i18n reads its whole
     # locale corpus out of packages/i18n, design-system-validation.sh reads
-    # packages/shared-constants, and the mobile integration specs assert against
-    # locale JSON. packages/mcp-types is the SDK's alone — no client imports it.
-    # Anything else added under packages/ feeds both clients, which is the
-    # direction that fails safe.
+    # packages/shared-constants. packages/mcp-types is the SDK's alone — the web
+    # client does not import it. Anything else added under packages/ feeds the
+    # web client, which is the direction that fails safe.
     case "$file" in
         packages/mcp-types/*) HAS_SDK_INPUT_PACKAGE_CHANGES=true ;;
-        packages/*) HAS_WEB_INPUT_PACKAGE_CHANGES=true; HAS_MOBILE_INPUT_PACKAGE_CHANGES=true ;;
+        packages/*) HAS_WEB_INPUT_PACKAGE_CHANGES=true ;;
     esac
     # The root manifest and lockfile resolve every workspace (packages/*,
-    # frontend, frontend-mobile), so an `overrides` pin or a lockfile move
-    # changes what both clients compile and test against with neither client
-    # directory in the diff. The SDK is not a workspace and has its own lockfile.
+    # frontend), so an `overrides` pin or a lockfile move changes what the web
+    # client compiles and tests against with frontend/ absent from the diff. The SDK is not a workspace and has its own lockfile.
     case "$file" in
         package.json|bun.lock) HAS_ROOT_MANIFEST_CHANGES=true ;;
     esac
@@ -145,12 +140,6 @@ if [[ "$HAS_FRONTEND_CHANGES" == "true" ]] || [[ "$HAS_WEB_INPUT_PACKAGE_CHANGES
     RUN_WEB_TIER=true
 fi
 
-RUN_MOBILE_TIER=false
-if [[ "$HAS_MOBILE_CHANGES" == "true" ]] || [[ "$HAS_MOBILE_INPUT_PACKAGE_CHANGES" == "true" ]] \
-    || [[ "$HAS_ROOT_MANIFEST_CHANGES" == "true" ]]; then
-    RUN_MOBILE_TIER=true
-fi
-
 RUN_SDK_TIER=false
 if [[ "$HAS_SDK_CHANGES" == "true" ]] || [[ "$HAS_SDK_INPUT_PACKAGE_CHANGES" == "true" ]]; then
     RUN_SDK_TIER=true
@@ -167,7 +156,6 @@ echo "   MCP types: $HAS_MCP_TYPES_CHANGES"
 echo "   API client: $HAS_API_CLIENT_CHANGES"
 echo "   Shared packages: $HAS_SHARED_PACKAGE_CHANGES"
 echo "   Root manifest: $HAS_ROOT_MANIFEST_CHANGES"
-echo "   Mobile: $HAS_MOBILE_CHANGES (tier runs: $RUN_MOBILE_TIER)"
 echo "   Infra: $HAS_INFRA_CHANGES"
 if [[ ${#CHANGED_CRATES[@]} -gt 0 ]]; then
     echo "   Changed crates: ${!CHANGED_CRATES[*]}"
@@ -232,7 +220,7 @@ fi
 # closed when shellcheck is absent rather than reading as clean, because a
 # scan that ran nothing is not a pass. The pattern set below mirrors the
 # workflow step in .github/workflows/ci-backend.yml — extend both together.
-SHELL_LINT_PATTERNS='^bin/[^/]+\.sh$|^scripts/ci/[^/]+\.test\.sh$|^scripts/ci/mobile-e2e-batch\.sh$|^scripts/ci/wait-cloud-run-service-ready\.sh$|^scripts/ci/tag-deployed-digest\.sh$|^scripts/ci/carry-forward-frontend-assets\.sh$|^scripts/ci/sweep-landed-branches\.sh$|^scripts/ci/strip-carnet-footer\.sh$|^scripts/ci/check-keep-warm-traffic\.sh$|^scripts/ci/branch-ci-proof\.sh$|^scripts/setup/setup-claude-code-mcp\.sh$|^scripts/setup/check-gh-cli\.sh$|^scripts/sciotte-local\.sh$'
+SHELL_LINT_PATTERNS='^bin/[^/]+\.sh$|^scripts/ci/[^/]+\.test\.sh$|^scripts/ci/wait-cloud-run-service-ready\.sh$|^scripts/ci/tag-deployed-digest\.sh$|^scripts/ci/carry-forward-frontend-assets\.sh$|^scripts/ci/sweep-landed-branches\.sh$|^scripts/ci/strip-carnet-footer\.sh$|^scripts/ci/check-keep-warm-traffic\.sh$|^scripts/ci/branch-ci-proof\.sh$|^scripts/setup/setup-claude-code-mcp\.sh$|^scripts/setup/check-gh-cli\.sh$|^scripts/sciotte-local\.sh$'
 SHELL_LINT_FILES=$(echo "$CHANGED_FILES" | grep -E "$SHELL_LINT_PATTERNS" || true)
 SHELL_LINT_FILES=$(for f in $SHELL_LINT_FILES; do if [[ -f "$PROJECT_ROOT/$f" ]]; then echo "$f"; fi; done)
 if [[ -n "$SHELL_LINT_FILES" ]]; then
@@ -361,7 +349,7 @@ fi
 # ============================================================================
 # carnet#1644: "Please use admin and stop using operator" (ChefFamille,
 # 2026-11-13). About 2,000 occurrences were renamed at once; this fails when
-# "operator" comes back anywhere under crates/, frontend/, frontend-mobile/ or
+# "operator" comes back anywhere under crates/, frontend/ or
 # packages/ outside the script's allowlist (a column name, a stored value, a
 # shipped wire field, a meaning that is not an admin). Every push, like the
 # vocabulary fence: the catalogue copy moves only in the bump lane.
@@ -391,12 +379,11 @@ fi
 # needs a caller, because that stock is zero (carnet#581). The other: every
 # route the server registers has a caller in the tree or a declared outside
 # caller (`--all-routes`), because that stock is zero too.
-# Also fires on either client's changes: since the api-client scan is split
-# per surface, a client that drops its last caller of a method the other client
-# still uses is a parity gap this catches — and that change touches neither
-# crates/ nor packages/api-client.
+# Also fires on web client changes: a component that drops the last caller of
+# an api-client method leaves that method orphaned, and that change touches
+# neither crates/ nor packages/api-client.
 if { [[ "$HAS_RUST_SRC_CHANGES" == "true" ]] || [[ "$HAS_API_CLIENT_CHANGES" == "true" ]] \
-    || [[ "$HAS_FRONTEND_CHANGES" == "true" ]] || [[ "$HAS_MOBILE_CHANGES" == "true" ]]; } \
+    || [[ "$HAS_FRONTEND_CHANGES" == "true" ]]; } \
     && [[ -x "$PROJECT_ROOT/scripts/ci/check-phantom-surfaces.sh" ]]; then
     echo "Tier 1c: Phantom Surface Detection"
     echo "------------------------------------"
@@ -420,11 +407,11 @@ fi
 # makes that a framework rather than a snapshot is that adding a capability to
 # one surface without the others fails at authoring time. Nothing did that
 # before — which is why every gap in the original parity survey passed CI green.
-# Catches a reintroduced channel-identity flag, a reply block only one client
-# renders, a hand-rolled fetch() at /api/chat, and a generated capability
+# Catches a reintroduced channel-identity flag, a reply block the web client
+# does not render, a hand-rolled fetch() at /api/chat, and a generated capability
 # catalogue that has fallen behind surface_profile.rs.
 if { [[ "$HAS_RUST_SRC_CHANGES" == "true" ]] || [[ "$HAS_FRONTEND_CHANGES" == "true" ]] \
-    || [[ "$HAS_MOBILE_CHANGES" == "true" ]] || [[ "$HAS_SHARED_PACKAGE_CHANGES" == "true" ]]; } \
+    || [[ "$HAS_SHARED_PACKAGE_CHANGES" == "true" ]]; } \
     && [[ -x "$PROJECT_ROOT/scripts/ci/check-turn-envelope.sh" ]]; then
     echo "Tier 1d: Turn Envelope Convergence"
     echo "------------------------------------"
@@ -770,7 +757,7 @@ fi
 # must exist in the catalogue.
 if [[ -x "$PROJECT_ROOT/scripts/ci/check-i18n-keys.sh" ]] \
     && git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
-       | grep -qE '^(frontend|frontend-mobile)/src/.*\.tsx?$|^packages/i18n/'; then
+       | grep -qE '^frontend/src/.*\.tsx?$|^packages/i18n/'; then
     echo "Tier 1k: i18n key resolution"
     echo "----------------------------"
     if ! "$PROJECT_ROOT/scripts/ci/check-i18n-keys.sh"; then
@@ -790,15 +777,15 @@ fi
 # the generator, so the file is committed, and a committed generated file goes
 # stale the moment a token moves. The fourteen templates it replaced had each
 # kept a private copy of a palette the product retired months before, because
-# nothing tied them to the tokens. The web and mobile stylesheets import token
-# blocks generated from the same source, for the same reason: each used to keep
-# a hand copy of the tree. The gate regenerates and diffs all three, holds every
-# hosted template to the shared sheet and each client stylesheet to its block.
+# nothing tied them to the tokens. The web stylesheet imports a token block
+# generated from the same source, for the same reason: it used to keep a hand
+# copy of the tree. The gate regenerates and diffs both, holds every hosted
+# template to the shared sheet and the web stylesheet to its block.
 # It runs when anything a sheet is built from, or anything that embeds one, is
 # in the push; a change to the gate or its generators also runs its self-test.
 if [[ -x "$PROJECT_ROOT/scripts/ci/check-hosted-css.sh" ]] \
     && git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
-       | grep -qE '^crates/pierre-core/src/hosted_page\.css$|^crates/[^/]+/(templates|src)/.*\.html$|^packages/shared-constants/(src/(design-system|brands|wcag)\.ts|scripts/(generate-hosted-css|generate-client-css)\.ts)$|^frontend/public/brand/mark-ink-96\.png$|^frontend/src/(index|boreal-tokens\.generated)\.css$|^frontend-mobile/(global|boreal-tokens\.generated)\.css$|^scripts/ci/check-hosted-css(\.test)?\.sh$'; then
+       | grep -qE '^crates/pierre-core/src/hosted_page\.css$|^crates/[^/]+/(templates|src)/.*\.html$|^packages/shared-constants/(src/(design-system|brands|wcag)\.ts|scripts/(generate-hosted-css|generate-client-css)\.ts)$|^frontend/public/brand/mark-ink-96\.png$|^frontend/src/(index|boreal-tokens\.generated)\.css$|^scripts/ci/check-hosted-css(\.test)?\.sh$'; then
     echo "Tier 1l: Generated Boreal stylesheets"
     echo "-------------------------------------"
     if ! "$PROJECT_ROOT/scripts/ci/check-hosted-css.sh"; then
@@ -1035,8 +1022,7 @@ fi
 # ============================================================================
 # packages/chat-utils, ui-logic, domain-utils and mcp-types hold the logic both
 # clients share. Their vitest suites reach neither client's runner: frontend's
-# vitest `include` is 'src/**' and mobile's jest rootDir puts packages/ outside
-# the tree, so nothing ran them. Seconds to run, and it is the only local gate
+# vitest `include` is 'src/**', so nothing ran them. Seconds to run, and it is the only local gate
 # on that code.
 if [[ "$HAS_SHARED_PACKAGE_CHANGES" == "true" ]]; then
     echo "Tier 4: Shared Package Tests"
@@ -1088,12 +1074,11 @@ if [[ "$RUN_WEB_TIER" == "true" ]]; then
 fi
 
 # ============================================================================
-# TIER 5b: Design System Validation (if web or mobile UI changed)
+# TIER 5b: Design System Validation (if web UI changed)
 #
-# Compile-free token/primitive conformance. Runs on either platform's changes
-# because the ratchets span both — DESIGN.md is one system with two renderers.
+# Compile-free token/primitive conformance, for the web client's ratchets.
 # ============================================================================
-if [[ "$RUN_WEB_TIER" == "true" || "$RUN_MOBILE_TIER" == "true" ]]; then
+if [[ "$RUN_WEB_TIER" == "true" ]]; then
     echo "Tier 5b: Design System Validation"
     echo "---------------------------------"
     if [[ -f "$PROJECT_ROOT/scripts/ci/design-system-validation.sh" ]]; then
@@ -1169,35 +1154,6 @@ if [[ "$RUN_SDK_TIER" == "true" ]]; then
         fi
     else
         echo "WARN: sdk/node_modules not found, skipping"
-    fi
-    echo ""
-fi
-
-# ============================================================================
-# TIER 7: Mobile Validation (frontend-mobile/ or a shared package it compiles against)
-# ============================================================================
-if [[ "$RUN_MOBILE_TIER" == "true" ]]; then
-    echo "Tier 7: Mobile Validation"
-    echo "-------------------------"
-    if branch_ci_proof 7; then
-        # The compile-free checks of the mobile tier still run: they cost seconds, and the
-        # Maestro assertion check is not part of the CI job that proved the rest.
-        echo "  skipped: branch CI type-checked, linted and tested the app on this tree"
-        if ! "$PROJECT_ROOT/scripts/ci/check-eas-submit-config.sh"; then
-            echo "FAIL: EAS submit config check failed!"
-            exit 1
-        fi
-        if ! "$PROJECT_ROOT/scripts/ci/check-maestro-assertions.sh"; then
-            echo "FAIL: Maestro assertion check failed!"
-            exit 1
-        fi
-    elif [[ -f "$PROJECT_ROOT/scripts/ci/pre-push-mobile-tests.sh" ]]; then
-        if ! "$PROJECT_ROOT/scripts/ci/pre-push-mobile-tests.sh"; then
-            echo "FAIL: Mobile validation failed!"
-            exit 1
-        fi
-    else
-        echo "WARN: pre-push-mobile-tests.sh not found, skipping"
     fi
     echo ""
 fi

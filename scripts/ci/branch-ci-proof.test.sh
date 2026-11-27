@@ -335,15 +335,15 @@ if [ "$calls" = 1 ]; then pass "a failed lookup is not retried by every tier"; e
 
 echo "  case 7g: the curl client, when gh is absent"
 reset_fixtures
-runs "$SHA" "118:completed:$TREE:push:mobile-unit-tests.yml"
-jobs 118 "Typecheck, Lint & Tests=success|Type check=success|Lint=success|Run unit tests=success|Run app integration specs=success"
+runs "$SHA" "118:completed:$TREE:push:server-e2e.yml"
+jobs 118 "SDK Test Suite=success|Build SDK bridge=success|Run SDK unit tests=success"
 CODE=0
-OUT="$(cd "$dir" && PATH="$ROOT/bin:$PATH" FIX="$FIX" BRANCH_CI_PROOF_REPO=o/r BRANCH_CI_PROOF_CLIENT=curl "$UNDER_TEST" check 7 2>&1)" || CODE=$?
-expect "curl reads the same answers" 0 "proven by branch CI: ${SHA:0:12} (origin/feature/work) run 118, mobile-unit-tests.yml › Typecheck, Lint & Tests"
+OUT="$(cd "$dir" && PATH="$ROOT/bin:$PATH" FIX="$FIX" BRANCH_CI_PROOF_REPO=o/r BRANCH_CI_PROOF_CLIENT=curl "$UNDER_TEST" check 6 2>&1)" || CODE=$?
+expect "curl reads the same answers" 0 "proven by branch CI: ${SHA:0:12} (origin/feature/work) run 118, server-e2e.yml › SDK Test Suite"
 reset_fixtures
 touch "$FIX/ratelimit"
 CODE=0
-OUT="$(cd "$dir" && PATH="$ROOT/bin:$PATH" FIX="$FIX" BRANCH_CI_PROOF_REPO=o/r BRANCH_CI_PROOF_CLIENT=curl "$UNDER_TEST" check 7 2>&1)" || CODE=$?
+OUT="$(cd "$dir" && PATH="$ROOT/bin:$PATH" FIX="$FIX" BRANCH_CI_PROOF_REPO=o/r BRANCH_CI_PROOF_CLIENT=curl "$UNDER_TEST" check 6 2>&1)" || CODE=$?
 expect "curl's rate limit proves nothing" 1 "rate limit"
 
 echo "  case 7h: a tier with two jobs needs both"

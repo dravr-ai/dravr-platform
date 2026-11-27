@@ -1,7 +1,7 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
-# ABOUTME: Ratcheting design-system conformance gate for web + mobile
+# ABOUTME: Ratcheting design-system conformance gate for web
 # ABOUTME: Enforces DESIGN.md token discipline that ESLint and tsc cannot check
 
 # Two classes of rule live here:
@@ -43,8 +43,6 @@ BASELINE_WEB_RAW_PALETTE=2
 # White literals 9 -> 2: the seven hand-written switches' `bg-white` thumbs
 # went with them onto ui/Switch, whose thumb is a token (carnet#1584).
 BASELINE_WEB_WHITE_LITERAL=2
-BASELINE_MOBILE_RAW_PALETTE=0
-BASELINE_MOBILE_RAW_TEXTINPUT=12
 BASELINE_WEB_LEGACY_PIERRE=0
 # Boreal v2 (DESIGN.md "Do's and Don'ts"): backdrop blur belongs to overlays over
 # photography and `boreal-hero-gradient` to nothing at all any more. Both are
@@ -63,52 +61,6 @@ BASELINE_WEB_CARD_SITES=82
 BASELINE_WEB_LEGACY_CARD_CLASSES=12
 BASELINE_WEB_LARGE_TEXT=46
 
-# Boreal v2.2 "Mobile Less" Phase 6 (DESIGN.md "Phone"): the density and token
-# rules Phases 1-5 applied to the phone, ratcheted from what that migration
-# left rather than zeroed — a `useCardStyle`/`<Card` site the design note
-# names as deliberate (StoreCoachDetailScreen's action bar, a floating menu)
-# is not debt, and SciotteLoginModal/BrandIcons keep their
-# literals by the same out-of-scope call Phase 2 made.
-BASELINE_MOBILE_HEX_LITERALS=0
-BASELINE_MOBILE_CARD_SITES=9
-# 28: the route map's start dot and distance-mark disc (carnet#807) — a dot
-# and a badge on the radius ladder's own `full` step.
-# 29: the Home week strip's done dot under a day that holds a workout
-# (carnet#708) — a dot, the same `full` step.
-# 30: the plan card's draft badge in a coach's plan thread (carnet#1069) — a
-# badge, the web's `.badge-warning`; drawn by ui/Badge since carnet#1518.
-# 31: the plan card's per-day "Outside the evidence" badge (carnet#1495) — a
-# badge, the web's `.badge-warning`; drawn by ui/Badge since carnet#1518.
-# 30 again: the onboarding hairline's track and fill became one class on its
-# segments (carnet#1526).
-# 35: the coach seat's room strip and request timeline — the strip's icon disc,
-# the timeline's three step markers and the current step's centre dot; a badge
-# and dots on the same `full` step.
-# 36: the plan card's per-day evidence chip (carnet#1495) — a badge, the web's
-# `.badge-neutral`; drawn by ui/Badge since carnet#1518.
-# 37: the pending coach Home's checklist step marker (carnet#1529) — a dot on
-# the same `full` step as the seat timeline's markers.
-# 38: Home's Your team row (carnet#1528) — the overlapping agent avatars, an
-# avatar like the conversation list's.
-# 36: ui/Badge (carnet#1518) — the one pill recipe, the web's `.badge` family
-# on the phone; the draft, outside-the-evidence and evidence badges above draw
-# through it, so three hand-written sites became the component's one.
-# 35: the chat-app picker's "Recommended" pill draws through ui/Badge's
-# `primary` variant, the web's `.badge-primary` (carnet#1518).
-# 34: the coach-category pills follow the web and DESIGN.md (carnet#1518):
-# the store detail's category and the editor's selected category became a
-# pillar dot beside the word — still one site each, now a dot — and the store
-# detail's tag pills became words separated by dots, which draws none.
-# 35: DiscoverRow's category dot moved its size and radius from an inline
-# style (`borderRadius: 3`) to classes (carnet#1518) — the same dot, now
-# counted here instead of below; the inline-radius baseline falls 32 -> 31.
-# 37: the phone's ui/RadioGroup (carnet#1714), the form-choice primitive the
-# day editor's family and format lists draw through: its radio ring and the
-# dot inside it, one site each, a radio's own circle rather than a card or
-# button that skipped the radius ladder.
-BASELINE_MOBILE_ROUNDED_FULL=37
-BASELINE_MOBILE_INLINE_BORDER_RADIUS=27
-
 # Feedback tints written by hand instead of read from a tone table
 # (DESIGN.md "Alerts", carnet#1584). A banner, notice, inline error or
 # tinted chip takes ALERT_TONE or BADGE_TONE, whose inks are measured on their
@@ -116,11 +68,7 @@ BASELINE_MOBILE_INLINE_BORDER_RADIUS=27
 # hue on its own tint. Web 0: the four washes left (the version history's
 # before/after cells, the private lane, the current plan card) are WASH_TONE,
 # a third table alertTone.test.tsx reads and measures (5 -> 0).
-# Phone 7: the season bars' phase fills (3, unlabelled — a labelled band reads
-# phaseBand, on the badge tones), private-lane washes (2) and version cells (2),
-# each body or bound ink on a wash (DESIGN.md "A wash is not an alert").
 BASELINE_WEB_HAND_TINT=0
-BASELINE_MOBILE_HAND_TINT=7
 
 # Tailwind's stock palette. Project tokens (primary, surface, on-surface,
 # outline, and the pillar tokens) never match: the colour name must follow the
@@ -156,10 +104,10 @@ check_ratchet() {
 
 # ----------------------------------------------------------------------------
 # HARD: every design token is defined in exactly one place.
-# DESIGN.md names design-system.ts as the source, the two generated blocks the
-# client stylesheets import, and the two Tailwind configs that map them; verify
-# the files exist rather than trusting the claim. That the blocks match the
-# source is scripts/ci/check-hosted-css.sh's job: it regenerates and diffs them.
+# DESIGN.md names design-system.ts as the source, the generated block the web
+# stylesheet imports, and the Tailwind config that maps it; verify the files
+# exist rather than trusting the claim. That the block matches the source is
+# scripts/ci/check-hosted-css.sh's job: it regenerates and diffs it.
 # ----------------------------------------------------------------------------
 echo "-- Token source files --"
 for f in \
@@ -167,15 +115,14 @@ for f in \
     "packages/shared-constants/src/design-system.ts" \
     "frontend/src/boreal-tokens.generated.css" \
     "frontend/tailwind.config.cjs" \
-    "frontend-mobile/boreal-tokens.generated.css" \
-    "frontend-mobile/tailwind.config.js"
+    "frontend/src/index.css"
 do
     if [ ! -f "$PROJECT_ROOT/$f" ]; then
         echo -e "${RED}FAIL${NC} DESIGN.md names $f as part of the token system, but it does not exist."
         FAILED=1
     fi
 done
-[ "$FAILED" -eq 0 ] && echo -e "${GREEN}OK${NC}   the token source, both generated blocks and both Tailwind configs are present"
+[ "$FAILED" -eq 0 ] && echo -e "${GREEN}OK${NC}   the token source, the generated block, its stylesheet and the Tailwind config are present"
 echo ""
 
 # ----------------------------------------------------------------------------
@@ -185,17 +132,16 @@ echo "-- Tailwind token mapping (DESIGN.md \"The Alpha Rule\") --"
 
 # Tokens are useless to Tailwind unless the config composes alpha onto them;
 # a bare var() silently drops every /NN modifier at build time.
-for cfg in "frontend/tailwind.config.cjs" "frontend-mobile/tailwind.config.js"; do
-    if grep -qE "'var\(--color-" "$PROJECT_ROOT/$cfg"; then
-        echo -e "${RED}FAIL${NC} $cfg maps a token as bare 'var(--color-…)'."
-        echo "     Tailwind drops opacity modifiers on those, so bg-token/20 emits nothing."
-        echo "     Use 'rgb(var(--color-…) / <alpha-value>)'."
-        grep -nE "'var\(--color-" "$PROJECT_ROOT/$cfg" | head -5
-        FAILED=1
-    fi
-done
+cfg="frontend/tailwind.config.cjs"
+if grep -qE "'var\(--color-" "$PROJECT_ROOT/$cfg"; then
+    echo -e "${RED}FAIL${NC} $cfg maps a token as bare 'var(--color-…)'."
+    echo "     Tailwind drops opacity modifiers on those, so bg-token/20 emits nothing."
+    echo "     Use 'rgb(var(--color-…) / <alpha-value>)'."
+    grep -nE "'var\(--color-" "$PROJECT_ROOT/$cfg" | head -5
+    FAILED=1
+fi
 
-[ "$FAILED" -eq 0 ] && echo -e "${GREEN}OK${NC}   both Tailwind configs compose an alpha onto every token"
+[ "$FAILED" -eq 0 ] && echo -e "${GREEN}OK${NC}   the Tailwind config composes an alpha onto every token"
 echo ""
 
 # ----------------------------------------------------------------------------
@@ -254,22 +200,6 @@ WEB_RAW_INPUT=$(grep -rn '<input' "$PROJECT_ROOT/frontend/src" --include='*.tsx'
 check_ratchet "web raw <input> outside components/ui" \
     "$WEB_RAW_INPUT" "$BASELINE_WEB_RAW_INPUT" \
     "Use <Input> from components/ui, or add the missing primitive."
-
-# Mobile had no equivalent rule, which is how a modal kept hand-rolling boxed
-# fields and a hardcoded brand-blue CTA long after the primitive existed. The
-# bypass is the bug, not the platform.
-# JSX only. A bare `<TextInput` also matches the GENERIC TYPE PARAMETER in
-# `useRef<TextInput>(null)` and `RefObject<TextInput | null>`, which are not raw
-# fields — they are how a screen holds a ref to the primitive, which is the
-# supported way to chain focus. Counting them made the ratchet punish adding a
-# ref and it had already banked two of them (ChatInputBar, ChatScreen) into the
-# baseline. Requiring a non-identifier character before the `<` separates the
-# element from the type argument; the trailing class keeps `<TextInputFoo` out.
-MOBILE_RAW_TEXTINPUT=$(grep -rnE '(^|[^[:alnum:]_])<TextInput([[:space:]/>]|$)' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
-    | grep -v 'src/components/ui/' | wc -l | tr -d ' ')
-check_ratchet "mobile raw <TextInput> outside components/ui" \
-    "$MOBILE_RAW_TEXTINPUT" "$BASELINE_MOBILE_RAW_TEXTINPUT" \
-    "Use <Input> from components/ui."
 echo ""
 
 # ----------------------------------------------------------------------------
@@ -322,12 +252,6 @@ WEB_PALETTE=$(grep -rEoh "$PALETTE_RE" "$PROJECT_ROOT/frontend/src" --include='*
 check_ratchet "web stock-palette classnames" \
     "$WEB_PALETTE" "$BASELINE_WEB_RAW_PALETTE" \
     "Use the DESIGN.md \"Colors\" tokens (primary, surface, on-surface, outline, error, warning, success)."
-
-MOBILE_PALETTE=$(grep -rEoh "$PALETTE_RE" "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
-    | wc -l | tr -d ' ')
-check_ratchet "mobile stock-palette classnames" \
-    "$MOBILE_PALETTE" "$BASELINE_MOBILE_RAW_PALETTE" \
-    "Use the DESIGN.md \"Colors\" tokens via NativeWind."
 echo ""
 
 # ----------------------------------------------------------------------------
@@ -428,127 +352,6 @@ check_ratchet "web hand-written feedback tints" "$WEB_HAND_TINT" "$BASELINE_WEB_
 WEB_AI_BUBBLE=$(grep -rEo 'chat-bubble-ai' "$PROJECT_ROOT/frontend/src" 2>/dev/null | wc -l | tr -d ' ')
 check_ratchet "web agent bubble class" "$WEB_AI_BUBBLE" 0 \
     "The agent's turn is prose on the canvas; only .chat-bubble-user remains (DESIGN.md \"Chat surfaces\")."
-echo ""
-
-# ----------------------------------------------------------------------------
-# Boreal v2.2 "Mobile Less" Phase 6 (DESIGN.md "Phone"): HARD, phone-specific
-# retirements. Each of these is fully migrated per Phases 1-2 — a copy-paste
-# from a pre-Boreal screen is the only way one comes back, same reasoning as
-# the web v2 retirements above.
-# ----------------------------------------------------------------------------
-echo "-- Boreal v2.2 mobile retirements --"
-MOBILE_EMOJI=$(find "$PROJECT_ROOT/frontend-mobile/src" -name '*.tsx' -not -path '*/__tests__/*' -print0 2>/dev/null \
-    | xargs -0 perl -CSD -ne 'print "$ARGV:$.\n" if /[\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}]/' \
-    | wc -l | tr -d ' ')
-check_ratchet "mobile emoji used as icons" "$MOBILE_EMOJI" 0 \
-    "Draw the Feather/lucide glyph the screen already uses elsewhere; emoji are not part of the brand."
-
-MOBILE_TINY_TEXT=$(grep -rEo 'text-\[1' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
-    | grep -v '__tests__' | wc -l | tr -d ' ')
-check_ratchet "mobile arbitrary text size (text-[1…)" "$MOBILE_TINY_TEXT" 0 \
-    "The ladder covers 12-26px (xs…3xl, tailwind.config.js); use a step instead of an arbitrary value."
-
-MOBILE_CAPS_LABELS=$(grep -rEoh 'uppercase tracking-wider?|tracking-wider? uppercase' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
-    | wc -l | tr -d ' ')
-check_ratchet "mobile caps-tracked labels" "$MOBILE_CAPS_LABELS" 0 \
-    "Labels are sentence case; only the wordmark carries tracking-brand (DESIGN.md \"The Sentence-Case Rule\")."
-
-MOBILE_BLUR=$(grep -rEoh 'BlurView|expo-blur|expo-glass-effect' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' --include='*.ts' 2>/dev/null \
-    | wc -l | tr -d ' ')
-check_ratchet "mobile BlurView/expo-blur/expo-glass-effect" "$MOBILE_BLUR" 0 \
-    "Phase 1 deleted the floating glass chrome; the system bar and header need no blur."
-
-# Two files keep it by Phase 2's own acceptance criteria: SciotteLoginModal's
-# brand sweep and ScrollFadeContainer's edge fade, neither a card or button.
-# -E on the exclusion, not just the rest of the file's convention: BSD grep's
-# basic-regex mode does not treat \| as alternation, so without it this
-# silently matched nothing and let both permitted files count as violations.
-MOBILE_GRADIENT=$(grep -rln 'LinearGradient' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
-    | grep -vE 'SciotteLoginModal\.tsx$|ScrollFadeContainer\.tsx$' | wc -l | tr -d ' ')
-check_ratchet "mobile LinearGradient outside the two permitted files" "$MOBILE_GRADIENT" 0 \
-    "A filled surface is bg-primary, a tint is bg-primary-container; nothing else is a gradient (DESIGN.md \"Do's and Don'ts\")."
-
-MOBILE_SPACE_GROTESK=$(grep -rEoh 'Space Grotesk' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' --include='*.ts' "$PROJECT_ROOT/frontend-mobile/tailwind.config.js" 2>/dev/null \
-    | wc -l | tr -d ' ')
-check_ratchet "mobile Space Grotesk" "$MOBILE_SPACE_GROTESK" 0 \
-    "Schibsted Grotesk is the only display face loaded (app/_layout.tsx, DESIGN.md \"Typography\")."
-
-MOBILE_BG_BLACK=$(grep -rEoh 'bg-black/[0-9]+' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
-    | wc -l | tr -d ' ')
-check_ratchet "mobile bg-black/* overlays" "$MOBILE_BG_BLACK" 0 \
-    "Use bg-scrim/60 — one veil token for every sheet and dialog (DESIGN.md \"Feedback and pillars\")."
-
-MOBILE_HARD_44=$(grep -rEoh 'min-[hw]-\[44px\]' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
-    | wc -l | tr -d ' ')
-check_ratchet "mobile hard-coded 44px targets" "$MOBILE_HARD_44" 0 \
-    "The phone has one pointer, not two: express 44 through the spacing scale (min-h-11), not an arbitrary bracket value."
-echo ""
-
-# ----------------------------------------------------------------------------
-# Boreal v2.2 "Mobile Less" Phase 6 (DESIGN.md "Phone"): RATCHETED, phone-specific
-# backlog too large to clear in this phase — counted so it can only fall.
-# ----------------------------------------------------------------------------
-echo "-- Boreal v2.2 mobile density backlog --"
-
-# Anchored on a preceding quote or bracket character so a real string literal
-# ('#00241a', bg-[#fff]) counts and a bare comment reference does not:
-# carnet#215 is three hex digits to a naive regex, and carnet#207 is a 'hex' to a naive regex.
-# A backtick-quoted mention inside a /** doc comment */ (`#8f6a2e`) is the same
-# trap in a different font and is excluded the same way.
-# No -h: the two filters below match on the file path, so the path has to
-# survive into the piped text (dropping it would silently match nothing, the
-# same trap the gradient check above hit).
-MOBILE_HEX_LITERALS=$(grep -rEo "['\"\[]#[0-9a-fA-F]{3,8}\b|['\"]rgba?\([0-9]" "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
-    | grep -v '__tests__' \
-    | grep -vE 'BrandIcons\.tsx|SciotteLoginModal\.tsx' \
-    | wc -l | tr -d ' ')
-check_ratchet "mobile hex/rgba literals outside BrandIcons/SciotteLoginModal" \
-    "$MOBILE_HEX_LITERALS" "$BASELINE_MOBILE_HEX_LITERALS" \
-    "Read the value from useThemeColors()/tokens instead of a frozen literal (DESIGN.md \"Colors\")."
-
-# useCardStyle's own definition (components/ui/Card.tsx) is excluded — the
-# primitive necessarily calls itself to exist, which is not a consumer still
-# reaching for card visuals. Everywhere else it is a Card-shaped surface a
-# Section hasn't replaced yet: some deliberately (StoreCoachDetailScreen's
-# action bar, ConversationsScreen's floating overflow menu — Card is for what
-# floats), some not yet reached.
-MOBILE_CARD_STYLE_ALL=$(grep -rEo '\buseCardStyle\b' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
-    | grep -v '__tests__' | wc -l | tr -d ' ')
-MOBILE_CARD_STYLE_OWN=$(grep -c '\buseCardStyle\b' "$PROJECT_ROOT/frontend-mobile/src/components/ui/Card.tsx" 2>/dev/null || echo 0)
-MOBILE_CARD_JSX=$(grep -rEo '<Card\b' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
-    | grep -v '__tests__' | wc -l | tr -d ' ')
-MOBILE_CARD_SITES=$(( MOBILE_CARD_STYLE_ALL - MOBILE_CARD_STYLE_OWN + MOBILE_CARD_JSX ))
-check_ratchet "mobile useCardStyle/<Card sites" "$MOBILE_CARD_SITES" "$BASELINE_MOBILE_CARD_SITES" \
-    "Group content with ui/Section; keep Card for what floats (DESIGN.md \"Cards / Containers\")."
-
-# Generously ratcheted rather than triaged per-site: the spot check found
-# typing dots, circular send/icon buttons and pill progress-bar tracks, every
-# one a legitimate use of the radius ladder's own `full` step (avatars and
-# badges, tailwind.config.js) rather than a card or button that skipped the
-# scale. No file is excluded — a real regression still moves the count.
-# No -h: the __tests__ filter matches on the file path (4 sites live in test
-# fixtures and are excluded the same way every other check here excludes them).
-MOBILE_ROUNDED_FULL=$(grep -rEo '\brounded-full\b' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
-    | grep -v '__tests__' | wc -l | tr -d ' ')
-check_ratchet "mobile rounded-full sites" "$MOBILE_ROUNDED_FULL" "$BASELINE_MOBILE_ROUNDED_FULL" \
-    "Confirm it is an avatar/dot; a badge is ui/Badge, and a card or button belongs on the radius ladder instead (DESIGN.md \"Shapes\")."
-
-MOBILE_HAND_TINT=$(grep -rEo '(^|[^:a-z-])bg-(success|warning|error|info)/[0-9]+' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' --include='*.ts' 2>/dev/null \
-    | grep -v '__tests__' | grep -vE 'components/ui/(Badge\.tsx|alertTone\.ts):' | wc -l | tr -d ' ')
-check_ratchet "mobile hand-written feedback tints" "$MOBILE_HAND_TINT" "$BASELINE_MOBILE_HAND_TINT" \
-    "Draw a banner through ALERT_TONE and a tinted chip through BADGE_TONE (components/ui); each Text names the tone's ink (DESIGN.md \"Alerts\")."
-
-# 999/9999 is the circular-dot idiom (NotificationRow's unread dot) and is as
-# legitimate as rounded-full above; every other inline value, including 0
-# (Input's deliberately flat editorial field), is a pixel radius that bypassed
-# the ladder (4/8/12/20) by being written into a style object instead of a
-# className. 0 is not carved out a second time beyond what the row already
-# exempts: it is still an inline literal, just one that happens not to need
-# the scale to be unambiguous.
-MOBILE_BORDER_RADIUS=$(grep -rEo 'borderRadius:[[:space:]]*[0-9]+' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
-    | grep -v '__tests__' | grep -vE ':[[:space:]]*(999|9999)$' | wc -l | tr -d ' ')
-check_ratchet "mobile inline borderRadius: values" "$MOBILE_BORDER_RADIUS" "$BASELINE_MOBILE_INLINE_BORDER_RADIUS" \
-    "Use the className radius scale (rounded, rounded-lg, rounded-xl, rounded-3xl) instead of a style-object literal (DESIGN.md \"Shapes\")."
 echo ""
 
 # ----------------------------------------------------------------------------

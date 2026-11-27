@@ -36,7 +36,7 @@ See `.envrc.example` for the complete variable reference.
 ## Quick Start
 
 ```bash
-# Full setup: reset DB, seed all data, start all 3 servers
+# Full setup: reset DB, seed all data, start the server and the web frontend
 ./bin/setup-db-with-seeds-and-oauth-and-start-servers.sh
 ```
 
@@ -47,9 +47,9 @@ See `.envrc.example` for the complete variable reference.
 | `setup-db-with-seeds-and-oauth-and-start-servers.sh` | **THE ONE SCRIPT** - Complete dev environment setup |
 | `start-server.sh` | Start Pierre MCP server only (`HTTP_PORT`, default 8081) |
 | `stop-server.sh` | Stop this checkout's dev stack (delegates to `stop-all.sh`); `--server-only` stops just this checkout's backend |
-| `stop-all.sh` | Stop this checkout's server, fixture, Vite, Expo and tunnel, and reset a dead tunnel URL |
+| `stop-all.sh` | Stop this checkout's server, fixture, Vite and tunnel, and reset a dead tunnel URL |
 | `start-frontend.sh` | Start web frontend only (Vite's default port 5173) |
-| `start-tunnel.sh` | Start Cloudflare tunnel for mobile testing; rewrites the `BASE_URL` line in `.envrc` and the `EXPO_PUBLIC_API_URL` line in `frontend-mobile/.env` |
+| `start-tunnel.sh` | Start a Cloudflare tunnel for testing from a device; rewrites the `BASE_URL` line in `.envrc` |
 | `stop-tunnel.sh` | Stop the tunnel and point `BASE_URL` back at the local server |
 | `rotate-llm-head.sh` | Ops, not dev: show which key of the anthropic tier heads the deployed LLM chain, or move one to the head (`--head <key>`, edits `infra/environments/dev/main.tf`; `--live` also updates the running API service) |
 
@@ -65,9 +65,8 @@ See `.envrc.example` for the complete variable reference.
    - Mobility data (stretches, yoga poses)
 4. Starts Pierre MCP Server (`HTTP_PORT`, default 8081)
 5. Starts Web Frontend (port 5173)
-6. Starts Expo Mobile (port 8082)
-7. Generates admin API token
-8. Displays summary with credentials, URLs, and log paths
+6. Generates admin API token
+7. Displays summary with credentials, URLs, and log paths
 
 ## Log Files
 
@@ -76,20 +75,19 @@ After running the setup script, logs are available at:
 ```bash
 tail -f logs/pierre-server.log  # Pierre MCP Server
 tail -f logs/frontend.log       # Web Frontend
-tail -f logs/expo.log           # Expo Mobile
 tail -f logs/*.log              # All logs
 ```
 
 ## Stopping Services
 
 ```bash
-./bin/stop-server.sh                # the whole stack: server, fixture, Vite, Expo, tunnel
+./bin/stop-server.sh                # the whole stack: server, fixture, Vite, tunnel
 ./bin/stop-server.sh --server-only  # only the backend, to simulate an outage
 ```
 
 Both are scoped to this checkout: they stop the processes these scripts recorded
 in `logs/*.pid` and leave another worktree's stack running. Several worktrees of
-this repo run side by side, and a name — `pierre-mcp-server`, `expo start` —
+this repo run side by side, and a name — `pierre-mcp-server`, `bun run dev` —
 matches every one of them at once.
 
 A port still held by a process this checkout can prove is its own (a stack
@@ -106,30 +104,6 @@ find it. Read the process list, confirm the tunnel is the one you mean, and kill
 that pid: `ps -eo pid,args | grep '[c]loudflared tunnel'`. `pkill -f 'cloudflared
 tunnel'` reaches every checkout's tunnel on the machine, which on a host running
 several worktrees takes down someone else's device testing.
-
-## iOS Simulator on Xcode 27
-
-Xcode 27 replaced Simulator.app with Device Hub (`com.apple.dt.Devices`), which
-does not boot a device when it opens, so `open -a Simulator` and
-`expo start --ios` no longer get a device on screen by themselves. The helpers
-in `ios-simulator.sh` do those steps with `simctl`, and the scripts pick them
-by what the selected Xcode ships:
-
-- **Xcode 16 and 26** (Simulator.app present): the setup script runs
-  `expo start --ios --go`, unchanged.
-- **Xcode 27** (Device Hub): the setup script uses the booted simulator, or
-  boots the first iPhone on the newest iOS runtime, installs the Expo Go that
-  matches the project's SDK, starts Metro
-  without `--ios` and opens `exp://127.0.0.1:$EXPO_PORT` once Metro answers.
-  iOS 27 asks "Open in Expo Go?" first, and one tap on Open is needed.
-- `install-expo-go.sh` installs the matching Expo Go through `simctl` on either
-  Xcode, replacing an older one.
-- `IOS_SIM_UDID=<udid>` pins the device for all three scripts, for when another
-  checkout's simulator is booted too.
-- Opening the URL retries an `openurl` that timed out (exit 60) while Expo Go
-  was still starting, `IOS_SIM_OPEN_ATTEMPTS` opens in all (default 3), each
-  `IOS_SIM_OPEN_RETRY_SECS` apart (default 10); any other failure is returned
-  at once. `mobile-e2e-ios.yml` opens the app through the same helper.
 
 ## See Also
 

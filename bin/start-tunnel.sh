@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# ABOUTME: Starts a Cloudflare tunnel for mobile device testing
-# ABOUTME: Rewrites the BASE_URL line in .envrc and the EXPO_PUBLIC_API_URL line in frontend-mobile/.env
+# ABOUTME: Starts a Cloudflare tunnel for testing the server from a device
+# ABOUTME: Rewrites the BASE_URL line in .envrc
 
 set -e
 
@@ -9,22 +9,12 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 . "$SCRIPT_DIR/dev-processes.sh"
 . "$SCRIPT_DIR/tunnel-env.sh"
 TUNNEL_LOG="/tmp/cloudflare-tunnel.log"
-START_EXPO=false
 
-# Parse arguments
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --start-expo)
-            START_EXPO=true
-            shift
-            ;;
-        *)
-            echo "Unknown option: $1"
-            echo "Usage: $0 [--start-expo]"
-            exit 1
-            ;;
-    esac
-done
+if [[ $# -gt 0 ]]; then
+    echo "Unknown option: $1"
+    echo "Usage: $0"
+    exit 1
+fi
 
 # Check if cloudflared is installed
 if ! command -v cloudflared &> /dev/null; then
@@ -79,11 +69,10 @@ fi
 
 echo -e "\033[0;32m[SUCCESS]\033[0m Tunnel URL: $TUNNEL_URL"
 
-# Point .envrc and frontend-mobile/.env at the tunnel. One anchored line each:
-# .envrc holds every secret this project has, and frontend-mobile/.env holds the
-# Firebase and Google client ids beside the API base.
+# Point .envrc at the tunnel. One anchored line: .envrc holds every secret this
+# project has.
 tunnel_env_arm "$PROJECT_ROOT" "$TUNNEL_URL"
-echo -e "\033[0;32m[INFO]\033[0m BASE_URL and EXPO_PUBLIC_API_URL point at the tunnel"
+echo -e "\033[0;32m[INFO]\033[0m BASE_URL points at the tunnel"
 
 echo ""
 echo -e "\033[0;33m>>> IMPORTANT: Run these commands to complete setup <<<\033[0m"
@@ -92,15 +81,5 @@ echo "  1. In the backend directory:"
 echo "     direnv allow && ./bin/stop-server.sh --server-only && ./bin/start-server.sh"
 echo ""
 echo "  2. The tunnel is running in the background (PID: $TUNNEL_PID)"
-echo "     Stop it with: ./bin/stop-tunnel.sh (or bun run tunnel:stop)"
+echo "     Stop it with: ./bin/stop-tunnel.sh"
 echo ""
-
-if [[ "$START_EXPO" == "true" ]]; then
-    echo -e "\033[0;32m[INFO]\033[0m Starting Expo on port 8082..."
-    cd "$PROJECT_ROOT/frontend-mobile"
-    exec expo start --go --port 8082
-else
-    echo "  3. Start Expo manually:"
-    echo "     cd frontend-mobile && bun start"
-    echo ""
-fi

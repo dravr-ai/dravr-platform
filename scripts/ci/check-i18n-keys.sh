@@ -35,12 +35,12 @@ NC='\033[0m'
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
 
-# With no arguments this is the CI invocation: both client trees, from the repo
-# root. With arguments it scans exactly those directories in the caller's own
+# With no arguments this is the CI invocation: the web client tree, from the
+# repo root. With arguments it scans exactly those directories in the caller's own
 # working directory, which is what the test harness drives.
 if [ "$#" -eq 0 ]; then
     cd "$PROJECT_ROOT"
-    SOURCE_DIRS=(frontend/src frontend-mobile/src)
+    SOURCE_DIRS=(frontend/src)
 else
     SOURCE_DIRS=("$@")
 fi

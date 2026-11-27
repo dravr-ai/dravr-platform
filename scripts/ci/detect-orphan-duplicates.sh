@@ -163,26 +163,25 @@ fi
 # ---------------------------------------------------------------------------
 # 5. Parallel type definitions — inline interfaces duplicating shared-types
 # ---------------------------------------------------------------------------
-echo -e "\n${BLUE}[5/5] Checking for parallel type definitions in frontend/mobile...${NC}"
+echo -e "\n${BLUE}[5/5] Checking for parallel type definitions in frontend...${NC}"
 
 # Look for interface definitions that should be in shared-types
 PARALLEL_TYPES=0
-for DIR in frontend/src frontend-mobile/src; do
-    if [ -d "$DIR" ]; then
-        # Check for Activity/Coach/User interface declarations not from re-exports
-        FOUND=$(grep -rn 'export interface Activity \|export interface Coach \|export interface UserProfile ' \
-            "$DIR" \
-            --include='*.ts' --include='*.tsx' 2>/dev/null \
-            | grep -v 'node_modules' \
-            | grep -v 'shared-types' \
-            | grep -v 're-export' \
-            | grep -v '// from' || true)
-        if [ -n "$FOUND" ]; then
-            PARALLEL_TYPES=$((PARALLEL_TYPES + $(echo "$FOUND" | wc -l)))
-            echo "$FOUND" | sed 's/^/    /'
-        fi
+DIR=frontend/src
+if [ -d "$DIR" ]; then
+    # Check for Activity/Coach/User interface declarations not from re-exports
+    FOUND=$(grep -rn 'export interface Activity \|export interface Coach \|export interface UserProfile ' \
+        "$DIR" \
+        --include='*.ts' --include='*.tsx' 2>/dev/null \
+        | grep -v 'node_modules' \
+        | grep -v 'shared-types' \
+        | grep -v 're-export' \
+        | grep -v '// from' || true)
+    if [ -n "$FOUND" ]; then
+        PARALLEL_TYPES=$(( $(echo "$FOUND" | wc -l) ))
+        echo "$FOUND" | sed 's/^/    /'
     fi
-done
+fi
 
 if [ "$PARALLEL_TYPES" -gt 0 ]; then
     echo -e "${YELLOW}  WARNING: $PARALLEL_TYPES potential parallel type definition(s)${NC}"

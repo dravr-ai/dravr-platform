@@ -15,8 +15,8 @@ PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 dev_stop tunnel "Cloudflare tunnel"
 
 if tunnel_env_reset "$PROJECT_ROOT"; then
-    echo "  BASE_URL and EXPO_PUBLIC_API_URL point at the local server"
+    echo "  BASE_URL points at the local server"
     echo "  Run 'direnv allow' and restart Pierre to pick it up"
 else
-    echo "  BASE_URL and EXPO_PUBLIC_API_URL already point somewhere durable; left as they are"
+    echo "  BASE_URL already points somewhere durable; left as it is"
 fi

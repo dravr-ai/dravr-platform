@@ -5,10 +5,10 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 #
-# The suites themselves are stubbed: `bun`/`bunx` print vitest- and jest-shaped
-# output chosen by STUB_MODE and by the en copy on disk, so the bumped copy and
-# main's copy can fail differently. The failure-name parser is also fed the
-# exact shapes vitest 4, jest 29 and `bun run --filter` printed on 2026-11-25.
+# The suites themselves are stubbed: `bun` prints vitest-shaped output chosen
+# by STUB_MODE and by the en copy on disk, so the bumped copy and main's copy
+# can fail differently. The failure-name parser is also fed the exact shapes
+# vitest 4 and `bun run --filter` printed on 2026-11-25.
 set -uo pipefail
 
 SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/contremaitre-bump-gate.sh"
@@ -71,7 +71,6 @@ case "$STUB_MODE" in
   rewrites) echo changed >>"$FIXROOT/tracked.txt"; exit 0 ;;
 esac
 SH
-printf '#!/usr/bin/env bash\necho "Tests: 1 passed"\n' >"$WORK/bin/bunx"
 cat >"$WORK/bin/gh" <<'SH'
 #!/usr/bin/env bash
 echo "$*" >>"$GH_LOG"
@@ -96,7 +95,7 @@ fixture() {
     git init -q -b main "$WORK/repo"
     (
         cd "$WORK/repo" || exit 1
-        mkdir -p packages/i18n/src/locales/en packages/i18n/__tests__ frontend frontend-mobile crates
+        mkdir -p packages/i18n/src/locales/en packages/i18n/__tests__ frontend crates
         echo probe >packages/i18n/__tests__/probe.test.ts
         printf 'tracker = "dravr-ai/dravr-carnet"\n' >registre.toml
         printf 'dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "aaaaaaaa" }\n' >Cargo.toml
@@ -125,11 +124,10 @@ printf ' ❯ src/a.test.tsx (2 tests | 1 failed) 9ms\n     × reads it 7ms\n\033
 has "vitest: the test, through its colour codes" "$WORK/ids" "web: src/a.test.tsx > Section — coach > reads it"
 has "vitest: the file" "$WORK/ids" "web: src/a.test.tsx"
 lacks "vitest: the per-file × line is not a second name" "$WORK/ids" "reads it 7ms"
-printf 'FAIL __tests__/b.test.ts (5.2 s)\n  ● Console\n  ● Outer › reads the copy\nPASS __tests__/c.test.ts\nTests: 1 failed\n' >"$WORK/jest.log"
-"$SCRIPT" failure-ids mobile "$WORK/jest.log" >"$WORK/ids"
-has "jest: the test under its file" "$WORK/ids" "mobile: __tests__/b.test.ts › Outer › reads the copy"
-lacks "jest: a console block is not a test" "$WORK/ids" "› Console"
-lacks "jest: a passing file is not named" "$WORK/ids" "c.test.ts"
+printf ' FAIL  src/broken.test.ts [ src/broken.test.ts ]\nError: Failed to resolve import\n' >"$WORK/vitest-file.log"
+"$SCRIPT" failure-ids web "$WORK/vitest-file.log" >"$WORK/ids"
+has "vitest: a file that fails as a whole is named" "$WORK/ids" "web: src/broken.test.ts"
+lacks "vitest: the bracketed project tag is not part of the name" "$WORK/ids" "["
 printf '@pierre/i18n test:  FAIL  __tests__/z.test.ts > probe fails\n' >"$WORK/pkg.log"
 "$SCRIPT" failure-ids packages "$WORK/pkg.log" >"$WORK/ids"
 has "bun --filter: the package is kept" "$WORK/ids" "packages: @pierre/i18n __tests__/z.test.ts > probe fails"

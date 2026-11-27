@@ -76,9 +76,9 @@ maskable icon needs a full bleed.
 | PWA icons and Apple touch icon | `public/pwa-*.png`, `public/apple-touch-icon.png` | same — 82 % fill as on the mobile icon; maskable 66 %, inside the W3C 40 %-radius safe zone |
 | Favicon — the reduced mark | `public/favicon.svg` | hand-drawn |
 
-The master is `frontend-mobile/assets/sources/boreal-ripple-mark.png`, a 1024px
-generative raster with no vector original; both the mobile and the web
-generators read it directly rather than pretending an SVG master exists. The
+The master is `design-system/sources/boreal-ripple-mark.png` (the phone app keeps its own copy in dravr-pitoune), a 1024px
+generative raster with no vector original; the web generator reads it directly
+rather than pretending an SVG master exists. The
 script is dev-only — no build or CI step runs it, so the PNGs are committed.
 Regenerate with `python3 frontend/scripts/generate-brand-assets.py` (Pillow).
 

@@ -18,8 +18,7 @@ scripts/
 │   ├── security-review.sh           # Authorization & tenant isolation checks
 │   ├── check-input-validation.sh    # Division-by-zero, pagination, range checks
 │   ├── pre-push-validate.sh         # Marker-based pre-push orchestrator
-│   ├── pre-push-frontend-tests.sh   # Web frontend pre-push validation
-│   └── pre-push-mobile-tests.sh     # Mobile pre-push validation
+│   └── pre-push-frontend-tests.sh   # Web frontend pre-push validation
 ├── testing/                         # Manual/integration test scripts
 │   ├── test-postgres.sh             # PostgreSQL integration (requires Docker)
 │   ├── run-bridge-tests.sh          # SDK bridge test suite
@@ -61,10 +60,9 @@ cargo test --test <test_file> <pattern>          # Targeted tests
 | **Pre-push** | Before git push | `./scripts/ci/pre-push-validate.sh` |
 | **Full CI** | Before merge | `./scripts/ci/lint-and-test.sh` |
 
-### Frontend/Mobile Tests
+### Frontend Tests
 ```bash
 ./scripts/ci/pre-push-frontend-tests.sh   # ~5-10 seconds
-./scripts/ci/pre-push-mobile-tests.sh     # ~5-10 seconds
 ```
 
 ### Specialized Testing
@@ -90,5 +88,5 @@ cargo test --test <test_file> <pattern>          # Targeted tests
 - **ci/architectural-validation.sh** depends on **ci/validation-patterns.toml** and **ci/parse-validation-patterns.py**
 - **ci/architectural-validation.sh** calls **ci/security-review.sh** and **ci/check-input-validation.sh** when `--apply-skills` is passed
 - **ci/lint-and-test.sh** orchestrates ci/ scripts plus **testing/run-bridge-tests.sh** and **testing/clean-test-databases.sh**
-- **ci/pre-push-validate.sh** calls **ci/architectural-validation.sh**, **ci/pre-push-frontend-tests.sh**, and **ci/pre-push-mobile-tests.sh**
+- **ci/pre-push-validate.sh** calls **ci/architectural-validation.sh** and **ci/pre-push-frontend-tests.sh**
 - **release/prepare-release.sh** calls **release/validate-release.sh**

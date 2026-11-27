@@ -36,12 +36,12 @@ git_q() { git -c user.email=t@t -c user.name=t -c commit.gpgsign=false "$@"; }
 
 # tree <name> — a minimal workspace every scan of the gate can read: one trait
 # with an implementor, one deserialized config field, one api-client method
-# both clients call, one web service method a component calls, and one /api
+# the web client calls, one web service method a component calls, and one /api
 # route the api-client names.
 tree() {
     local root="$TMP/$1"
     mkdir -p "$root/scripts/ci" "$root/crates/demo/src" \
-             "$root/packages/api-client/src/domains" "$root/frontend/src/services/api" "$root/frontend-mobile/src"
+             "$root/packages/api-client/src/domains" "$root/frontend/src/services/api"
     cp "$UNDER_TEST" "$root/scripts/ci/check-phantom-surfaces.sh"
     cp "$SCRIPT_DIR/backend-routes.py" "$root/scripts/ci/backend-routes.py"
     cp "$SCRIPT_DIR/gate-base-ref.sh" "$root/scripts/ci/gate-base-ref.sh"
@@ -77,7 +77,6 @@ export const createDemoApi = (axios: { get: (url: string) => unknown }) => ({
 });
 TS
     printf 'export const load = (api: any) => api.demo.listThings();\n' > "$root/frontend/src/App.tsx"
-    printf 'export const load = (api: any) => api.demo.listThings();\n' > "$root/frontend-mobile/src/App.tsx"
     web_service "$root" ""
     printf "import { gadgetsApi } from './services/api/gadgets';\nexport const show = () => gadgetsApi.loadGadgets();\n" \
         > "$root/frontend/src/Gadgets.tsx"

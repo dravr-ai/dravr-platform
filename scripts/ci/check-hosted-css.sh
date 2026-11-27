@@ -15,17 +15,17 @@
 # existed, fourteen templates each carried their own copy of a palette the
 # product had retired months earlier, because nothing tied them to the tokens.
 #
-# The two client stylesheets are the same shape of problem. The web's
-# frontend/src/index.css and the phone's frontend-mobile/global.css each carried
-# a hand copy of the token tree as --color-* variables, next to the TypeScript
+# The client stylesheet is the same shape of problem. The web's
+# frontend/src/index.css carried a hand copy of the token tree as --color-* variables, next to the TypeScript
 # source in design-system.ts, and a parity test pinned ten of the forty-one
-# values; the rest drifted freely. Both now import a block generated from the
+# values; the rest drifted freely. It now imports a block generated from the
 # same tokens (packages/shared-constants/scripts/generate-client-css.ts), and
 # the generator refuses to write one below the WCAG floors it measures.
 #
 # Four checks, all compile-free:
 #   1. regenerate the hosted sheet into a temp file and diff it against the committed one;
-#   2. regenerate both client blocks the same way and diff each;
+#   2. regenerate the web client block the same way and diff it (the phone
+#      app's block lives with the app in dravr-pitoune);
 #   3. every hosted template asks for the sheet and declares no styles of its own;
 #   4. each client stylesheet imports its block and declares no custom property itself.
 #
@@ -55,7 +55,6 @@ CLIENT_REGENERATE="cd packages/shared-constants && bun run generate:client-css"
 # that block's dark scheme (so a generator emitting light only cannot pass).
 CLIENT_SHEETS=(
     "frontend/src/index.css|frontend/src/boreal-tokens.generated.css|^html.dark {\$"
-    "frontend-mobile/global.css|frontend-mobile/boreal-tokens.generated.css|^  :root.dark, .dark {\$"
 )
 CLIENT_IMPORT="@import './boreal-tokens.generated.css';"
 
@@ -108,7 +107,7 @@ fi
 if ! command -v bun >/dev/null 2>&1; then
     echo -e "${RED}❌ bun is not on PATH, so the client token blocks cannot be regenerated to compare.${NC}"
     FAILED=true
-elif ! CLIENT_OUT="$(bun "$CLIENT_GENERATOR" --out-dir "$TMP/client" 2>&1)"; then
+elif ! CLIENT_OUT="$(bun "$CLIENT_GENERATOR" --only web --out-dir "$TMP/client" 2>&1)"; then
     echo -e "${RED}❌ The client stylesheet generator failed:${NC}"
     printf '%s\n' "$CLIENT_OUT" | sed 's/^/   /'
     FAILED=true

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ABOUTME: The contremaitre bump lane's client-test gate: runs the web, shared-package and mobile unit tests
+# ABOUTME: The contremaitre bump lane's client-test gate: runs the web and shared-package unit tests
 # ABOUTME: on a bump's new string copy, and parks a bump that breaks one on contremaitre-bump/<rev8> with a register issue
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
@@ -68,7 +68,7 @@ STALL_PREFIX="contremaitre-bump"
 BOT="github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
 TITLE_PREFIX="[platform] dravr-contremaitre bump stalled"
 LOCALES="packages/i18n/src/locales"
-SUITES=(web packages mobile mobile-integration)
+SUITES=(web packages)
 
 die() { echo "::error::$2" >&2; exit "$1"; }
 
@@ -110,25 +110,20 @@ cmd_pin_landed_by_hand() {
 }
 
 # run_suite <name> <log> — the commands the client lanes run: frontend-tests.yml's
-# "Run tests" and "Test shared packages", mobile-unit-tests.yml's "Run unit
-# tests" and "Run app integration specs". --forceExit because a jest worker
-# left open after the run otherwise holds it until the job times out; it
-# changes no verdict.
+# "Run tests" and "Test shared packages".
 run_suite() {
     local rc=0
     case "$1" in
         web) (cd frontend && bun run test -- --run) ;;
         packages) bun run test:packages ;;
-        mobile) (cd frontend-mobile && bun run test -- --forceExit) ;;
-        mobile-integration) (cd frontend-mobile && bunx jest --config integration/jest.config.js --selectProjects app --forceExit) ;;
         *) die 2 "unknown suite $1" ;;
     esac >"$2" 2>&1 || rc=$?
     return "$rc"
 }
 
 # failure_ids <suite> <log>... — one line per failing test file and test, from
-# vitest's "FAIL  file > test" lines and jest's "FAIL file" + "● test" pairs,
-# prefixed with the suite and, under `bun run --filter`, the package.
+# vitest's "FAIL  file > test" lines (a bare "FAIL  file" when a whole file
+# fails), prefixed with the suite and, under `bun run --filter`, the package.
 failure_ids() {
     local suite="$1"
     shift
@@ -137,10 +132,8 @@ import re, sys
 suite, paths = sys.argv[1], sys.argv[2:]
 ansi = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 fail = re.compile(r"^(?:(\S+) test: )?\s*FAIL\s+(\S.*)$")
-bullet = re.compile(r"^(?:\S+ test: )?\s*●\s+(.+)$")
 ids = set()
 for path in paths:
-    current = None
     with open(path, errors="replace") as log:
         for raw in log:
             line = ansi.sub("", raw.rstrip("\n"))
@@ -150,15 +143,7 @@ for path in paths:
                 rest = m.group(2).strip()
                 if " > " in rest:
                     ids.add(f"{suite}: {where}{rest}")
-                    ids.add(f"{suite}: {where}{rest.split(' > ')[0].split()[0]}")
-                    current = None
-                else:
-                    current = f"{where}{rest.split()[0]}"
-                    ids.add(f"{suite}: {current}")
-                continue
-            m = bullet.match(line)
-            if m and current and not m.group(1).startswith("Console"):
-                ids.add(f"{suite}: {current} › {m.group(1).strip()}")
+                ids.add(f"{suite}: {where}{rest.split(' > ')[0].split()[0]}")
 for i in sorted(ids):
     print(i)
 PY
@@ -350,7 +335,7 @@ cmd_file_stall() {
     body="$(cat <<EOF
 The contremaitre bump lane moved the pin from \`${old:0:8}\` to \`${new:0:8}\`, and ${what}. It did not push to main.
 
-**What breaks** (from the vitest/jest output):
+**What breaks** (from the vitest output):
 
 \`\`\`
 $(head -n 40 "$out/failures.txt" 2>/dev/null || true)

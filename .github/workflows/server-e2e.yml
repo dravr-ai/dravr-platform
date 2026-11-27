@@ -56,8 +56,8 @@ on:
       - '.github/actions/prebuilt-server/**'
       - 'scripts/ci/server-build-key.sh'
       - 'scripts/ci/proven-on-branch.sh'
-  # Nightly on main: MCP compliance, the lane that had a cron of its own. It saves no cache: the build restores the one
-  # mobile-e2e-android.yml writes (carnet#1114).
+  # Nightly on main: MCP compliance, the lane that had a cron of its own. It is also the one run that saves the
+  # thin-release build cache every other run of this workflow restores (carnet#1114).
   schedule:
     - cron: '30 4 * * *'
   # The satellite and tronc bump gates dispatch this workflow for every bump
@@ -264,12 +264,12 @@ jobs:
         if: steps.prebuilt.outputs.hit != 'true'
         uses: dtolnay/rust-toolchain@1.100.0
 
-      # Restore only. The build below is the one mobile-e2e-android.yml's server
-      # job runs (`cargo build --release` of the whole workspace,
-      # CARGO_INCREMENTAL=0, the same env), so features unify the same way and
-      # this restores that lane's cache, which its nightly scheduled run on main
-      # writes. A cache of its own, saved on every branch and every Cargo.lock
-      # change, held up to 1.6 GB per branch of the repository's 10 GB quota.
+      # Restored here, saved only by the nightly scheduled run on main (the save
+      # step after the build). A cache saved on every branch and every
+      # Cargo.lock change held up to 1.6 GB per branch of the repository's
+      # 10 GB quota. The key keeps its `mobile-server` family name from when the
+      # mobile e2e lane, now in dravr-pitoune, wrote it; scripts/ci/cache-budget.py
+      # groups it under that name.
       # No bare `Linux-cargo-` fallback: it matched any family on any toolchain,
       # downloaded a target/ this build cannot use, and by touching it kept the
       # dead Rust 1.98.1 entry alive for a day after the toolchain bump. It
@@ -293,6 +293,17 @@ jobs:
         run: cargo build --release
         env:
           CARGO_INCREMENTAL: 0
+
+      - name: Save Rust build cache (nightly on main)
+        if: steps.prebuilt.outputs.hit != 'true' && github.event_name == 'schedule' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-ubuntu-24.04-cargo-mobile-server-1.100.0-${{ hashFiles('**/Cargo.lock') }}
 
       # The branch half of the binary size gate. ci-backend.yml's fat-LTO
       # Release Binary Validation sizes the binary that ships, but since

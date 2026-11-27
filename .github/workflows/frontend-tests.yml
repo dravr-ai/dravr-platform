@@ -83,8 +83,7 @@ jobs:
 
   # packages/chat-utils, ui-logic, domain-utils and mcp-types hold the logic both
   # clients share, and their vitest suites reached no runner: frontend's vitest
-  # `include` is 'src/**' and mobile's jest rootDir puts packages/ outside the
-  # tree. This job is the gate for them.
+  # `include` is 'src/**'. This job is the gate for them.
   shared-package-tests:
     name: Shared Package Tests
     runs-on: ubuntu-24.04

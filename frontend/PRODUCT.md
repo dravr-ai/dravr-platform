@@ -6,7 +6,7 @@
 
 web
 
-The web app is also a first-class mobile surface: it must work as a responsive, installable PWA-style app that feels native on a phone, alongside the separate native app in `frontend-mobile/`. Mobile web remains `web`; it does not take OS-specific design languages.
+The web app is also a first-class mobile surface: it must work as a responsive, installable PWA-style app that feels native on a phone, alongside the separate native app in `dravr-ai/dravr-pitoune`. Mobile web remains `web`; it does not take OS-specific design languages.
 
 ## Users
 

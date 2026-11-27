@@ -511,10 +511,10 @@ fi
 # Detects tests that only log messages or have comment-only bodies instead of real assertions
 echo -e "${BLUE}Checking for placeholder test implementations in JS/TS...${NC}"
 JS_PLACEHOLDER_PATTERNS="In a full E2E test, we would|testing infrastructure ready|testing ready|validation infrastructure ready"
-JS_PLACEHOLDER_TESTS=$(rg -i "$JS_PLACEHOLDER_PATTERNS" sdk/test/ frontend/src/ frontend-mobile/tests/ --count -g "*.test.*" -g "*.spec.*" 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+JS_PLACEHOLDER_TESTS=$(rg -i "$JS_PLACEHOLDER_PATTERNS" sdk/test/ frontend/src/ --count -g "*.test.*" -g "*.spec.*" 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 if [ "$JS_PLACEHOLDER_TESTS" -gt 0 ]; then
     echo -e "${RED}❌ Found $JS_PLACEHOLDER_TESTS placeholder test implementations in JS/TS${NC}"
-    rg -i "$JS_PLACEHOLDER_PATTERNS" sdk/test/ frontend/src/ frontend-mobile/tests/ -n -g "*.test.*" -g "*.spec.*" 2>/dev/null | head -10
+    rg -i "$JS_PLACEHOLDER_PATTERNS" sdk/test/ frontend/src/ -n -g "*.test.*" -g "*.spec.*" 2>/dev/null | head -10
     fail_validation "JS/TS test placeholders must be replaced with real assertions"
 fi
 
@@ -803,7 +803,7 @@ print('\n'.join(allowed))
 " 2>/dev/null || echo "")
 
 # Check for .skip(), xit(), xdescribe(), test.skip() in JS/TS test files
-JS_TEST_SKIPS_TOTAL=$(rg '\.skip\(\)|\.only\(\)|xit\(|xdescribe\(|test\.skip|it\.skip|describe\.skip' frontend/ frontend-mobile/ sdk/ -g '*.test.ts' -g '*.test.tsx' -g '*.test.js' -g '*.spec.ts' -g '*.spec.js' --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
+JS_TEST_SKIPS_TOTAL=$(rg '\.skip\(\)|\.only\(\)|xit\(|xdescribe\(|test\.skip|it\.skip|describe\.skip' frontend/ sdk/ -g '*.test.ts' -g '*.test.tsx' -g '*.test.js' -g '*.spec.ts' -g '*.spec.js' --count 2>/dev/null | awk -F: '{sum+=$2} END {print sum+0}')
 
 # Filter out allowlisted entries
 JS_TEST_SKIPS=$JS_TEST_SKIPS_TOTAL
@@ -820,7 +820,7 @@ if [ -n "$JS_SKIP_ALLOWLIST" ] && [ "$JS_TEST_SKIPS_TOTAL" -gt 0 ]; then
     done <<< "$JS_SKIP_ALLOWLIST"
 
     if [ -n "$JS_SKIP_EXCLUDE_PATTERN" ]; then
-        JS_TEST_SKIPS=$(rg '\.skip\(\)|\.only\(\)|xit\(|xdescribe\(|test\.skip|it\.skip|describe\.skip' frontend/ frontend-mobile/ sdk/ -g '*.test.ts' -g '*.test.tsx' -g '*.test.js' -g '*.spec.ts' -g '*.spec.js' -n 2>/dev/null | grep -v -E "$JS_SKIP_EXCLUDE_PATTERN" | wc -l | tr -d ' ' || echo 0)
+        JS_TEST_SKIPS=$(rg '\.skip\(\)|\.only\(\)|xit\(|xdescribe\(|test\.skip|it\.skip|describe\.skip' frontend/ sdk/ -g '*.test.ts' -g '*.test.tsx' -g '*.test.js' -g '*.spec.ts' -g '*.spec.js' -n 2>/dev/null | grep -v -E "$JS_SKIP_EXCLUDE_PATTERN" | wc -l | tr -d ' ' || echo 0)
     fi
 fi
 
@@ -829,9 +829,9 @@ if [ "$JS_TEST_SKIPS" -gt 0 ]; then
     echo -e "${RED}Remove .skip(), .only(), xit(), xdescribe() from test files.${NC}"
     echo -e "${YELLOW}To allowlist (requires explicit approval), add to validation-patterns.toml [js_test_skip_allowlist]${NC}"
     if [ -n "$JS_SKIP_EXCLUDE_PATTERN" ]; then
-        rg '\.skip\(\)|\.only\(\)|xit\(|xdescribe\(|test\.skip|it\.skip|describe\.skip' frontend/ frontend-mobile/ sdk/ -g '*.test.ts' -g '*.test.tsx' -g '*.test.js' -g '*.spec.ts' -g '*.spec.js' -n | grep -v -E "$JS_SKIP_EXCLUDE_PATTERN" | head -5
+        rg '\.skip\(\)|\.only\(\)|xit\(|xdescribe\(|test\.skip|it\.skip|describe\.skip' frontend/ sdk/ -g '*.test.ts' -g '*.test.tsx' -g '*.test.js' -g '*.spec.ts' -g '*.spec.js' -n | grep -v -E "$JS_SKIP_EXCLUDE_PATTERN" | head -5
     else
-        rg '\.skip\(\)|\.only\(\)|xit\(|xdescribe\(|test\.skip|it\.skip|describe\.skip' frontend/ frontend-mobile/ sdk/ -g '*.test.ts' -g '*.test.tsx' -g '*.test.js' -g '*.spec.ts' -g '*.spec.js' -n | head -5
+        rg '\.skip\(\)|\.only\(\)|xit\(|xdescribe\(|test\.skip|it\.skip|describe\.skip' frontend/ sdk/ -g '*.test.ts' -g '*.test.tsx' -g '*.test.js' -g '*.spec.ts' -g '*.spec.js' -n | head -5
     fi
     fail_validation "Remove skipped/focused tests"
 else
@@ -1409,7 +1409,7 @@ printf "│ %-35s │ %5d │ " "JS/TS skipped tests" "$JS_TEST_SKIPS"
 if [ "$JS_TEST_SKIPS" -eq 0 ]; then
     printf "$(format_status "✅ PASS")│ %-39s │\n" "All JS/TS tests run"
 else
-    FIRST_SKIP=$(rg '\.skip\(\)|\.only\(\)|xit\(|xdescribe\(' frontend/ frontend-mobile/ sdk/ -g '*.test.*' -n 2>/dev/null | head -1 | cut -d: -f1-2)
+    FIRST_SKIP=$(rg '\.skip\(\)|\.only\(\)|xit\(|xdescribe\(' frontend/ sdk/ -g '*.test.*' -n 2>/dev/null | head -1 | cut -d: -f1-2)
     printf "$(format_status "❌ FAIL")│ %-39s │\n" "$(truncate_text "$FIRST_SKIP" 37)"
 fi
 
@@ -1828,14 +1828,11 @@ else
     echo -e "${YELLOW}⚠️  scripts/ci/check-advisory-reviews.sh not found or not executable${NC}"
 fi
 
-# ADVISORY (warning-only): SDK path vs mounted-route contract, ungated mobile
-# polls, and stream senders with no production caller. These surface candidates
+# ADVISORY (warning-only): SDK path vs mounted-route contract, and stream
+# senders with no production caller. These surface candidates
 # without failing the build because their detection is heuristic.
 if [ -x "$SCRIPT_DIR/check-sdk-route-contract.sh" ]; then
     "$SCRIPT_DIR/check-sdk-route-contract.sh" || true
-fi
-if [ -x "$SCRIPT_DIR/check-ungated-poll.sh" ]; then
-    "$SCRIPT_DIR/check-ungated-poll.sh" || true
 fi
 if [ -x "$SCRIPT_DIR/check-stream-sender-callers.sh" ]; then
     "$SCRIPT_DIR/check-stream-sender-callers.sh" || true

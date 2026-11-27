@@ -10,8 +10,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { restrictionHits } from '../../../packages/eslint-config-pierre/testing/lintFixture.cjs';
 
-// The mobile rules are proved in frontend-mobile/__tests__/designRuleLint.test.ts,
-// in the suite a mobile-only push runs; this file proves web's.
+// The mobile rules are proved by the app's own designRuleLint test in
+// dravr-pitoune; this file proves web's.
 const WEB_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 /**

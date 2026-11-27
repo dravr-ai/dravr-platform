@@ -17,7 +17,7 @@ This writes the artifact's files to `design-system/dist/project/` (gitignored):
 
 | File | Built from |
 | --- | --- |
-| `tokens.json` | `design-system.ts` (colours, hairlines, spacing, radii, shadow), `tailwind.config.cjs` (web type scale, font stacks), `frontend-mobile/src/constants/typeScale.js` (phone scale), with the prose from `token-notes.json` |
+| `tokens.json` | `design-system.ts` (colours, hairlines, spacing, radii, shadow), `tailwind.config.cjs` (web type scale, font stacks), `frontend/design-system/sources/typeScale.cjs` (phone scale), with the prose from `token-notes.json` |
 | `components/bundle.js` | `bundle-entry.ts`: the web primitives as one IIFE assigning `window.Boreal`, reading React from the page's globals |
 | `components/bundle.css` | `src/index.css` compiled by the app's Tailwind config, purged to the bundled components and the previews |
 | `README.md` | `brand-book.md` |

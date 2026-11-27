@@ -300,7 +300,8 @@ mod tests {
     use super::*;
 
     /// The web (`frontend/src/services/__tests__/analytics.test.ts`), phone
-    /// (`frontend-mobile/src/services/__tests__/analytics.test.ts`) and shared
+    /// (`frontend-mobile/src/services/__tests__/analytics.test.ts` in
+    /// dravr-pitoune) and shared
     /// helper (`packages/domain-utils/__tests__/analytics-identity.test.ts`)
     /// tests pin this same pair. A client that identifies itself to `PostHog`
     /// with anything else is a second person to it, and its events never join

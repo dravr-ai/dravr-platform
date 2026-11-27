@@ -5,15 +5,15 @@ Code `SessionStart` hooks echoed; the dynamic checks live in `.pi/extensions/dra
 
 ## Ports
 
-`8081` = Pierre Server (RESERVED — never start anything else on it). `8082` = Expo/Metro.
-Use `bun start` for mobile dev.
+`8081` = Pierre Server (RESERVED — never start anything else on it). `8082` = Expo/Metro,
+for the mobile app in `dravr-ai/dravr-pitoune`.
 
 ## Dev environment
 
 When testing is needed, run `./bin/setup-db-with-seeds-and-oauth-and-start-servers.sh`
 (debug build by default, `--release` for optimized). It resets the DB, seeds
-admin/coaches/demo/social/mobility/synthetic data, and starts Pierre (8081), the Vite
-frontend (5173) and Expo (8082). NEVER start the server another way when login or user
+admin/coaches/demo/social/mobility/synthetic data, and starts Pierre (8081) and the Vite
+frontend (5173). NEVER start the server another way when login or user
 data is needed.
 
 Seeded dev credentials: `admin@example.com` / `AdminPassword123`,

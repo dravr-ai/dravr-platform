@@ -22,7 +22,6 @@ COPY patches/ patches/
 
 COPY packages/ packages/
 COPY frontend/package.json frontend/package.json
-COPY frontend-mobile/package.json frontend-mobile/package.json
 
 RUN bun install --frozen-lockfile --filter frontend
 
