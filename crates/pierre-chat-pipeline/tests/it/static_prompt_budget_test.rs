@@ -49,8 +49,10 @@ const ALWAYS_ON_CEILING: usize = 44_500;
 /// Measured 2026-08-30 at contremaitre 28bcc41: 45,853 B — the always-on set
 /// plus `messaging_context` and the plain-text variant. Raised to 53,000 for
 /// the same moved tool-use rules: 51,821 B at contremaitre 79d0c88, 52,143 B
-/// at 09dfb83.
-const MESSAGING_CEILING: usize = 53_000;
+/// at 09dfb83. Raised to 54,000 for the calendar rule contremaitre a3536e8
+/// rewrote in `tool_discipline_shared` (the athlete's own plan reaches their
+/// calendar only on their yes, and is never claimed pushed): 53,136 B.
+const MESSAGING_CEILING: usize = 54_000;
 
 /// The widest of the five turn-language directives.
 ///
