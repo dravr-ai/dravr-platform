@@ -65,6 +65,7 @@
 //! [`envelope_words`]: crate::envelope_words
 
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::sync::Arc;
 
 use dravr_tronc::dates::CivilDate;
@@ -76,7 +77,7 @@ use pierre_core::models::periodization::{
     DerivedValues, EnvelopeFinding, FindingCode, Instance, ParamRange, SportFamily, WorkoutFilter,
     WorkoutParams, WorkoutPreset, WorkoutPurpose, WorkoutTemplate,
 };
-use pierre_core::models::{HeldAnchors, UnitSystem, WorkoutStep};
+use pierre_core::models::{HeldAnchors, TenantId, UnitSystem, WorkoutStep};
 use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{
     PlanChangeKind, PlanChangeSource, PlanWeekInput, SaveDraftParams, SavedDraftBundle,
@@ -143,6 +144,96 @@ pub struct EditorThread {
     /// The coach and the agent the thread answers as: whose package the
     /// families resolve through, and the author the draft records.
     pub writer: PlanWriter,
+}
+
+/// The athlete on their own plan (carnet#1841): no coach, no group, no
+/// coaching gate. The families are the catalogue's own, since no agent's
+/// turn names a package, and a day the athlete writes names no agent.
+#[derive(Debug, Clone, Copy)]
+pub struct OwnPlan {
+    /// The athlete's tenant, where their plan lives.
+    pub tenant: TenantId,
+    /// The athlete.
+    pub athlete: Uuid,
+}
+
+impl OwnPlan {
+    /// The athlete's own overlay of their plan, where their agent's unasked
+    /// changes wait.
+    #[must_use]
+    pub fn target(&self) -> CoachDraftTarget {
+        CoachDraftTarget::own(self.tenant, self.athlete)
+    }
+
+    /// The athlete as their own writer, with no agent.
+    #[must_use]
+    pub const fn writer(&self) -> PlanWriter {
+        PlanWriter {
+            agent_id: None,
+            tenant: self.tenant,
+            user_id: self.athlete,
+        }
+    }
+}
+
+/// Whose plan the day editor works on, and who works it: a coach in their
+/// thread about one athlete, or the athlete on their own plan (carnet#1841).
+#[derive(Debug)]
+pub enum PlanEditor {
+    /// A group's human coach, on their draft of a coached athlete's plan.
+    Coach(EditorThread),
+    /// The athlete, on their own plan.
+    Own(OwnPlan),
+}
+
+impl PlanEditor {
+    /// The athlete whose plan it is, under their tenant.
+    fn athlete(&self) -> (TenantId, Uuid) {
+        match self {
+            Self::Coach(thread) => (thread.target.tenant(), thread.target.athlete()),
+            Self::Own(own) => (own.tenant, own.athlete),
+        }
+    }
+
+    /// Whose package the families resolve through.
+    fn writer(&self) -> PlanWriter {
+        match self {
+            Self::Coach(thread) => thread.writer.clone(),
+            Self::Own(own) => own.writer(),
+        }
+    }
+
+    /// Who reads what the editor words about the athlete's anchors, and whose
+    /// units a speed is written in.
+    fn reader(&self) -> (AnchorReader, Uuid) {
+        match self {
+            Self::Coach(thread) => (AnchorReader::Coach, thread.target.coach()),
+            Self::Own(own) => (AnchorReader::Athlete, own.athlete),
+        }
+    }
+
+    /// Run `read`, a read of the athlete's own data: under the athlete's AI
+    /// consents, and on a coach's call noted as the coach's read of them
+    /// (carnet#1174, carnet#1419).
+    async fn reading<F: Future>(&self, repos: &RepositoryRegistry, read: F) -> F::Output {
+        match self {
+            Self::Coach(thread) => {
+                day_edits::note_coach_read(thread);
+                let target = &thread.target;
+                provider_notice::under_subject_ai_consent(
+                    repos,
+                    target.tenant().as_uuid(),
+                    target.athlete(),
+                    read,
+                )
+                .await
+            }
+            Self::Own(own) => {
+                provider_notice::under_ai_consent(repos, own.tenant.as_uuid(), own.athlete, read)
+                    .await
+            }
+        }
+    }
 }
 
 /// The reader's language for the words the editor shows.
@@ -598,12 +689,13 @@ fn build_day(
 
 /// The preview of a built day: the plan card's own projection of it, the
 /// kernel's derived values, and the findings and anchor in the envelope
-/// notice's words, the anchor named as a coach's thread names it and a
-/// speed written in the coach's `units`.
+/// notice's words, the anchor named as `reader` reads it and a speed written
+/// in the reader's `units`.
 fn session_preview(
     built: BuiltDay,
     sport: SportFamily,
     words: EditorWords<'_>,
+    reader: AnchorReader,
     units: UnitSystem,
 ) -> SessionPreview {
     // The day carries no fuelling protocol — the editor builds none — so no
@@ -623,15 +715,7 @@ fn session_preview(
         .collect();
     let anchor = envelope
         .and_then(|envelope| envelope.anchor.as_ref())
-        .and_then(|anchor| {
-            anchor_sentence(
-                words.strings,
-                words.locale,
-                AnchorReader::Coach,
-                units,
-                anchor,
-            )
-        });
+        .and_then(|anchor| anchor_sentence(words.strings, words.locale, reader, units, anchor));
     SessionPreview {
         family: built.day.template_slug.clone().unwrap_or_default(),
         preset: built.preset,
@@ -660,9 +744,11 @@ fn finding_text(words: EditorWords<'_>, finding: &EnvelopeFinding) -> String {
     })
 }
 
-/// The session `build` makes on `date` for the thread's athlete, generated
+/// The session `build` makes on `date` for the editor's athlete, generated
 /// on their stored anchors as the save generates it, read under their AI
-/// consents. Nothing is written.
+/// consents, and worded for whoever edits: a coach reads the athlete's
+/// anchors in their own units, the athlete their own (carnet#1841). Nothing
+/// is written.
 ///
 /// # Errors
 ///
@@ -670,31 +756,25 @@ fn finding_text(words: EditorWords<'_>, finding: &EnvelopeFinding) -> String {
 /// package, anchor or unit reads.
 pub async fn preview_session(
     runtime: &Arc<dyn ToolRuntime>,
-    thread: &EditorThread,
+    editor: &PlanEditor,
     date: CivilDate,
     build: &SessionBuild,
     words: EditorWords<'_>,
 ) -> AppResult<SessionPreview> {
     let repos = runtime.repos();
-    let target = &thread.target;
+    let (tenant, athlete) = editor.athlete();
+    let (reader, units_of) = editor.reader();
+    let writer = editor.writer();
     let preview = async {
-        // What follows reads the athlete's own data (carnet#1174).
-        day_edits::note_coach_read(thread);
-        let catalogue = writer_catalogue(runtime, &thread.writer).await?;
-        let anchors = stored_athlete_anchors(repos, target.tenant(), target.athlete()).await?;
+        let catalogue = writer_catalogue(runtime, &writer).await?;
+        let anchors = stored_athlete_anchors(repos, tenant, athlete).await?;
         let label = build.sport.as_str().to_owned();
         // A preview is no entry of the week: it is built as the date's first.
         let day = build_day(&catalogue, build, date, 0, label, anchors.as_ref())?;
-        let units = resolve_user_units(repos.unit_preferences.as_ref(), target.coach()).await;
-        Ok(session_preview(day, build.sport, words, units))
+        let units = resolve_user_units(repos.unit_preferences.as_ref(), units_of).await;
+        Ok(session_preview(day, build.sport, words, reader, units))
     };
-    provider_notice::under_subject_ai_consent(
-        repos,
-        target.tenant().as_uuid(),
-        target.athlete(),
-        preview,
-    )
-    .await
+    editor.reading(repos, preview).await
 }
 
 /// Save `build` over the session `at` names on `date` of the coach's draft
@@ -1070,6 +1150,7 @@ mod tests {
                 strings: &strings,
                 locale: "en",
             },
+            AnchorReader::Coach,
             UnitSystem::Metric,
         );
         let finding = preview

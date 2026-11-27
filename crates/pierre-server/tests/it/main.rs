@@ -687,6 +687,7 @@ mod onboarding_step_endpoint_test;
 mod one_season_plan_migration_test;
 mod one_zone_model_tools_test;
 mod originals_bundle_test;
+mod own_plan_routes_test;
 mod pagination_test;
 mod parq_gate_test;
 mod parq_rescreen_test;

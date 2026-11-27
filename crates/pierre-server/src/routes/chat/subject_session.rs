@@ -88,7 +88,7 @@ use pierre_services::coach_plan_draft::CoachDraftTarget;
 use pierre_tool_runtime::implementations::coach_session_editor::{
     add_draft_session, preview_session, remove_draft_day, restore_draft_day, revert_draft_date,
     save_draft_coach_call, save_draft_day, save_draft_hand_day, thread_families, DraftDayOutcome,
-    EditorThread, EditorWords, SessionAt,
+    EditorThread, EditorWords, PlanEditor, SessionAt,
 };
 use pierre_tool_runtime::implementations::plan_scope::PlanWriter;
 use uuid::Uuid;
@@ -116,7 +116,7 @@ fn invalid_date(raw: &str) -> AppError {
 }
 
 /// `raw` as a plan date, or the 400 naming it.
-fn plan_date(raw: &str) -> Result<CivilDate, AppError> {
+pub(super) fn plan_date(raw: &str) -> Result<CivilDate, AppError> {
     parse_plan_date(raw).ok_or_else(|| invalid_date(raw))
 }
 
@@ -175,7 +175,7 @@ pub(super) async fn preview_subject_session(
     let date = plan_date(&request.date)?;
     record_thread_read(&resources, &thread.access, auth.user_id).await?;
     let locale = coach_locale(&resources, auth.user_id, query.locale.as_deref()).await?;
-    let editor = editor_thread(&resources, &auth, &thread).await?;
+    let editor = PlanEditor::Coach(editor_thread(&resources, &auth, &thread).await?);
     let words = EditorWords {
         strings: &resources.mcp.messaging_strings_registry,
         locale: &locale,

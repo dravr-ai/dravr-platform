@@ -23,6 +23,7 @@ use pierre_memory::training_plans::{
 };
 use pierre_services::plan_calendar_push::{
     desired_entries, diff_against_ledger, entry_author, plan_day_session, plan_sport, DesiredEntry,
+    KeyChange,
 };
 use pierre_services::plan_fueling::FuelingDisclosure;
 use uuid::Uuid;
@@ -453,7 +454,7 @@ fn the_ledger_diff_counts_creates_updates_unchanged_and_removals() {
     let ledger: Vec<PrescribedWorkout> = first.iter().map(|e| live_row(user, e)).collect();
 
     // Nothing changed: everything is unchanged.
-    let same = diff_against_ledger(&first, &ledger).unwrap();
+    let same = diff_against_ledger(&first, &ledger).unwrap().preview();
     assert_eq!(
         (same.create, same.update, same.unchanged, same.remove),
         (0, 0, 3, 0)
@@ -477,7 +478,8 @@ fn the_ledger_diff_counts_creates_updates_unchanged_and_removals() {
         from,
         &FuelingDisclosure::Shown,
     );
-    let changed = diff_against_ledger(&adjusted, &ledger).unwrap();
+    let diff = diff_against_ledger(&adjusted, &ledger).unwrap();
+    let changed = diff.preview();
     assert_eq!(
         (
             changed.create,
@@ -488,13 +490,47 @@ fn the_ledger_diff_counts_creates_updates_unchanged_and_removals() {
         (1, 1, 1, 1)
     );
     assert!(changed.is_stale());
+    // The counts fold from one entry per key, each with what Dravr last wrote
+    // and what the plan wants now (carnet#1841).
+    let pending: Vec<(String, KeyChange, bool, bool)> = diff
+        .pending()
+        .map(|key| {
+            (
+                key.date.to_string(),
+                key.change,
+                key.before.is_some(),
+                key.after.is_some(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        pending,
+        [
+            ("2026-09-07".to_owned(), KeyChange::Update, true, true),
+            ("2026-09-10".to_owned(), KeyChange::Create, false, true),
+            ("2026-09-08".to_owned(), KeyChange::Withdraw, true, false),
+        ],
+        "bug: each pending key names its date, its change, and its before and after"
+    );
+    let withdrawn = diff
+        .pending()
+        .find(|key| key.change == KeyChange::Withdraw)
+        .unwrap();
+    assert_eq!(
+        withdrawn.before.as_ref().map(|entry| entry.name.as_str()),
+        Some("Easy"),
+        "bug: a withdrawal's before is the entry Dravr wrote, from the ledger's payload"
+    );
+    assert_eq!(withdrawn.kind, PlannedSessionKind::Workout);
 
     // Rows that are not plan rows never count: a single prescription on the
     // calendar is neither wanted nor unwanted by the plan.
     let mut prescription = live_row(user, &first[0]);
     prescription.source = CalendarEventSource::Prescription;
     prescription.external_id = Some(CalendarKey::prescription(prescription.id));
-    let with_rx = diff_against_ledger(&first, &[prescription]).unwrap();
+    let with_rx = diff_against_ledger(&first, &[prescription])
+        .unwrap()
+        .preview();
     assert_eq!((with_rx.create, with_rx.remove), (3, 0));
 }
 

@@ -42,7 +42,7 @@ use axum::{
 use dravr_tronc::dates::Timestamp;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
-use pierre_core::models::ConversationRecord;
+use pierre_core::models::{ConversationRecord, TenantId};
 use pierre_database::repositories::{
     CoachReadClass, CoachReadSurface, PlanChangeQuery, PlanChangeSource,
 };
@@ -389,6 +389,33 @@ pub(super) async fn get_subject_plan_history(
     Query(query): Query<SubjectPlanHistoryQuery>,
 ) -> Result<Response, AppError> {
     let access = coached_subject(&resources, &auth, &conversation_id).await?;
+    let response = plan_history(
+        &resources,
+        access.tenant,
+        access.athlete_user_id,
+        auth.user_id,
+        &query,
+    )
+    .await?;
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+/// The changes made to `athlete`'s plan under `tenant` in `owner`'s
+/// workspace, newest first, one page as `query` asks: a coach's own changes
+/// on a coached athlete's plan, or the athlete's own plan's (carnet#1841),
+/// whose workspace is their own.
+///
+/// # Errors
+///
+/// 400 `invalid_before` for a `before` that is no RFC 3339 instant, and the
+/// repository error from the listing.
+pub(super) async fn plan_history(
+    resources: &Arc<ServerContext>,
+    tenant: TenantId,
+    athlete: Uuid,
+    owner: Uuid,
+    query: &SubjectPlanHistoryQuery,
+) -> Result<SubjectPlanHistoryResponse, AppError> {
     let before = match query.before.as_deref().filter(|raw| !raw.is_empty()) {
         Some(raw) => Some(raw.parse::<Timestamp>().map_err(|_| {
             refusal(
@@ -408,18 +435,17 @@ pub(super) async fn get_subject_plan_history(
         .repos
         .plan_change_events
         .list_plan_changes(&PlanChangeQuery {
-            tenant: access.tenant,
-            athlete: access.athlete_user_id,
-            coach: auth.user_id,
+            tenant,
+            athlete,
+            coach: owner,
             before,
             limit,
         })
         .await?;
-    let response = SubjectPlanHistoryResponse {
+    Ok(SubjectPlanHistoryResponse {
         events: events
             .into_iter()
             .map(PlanChangeEventResponse::of)
             .collect(),
-    };
-    Ok((StatusCode::OK, Json(response)).into_response())
+    })
 }

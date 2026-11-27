@@ -14,24 +14,28 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use dravr_tronc::dates::CivilDate;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_core::models::TenantId;
+use pierre_core::models::{PrescribedWorkout, TenantId};
 use pierre_memory::training_plans::{parse_plan_date, PlanWeek};
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::coach_plan_draft::{draft_state, CoachDraftTarget};
 use pierre_services::coach_plan_notice::{tell_plan_pushed, CoachCalendarPush};
 use pierre_services::plan_calendar_push::{
     calendar_holds_week_notes, desired_entries, diff_against_ledger, for_calendar,
-    push_active_plan, PushPlanParams, PushReport,
+    push_active_plan, KeyDiff, LedgerDiff, PushPlanParams, PushReport,
 };
 use pierre_services::plan_fueling::FuelingDisclosure;
+use serde::Serialize;
 use serde_json::{json, Value};
 use tracing::warn;
+use uuid::Uuid;
 
 use super::calendar::{
-    calendar_ledger_target, provider_arg, provider_property, CalendarConnections, LedgerCalendar,
-    PassedOver,
+    calendar_ledger_target, holds_only_through_a_link, provider_arg, provider_property,
+    CalendarConnections, LedgerCalendar, PassedOver,
 };
-use super::coach_scope::{athlete_property, resolve_calendar_scope, under_athlete_consents};
+use super::coach_scope::{
+    athlete_property, resolve_calendar_scope, under_athlete_consents, CalendarScope,
+};
 use super::plan_scope::PlanScope;
 use super::training_plan_telemetry::{emit_calendar_sync_completed, emit_calendar_sync_failed};
 use super::training_plans_output::{
@@ -55,15 +59,197 @@ use pierre_tools_core::ToolResult;
 /// Tool name, as the notify events name the trigger.
 const PUSH_TOOL: &str = "push_training_plan";
 
+/// The athlete's plan weeks against Dravr's push ledger on `backend`, from
+/// `today` on: the live rows the caller may read, and the per-key diff a
+/// push there would act on.
+#[derive(Debug)]
+pub struct LedgerRead {
+    /// The ledger's live rows on the calendar from `today` on, plan days and
+    /// single prescriptions alike, those an external caller may not read
+    /// left out (carnet#769).
+    pub live: Vec<PrescribedWorkout>,
+    /// The plan's wanted entries against the live plan rows, key by key.
+    pub diff: LedgerDiff,
+}
+
+/// The one diff of `weeks` against the ledger on `backend` that the calendar
+/// block, the save's preview and the athlete's « Envoyer » count all read
+/// (carnet#1841), so none of them recomputes it its own way.
+///
+/// The days render with the push's own disclosure
+/// ([`FuelingDisclosure::for_athletes_calendar`]), so the pending entries are
+/// what the push would write whoever reads them, and a calendar that holds no
+/// week notes is never counted behind for one.
+///
+/// # Errors
+///
+/// Returns an error when the ledger or the athlete's medical flag cannot be
+/// read.
+pub async fn ledger_diff(
+    context: &ToolExecutionContext,
+    tenant: TenantId,
+    user_id: Uuid,
+    backend: &str,
+    weeks: &[PlanWeek],
+    today: CivilDate,
+) -> AppResult<LedgerRead> {
+    let repos = context.resources.repos();
+    let fueling = FuelingDisclosure::for_athletes_calendar(repos, tenant, user_id).await?;
+    let mut live = repos
+        .prescribed_workouts
+        .list_live_calendar_events(tenant, user_id, backend, Some(today))
+        .await?;
+    // An entry pushed from first-party-only data is withheld from an external
+    // caller; the rest are served (carnet#769).
+    ai_scope::retain_admitted(&mut live, |row| row.transport_policy);
+    let desired = for_calendar(
+        desired_entries(user_id, weeks, today, &fueling),
+        calendar_holds_week_notes(context.resources.provider_registry(), backend),
+    );
+    let diff = diff_against_ledger(&desired, &live)?;
+    Ok(LedgerRead { live, diff })
+}
+
+/// Why the athlete's own « Envoyer » is not offered (carnet#1841).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SendBlocked {
+    /// None of the athlete's connections writes a calendar: there is
+    /// nowhere to send.
+    NoProvider,
+    /// Several of their connections write a calendar and none is chosen for
+    /// Dravr's pushes: they choose one first.
+    ChooseCalendar,
+    /// The calendar is theirs only through a human coach's link: only that
+    /// coach writes it.
+    CoachManaged,
+}
+
+impl SendBlocked {
+    /// The reason as the wire carries it.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::NoProvider => "no_provider",
+            Self::ChooseCalendar => "choose_calendar",
+            Self::CoachManaged => "coach_managed",
+        }
+    }
+}
+
+/// What the athlete's own « Envoyer » would send, judged from the ledger
+/// alone — no provider call (carnet#1841).
+#[derive(Debug, Clone, Default)]
+pub struct PendingSend {
+    /// The calendar backend the send would write; `None` when there is no
+    /// calendar to send to, or the athlete must choose one first.
+    pub destination: Option<String>,
+    /// Why the send is not offered; `None` when it is.
+    pub blocked: Option<SendBlocked>,
+    /// The calendars to choose among, when the athlete must choose one.
+    pub calendars: Vec<String>,
+    /// One entry per key the send would create, update or withdraw on
+    /// `destination` ([`ledger_diff`]); empty when there is no destination.
+    pub entries: Vec<KeyDiff>,
+}
+
+impl PendingSend {
+    /// Whether the athlete may send now.
+    #[must_use]
+    pub const fn send_available(&self) -> bool {
+        self.blocked.is_none()
+    }
+}
+
+/// The athlete's own calendar scope, as their own `push_training_plan` with
+/// no argument resolves it.
+///
+/// # Errors
+///
+/// Returns the lookup errors of the resolution, and an internal error for a
+/// refusal, which a call on the caller's own plan with no conversation never
+/// meets.
+async fn own_calendar_scope(context: &ToolExecutionContext) -> AppResult<CalendarScope> {
+    match resolve_calendar_scope(context, &json!({}), None, PUSH_TOOL).await? {
+        Ok(scope) => Ok(scope),
+        Err(refused) => Err(AppError::internal(format!(
+            "the athlete's own calendar scope was refused: {}",
+            refused.content
+        ))),
+    }
+}
+
+/// What the athlete's own « Envoyer » would send of `weeks`, their live plan,
+/// from `today` on, and whether they may send it (carnet#1841).
+///
+/// The destination is the calendar their own push resolves to. With no
+/// calendar to write, or several and none chosen, nothing is pending; one
+/// held only through a human coach's link is diffed but not theirs to send.
+/// Never a provider call: what the athlete edited on the provider is the send
+/// review's to find.
+///
+/// # Errors
+///
+/// Returns the lookup errors of the calendar's resolution and of
+/// [`ledger_diff`].
+pub async fn own_pending_send(
+    context: &ToolExecutionContext,
+    weeks: &[PlanWeek],
+    today: CivilDate,
+) -> AppResult<PendingSend> {
+    let scope = own_calendar_scope(context).await?;
+    let (tenant, user_id) = (scope.tenant, scope.user_id);
+    let target = match scope.target(context, None).await {
+        Ok(Ok(target)) => target,
+        Ok(Err(choose)) => {
+            return Ok(PendingSend {
+                blocked: Some(SendBlocked::ChooseCalendar),
+                calendars: offered_calendars(&choose),
+                ..PendingSend::default()
+            })
+        }
+        Err(error) if error.code == ErrorCode::NoProviderConnected => {
+            return Ok(PendingSend {
+                blocked: Some(SendBlocked::NoProvider),
+                ..PendingSend::default()
+            })
+        }
+        Err(error) => return Err(error),
+    };
+    let backend = target.backend;
+    let coach_managed = holds_only_through_a_link(context, tenant, user_id, &backend).await?;
+    let read = ledger_diff(context, tenant, user_id, &backend, weeks, today).await?;
+    Ok(PendingSend {
+        entries: read.diff.pending().cloned().collect(),
+        destination: Some(backend),
+        blocked: coach_managed.then_some(SendBlocked::CoachManaged),
+        calendars: Vec::new(),
+    })
+}
+
+/// The calendars a `choose_calendar` refusal offers, as the push names them.
+fn offered_calendars(choose: &ToolResult) -> Vec<String> {
+    choose
+        .content
+        .get("calendars")
+        .and_then(Value::as_array)
+        .map(|offered| {
+            offered
+                .iter()
+                .filter_map(|calendar| calendar.get("provider").and_then(Value::as_str))
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// The calendar block: every entry Dravr has live on the athlete's calendar
 /// from `today` on, and what a push would change.
 ///
 /// Each entry carries its `prescription_id` so a later turn can name it to
 /// `prescribe_workout`'s `replaces` or to `withdraw_prescribed_workout`, and
 /// its `source` so the model knows which entries belong to the plan instead.
-/// The days render with the push's own disclosure
-/// ([`FuelingDisclosure::for_athletes_calendar`]), so the pending counts match
-/// what the push would write whoever reads them. `scope` is whose plan it is
+/// What a push would change is [`ledger_diff`]'s. `scope` is whose plan it is
 /// and who reads it: an athlete reading the calendar their human coach's link
 /// holds is told the coach pushes it ([`CalendarBlock::pushed_by`]).
 ///
@@ -76,32 +262,21 @@ pub(super) async fn calendar_block(
     active_weeks: &[PlanWeek],
     today: CivilDate,
 ) -> AppResult<CalendarBlock> {
-    let repos = context.resources.repos();
     let (tenant, user_id) = (scope.tenant, scope.user_id);
-    let fueling = FuelingDisclosure::for_athletes_calendar(repos, tenant, user_id).await?;
     let ledger =
         calendar_ledger_target(context, tenant, user_id, ledger_connections(scope)).await?;
     let pushed_by = who_pushes(scope, &ledger);
     let calendar_note = read_note(context, scope, &ledger).await?;
     let connected = ledger.connected;
     let target = ledger.backend;
-    let mut live = repos
-        .prescribed_workouts
-        .list_live_calendar_events(tenant, user_id, &target, Some(today))
-        .await?;
-    // An entry pushed from first-party-only data is withheld from an external
-    // caller; the rest are served (carnet#769).
-    ai_scope::retain_admitted(&mut live, |row| row.transport_policy);
+    let LedgerRead { live, diff } =
+        ledger_diff(context, tenant, user_id, &target, active_weeks, today).await?;
     // Each entry is a plan day or a prescription an agent wrote, and a result
     // serving one is labelled so.
     if !live.is_empty() {
         ai_scope::note_agent_written();
     }
-    let desired = for_calendar(
-        desired_entries(user_id, active_weeks, today, &fueling),
-        calendar_holds_week_notes(context.resources.provider_registry(), &target),
-    );
-    let pending = diff_against_ledger(&desired, &live)?;
+    let pending = diff.preview();
     let entries: Vec<CalendarEntry> = live
         .iter()
         .map(|row| {
@@ -175,7 +350,7 @@ pub(super) async fn calendar_block(
 ///
 /// Best-effort like the ramp check: the plan is already committed, so an
 /// unreadable ledger degrades to `None` rather than failing the save.
-/// The days render with the push's own disclosure, and `scope` says who
+/// What a push would change is [`ledger_diff`]'s, and `scope` says who
 /// pushes it, as [`calendar_block`] does.
 pub(super) async fn calendar_preview_after_save(
     context: &ToolExecutionContext,
@@ -195,17 +370,6 @@ pub(super) async fn calendar_preview_after_save(
         "calendar note unresolved",
     )?;
     let target = ledger.backend;
-    let mut live = best_effort(
-        repos
-            .prescribed_workouts
-            .list_live_calendar_events(tenant, user_id, &target, Some(today))
-            .await,
-        "calendar ledger unreadable",
-    )?;
-    ai_scope::retain_admitted(&mut live, |row| row.transport_policy);
-    if !live.iter().any(|row| row.source.is_plan()) {
-        return None;
-    }
     let weeks = best_effort(
         repos
             .training_plans
@@ -213,18 +377,14 @@ pub(super) async fn calendar_preview_after_save(
             .await,
         "plan weeks unreadable for the calendar preview",
     )?;
-    let fueling = best_effort(
-        FuelingDisclosure::for_athletes_calendar(repos, tenant, user_id).await,
-        "medical flag unreadable for the calendar preview",
-    )?;
-    let desired = for_calendar(
-        desired_entries(user_id, &weeks, today, &fueling),
-        calendar_holds_week_notes(context.resources.provider_registry(), &target),
-    );
-    let pending = best_effort(
-        diff_against_ledger(&desired, &live),
+    let read = best_effort(
+        ledger_diff(context, tenant, user_id, &target, &weeks, today).await,
         "calendar preview could not be computed",
     )?;
+    if !read.live.iter().any(|row| row.source.is_plan()) {
+        return None;
+    }
+    let pending = read.diff.preview();
     Some(CalendarPreview {
         provider: target,
         pending,

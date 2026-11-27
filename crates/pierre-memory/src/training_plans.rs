@@ -837,8 +837,10 @@ pub fn changed_dates<'a>(before: &'a [PlanWeek], after: &'a [PlanWeek]) -> BTree
 }
 
 /// `day` as [`changed_dates`] compares it: without the coach's call and the
-/// coach's editor marks.
-fn training_content(day: &PlannedDay) -> PlannedDay {
+/// coach's editor marks. Two entries whose training content is equal are the
+/// same session, whoever marked either.
+#[must_use]
+pub fn training_content(day: &PlannedDay) -> PlannedDay {
     PlannedDay {
         coach_original: None,
         coach_added: false,

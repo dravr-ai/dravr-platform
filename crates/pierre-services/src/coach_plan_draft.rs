@@ -45,7 +45,7 @@ use pierre_database::repositories::{
     PublishDraftParams,
 };
 use pierre_database::RepositoryRegistry;
-use pierre_memory::training_plans::{PlanWeek, TrainingPlan};
+use pierre_memory::training_plans::{self, PlanWeek, PlannedDay, TrainingPlan};
 use pierre_notifications::NotificationService;
 use pierre_providers::ai_scope;
 use serde::{Deserialize, Serialize};
@@ -131,6 +131,12 @@ fn week_conflicts(conflicts: &DraftConflicts) -> Vec<DraftConflict> {
 
 /// Whose draft: the athlete — under their own tenant, where the coaching
 /// gates found them — and the coach who owns it.
+///
+/// The athlete's own overlay is a draft they own themselves
+/// ([`Self::own`], carnet#1841): the changes their agent made to their plan
+/// unasked, which they accept or refuse date by date. It is a separate row
+/// from any human coach's draft of the same plan, since one open draft is
+/// kept per owner.
 #[derive(Debug, Clone)]
 pub struct CoachDraftTarget {
     tenant: TenantId,
@@ -154,6 +160,20 @@ impl CoachDraftTarget {
             athlete_id: athlete.to_string(),
             coach_id: coach.to_string(),
         }
+    }
+
+    /// The athlete's own overlay of their plan under `tenant`: the draft
+    /// `athlete` owns, which their agent writes what it proposes unasked into
+    /// (carnet#1841). The caller is the athlete, so no coaching gate applies.
+    #[must_use]
+    pub fn own(tenant: TenantId, athlete: Uuid) -> Self {
+        Self::new(tenant, athlete, athlete)
+    }
+
+    /// Whether this is the athlete's own overlay rather than a coach's draft.
+    #[must_use]
+    pub fn is_own(&self) -> bool {
+        self.coach == self.athlete
     }
 
     /// The athlete's tenant.
@@ -241,6 +261,152 @@ impl CoachPlanView {
             .map_or(&[][..], |season| season.weeks.as_slice());
         plan_change_history::dates_changed(live, &draft.weeks)
     }
+
+    /// The proposed dates grouped as they are accepted or refused: a session
+    /// the draft moves from one date to another is one proposal over both
+    /// dates, every other proposed date its own (carnet#1841).
+    ///
+    /// Each proposed date is in exactly one group. A pair is `[from, to]`:
+    /// date `from` lost exactly one session and gained none, date `to`
+    /// gained exactly one and lost none, the two sessions are the same
+    /// training apart from their date, and neither could pair with any other
+    /// date. Every ambiguous case stays unpaired. Groups follow the first
+    /// date of each, in date order.
+    #[must_use]
+    pub fn proposal_groups(&self) -> Vec<Vec<CivilDate>> {
+        let proposed = self.proposed_dates();
+        let Some(draft) = &self.draft else {
+            return Vec::new();
+        };
+        let live: &[PlanWeek] = self
+            .live
+            .as_ref()
+            .map_or(&[][..], |season| season.weeks.as_slice());
+        let changes: Vec<DateChange> = proposed
+            .iter()
+            .map(|date| DateChange::of(*date, live, &draft.weeks))
+            .collect();
+        group_moves(&changes)
+    }
+}
+
+/// What the draft changed on one proposed date: the sessions it took off the
+/// live plan's entries there and the ones it put on, each as training
+/// content with no date.
+#[derive(Debug, Clone)]
+struct DateChange {
+    date: CivilDate,
+    lost: Vec<PlannedDay>,
+    gained: Vec<PlannedDay>,
+}
+
+impl DateChange {
+    fn of(date: CivilDate, live: &[PlanWeek], draft: &[PlanWeek]) -> Self {
+        let dated = date.to_string();
+        let on = |weeks: &[PlanWeek]| -> Vec<PlannedDay> {
+            weeks
+                .iter()
+                .flat_map(|week| &week.days)
+                .filter(|day| day.date == dated)
+                .map(undated)
+                .collect()
+        };
+        let before = on(live);
+        let after = on(draft);
+        Self {
+            date,
+            lost: multiset_minus(&before, &after),
+            gained: multiset_minus(&after, &before),
+        }
+    }
+
+    /// The one session this date lost while gaining none.
+    fn lost_one(&self) -> Option<&PlannedDay> {
+        match (self.lost.as_slice(), self.gained.is_empty()) {
+            ([only], true) => Some(only),
+            _ => None,
+        }
+    }
+
+    /// The one session this date gained while losing none.
+    fn gained_one(&self) -> Option<&PlannedDay> {
+        match (self.gained.as_slice(), self.lost.is_empty()) {
+            ([only], true) => Some(only),
+            _ => None,
+        }
+    }
+}
+
+/// `day`'s training content with its date blanked, so a session moved to
+/// another date compares equal to itself.
+fn undated(day: &PlannedDay) -> PlannedDay {
+    PlannedDay {
+        date: String::new(),
+        ..training_plans::training_content(day)
+    }
+}
+
+/// The entries of `from` left once each entry of `take` is matched away once.
+fn multiset_minus(from: &[PlannedDay], take: &[PlannedDay]) -> Vec<PlannedDay> {
+    let mut left: Vec<PlannedDay> = from.to_vec();
+    for day in take {
+        if let Some(at) = left.iter().position(|held| held == day) {
+            left.remove(at);
+        }
+    }
+    left
+}
+
+/// `changes` grouped: each unique move as `[from, to]`, every other date
+/// alone, ordered by each group's first date.
+fn group_moves(changes: &[DateChange]) -> Vec<Vec<CivilDate>> {
+    let partners = |date: CivilDate, session: &PlannedDay, losing: bool| -> Vec<CivilDate> {
+        changes
+            .iter()
+            .filter(|other| other.date != date)
+            .filter(|other| {
+                let theirs = if losing {
+                    other.gained_one()
+                } else {
+                    other.lost_one()
+                };
+                theirs == Some(session)
+            })
+            .map(|other| other.date)
+            .collect()
+    };
+    let mut pairs: Vec<(CivilDate, CivilDate)> = Vec::new();
+    for change in changes {
+        let Some(session) = change.lost_one() else {
+            continue;
+        };
+        let [to] = partners(change.date, session, true)[..] else {
+            continue;
+        };
+        let Some(gained) = changes
+            .iter()
+            .find(|other| other.date == to)
+            .and_then(DateChange::gained_one)
+        else {
+            continue;
+        };
+        if partners(to, gained, false) == [change.date] {
+            pairs.push((change.date, to));
+        }
+    }
+    let paired = |date: CivilDate| pairs.iter().any(|(from, to)| *from == date || *to == date);
+    let mut groups: Vec<Vec<CivilDate>> = pairs
+        .iter()
+        .map(|(from, to)| vec![*from, *to])
+        .chain(
+            changes
+                .iter()
+                .filter(|change| !paired(change.date))
+                .map(|change| vec![change.date]),
+        )
+        .collect();
+    groups.sort_by_key(|group| group.iter().min().copied());
+    groups
 }
 
 /// The athlete's live season and the coach's draft over it.
@@ -778,6 +944,76 @@ mod tests {
             laid.proposed_dates(),
             [civil("2026-11-17"), civil("2026-11-19")],
             "bug: over no live plan, every date the draft holds is proposed"
+        );
+    }
+
+    /// The athlete's view of a draft written over `live_days` as
+    /// `drafted_days`, both in the week of 2026-11-16.
+    fn own_view(live_days: &[(&str, &str)], drafted_days: &[(&str, &str)]) -> CoachPlanView {
+        let live_weeks = vec![with_days(week("live", "2026-11-16", "build"), live_days)];
+        let drafted = vec![with_days(
+            week("draft", "2026-11-16", "build"),
+            drafted_days,
+        )];
+        CoachPlanView {
+            draft: Some(draft_over_weeks(&live_weeks, drafted)),
+            live: Some(PlanWithWeeks {
+                plan: outline("live", "active"),
+                weeks: live_weeks,
+            }),
+        }
+    }
+
+    /// A session the draft moves from one date to another is one proposal
+    /// over both, and a date it rewrote in place stays its own.
+    #[test]
+    fn a_moved_session_pairs_its_two_dates_and_a_rewrite_stays_alone() {
+        let view = own_view(
+            &[("2026-11-17", "Tempo"), ("2026-11-18", "Easy")],
+            &[("2026-11-18", "Hills"), ("2026-11-19", "Tempo")],
+        );
+        assert_eq!(
+            view.proposal_groups(),
+            vec![
+                vec![civil("2026-11-17"), civil("2026-11-19")],
+                vec![civil("2026-11-18")],
+            ],
+            "bug: the move pairs its two dates, from first, and the rewrite is alone"
+        );
+    }
+
+    /// A move that could pair two ways is no move: every date of it is its
+    /// own proposal, never guessed.
+    #[test]
+    fn an_ambiguous_move_stays_unpaired() {
+        let view = own_view(
+            &[("2026-11-17", "Tempo")],
+            &[("2026-11-19", "Tempo"), ("2026-11-20", "Tempo")],
+        );
+        assert_eq!(
+            view.proposal_groups(),
+            vec![
+                vec![civil("2026-11-17")],
+                vec![civil("2026-11-19")],
+                vec![civil("2026-11-20")],
+            ],
+            "bug: one lost session two dates gained is ambiguous and pairs with neither"
+        );
+
+        let changed = own_view(&[("2026-11-17", "Tempo")], &[("2026-11-19", "Tempo 50")]);
+        assert_eq!(
+            changed.proposal_groups(),
+            vec![vec![civil("2026-11-17")], vec![civil("2026-11-19")]],
+            "bug: a session that changed as it moved is no move"
+        );
+        assert!(
+            CoachPlanView {
+                live: None,
+                draft: None
+            }
+            .proposal_groups()
+            .is_empty(),
+            "bug: with no draft nothing is proposed"
         );
     }
 }

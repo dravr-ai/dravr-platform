@@ -11,17 +11,19 @@ use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::models::messaging::rich_text::{parse_markdown, render_plain};
 use pierre_core::models::{
     is_turn_marker_block, ConversationParticipant, ConversationRecord, InputSource,
-    ParticipantRole, PersistedReplyBlock, RoomQuote, ACTIONS_BLOCK_TYPE,
-    ENVELOPE_NOTICE_BLOCK_TYPE, ROOM_QUOTE_BLOCK_TYPE,
+    ParticipantRole, PersistedReplyBlock, PlannedSession, PlannedSessionKind, RoomQuote,
+    ACTIONS_BLOCK_TYPE, ENVELOPE_NOTICE_BLOCK_TYPE, ROOM_QUOTE_BLOCK_TYPE,
 };
 use pierre_database::repositories::PlanChangeEvent;
 use pierre_services::coach_plan_draft::DraftState;
 use pierre_services::coached_athlete::SoloAthleteResponse;
+use pierre_services::plan_calendar_push::KeyChange;
 use pierre_services::plan_card::{PlanCard, PlanSubject};
 use pierre_services::plan_card_history::word_stored_outside_evidence;
 use pierre_tool_runtime::implementations::coach_session_editor::{
     AddedSession, CatalogueFamily, HandDay, SessionBuild, SessionExpect,
 };
+use pierre_tool_runtime::implementations::training_plan_push::{PendingSend, SendBlocked};
 use pierre_tool_runtime::implementations::training_plans_output::CalendarPushOutcome;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -471,6 +473,93 @@ impl PlanChangeEventResponse {
             source: event.source.as_str(),
             dates: event.dates,
             created_at: event.created_at,
+        }
+    }
+}
+
+/// `GET /api/me/plan`: the athlete's own plan as their Plan tab reads it
+/// (carnet#1841) — the live plan, their agent's unasked changes over it, and
+/// what their « Envoyer » would send.
+#[derive(Debug, Serialize)]
+pub(super) struct OwnPlanResponse {
+    /// The athlete's civil date both plans are projected on, `YYYY-MM-DD`.
+    pub today: CivilDate,
+    /// The live plan, as `GET /api/me/training-plan` shapes it; `null` when
+    /// they have none.
+    pub live: Option<PlanCard>,
+    /// The overlay — the live weeks with the weeks their agent wrote unasked
+    /// in their place — in the same shape; `null` when it holds nothing.
+    pub draft: Option<PlanCard>,
+    /// The dates whose sessions the overlay changes over the live plan,
+    /// `YYYY-MM-DD`, sorted: the dates shown « Proposé ».
+    pub proposed_dates: Vec<CivilDate>,
+    /// The proposed dates grouped as they are accepted or refused: a moved
+    /// session is `[from, to]`, every other date alone; each proposed date is
+    /// in exactly one group.
+    pub proposals: Vec<Vec<CivilDate>>,
+    /// What « Envoyer » would send, judged from the ledger alone.
+    pub pending_send: PendingSendResponse,
+}
+
+/// What the athlete's « Envoyer » would send, and whether they may.
+#[derive(Debug, Serialize)]
+pub(super) struct PendingSendResponse {
+    /// Whether « Envoyer » is offered.
+    pub send_available: bool,
+    /// Why it is not: `no_provider`, `choose_calendar` or `coach_managed`;
+    /// `null` when it is.
+    pub reason: Option<&'static str>,
+    /// The calendar backend it writes; `null` with no calendar to write or
+    /// one still to choose.
+    pub destination: Option<String>,
+    /// With `choose_calendar`, the calendars to choose among.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub calendars: Vec<String>,
+    /// One entry per calendar key it would create, update or withdraw.
+    pub entries: Vec<PendingSendEntry>,
+}
+
+/// One calendar key « Envoyer » would change.
+#[derive(Debug, Serialize)]
+pub(super) struct PendingSendEntry {
+    /// The entry's date, `YYYY-MM-DD`; a week note's is its week's start.
+    pub date: CivilDate,
+    /// `session` or `week_note`.
+    pub kind: &'static str,
+    /// `create`, `update` or `withdraw`.
+    pub change: KeyChange,
+    /// The entry as Dravr last wrote it; `null` for a create.
+    pub before: Option<PlannedSession>,
+    /// The entry as the plan wants it; `null` for a withdrawal.
+    pub after: Option<PlannedSession>,
+    /// The calendar backend it goes to.
+    pub destination: String,
+}
+
+impl PendingSendResponse {
+    /// The pending send, as the wire carries it.
+    pub(super) fn of(pending: PendingSend) -> Self {
+        let destination = pending.destination.clone().unwrap_or_default();
+        Self {
+            send_available: pending.send_available(),
+            reason: pending.blocked.map(SendBlocked::as_str),
+            entries: pending
+                .entries
+                .into_iter()
+                .map(|key| PendingSendEntry {
+                    date: key.date,
+                    kind: match key.kind {
+                        PlannedSessionKind::Workout => "session",
+                        PlannedSessionKind::WeekNote => "week_note",
+                    },
+                    change: key.change,
+                    before: key.before,
+                    after: key.after,
+                    destination: destination.clone(),
+                })
+                .collect(),
+            destination: pending.destination,
+            calendars: pending.calendars,
         }
     }
 }

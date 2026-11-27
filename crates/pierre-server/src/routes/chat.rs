@@ -14,6 +14,7 @@
 //! - [`chat::subject_thread`] — a group's coach's thread about one athlete, opened or reopened
 //! - [`chat::subject_plan`] — in that thread, the coach's draft of the athlete's plan: read, publish, discard, and the history of its changes
 //! - [`chat::subject_session`] — in that thread, a session of the draft: built from a workout family (families, preview, save), written by hand, put back, removed or added; a date put back to the live plan
+//! - [`chat::own_plan`] — the athlete's own plan, as their Plan tab reads it: the live plan, their agent's proposals over it, what « Envoyer » sends, the families, a session's preview and the history
 //! - [`chat::athlete_physiology`] — the same coach reads and sets the athlete's thresholds from Group info
 //! - [`chat::read_marker`] — the caller's read marker: mark read / mark unread
 //! - [`chat::starters`] — the use-case starters an empty thread offers
@@ -36,6 +37,7 @@ mod group_room;
 mod group_transcript;
 mod held_invite;
 mod messages;
+mod own_plan;
 mod participants;
 mod personal;
 mod read_marker;
@@ -207,6 +209,17 @@ impl ChatRoutes {
                 "/api/chat/conversations/{conversation_id}/subject-plan/history",
                 get(subject_plan::get_subject_plan_history),
             )
+            // The athlete's own plan, as their Plan tab reads it: the live
+            // plan, their agent's proposals over it and what « Envoyer »
+            // would send; the families « Idées » offers, a session's preview
+            // on their own anchors, and the history (carnet#1841)
+            .route("/api/me/plan", get(own_plan::get_own_plan))
+            .route("/api/me/plan/families", get(own_plan::get_own_families))
+            .route(
+                "/api/me/plan/session-preview",
+                post(own_plan::preview_own_session),
+            )
+            .route("/api/me/plan/history", get(own_plan::get_own_plan_history))
             // The use-case starters an empty thread offers, ranked from the
             // athlete's state (carnet#829)
             .route("/api/chat/starters", get(starters::list_starters))

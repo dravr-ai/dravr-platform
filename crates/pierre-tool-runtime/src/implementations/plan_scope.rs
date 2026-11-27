@@ -265,7 +265,7 @@ impl PlanScope {
 /// The tenant and user are the requester's own, not the athlete's, because
 /// they are where the writer's agent is visible: its package, its title, and
 /// whether an author named on the plan is this writer.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PlanWriter {
     /// The agent the requester's turn answers as; `None` for a direct call
     /// that names none, or a conversation bound to no agent.
@@ -383,6 +383,20 @@ pub fn external_write_error(object: &str) -> AppError {
             "A coach writes an athlete's {object} from Dravr's own app or channels, not over \
              this interface."
         ),
+    );
+    error.details = Some(Box::new(json!({ "reason": EXTERNAL_TRANSPORT_REASON })));
+    error
+}
+
+/// The refusal of a write to the caller's own plan from an outside client
+/// (carnet#1841): the plan tab's writes are Dravr's own app's, as a coach's
+/// writes to a coached athlete's plan are ([`external_write_error`]), with the
+/// same `details.reason`.
+#[must_use]
+pub fn external_own_write_error() -> AppError {
+    let mut error = AppError::new(
+        ErrorCode::PermissionDenied,
+        "Your own plan is edited from Dravr's own app, not over this interface.",
     );
     error.details = Some(Box::new(json!({ "reason": EXTERNAL_TRANSPORT_REASON })));
     error
