@@ -508,6 +508,7 @@ macro_rules! impl_client_grant_writes {
                 grant: &OAuthClientGrant,
                 actor: GrantActor,
             ) -> AppResult<bool> {
+                use pierre_core::models::AGENT_WRITE_SCOPE;
                 let others = sqlx::query_scalar::<_, String>(
                     $crate::repositories::tokens::LIST_OTHER_LIVE_CLIENT_GRANTS_SQL,
                 )
@@ -515,7 +516,7 @@ macro_rules! impl_client_grant_writes {
                 .bind(&grant.tenant_id)
                 .bind(&grant.client_id)
                 .bind(keep_id)
-                .bind(grant.scope == pierre_core::models::AGENT_WRITE_SCOPE)
+                .bind(grant.scope == AGENT_WRITE_SCOPE)
                 .fetch_all(&mut *conn)
                 .await
                 .map_err(|e| {
@@ -1015,6 +1016,7 @@ macro_rules! impl_client_grant_writes {
                     find_live_parent_grant_sql, REVOKE_LIVE_CHILD_GRANTS_OF_KIND_SQL,
                     STORE_CHILD_GRANT_SQL,
                 };
+                use pierre_core::models::AGENT_WRITE_SCOPE;
                 let store_error = |e: sqlx::Error| {
                     AppError::database(format!("Failed to store a step-up grant: {e}"))
                 };
@@ -1038,7 +1040,7 @@ macro_rules! impl_client_grant_writes {
                     &mut tx,
                     REVOKE_LIVE_CHILD_GRANTS_OF_KIND_SQL,
                     [terms.parent_grant_id.as_str(), &grant.user_id, &grant.tenant_id],
-                    Some(grant.scope == pierre_core::models::AGENT_WRITE_SCOPE),
+                    Some(grant.scope == AGENT_WRITE_SCOPE),
                     approval.actor,
                 )
                 .await?;
