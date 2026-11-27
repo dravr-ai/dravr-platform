@@ -216,7 +216,23 @@ impl ChatRoutes {
             // The athlete's own plan, as their Plan tab reads it: the live
             // plan, their agent's proposals over it and what « Envoyer »
             // would send; the families « Idées » offers, a session's preview
-            // on their own anchors, and the history (carnet#1841)
+            // on their own anchors, and the history (carnet#1841). Its
+            // clients are the web and phone Plan tab, built on this branch:
+            // LIMITATION(registre#1872): `/api/me/plan` has no client until the Plan tab lands
+            // LIMITATION(registre#1872): `/api/me/plan/families` has no client until the Plan tab lands
+            // LIMITATION(registre#1872): `/api/me/plan/session-preview` has no client until the Plan tab lands
+            // LIMITATION(registre#1872): `/api/me/plan/history` has no client until the Plan tab lands
+            // LIMITATION(registre#1872): `/api/me/plan/days/{date}/sessions` has no client until the Plan tab lands
+            // LIMITATION(registre#1872): `/api/me/plan/days/{date}/{position}` has no client until the Plan tab lands
+            // LIMITATION(registre#1872): `/api/me/plan/days/{date}/{position}/session` has no client until the Plan tab lands
+            // LIMITATION(registre#1872): `/api/me/plan/days/{date}/{position}/restore` has no client until the Plan tab lands
+            // LIMITATION(registre#1872): `/api/me/plan/days/{date}/{position}/remove` has no client until the Plan tab lands
+            // LIMITATION(registre#1872): `/api/me/plan/days/{date}/{position}/move` has no client until the Plan tab lands
+            // LIMITATION(registre#1872): `/api/me/plan/proposals/dates/{date}/accept` has no client until the Plan tab lands
+            // LIMITATION(registre#1872): `/api/me/plan/proposals/dates/{date}/refuse` has no client until the Plan tab lands
+            // LIMITATION(registre#1872): `/api/me/plan/send/review` has no client until the Plan tab lands
+            // LIMITATION(registre#1872): `/api/me/plan/send` has no client until the Plan tab lands
+            // LIMITATION(registre#1872): `/api/me/plan/thread` has no client until the Plan tab lands
             .route("/api/me/plan", get(own_plan::get_own_plan))
             .route("/api/me/plan/families", get(own_plan::get_own_families))
             .route(
