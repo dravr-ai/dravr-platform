@@ -67,9 +67,9 @@ pub(crate) use grant_writes::impl_client_grant_writes;
 pub(crate) use host_profile::impl_client_host_profile;
 pub(crate) use pushed::impl_pushed_request_store;
 pub(crate) use rows::{
-    child_grant_from_row, client_grant_from_row, device_authorization_from_row, ended_child_from_row,
-    oauth2_auth_code_from_row, oauth2_client_from_row, oauth2_refresh_token_from_row,
-    oauth2_state_from_row,
+    child_grant_from_row, client_grant_from_row, device_authorization_from_row,
+    ended_child_from_row, oauth2_auth_code_from_row, oauth2_client_from_row,
+    oauth2_refresh_token_from_row, oauth2_state_from_row,
 };
 
 /// Register an RFC 7591 client unless `$12` registrations are already

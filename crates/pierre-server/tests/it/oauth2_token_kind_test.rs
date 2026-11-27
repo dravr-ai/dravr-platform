@@ -388,7 +388,10 @@ async fn an_agent_write_scope_alone_is_the_agent_write_kind() {
         "bug: an agent-write token is not its own kind"
     );
     assert_eq!(
-        kind_of("some-registered-client", &["fitness:read", "pdpp:agent_write"]),
+        kind_of(
+            "some-registered-client",
+            &["fitness:read", "pdpp:agent_write"]
+        ),
         Some("client"),
         "bug: a mixed scope was read as agent_write"
     );

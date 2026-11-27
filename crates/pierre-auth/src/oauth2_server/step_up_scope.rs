@@ -322,7 +322,10 @@ mod tests {
             "fitness:read health:write:labs.summary health:write:sleep.summary"
         );
         let step_up = split(Some(&challenge)).unwrap().unwrap();
-        assert_eq!(step_up.scope, "fitness:read", "bug: health:write leaked into the scope");
+        assert_eq!(
+            step_up.scope, "fitness:read",
+            "bug: health:write leaked into the scope"
+        );
         assert_eq!(step_up.writes, vec![Stream::Labs, Stream::Sleep]);
         assert!(step_up.streams.is_empty());
         let details = agent_write_details(&step_up).unwrap().unwrap();
@@ -330,9 +333,11 @@ mod tests {
         assert!(parsed.data_access.is_none());
         let write = parsed.agent_write.unwrap();
         assert!(write.target(Stream::Labs).is_some() && write.target(Stream::Sleep).is_some());
-        let read = split(Some("pdpp:preset:one_off_question pdpp:stream:labs.summary"))
-            .unwrap()
-            .unwrap();
+        let read = split(Some(
+            "pdpp:preset:one_off_question pdpp:stream:labs.summary",
+        ))
+        .unwrap()
+        .unwrap();
         assert_eq!(agent_write_details(&read).unwrap(), None);
     }
 

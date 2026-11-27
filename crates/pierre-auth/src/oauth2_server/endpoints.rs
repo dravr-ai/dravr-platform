@@ -59,11 +59,11 @@ pub use agent_write::AGENT_WRITE_NOT_OFFERED;
 /// The request's RFC 9396 details, and the details a grant's tokens echo
 mod details;
 pub use details::RequestDetails;
-/// The resource servers this server mints for, and their builders
-mod resource_servers;
 /// Access-token validation with refresh, `validate_and_refresh`
 mod first_party_code;
 mod grant_checks;
+/// The resource servers this server mints for, and their builders
+mod resource_servers;
 pub use grant_checks::TokenGrant;
 mod rotate_refresh;
 pub use first_party_code::RedeemedFirstPartyCode;
