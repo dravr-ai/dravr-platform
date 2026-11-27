@@ -18,6 +18,7 @@
 //! fact body is wrapped in a reserved `<user_fact>` fence and sanitized before
 //! assembly (StruQ-style structured separation).
 
+use dravr_colleur::{USER_FACT_CLOSE, USER_FACT_OPEN};
 use pierre_memory::PredicateCode;
 use tracing::warn;
 
@@ -111,7 +112,7 @@ fn render_fact(fact: &DossierFact, redact_body: bool, sentences: SentenceRendere
     };
     let stale_attr = if fact.stale { " stale=\"true\"" } else { "" };
     format!(
-        "<user_fact kind=\"{kind}\" source=\"{source}\" confidence=\"{conf:.2}\"{stale_attr}>{body}</user_fact>\n",
+        "{USER_FACT_OPEN} kind=\"{kind}\" source=\"{source}\" confidence=\"{conf:.2}\"{stale_attr}>{body}{USER_FACT_CLOSE}\n",
         kind = fact.kind,
         source = fact.source,
         conf = fact.confidence,

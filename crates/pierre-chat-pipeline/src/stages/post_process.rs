@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use pierre_core::models::{AgentRuntimeContext, CoachingPersona, UnitSystem};
+use pierre_core::models::{AgentRuntimeContext, UnitSystem};
 use pierre_database::database::ConversationRecord;
 use pierre_providers::ai_scope;
 use pierre_services::prompt_leak;
@@ -18,11 +18,17 @@ use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
 use crate::ChatPipelineContext;
 
-use pierre_contremaitre::messaging_strings::{KEY_EMPTY_REPLY, KEY_REPLY_WITHHELD};
-use pierre_contremaitre::persona_contracts::PersonaContractsSnapshot;
+use dravr_colleur::{
+    apply_isolation_redaction, check_reply_conformance, enforce_conformance, PersonaStyle,
+    RosterScope, StyleContract, StyleEditor, TextModel,
+};
+use pierre_contremaitre::messaging_strings::{
+    KEY_EMPTY_REPLY, KEY_PERSONA_ISOLATION_REDACTED, KEY_REPLY_WITHHELD,
+};
 use pierre_core::narration::{
     scrub_internal_narration, scrub_ungrounded_data_appeals, IdentityLeakMatch,
 };
+use pierre_llm::claim_judge::RecordedJudge;
 use pierre_llm::provider_stop::ProviderStop;
 
 use super::provider_stop;
@@ -30,13 +36,10 @@ use super::provider_stop;
 use super::acronym_expansion::expand_acronyms_first_use;
 use super::envelope_notice::{envelope_notice_block, notice_only_blocks, notice_reader};
 use super::guardrails::apply_text_guardrails;
-use super::persona_conformance::{
-    apply_isolation_redaction, check_reply_conformance, coach_roster_scope, enforce_conformance,
-    RosterScope, StyleEditor,
-};
 use super::plan_block::{append_block, plan_block_for_turn};
 use super::prompt_assembly::resolve_user_persona;
 use super::quick_replies::{lift_quick_replies, QuickReplies};
+use super::roster_reads::coach_roster_scope;
 #[cfg(feature = "tools-verification")]
 use super::verification::{
     apply_claim_verification, ClaimVerificationOutcome, ClaimVerificationParams,
@@ -160,13 +163,9 @@ pub(crate) struct PostProcessInputs<'a> {
 async fn resolve_roster_scope(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
-    snapshot: &PersonaContractsSnapshot,
-    persona: CoachingPersona,
+    contract: &StyleContract,
 ) -> Option<RosterScope> {
-    if !snapshot
-        .contract(persona)
-        .is_some_and(|c| c.require_tenant_isolation)
-    {
+    if !contract.require_tenant_isolation {
         return None;
     }
     let coach_user_id = Uuid::parse_str(&input.user_id).ok()?;
@@ -213,15 +212,20 @@ async fn apply_style_stages(
 
     // In strict_mode the reply is re-prompted into compliance before
     // verification; otherwise the violations are logged only (shadow mode).
+    // Before the first contremaitre sync there is no contract, and the stage
+    // no-ops rather than blocking chat.
     let persona = resolve_user_persona(ctx.repos.users.as_ref(), &input.user_id).await;
-    let roster = resolve_roster_scope(ctx, input, &contracts_snapshot, persona).await;
-    let conformance_violations = check_reply_conformance(
-        &ctx.persona_contract_registry,
-        persona,
-        &content,
-        roster.as_ref(),
-        roster_data_read,
-    );
+    let Some(contract) = contracts_snapshot.contract(persona) else {
+        return content;
+    };
+    let roster = resolve_roster_scope(ctx, input, &contract.style).await;
+    let style = PersonaStyle {
+        persona: persona.as_str(),
+        contract: &contract.style,
+        glossary: &contracts_snapshot.glossary,
+    };
+    let conformance_violations =
+        check_reply_conformance(style, &content, roster.as_ref(), roster_data_read);
     tracing::debug!(
         persona = persona.as_str(),
         violations = conformance_violations.len(),
@@ -230,24 +234,26 @@ async fn apply_style_stages(
     // Leak repair before style repair: an isolation violation is cut
     // deterministically; only style violations may reach the LLM rewrite.
     let content = apply_isolation_redaction(
-        &ctx.messaging_strings_registry,
-        persona,
+        &ctx.messaging_strings_registry
+            .get(KEY_PERSONA_ISOLATION_REDACTED, locale),
+        persona.as_str(),
         content,
         &conformance_violations,
         roster.as_ref(),
-        locale,
     );
     let recorder = turn_call_recorder(ctx, input, PERSONA_REWRITE_CALL_TYPE);
+    let judge = ctx
+        .chat_provider
+        .as_deref()
+        .map(|provider| RecordedJudge::new(provider, Some(&recorder)));
     let editor = StyleEditor {
-        provider: ctx.chat_provider.as_ref(),
-        prompts: &ctx.prompt_registry,
-        model: active_model,
-        recorder: Some(&recorder),
+        model: judge.as_ref().map(|judge| -> &dyn TextModel { judge }),
+        template: &ctx.prompt_registry.persona_style_editor_prompt(),
+        model_id: active_model,
     };
     enforce_conformance(
         editor,
-        &ctx.persona_contract_registry,
-        persona,
+        style,
         content,
         &conformance_violations,
         roster_data_read,

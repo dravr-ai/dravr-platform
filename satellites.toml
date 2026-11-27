@@ -109,9 +109,11 @@ source     = "git-tag"
 companions = "dravr-cageux:from-manifest"
 
 # Reply claim checking (carnet#1839): extraction, the verdict layers and the
-# claim types, compiled into the platform. Its own manifest pins dravr-cageux for
-# the form reading, the sport aliases and the plausibility bounds, so the two
-# move in one commit at the tag colleur's manifest names, as barrage's do.
+# claim types, compiled into the platform, and the reply-quality stages a coach
+# reply passes (claim density, persona style, peer claims, source attribution).
+# Its own manifest pins dravr-cageux for the form reading, the sport aliases and
+# the plausibility bounds, so the two move in one commit at the tag colleur's
+# manifest names, as barrage's do.
 [dravr-colleur]
 repo       = "dravr-colleur"
 source     = "git-tag"

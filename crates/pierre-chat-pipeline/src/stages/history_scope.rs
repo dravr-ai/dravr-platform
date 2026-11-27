@@ -49,13 +49,13 @@ use pierre_database::repositories::{MemberReplay, AUTHOR_READ_PREFIX, UNATTRIBUT
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
 use pierre_services::call_room::CallRoom;
+use pierre_services::reply_attribution::garmin_attribution_lines;
 use pierre_services::{member_reads, transcript_reading};
 use pierre_tool_runtime::derived_content;
 use tracing::warn;
 use uuid::Uuid;
 
 use super::persistence::get_conversation_history;
-use super::source_attribution;
 use super::subject_athlete::{self, SubjectTurn};
 use crate::{ChatPipelineContext, TurnInput};
 
@@ -360,7 +360,12 @@ pub(crate) async fn load_history(
     .await?;
     // The Garmin attribution closing an earlier reply is the platform's, not
     // something the model says: it never reads it back (carnet#1464).
-    source_attribution::strip_from_history(ctx, &mut history);
+    garmin_attribution_lines(&ctx.messaging_strings_registry).strip_from_history(
+        history
+            .iter_mut()
+            .filter(|row| row.role == "assistant")
+            .map(|row| &mut row.content),
+    );
     // An external turn in a first-party-only thread, or a coach's athlete
     // thread the gates refuse, reads only its own new message.
     let subject_turn = scope_history(ctx, input, conv, current, &mut history).await?;

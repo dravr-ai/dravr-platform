@@ -136,7 +136,7 @@ pub struct ManifestConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cageux: Option<ManifestEntry>,
     /// Per-persona output-format conformance contract used by the chat
-    /// pipeline's `persona_conformance` stage to assert LLM replies
+    /// pipeline's persona style stage (dravr-colleur) to assert LLM replies
     /// against the rules in
     /// `[[Coaching Persona Architecture#5. Contract enforcement]]`.
     /// Absent from the manifest = no runtime conformance checks; pierre

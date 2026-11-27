@@ -1,5 +1,5 @@
 // ABOUTME: Hot-reloadable per-persona conformance contracts from contremaitre
-// ABOUTME: Powers the chat-pipeline persona_conformance stage; zero hardcoded thresholds
+// ABOUTME: Feeds dravr-colleur's persona style stage through the chat pipeline; zero hardcoded thresholds
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -19,9 +19,9 @@
 //! - **[`PersonaContract`]** — per-persona ruleset parsed from the YAML
 //! - **[`PersonaContractRegistry`]** — thread-safe in-memory snapshot,
 //!   replaced atomically on every successful sync through an `ArcSwap`
-//! - **`persona_conformance` chat-pipeline stage** (separate module) —
-//!   runs each rule against the LLM reply post-dispatch, logs `warn!`
-//!   per violation
+//! - **dravr-colleur's persona style stage**, run by the chat pipeline —
+//!   checks each rule of the contract's [`StyleContract`] against the LLM
+//!   reply post-dispatch, logs `warn!` per violation
 //!
 //! Falls back to **no rules** when contremaitre hasn't synced yet — the
 //! conformance stage no-ops on a startup or transient sync failure
@@ -32,6 +32,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
+use dravr_colleur::StyleContract;
 use dravr_tronc::dates::Timestamp;
 use pierre_core::models::CoachingPersona;
 use serde::{Deserialize, Serialize};
@@ -75,6 +76,11 @@ const GLOSSARY_FALLBACK_LOCALE: &str = "en";
 /// permissive defaults. The `inherits` field is resolved at registry
 /// install time — by the time a contract reaches a conformance check,
 /// `inherits` is already flattened into the merged ruleset.
+///
+/// The output-style rules are dravr-colleur's [`StyleContract`], flattened
+/// so the YAML keeps one shape: colleur owns the rules and the check that
+/// reads them, the platform owns the inheritance and the notification
+/// policy beside them.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 pub struct PersonaContract {
     /// Slug of another persona whose rules should be merged in *before*
@@ -84,104 +90,9 @@ pub struct PersonaContract {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub inherits: Option<String>,
 
-    /// Hard maximum word count for the user-facing reply (entire body,
-    /// including the verification suffix and any localized denial). The
-    /// vault doc's "Casual hard 150-word cap" lives here.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_words: Option<usize>,
-
-    /// When `true`, surfacing any framework name from `framework_allowlist`
-    /// — or any of the canonical framework labels Coggan/Banister/etc. —
-    /// is a violation. Used by Casual to keep replies acronym-free.
-    #[serde(default)]
-    pub forbid_framework_citations: bool,
-
-    /// When `true`, the reply must NOT contain a structured "label:
-    /// value" line-by-line block. Casual replies are prose-only.
-    #[serde(default)]
-    pub forbid_line_by_line_blocks: bool,
-
-    /// When set, lists with this many bullets or more must be collapsed
-    /// to prose. `Some(3)` matches the vault doc's "lists of 3+ items
-    /// collapse to prose" Casual rule.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub forbid_lists_at_or_above_count: Option<usize>,
-
-    /// When `true`, numbers like `74.6 km` must be rounded (`75 km`).
-    /// Implementation reports any 4+ significant digit decimal as a
-    /// candidate violation; tolerance for false positives is high since
-    /// the rule is advisory in non-strict mode.
-    #[serde(default)]
-    pub round_numbers_required: bool,
-
-    /// When `true`, the assistant MUST NOT narrate tool calls
-    /// ("Let me check your training history…"). Strings in
-    /// [`TOOL_NARRATION_PHRASES`] flag the reply.
-    #[serde(default)]
-    pub forbid_tool_call_narration: bool,
-
-    /// Acronyms whose first appearance must carry a parenthetical gloss
-    /// — e.g. `CTL (your fitness baseline)`. A bare `CTL` triggers a
-    /// violation. Empty list disables the check.
-    #[serde(default)]
-    pub forbid_acronyms_unglossed: Vec<String>,
-
-    /// Catches first-use occurrences of any acronym (the platform's
-    /// general acronym list, not the explicit `forbid_acronyms_unglossed`
-    /// allowlist). Used by Enthusiast where the rule is "glossed once on
-    /// first use" rather than "never".
-    #[serde(default)]
-    pub forbid_acronyms_first_use_unglossed: bool,
-
-    /// Maximum number of lines per structured block. Used by
-    /// Enthusiast's "small structured blocks (3–5 lines, no bullets)
-    /// for per-activity summaries" rule.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub structured_block_max_lines: Option<usize>,
-
-    /// When `true`, every numeric claim must carry one of the
-    /// frameworks listed in `framework_allowlist`. Power-athlete only.
-    #[serde(default)]
-    pub require_framework_citation_per_numeric: bool,
-
-    /// Allowed framework labels (case-insensitive substring match) for
-    /// `require_framework_citation_per_numeric`. Defaulting to empty
-    /// disables the citation-presence check by definition.
-    #[serde(default)]
-    pub framework_allowlist: Vec<String>,
-
-    /// When `true`, the reply must contain at least one structured
-    /// `label: value` block (the inverse of `forbid_line_by_line_blocks`).
-    #[serde(default)]
-    pub require_line_by_line_block: bool,
-
-    /// Conversational softeners that are forbidden in Power-athlete
-    /// replies ("nice work", "I think", "around"). Case-insensitive
-    /// standalone word or phrase match.
-    #[serde(default)]
-    pub forbid_softeners: Vec<String>,
-
-    /// When `true`, vague modifiers ("approximately", "around", "~")
-    /// next to numbers are violations. The implementation flags `~`,
-    /// `≈`, "approximately", "around" within 10 chars of a digit.
-    #[serde(default)]
-    pub require_exact_numbers: bool,
-
-    /// When `true`, replies issuing a Go / Modify / Skip verdict must
-    /// include the literal P0 / P1 / P2 / P3 ladder anchor.
-    #[serde(default)]
-    pub require_p0_p3_ladder: bool,
-
-    /// When `true`, replies referencing a specific athlete must prefix
-    /// the data block with `<display_name> · <last4uuid>` so the coach
-    /// can keep multiple athletes straight in scrollback.
-    #[serde(default)]
-    pub require_athlete_id_prefix: bool,
-
-    /// When `true`, the conformance stage refuses to surface data
-    /// outside the coach's roster (treat as tenant-isolation violation).
-    #[serde(default)]
-    pub require_tenant_isolation: bool,
+    /// The persona's output-style rules, checked on every reply.
+    #[serde(flatten)]
+    pub style: StyleContract,
 
     /// Notification cadence policy. `tier_floor` is consumed by the persona
     /// notification-policy gate in `pierre-notifications`, which withholds
@@ -192,14 +103,6 @@ pub struct PersonaContract {
     /// in `feature-phases.yaml`.
     #[serde(default)]
     pub notification: NotificationPolicy,
-
-    /// When `true`, conformance violations log at `error!` and the LLM
-    /// is re-prompted to rewrite the reply against the violated style
-    /// rules, keeping the original if the rewrite fails. When `false`,
-    /// violations are advisory `warn!` logs only. Per-persona opt-in, and
-    /// inherited: an `inherits` child is strict whenever its parent is.
-    #[serde(default)]
-    pub strict_mode: bool,
 }
 
 /// Notification cadence per persona.
@@ -215,22 +118,6 @@ pub struct NotificationPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub digest: Option<String>,
 }
-
-/// Phrases that count as tool-call narration in conformance checks.
-///
-/// Compiled-in because they describe assistant *output style*, not
-/// product policy — moving them into YAML would risk a contremaitre
-/// edit silently weakening the rule across all personas.
-pub const TOOL_NARRATION_PHRASES: &[&str] = &[
-    "let me check",
-    "i'll look up",
-    "let me look",
-    "let me pull",
-    "let me fetch",
-    "i'll fetch",
-    "calling the tool",
-    "running the query",
-];
 
 /// Snapshot stored in [`PersonaContractRegistry`] alongside the
 /// contracts so callers can correlate against `loaded_at` /
@@ -413,43 +300,13 @@ fn resolve_one(
     Ok(merged)
 }
 
-/// Overlay `child` onto `parent` field-by-field. Convention: a child
-/// `Some(_)` or non-empty `Vec`/`bool=true` wins; a child default
-/// (`None`, `Vec::default()`, `false`) keeps the parent value.
+/// Overlay `child` onto `parent`: the style rules as colleur's
+/// [`StyleContract::overlay`] resolves them, and the notification policy
+/// field by field, a child `Some(_)` winning over the parent's.
 fn overlay(parent: PersonaContract, child: PersonaContract) -> PersonaContract {
     PersonaContract {
         inherits: None,
-        max_words: child.max_words.or(parent.max_words),
-        forbid_framework_citations: child.forbid_framework_citations
-            || parent.forbid_framework_citations,
-        forbid_line_by_line_blocks: child.forbid_line_by_line_blocks
-            || parent.forbid_line_by_line_blocks,
-        forbid_lists_at_or_above_count: child
-            .forbid_lists_at_or_above_count
-            .or(parent.forbid_lists_at_or_above_count),
-        round_numbers_required: child.round_numbers_required || parent.round_numbers_required,
-        forbid_tool_call_narration: child.forbid_tool_call_narration
-            || parent.forbid_tool_call_narration,
-        forbid_acronyms_unglossed: vec_overlay(
-            parent.forbid_acronyms_unglossed,
-            child.forbid_acronyms_unglossed,
-        ),
-        forbid_acronyms_first_use_unglossed: child.forbid_acronyms_first_use_unglossed
-            || parent.forbid_acronyms_first_use_unglossed,
-        structured_block_max_lines: child
-            .structured_block_max_lines
-            .or(parent.structured_block_max_lines),
-        require_framework_citation_per_numeric: child.require_framework_citation_per_numeric
-            || parent.require_framework_citation_per_numeric,
-        framework_allowlist: vec_overlay(parent.framework_allowlist, child.framework_allowlist),
-        require_line_by_line_block: child.require_line_by_line_block
-            || parent.require_line_by_line_block,
-        forbid_softeners: vec_overlay(parent.forbid_softeners, child.forbid_softeners),
-        require_exact_numbers: child.require_exact_numbers || parent.require_exact_numbers,
-        require_p0_p3_ladder: child.require_p0_p3_ladder || parent.require_p0_p3_ladder,
-        require_athlete_id_prefix: child.require_athlete_id_prefix
-            || parent.require_athlete_id_prefix,
-        require_tenant_isolation: child.require_tenant_isolation || parent.require_tenant_isolation,
+        style: StyleContract::overlay(parent.style, child.style),
         notification: NotificationPolicy {
             tier_floor: child
                 .notification
@@ -457,18 +314,5 @@ fn overlay(parent: PersonaContract, child: PersonaContract) -> PersonaContract {
                 .or(parent.notification.tier_floor),
             digest: child.notification.digest.or(parent.notification.digest),
         },
-        strict_mode: child.strict_mode || parent.strict_mode,
-    }
-}
-
-/// Child's vec wins when non-empty; otherwise parent's. Lets a child
-/// declare `forbid_softeners: []` to clear inherited entries — but the
-/// far more common pattern (in the YAML committed today) is an empty
-/// child vec meaning "I don't override; keep the parent's".
-fn vec_overlay(parent: Vec<String>, child: Vec<String>) -> Vec<String> {
-    if child.is_empty() {
-        parent
-    } else {
-        child
     }
 }

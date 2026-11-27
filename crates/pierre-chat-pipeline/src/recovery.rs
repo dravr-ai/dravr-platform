@@ -297,7 +297,7 @@ pub(crate) async fn run_recovery_and_post_process(
             // A roster tool ran, or the room's member cards were in the prompt:
             // either way a data block in the reply may be another athlete's.
             roster_data_read: !peer_roster.is_empty()
-                || stages::persona_conformance::turn_read_roster_data(&tools_called),
+                || stages::roster_reads::turn_read_roster_data(&tools_called),
             active_model,
             provider_stop,
         },

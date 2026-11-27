@@ -36,6 +36,7 @@
 use std::fmt;
 use std::sync::Arc;
 
+use dravr_colleur::verify_peer_claims;
 use serde_json::json;
 use tracing::{info, warn};
 
@@ -46,10 +47,9 @@ use super::capability_reask::{
 use super::capability_subject::{
     apply_subject_recovery, conversation_group_id, resolve_ask_subject, AskSubject,
 };
-use super::claim_density::{
+use super::disputed_claims::{
     previous_reply_asserted_athlete_facts, previous_reply_asserted_unsupplied_facts,
 };
-use super::peer_claim_verifier::verify_peer_claims;
 use super::peer_grounding::{
     fetch_peer_activities_outcome, mentioned_peers, PeerGroundingBlock, PeerMention,
     PEER_FETCH_TOOL,
@@ -64,6 +64,7 @@ use pierre_core::models::{MemberFitnessSnapshot, OnboardingState};
 use pierre_core::narration;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_llm::call_record::{complete_recorded, LlmCallRecorder};
+use pierre_llm::claim_judge::RecordedJudge;
 use pierre_llm::{ChatMessage, ChatRequest};
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_tool_runtime::coach_seat::TurnSeat;
@@ -884,8 +885,9 @@ async fn apply_peer_claim_recovery(
 
     let evidence = turn_evidence_with(deps.llm_messages, extra_evidence);
     let unsupported = verify_peer_claims(
-        deps,
-        provider.as_ref(),
+        &RecordedJudge::new(provider.as_ref(), Some(deps.verifier_recorder)),
+        &deps.ctx.prompt_registry.peer_claim_verifier_prompt(),
+        deps.active_model,
         &evidence,
         &result.content,
         &peer.display_name,
@@ -1043,8 +1045,15 @@ pub(super) async fn reask_reply_is_clean(
     evidence_with_fetch: &str,
     reply: &str,
 ) -> bool {
-    let still_unsupported =
-        verify_peer_claims(deps, provider, evidence_with_fetch, reply, peer_name).await;
+    let still_unsupported = verify_peer_claims(
+        &RecordedJudge::new(provider, Some(deps.verifier_recorder)),
+        &deps.ctx.prompt_registry.peer_claim_verifier_prompt(),
+        deps.active_model,
+        evidence_with_fetch,
+        reply,
+        peer_name,
+    )
+    .await;
     if !still_unsupported.is_empty() || narration::contains_capability_failure(reply) {
         warn!(
             peer = %peer_name,

@@ -1,5 +1,5 @@
 // ABOUTME: HTTP integration tests for GET /api/personas — persona cards from the live contract registry
-// ABOUTME: Covers FR rendering, strict-mode inheritance for agent, locale fallback, and the empty registry
+// ABOUTME: Covers FR rendering, strict-mode inheritance for agent, locale fallback, the empty registry, and the YAML shape
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -26,6 +26,8 @@ use axum::Router;
 use common::{create_test_server_resources, create_test_user};
 use helpers::axum_test::AxumTestRequest;
 use helpers::contremaitre_checkout::contremaitre_tree;
+use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
+use pierre_core::models::CoachingPersona;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::personas::PersonasRoutes;
 use pierre_services::personas::resolve_persona_locale;
@@ -262,5 +264,49 @@ async fn personas_without_auth_rejected() {
             || response.status_code() == StatusCode::FORBIDDEN,
         "unauth request should be 401/403, got {}",
         response.status_code()
+    );
+}
+
+/// The shipped YAML parses into colleur's flattened style rules: a numeric cap
+/// reaches `style`, strictness resolves through `inherits`, and the contract
+/// serializes back to the YAML's one flat shape, the style rules beside the
+/// notification policy rather than nested under a `style` key.
+#[test]
+fn shipped_contracts_parse_into_the_flattened_style_rules() {
+    let registry = PersonaContractRegistry::new();
+    registry
+        .apply_overlay(&shipped_persona_contracts_yaml())
+        .expect("the shipped persona contracts parse");
+    let snapshot = registry.snapshot();
+
+    let casual = snapshot
+        .contract(CoachingPersona::Casual)
+        .expect("casual is shipped");
+    assert_eq!(
+        casual.style.max_words,
+        Some(150),
+        "bug: casual's word cap must reach the flattened style rules"
+    );
+    let coach = snapshot
+        .contract(CoachingPersona::Coach)
+        .expect("coach is shipped");
+    assert!(
+        coach.style.strict_mode && coach.inherits.is_none(),
+        "bug: coach is strict through power_athlete, its inherits resolved"
+    );
+
+    let json = serde_json::to_value(casual).expect("a contract serializes");
+    assert_eq!(json["max_words"], 150, "the cap is a top-level key: {json}");
+    assert!(
+        json.get("style").is_none(),
+        "bug: the style rules must flatten, not nest: {json}"
+    );
+    assert!(
+        json["notification"].is_object(),
+        "the notification policy stays beside the rules: {json}"
+    );
+    assert!(
+        json.get("inherits").is_none(),
+        "a resolved contract has no parent"
     );
 }

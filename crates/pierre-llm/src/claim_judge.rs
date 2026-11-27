@@ -15,19 +15,25 @@
 //!
 //! A provider failure and an answer that holds no JSON come back apart,
 //! because colleur asks once more only for the second.
+//!
+//! The same judge is colleur's [`TextModel`] for the reply-quality stages
+//! that want prose back (the persona style editor, the peer-claim verifier).
+//! Each [`TextRequest`] is sent exactly as its fields say: a system message
+//! only when one is given, a temperature only when one is set.
 
 use std::fmt;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use dravr_colleur::{JudgeCallError, JudgeModel, JudgeRequest};
+use dravr_colleur::{JudgeCallError, JudgeModel, JudgeRequest, TextModel, TextRequest};
 use serde_json::Value;
 
 use crate::call_record::{self, LlmCallRecorder};
 use crate::judge;
-use crate::LlmProvider;
+use crate::{ChatMessage, ChatRequest, LlmProvider};
 
-/// A [`JudgeModel`] over one platform provider, recording each call.
+/// A [`JudgeModel`] and [`TextModel`] over one platform provider, recording
+/// each call.
 #[derive(Clone, Copy)]
 pub struct RecordedJudge<'llm> {
     provider: &'llm dyn LlmProvider,
@@ -71,5 +77,28 @@ impl JudgeModel for RecordedJudge<'_> {
             .map_err(|e| JudgeCallError::Provider(e.to_string()))?;
         judge::parse_json_response(&response)
             .map_err(|e| JudgeCallError::Unparseable(e.to_string()))
+    }
+}
+
+#[async_trait]
+impl TextModel for RecordedJudge<'_> {
+    async fn ask_text(&self, request: TextRequest<'_>) -> Result<String, JudgeCallError> {
+        let messages = request
+            .system_prompt
+            .map(|system| ChatMessage::system(system.to_owned()))
+            .into_iter()
+            .chain([ChatMessage::user(request.user_prompt.to_owned())])
+            .collect();
+        let mut chat = ChatRequest::new(messages);
+        if let Some(temperature) = request.temperature {
+            chat = chat.with_temperature(temperature);
+        }
+        if let Some(model) = request.model {
+            chat = chat.with_model(model);
+        }
+        call_record::complete_recorded(self.provider, &chat, self.recorder)
+            .await
+            .map(|response| response.content)
+            .map_err(|e| JudgeCallError::Provider(e.to_string()))
     }
 }

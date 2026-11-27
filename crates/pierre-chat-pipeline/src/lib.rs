@@ -109,8 +109,11 @@ use turn_frames::{
     answered_turn, dispatch_llm, recovered_and_post_processed, scoped_turn, BoxedStage,
 };
 
+use dravr_colleur::attribute_reply;
 use dravr_tronc::dates::Timestamp;
 use pierre_agui::AgUiEvent;
+use pierre_contremaitre::messaging_strings::KEY_REPLY_GARMIN_ATTRIBUTION;
+use pierre_core::constants::oauth_providers::GARMIN_ATTRIBUTION;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{
     AddMessageParams, AgentRuntimeContext, CoachingPersona, MemberFitnessSnapshot,
@@ -122,6 +125,7 @@ use pierre_llm::ChatMessage;
 use pierre_providers::ai_scope;
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_services::provider_notice;
+use pierre_services::reply_attribution::garmin_attribution_lines;
 use pierre_tool_runtime::chat_catalogue::{self, SwitchedOff, TurnReaders};
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::context::TURN_ASK;
@@ -132,6 +136,7 @@ use stages::agent_session::{ensure_agent_session_attached, finalize_session_stat
 use stages::deterministic_reply::PLATFORM_REPLY_TRANSCRIPT_MARKER;
 use stages::persistence::append_platform_prompt;
 use stages::provider_stop;
+use stages::reply_locale::resolve_banner_locale;
 use tool_budget::resolve_max_iterations;
 use turn_prompt::{store_turn_prompt, turn_ask};
 
@@ -805,16 +810,23 @@ async fn answer_stored_turn(
     );
     // A reply derived in part from Garmin device-sourced data says so, in the
     // platform's words on every surface (carnet#521).
-    let persisted_assistant_content = stages::source_attribution::attribute_reply(
-        ctx,
+    let strings = &ctx.messaging_strings_registry;
+    let persisted_assistant_content = attribute_reply(
         persisted_assistant_content,
-        &stages::source_attribution::owed_attributions(
+        &garmin_attribution_lines(strings),
+        stages::source_attribution::owed_attributions(
             seat,
             parse_uuid(&input.user_id).ok(),
             &cards_carried,
-        ),
+        )
+        .contains(GARMIN_ATTRIBUTION),
         stages::source_attribution::model_answered(&result),
-        &profile.locale,
+        |reply| {
+            strings.get(
+                KEY_REPLY_GARMIN_ATTRIBUTION,
+                &resolve_banner_locale(reply, &profile.locale),
+            )
+        },
     );
     // A reply the platform composed on its own initiative is posted only when
     // it grounded in the athlete's data and did not refuse (carnet#831).

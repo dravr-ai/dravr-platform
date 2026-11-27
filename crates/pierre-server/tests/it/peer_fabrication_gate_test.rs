@@ -1,5 +1,5 @@
-// ABOUTME: The fabrication gate's deterministic pieces — peer-name matching and verdict parsing
-// ABOUTME: "Phil", "Phile" and "Philippe" must reach the same member; garbage verdicts fail open
+// ABOUTME: The fabrication gate's deterministic pieces — peer-name matching, the repair prompt and the subject
+// ABOUTME: "Phil", "Phile" and "Philippe" must reach the same member; verdict parsing is dravr-colleur's
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,11 +9,9 @@
 //! whose true record — 53 min, 6.1 km — sat in its own context).
 //!
 //! `mentioned_peers` decides which turns get platform-side peer grounding
-//! and which replies face the claim verifier; `parse_unsupported_verdict`
-//! turns the verifier model's reply into the unsupported-claim list. Both
-//! must behave exactly, because a false name-match grounds the wrong
-//! person's data and a mis-parsed verdict either blocks a legitimate reply
-//! or waves a fabricated one through.
+//! and which replies face the claim verifier. It must behave exactly,
+//! because a false name-match grounds the wrong person's data. The verifier's
+//! verdict parsing is dravr-colleur's, and tested there.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -26,7 +24,6 @@ use pierre_chat_pipeline::stages::capability_subject::{
     resolve_ask_subject, subject_reask_instruction, AskSubject, OwnActivities,
     SUBJECT_DECLINED_MARKER, SUBJECT_FETCHED_MARKER,
 };
-use pierre_chat_pipeline::stages::peer_claim_verifier::parse_unsupported_verdict;
 use pierre_chat_pipeline::stages::peer_grounding::mentioned_peers;
 use pierre_core::models::groups::OvertrainingRiskLevel;
 use pierre_core::models::MemberFitnessSnapshot;
@@ -105,38 +102,6 @@ fn short_or_unrelated_tokens_match_nobody() {
     assert_eq!(mentioned_peers("mon vélo est prêt", &roster, requester), []);
     // "Ph" is below both the exact and prefix thresholds.
     assert_eq!(mentioned_peers("Ph a roulé", &roster, requester), []);
-}
-
-/// A clean verdict, a verdict wrapped in prose, and an empty verdict all
-/// parse; the wrapped case is the live shape (models narrate around JSON).
-#[test]
-fn verdicts_parse_with_and_without_surrounding_prose() {
-    assert_eq!(
-        parse_unsupported_verdict(r#"{"unsupported": ["une course de 4h30"]}"#),
-        vec!["une course de 4h30".to_owned()]
-    );
-    assert_eq!(
-        parse_unsupported_verdict(
-            "Here is my analysis:\n{\"unsupported\": [\"4h30\", \"pas de distance\"]}\nDone."
-        ),
-        vec!["4h30".to_owned(), "pas de distance".to_owned()]
-    );
-    let found = parse_unsupported_verdict(r#"{"unsupported": []}"#);
-    assert!(found.is_empty(), "expected empty, got {found:?}");
-}
-
-/// Garbage fails OPEN — a flaky verifier must never cost the athlete a
-/// legitimate reply, so an unparseable verdict reads as "supported".
-#[test]
-fn unparseable_verdicts_fail_open() {
-    let found = parse_unsupported_verdict("");
-    assert!(found.is_empty(), "expected empty, got {found:?}");
-    let found = parse_unsupported_verdict("I could not check that.");
-    assert!(found.is_empty(), "expected empty, got {found:?}");
-    let found = parse_unsupported_verdict("{not json at all]");
-    assert!(found.is_empty(), "expected empty, got {found:?}");
-    let found = parse_unsupported_verdict(r#"{"wrong_key": ["x"]}"#);
-    assert!(found.is_empty(), "expected empty, got {found:?}");
 }
 
 /// The repair prompt is chat-shaped: no tool-result framing (which routed

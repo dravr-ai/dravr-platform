@@ -138,9 +138,8 @@
 // The helpers tree is compiled into every test binary; each one calls only some of these.
 #![allow(dead_code)]
 
-use std::mem;
-
 use dravr_cageux::training_load::{TrainingLoad, TrainingLoadCalculator};
+use dravr_colleur::persona_style::{split_sentences_keeping_decimals, FRAMEWORK_NAMES};
 use dravr_tronc::dates::Timestamp;
 use pierre_core::models::usage::LlmUsageRecord;
 use pierre_core::models::{Activity, TURN_SUMMARY_CALL_TYPE};
@@ -685,15 +684,6 @@ pub(crate) fn assert_guardrail(reply: &str, expected: &str) -> Result<(), Guardr
 // Persona-axis voice asserters (drives Casual vs PowerAthlete differentiation)
 // ============================================================================
 
-/// Names every framework anchor the `PowerAthlete` persona block
-/// authorizes for citation. Membership is the source of truth for
-/// [`assert_no_framework_citations`] and
-/// [`assert_has_framework_citation_per_numeric`]. Drift here will
-/// cascade — keep aligned with `prompts/personas/power_athlete.md`.
-pub(crate) const FRAMEWORK_ANCHORS: &[&str] = &[
-    "Banister", "Coggan", "Foster", "Gabbett", "Seiler", "Treff", "Mujika", "Issurin", "Racinais",
-];
-
 /// Catches a `Casual` reply that drifted into `PowerAthlete`-style citations.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct FrameworkCitationFound {
@@ -752,7 +742,7 @@ pub(crate) struct WordCountOver {
 /// Returns [`FrameworkCitationFound`] naming the offending anchor and
 /// the surrounding context.
 pub(crate) fn assert_no_framework_citations(reply: &str) -> Result<(), FrameworkCitationFound> {
-    for anchor in FRAMEWORK_ANCHORS {
+    for anchor in FRAMEWORK_NAMES {
         if let Some(idx) = reply.find(anchor) {
             let lo = idx.saturating_sub(40);
             let hi = (idx + anchor.len() + 40).min(reply.len());
@@ -778,8 +768,10 @@ pub(crate) fn assert_no_framework_citations(reply: &str) -> Result<(), Framework
 /// `PowerAthlete`; `0.5` for `Agent` (slightly relaxed for roster framing).
 ///
 /// A "numeric claim" is any standalone number — integer, decimal, or
-/// percentage. A "sentence" is a run of text terminated by `.`, `!`,
-/// `?`, or newline.
+/// percentage. A "sentence" is what the persona style stage splits on
+/// (dravr-colleur's `split_sentences_keeping_decimals`): a run of text ended
+/// by `!`, `?`, a newline, or a `.` not between two digits. The framework
+/// anchors are the stage's `FRAMEWORK_NAMES`.
 ///
 /// # Errors
 ///
@@ -791,16 +783,13 @@ pub(crate) fn assert_has_framework_citation_per_numeric(
 ) -> Result<(), UncitedNumerics> {
     let mut numeric_count = 0usize;
     let mut cited_count = 0usize;
-    for sentence in split_sentences(reply) {
-        let nums = count_numerics_in_sentence(sentence.as_str());
+    for sentence in split_sentences_keeping_decimals(reply) {
+        let nums = count_numerics_in_sentence(sentence);
         if nums == 0 {
             continue;
         }
         numeric_count += nums;
-        if FRAMEWORK_ANCHORS
-            .iter()
-            .any(|a| sentence.as_str().contains(a))
-        {
+        if FRAMEWORK_NAMES.iter().any(|a| sentence.contains(a)) {
             cited_count += nums;
         }
     }
@@ -813,43 +802,6 @@ pub(crate) fn assert_has_framework_citation_per_numeric(
         cited_count,
         min_ratio,
     })
-}
-
-/// Splits a reply into sentences without breaking decimal numbers.
-///
-/// A period only ends a sentence when followed by whitespace, another
-/// punctuation mark, or end-of-string — `47.8` stays whole, `47.` at
-/// end-of-clause splits. Newline, `!`, `?` always end a sentence.
-fn split_sentences(reply: &str) -> Vec<String> {
-    let chars: Vec<char> = reply.chars().collect();
-    let mut sentences = Vec::new();
-    let mut buf = String::new();
-    for (i, ch) in chars.iter().enumerate() {
-        match ch {
-            '!' | '?' | '\n' => {
-                if !buf.trim().is_empty() {
-                    sentences.push(mem::take(&mut buf));
-                }
-            }
-            '.' => {
-                let next_is_terminator = chars
-                    .get(i + 1)
-                    .is_none_or(|c| c.is_whitespace() || matches!(c, '.' | '!' | '?'));
-                if next_is_terminator {
-                    if !buf.trim().is_empty() {
-                        sentences.push(mem::take(&mut buf));
-                    }
-                } else {
-                    buf.push(*ch);
-                }
-            }
-            _ => buf.push(*ch),
-        }
-    }
-    if !buf.trim().is_empty() {
-        sentences.push(buf);
-    }
-    sentences
 }
 
 /// Counts standalone numeric tokens in a sentence. A token is numeric

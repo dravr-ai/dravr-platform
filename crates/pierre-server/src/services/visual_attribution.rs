@@ -21,25 +21,18 @@
 //! is re-resolved on every read.
 
 use photograveur::RenderBlock;
-use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, KEY_REPLY_GARMIN_ATTRIBUTION,
-};
-use pierre_core::models::SUPPORTED_LOCALES;
+use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
+use pierre_services::reply_attribution::garmin_attribution_lines;
 
-/// The attribution line `content` closes with, when the platform closed it
-/// with one, in whichever supported locale it was written.
+/// The attribution line `content` closes with, as the catalogue words it.
+///
+/// Read in whichever supported locale the platform closed it with, by the
+/// same matcher that strips the model's copies of the line.
 #[must_use]
 pub fn reply_attribution(registry: &MessagingStringsRegistry, content: &str) -> Option<String> {
-    let last = content
-        .lines()
-        .rev()
-        .find(|line| !line.trim().is_empty())?
-        .trim();
-    SUPPORTED_LOCALES
-        .iter()
-        .filter_map(|locale| registry.get_exact(KEY_REPLY_GARMIN_ATTRIBUTION, locale))
-        .map(|line| line.trim().to_owned())
-        .find(|line| !line.is_empty() && line == last)
+    garmin_attribution_lines(registry)
+        .closing_line(content)
+        .map(str::to_owned)
 }
 
 /// Draw each of `blocks` with `line` beneath its title, when there is one.

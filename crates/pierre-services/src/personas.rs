@@ -12,7 +12,8 @@
 //! each card from the **live**
 //! [`pierre_contremaitre::persona_contracts::PersonaContractRegistry`]
 //! snapshot instead, so the copy is derived from the contract that the
-//! `persona_conformance` stage actually enforces:
+//! persona style stage (dravr-colleur's, run by the chat pipeline) actually
+//! enforces:
 //!
 //! - `rules` — one localized sentence per contract field that is set,
 //!   in contract-field declaration order
@@ -29,6 +30,7 @@
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
+use dravr_colleur::StyleContract;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PERSONA_ENFORCEMENT_ADVISORY, KEY_PERSONA_ENFORCEMENT_VERIFIED,
     KEY_PERSONA_RULE_ACRONYMS_GLOSSED, KEY_PERSONA_RULE_ATHLETE_ATTRIBUTION,
@@ -39,7 +41,7 @@ use pierre_contremaitre::messaging_strings::{
     KEY_PERSONA_RULE_ROUNDED_NUMBERS, KEY_PERSONA_RULE_SHORT_BLOCKS, KEY_PERSONA_SUMMARY_CASUAL,
     KEY_PERSONA_SUMMARY_COACH, KEY_PERSONA_SUMMARY_ENTHUSIAST, KEY_PERSONA_SUMMARY_POWER_ATHLETE,
 };
-use pierre_contremaitre::persona_contracts::{PersonaContract, PersonaContractsSnapshot};
+use pierre_contremaitre::persona_contracts::PersonaContractsSnapshot;
 use pierre_core::models::CoachingPersona;
 use pierre_core::models::SUPPORTED_LOCALES;
 
@@ -170,8 +172,10 @@ fn build_card(
     locale: &str,
 ) -> PersonaCard {
     let contract = snapshot.contract(persona);
-    let rules = contract.map_or_else(Vec::new, |c| render_rules(c, snapshot, strings, locale));
-    let strict = contract.is_some_and(|c| c.strict_mode);
+    let rules = contract.map_or_else(Vec::new, |c| {
+        render_rules(&c.style, snapshot, strings, locale)
+    });
+    let strict = contract.is_some_and(|c| c.style.strict_mode);
 
     let (enforcement, label_key) = if strict {
         (ENFORCEMENT_VERIFIED, KEY_PERSONA_ENFORCEMENT_VERIFIED)
@@ -202,20 +206,20 @@ const fn summary_key(persona: CoachingPersona) -> &'static str {
 /// Render the localized rule sentences for one flattened contract.
 ///
 /// Only fields that are set/true produce a sentence; the order follows
-/// the [`PersonaContract`] field declaration order. Acronym glossing is
+/// the [`StyleContract`] field declaration order. Acronym glossing is
 /// universal (the deterministic expansion pass is persona-independent),
 /// so it renders whenever the snapshot ships a glossary — or when the
 /// contract itself pins an acronym rule, which covers a source document
 /// that predates the glossary.
 ///
-/// Deliberately not rendered: `notification` (its tier floor and digests
-/// ship dark behind the persona-notification-policy feature key, which is
-/// off by default — a card must not advertise a cadence the athlete is not
-/// receiving), `inherits` (already flattened away by the registry), and
+/// Deliberately not rendered: the contract's `notification` (its tier floor
+/// and digests ship dark behind the persona-notification-policy feature key,
+/// which is off by default — a card must not advertise a cadence the athlete
+/// is not receiving), which is why only the style rules are passed here, and
 /// `framework_allowlist` (only meaningful through the citations-required
 /// rule it parameterizes).
 fn render_rules(
-    contract: &PersonaContract,
+    contract: &StyleContract,
     snapshot: &PersonaContractsSnapshot,
     strings: &MessagingStringsRegistry,
     locale: &str,

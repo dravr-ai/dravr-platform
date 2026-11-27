@@ -39,8 +39,6 @@ pub mod capability_recovery;
 /// Subject-routed capability recovery: an ask about a roster peer is
 /// adjudicated with that peer's data, never the requester's.
 pub mod capability_subject;
-/// Whether the reply an athlete is answering asserted training facts.
-mod claim_density;
 /// Slash-command turns written to the transcript — and kept out of prompts.
 pub mod command_persistence;
 /// Open athlete commitments rendered into the agent's system prompt.
@@ -51,6 +49,8 @@ pub mod compaction;
 pub mod completion;
 /// Turns the platform answers itself, without the LLM.
 pub mod deterministic_reply;
+/// Which reply an athlete disputes and what they supplied, for the figure count.
+mod disputed_claims;
 /// Stage 15.8 — the envelope notice: what the envelope check found on this turn's sessions.
 pub(crate) mod envelope_notice;
 /// Whether a group turn's sender is the group's coach, not an athlete in it.
@@ -67,13 +67,9 @@ pub(crate) mod history_scope;
 pub mod introduction;
 pub mod memory;
 pub mod onboarding;
-/// Group-reply peer verifier: which claims about a named peer the evidence fails to support.
-pub mod peer_claim_verifier;
 /// Peer-mention grounding: a turn naming a roster member fetches their data.
 pub mod peer_grounding;
 pub mod persistence;
-/// Per-persona output-format conformance check (post-LLM, advisory).
-pub mod persona_conformance;
 /// Stage 15.7 — the workout_plan block on the turn that saved a plan.
 pub mod plan_block;
 pub mod platform_grounding;
@@ -92,9 +88,11 @@ pub(crate) mod quick_replies;
 pub mod refresh;
 /// The language a platform note appended to a reply is written in.
 pub(crate) mod reply_locale;
+/// Whose data a coach reply may show: the roster tools and the coach's roster scope.
+pub(crate) mod roster_reads;
 /// The note a reply carries once when a science change moved numbers the athlete saw (carnet#1718).
 pub(crate) mod science_note;
-/// The Garmin attribution line a reply derived from Garmin data carries.
+/// Whether a reply owes the Garmin attribution line: the turn's provenance and whether the model answered.
 pub(crate) mod source_attribution;
 /// A coach's thread bound to one athlete: the gates re-run, then the athlete's coach view (carnet#1070).
 pub(crate) mod subject_athlete;

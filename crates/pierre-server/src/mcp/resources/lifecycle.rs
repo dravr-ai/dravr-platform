@@ -302,8 +302,8 @@ impl ServerContext {
         // Empty persona-contract registry; the contremaitre sync engine
         // hydrates it from `config/persona_contracts.yaml` either at
         // boot (full sync) or on the next webhook push that touches the
-        // file. While empty, the chat-pipeline `persona_conformance`
-        // stage no-ops cleanly — least-restrictive default per the
+        // file. While empty, the chat-pipeline persona style stage
+        // no-ops cleanly — least-restrictive default per the
         // vault doc.
         let persona_contract_registry = Arc::new(PersonaContractRegistry::new());
 

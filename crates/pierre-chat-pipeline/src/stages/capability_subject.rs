@@ -38,6 +38,7 @@ use std::fmt::Write as _;
 use std::mem;
 use std::sync::Arc;
 
+use dravr_colleur::verify_peer_claims;
 use serde_json::json;
 use tracing::{info, warn};
 
@@ -46,7 +47,6 @@ use super::capability_recovery::{
     request_peer_reask, run_verification_fetch, turn_language_directive, CapabilityRecoveryDeps,
     VerificationOutcome, VERIFICATION_TOOL,
 };
-use super::peer_claim_verifier::verify_peer_claims;
 use super::peer_grounding::{
     fetch_peer_activities_outcome, mentioned_peers, PeerFetchOutcome, PeerGroundingBlock,
     PeerMention, PEER_FETCH_TOOL,
@@ -58,6 +58,7 @@ use pierre_core::models::MemberFitnessSnapshot;
 use pierre_core::narration;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_llm::call_record::complete_recorded;
+use pierre_llm::claim_judge::RecordedJudge;
 use pierre_llm::{ChatProvider, ChatRequest, FunctionResponse};
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
@@ -651,8 +652,9 @@ async fn recheck_replacement(
         evidence.evidence_text()
     );
     let unsupported = verify_peer_claims(
-        deps,
-        provider,
+        &RecordedJudge::new(provider, Some(deps.verifier_recorder)),
+        &deps.ctx.prompt_registry.peer_claim_verifier_prompt(),
+        deps.active_model,
         &turn_evidence,
         &result.content,
         &peer.display_name,

@@ -452,6 +452,9 @@ pub mod pricing_loader;
 /// Prompt exfiltration defense — fingerprint + reply scan for verbatim leaks
 pub mod prompt_leak;
 
+/// The Garmin attribution line a reply closes with, in every supported locale
+pub mod reply_attribution;
+
 /// Detects LLM-provider CLI error text that leaked into assistant replies
 pub mod provider_error_filter;
 

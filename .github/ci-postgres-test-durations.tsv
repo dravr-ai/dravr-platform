@@ -691,7 +691,6 @@ peer_fabrication_gate_test	0.0
 performance_prediction_test	0.0
 permission_denied_message_passthrough_test	0.0
 permissions_test	0.0
-persona_conformance_test	0.0
 personal_best_seed_store_test	5.6
 personal_best_seed_test	4.9
 personal_best_test	3.8

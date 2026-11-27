@@ -26,7 +26,6 @@ tools-groups = [
     "pierre-tool-runtime/tools-groups",
 ]
 tools-verification = [
-    "dep:dravr-colleur",
     # The claim-verification stage runs behind its own panic boundary
     # (futures_util::FutureExt::catch_unwind), so the dep rides with the
     # feature that turns the stage on.
@@ -63,10 +62,11 @@ pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context"
 pierre-services = { version = "0.3.0", path = "../pierre-services" }
 pierre-tool-runtime = { version = "0.3.0", path = "../pierre-tool-runtime", features = ["client-chat", "tools-connection"] }
 dravr-tronc = { workspace = true }
+# The reply-quality stages: claim density, persona style, peer claims, attribution.
+dravr-colleur = { workspace = true }
 
 # Optional crates (feature-gated)
 dravr-enforme = { workspace = true, optional = true }
-dravr-colleur = { workspace = true, optional = true }
 pierre-groups = { version = "0.3.0", path = "../pierre-groups", optional = true }
 futures-util = { version = "0.3", optional = true }
 

@@ -28,7 +28,9 @@ dravr-tronc = "8.3.0"
 # Sports science engine -- VDOT, TSS, TRIMP, FTP, VO2max, recovery, nutrition.
 dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.63.0" }
 
-# Reply claim checking: extraction, the verdict layers and the claim types.
+# Reply claim checking: extraction, the verdict layers and the claim types,
+# and the reply-quality stages (claim density, persona style, peer claims,
+# source attribution).
 # Its dravr-cageux pin is a companion of this one (see its satellites.toml
 # stanza): the two move in one commit or Cargo.lock holds two.
 dravr-colleur = { git = "https://github.com/dravr-ai/dravr-colleur.git", tag = "v0.3.1" }

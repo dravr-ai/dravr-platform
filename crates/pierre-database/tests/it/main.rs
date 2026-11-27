@@ -23,6 +23,7 @@ mod athlete_gear_test;
 mod athlete_places_due_test;
 mod check_in_preferences_test;
 mod claim_verdict_grading_pool_test;
+mod coach_roster_athletes_test;
 mod coaching_groups_repository_test;
 mod data_access_requests_test;
 mod date_decode_golden_sqlite_test;
