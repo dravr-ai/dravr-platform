@@ -364,7 +364,7 @@ mod tests {
             );
         }
         assert!(
-            PlanChangeSource::parse("athlete").is_err(),
+            PlanChangeSource::parse("system").is_err(),
             "bug: a source the server never writes is a corrupt row"
         );
         assert!(
