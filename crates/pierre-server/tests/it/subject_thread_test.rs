@@ -591,6 +591,7 @@ async fn a_subject_thread_holds_no_slot_of_the_conversation_cap() {
                 model: "gemini-2.0-flash",
                 agent_id: None,
                 group_id: None,
+                plan_thread: false,
             },
             Some(1),
         )

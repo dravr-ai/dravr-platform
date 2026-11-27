@@ -206,6 +206,7 @@ fn thread(user: &str, tenant: TenantId) -> NewConversation<'_> {
         model: "m",
         agent_id: None,
         group_id: None,
+        plan_thread: false,
     }
 }
 

@@ -109,6 +109,9 @@ pub struct ForgeParams<'a> {
     /// counter measures conversations, not choices, so every forge records
     /// one.
     pub selection_source: AgentSelectionSource,
+    /// Whether the row is its owner's plan thread (carnet#1841), set as the
+    /// row is written.
+    pub plan_thread: bool,
     /// Whether to offer the guided walk on the fresh row.
     ///
     /// True for a 1:1 thread, where the walk is how an athlete who never saw
@@ -454,6 +457,7 @@ pub async fn forge_conversation(
         group_id,
         channel_type,
         selection_source,
+        plan_thread,
         guided_flow,
         quota,
     } = params;
@@ -484,6 +488,7 @@ pub async fn forge_conversation(
             model,
             agent_id: agent_id.as_deref(),
             group_id,
+            plan_thread,
         },
     )
     .await?;

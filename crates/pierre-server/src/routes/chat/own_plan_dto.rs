@@ -156,8 +156,38 @@ pub(super) struct SendSkipped {
 pub(super) struct SendFailed {
     /// The entry's date.
     pub date: CivilDate,
-    /// What went wrong.
-    pub error: String,
+    /// Why, as a stable code: `provider_refused` (the calendar answered with
+    /// a refusal), `provider_unreachable` (it could not be reached), or
+    /// `internal` (Dravr's own record of the entry). The full error stays in
+    /// the server's log, never on the wire.
+    pub reason: &'static str,
+}
+
+/// The stable code of a push's failed entry, read from what the push wrote
+/// of it: a provider call it refused or could not reach, else Dravr's own
+/// ledger.
+pub(super) fn failure_reason(error: &str) -> &'static str {
+    let provider = ["create refused:", "update refused:", "delete refused:"]
+        .iter()
+        .any(|prefix| error.starts_with(prefix));
+    if !provider {
+        return "internal";
+    }
+    let lowered = error.to_lowercase();
+    if [
+        "timed out",
+        "timeout",
+        "connect",
+        "unreachable",
+        "unavailable",
+    ]
+    .iter()
+    .any(|sign| lowered.contains(sign))
+    {
+        "provider_unreachable"
+    } else {
+        "provider_refused"
+    }
 }
 
 /// `POST /api/me/plan/send` answered 200: what the send did, and what is
@@ -197,7 +227,7 @@ impl SendResponse {
                 .into_iter()
                 .map(|entry| SendFailed {
                     date: entry.date,
-                    error: entry.error,
+                    reason: failure_reason(&entry.error),
                 })
                 .collect(),
             pending_send,

@@ -1,5 +1,5 @@
 // ABOUTME: The owner's own threads on the chat repository: the personal thread (carnet#840) and the plan thread (carnet#1841)
-// ABOUTME: Emitted per backend inside impl_chat_repository!, whose ChatRepository impl delegates the five methods here
+// ABOUTME: Emitted per backend inside impl_chat_repository!, whose ChatRepository impl delegates the four methods here
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,8 +9,7 @@
 /// [`ChatRepository::latest_personal_conversation`],
 /// [`ChatRepository::personal_conversation`],
 /// [`ChatRepository::designate_personal_conversation`],
-/// [`ChatRepository::plan_thread_conversation`] and
-/// [`ChatRepository::designate_plan_thread`]. Invoked inside
+/// [`ChatRepository::plan_thread_conversation`]. Invoked inside
 /// `impl_chat_repository!`, whose shell must `use` the statements of
 /// `chat::personal_sql` and the row parser this body names unqualified.
 ///
@@ -18,7 +17,6 @@
 /// [`ChatRepository::personal_conversation`]: super::chat::ChatRepository::personal_conversation
 /// [`ChatRepository::designate_personal_conversation`]: super::chat::ChatRepository::designate_personal_conversation
 /// [`ChatRepository::plan_thread_conversation`]: super::chat::ChatRepository::plan_thread_conversation
-/// [`ChatRepository::designate_plan_thread`]: super::chat::ChatRepository::designate_plan_thread
 macro_rules! impl_chat_owner_threads {
     ($ty:ty, $ids:ident) => {
         impl $ty {
@@ -105,35 +103,6 @@ macro_rules! impl_chat_owner_threads {
                         AppError::database(format!("Failed to read the plan thread: {e}"))
                     })?;
                 row.as_ref().map(conversation_from_row).transpose()
-            }
-
-            /// Designate a thread its owner's plan thread (carnet#1841).
-            async fn designate_plan(
-                &self,
-                conversation_id: &str,
-                user_id: &str,
-                tenant_id: TenantId,
-            ) -> AppResult<bool> {
-                match sqlx::query(DESIGNATE_PLAN_THREAD_SQL)
-                    .bind(conversation_id)
-                    .bind($ids::bind_text(user_id)?)
-                    .bind(tenant_id.to_string())
-                    .execute(self.pool())
-                    .await
-                {
-                    Ok(result) => Ok(result.rows_affected() > 0),
-                    // Another thread holds the designation: the one-per-owner
-                    // index, reported by the driver as such.
-                    Err(e)
-                        if e.as_database_error()
-                            .is_some_and(|db| db.is_unique_violation()) =>
-                    {
-                        Ok(false)
-                    }
-                    Err(e) => Err(AppError::database(format!(
-                        "Failed to designate the plan thread: {e}"
-                    ))),
-                }
             }
         }
     };

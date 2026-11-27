@@ -200,10 +200,11 @@ pub(super) async fn save_into_draft(
     )
 }
 
-/// The coach's draft of the athlete's plan for `get_training_plan`: its
-/// outline, the live weeks `live_weeks` with the drafted ones in their place,
-/// and where it stands. `None` outside the coach path, and when the coach
-/// holds no draft.
+/// The draft over the athlete's plan for `get_training_plan`: its outline,
+/// the live weeks `live_weeks` with the drafted ones in their place, and
+/// where it stands. On the coach path, the coach's draft; in the athlete's
+/// own scope, their own overlay — what their agent proposed unasked — while
+/// it still proposes a date (carnet#1841). `None` when there is none.
 ///
 /// # Errors
 ///
@@ -215,13 +216,20 @@ pub(super) async fn draft_section(
     live_weeks: &[PlanWeek],
     fueling: &FuelingDisclosure,
 ) -> AppResult<Option<DraftSection>> {
-    if scope.acting_for().is_none() {
-        return Ok(None);
-    }
-    let target = CoachDraftTarget::new(scope.tenant, scope.user_id, scope.writer.user_id);
+    let own = scope.acting_for().is_none();
+    let target = if own {
+        CoachDraftTarget::own(scope.tenant, scope.user_id)
+    } else {
+        CoachDraftTarget::new(scope.tenant, scope.user_id, scope.writer.user_id)
+    };
     let Some(mut view) = draft_over(repos, &target, live_weeks).await? else {
         return Ok(None);
     };
+    // An overlay whose every proposal was accepted or refused proposes
+    // nothing, and is not shown.
+    if own && plan_change_history::dates_changed(live_weeks, &view.weeks).is_empty() {
+        return Ok(None);
+    }
     // The draft is a plan an agent wrote with the coach, and a result serving
     // it is labelled so.
     ai_scope::note_agent_written();

@@ -229,7 +229,9 @@ pub async fn resolve_plan_thread(
         ForgeAgent::Explicit(agent.as_deref())
     });
     let model = resolve_conversation_model(None, forge.llm_chain)?;
-    let forged_id = forge_conversation(
+    // Written as the plan thread in its insert, so it is never a plain 1:1
+    // thread a concurrent personal adoption could take.
+    let forged = forge_conversation(
         repos,
         ForgeParams {
             id: None,
@@ -239,62 +241,47 @@ pub async fn resolve_plan_thread(
             model: &model,
             agent,
             group_id: None,
+            plan_thread: true,
             channel_type: CHANNEL_TYPE_WEB,
             selection_source: AgentSelectionSource::ChatConversation,
             guided_flow: false,
             quota: SlotQuota::Exempt,
         },
     )
-    .await?;
-    let designated = chat
-        .designate_plan_thread(&forged_id, user_id, tenant_id)
-        .await?;
-    settle_plan_thread(chat, &forged_id, designated, user_id, tenant_id).await
+    .await;
+    settle_plan_thread(chat, forged, user_id, tenant_id).await
 }
 
-/// After forging `forged_id` and trying to designate it, the plan thread
-/// that holds the designation.
-///
-/// It is this forge when `designated` and the read finds it. A racing request
-/// that designated its own thread first wins instead, and this forge, which
-/// nobody was sent to, is removed.
+/// The plan thread after this call's forge: the forged one, or — when the
+/// one-plan-thread index refused the insert because a racing request wrote
+/// its own first — the winner, which this call reads.
 ///
 /// # Errors
 ///
-/// Returns the repository error of the read, and an internal error when no
-/// thread holds the designation.
+/// Returns the forge's error when no plan thread exists after it, and the
+/// repository error of the read.
 async fn settle_plan_thread(
     chat: &dyn ChatRepository,
-    forged_id: &str,
-    designated: bool,
+    forged: AppResult<String>,
     user_id: &str,
     tenant_id: TenantId,
 ) -> AppResult<PlanThread> {
     let winner = chat.plan_thread_conversation(user_id, tenant_id).await?;
-    match winner {
-        Some(conversation) if designated && conversation.id == forged_id => {
+    match (forged, winner) {
+        (Ok(forged_id), Some(conversation)) if conversation.id == forged_id => {
             info!(user_id, conversation_id = %forged_id, "plan thread: opened");
             Ok(PlanThread {
                 conversation,
                 opened: true,
             })
         }
-        Some(conversation) => {
-            // A racing request designated its own thread first: this one was
-            // forged for nothing and nobody was sent to it, so it goes.
-            if let Err(e) = chat
-                .delete_conversation(forged_id, user_id, tenant_id)
-                .await
-            {
-                warn!(error = %e, conversation_id = %forged_id, "plan thread: removing the losing forge failed");
-            }
-            Ok(PlanThread {
-                conversation,
-                opened: false,
-            })
-        }
-        None => Err(AppError::internal(
-            "the plan thread could not be designated and no other holds the designation",
+        (_, Some(conversation)) => Ok(PlanThread {
+            conversation,
+            opened: false,
+        }),
+        (Err(error), None) => Err(error),
+        (Ok(_), None) => Err(AppError::internal(
+            "a plan thread was written and no plan thread reads back",
         )),
     }
 }
@@ -486,6 +473,7 @@ async fn forge_personal(
             model: &model,
             agent: ForgeAgent::Selected,
             group_id: None,
+            plan_thread: false,
             channel_type: CHANNEL_TYPE_WEB,
             selection_source: AgentSelectionSource::ChatConversation,
             guided_flow: forge.guided_flow,

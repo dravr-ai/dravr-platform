@@ -145,6 +145,7 @@ impl CommandHandler for ResetHandler {
                 // they train with.
                 agent: ForgeAgent::Explicit(previous.agent_id.as_deref()),
                 group_id: previous.group_id.as_deref(),
+                plan_thread: false,
                 channel_type: &channel_type,
                 selection_source: if in_app {
                     AgentSelectionSource::ChatConversation

@@ -44,7 +44,7 @@ use pierre_database::repositories::{
 };
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{training_content, PlanWeek, PlannedDay};
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::coach_plan_draft::{coach_plan_view, CoachDraftTarget};
@@ -82,8 +82,9 @@ pub struct LiveWrite<'a> {
 ///
 /// # Errors
 ///
-/// The repository errors of the live save, and of the overlay's read and
-/// rebase. A rebase that fails leaves the live write standing.
+/// The repository errors of the live save and of the read before it. A
+/// rebase that fails after the write committed is logged, and the write is
+/// answered and recorded as it landed.
 pub async fn write_live_weeks(
     repos: &RepositoryRegistry,
     tenant: TenantId,
@@ -108,7 +109,10 @@ pub async fn write_live_weeks(
             transport_policy: write.transport_policy,
         })
         .await?;
-    rebase_own_overlay(
+    // The live write has committed: a rebase that fails is logged, never
+    // answered as a failed write, so a retried edit cannot land twice. The
+    // overlay's next rebase, or the athlete's answer to it, settles it.
+    if let Err(error) = rebase_own_overlay(
         repos,
         tenant,
         athlete,
@@ -116,7 +120,15 @@ pub async fn write_live_weeks(
         &saved.weeks,
         saved.plan.transport_policy,
     )
-    .await?;
+    .await
+    {
+        warn!(
+            error = %error,
+            user_id = %athlete,
+            plan_id = %saved.plan.id,
+            "the athlete's own overlay was not rebased over a live write"
+        );
+    }
     let dates = plan_change_history::dates_changed(&before, &saved.weeks);
     if laid_outline || !dates.is_empty() {
         let change = PlanChange {

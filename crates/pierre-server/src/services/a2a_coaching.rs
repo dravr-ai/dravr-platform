@@ -171,6 +171,7 @@ mod pipeline {
                     model: &model,
                     agent: ForgeAgent::Selected,
                     group_id: None,
+                    plan_thread: false,
                     channel_type: CHANNEL,
                     selection_source: AgentSelectionSource::ChatConversation,
                     // A walk asks the athlete questions; the reader is an agent.

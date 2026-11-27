@@ -107,6 +107,7 @@ macro_rules! impl_chat_repository {
                     .bind(new.agent_id)
                     .bind(group)
                     .bind(now)
+                    .bind(new.plan_thread)
                     .execute(&mut *tx)
                     .await
                     .map_err(|e| {
@@ -176,6 +177,7 @@ macro_rules! impl_chat_repository {
                     model,
                     agent_id,
                     group_id,
+                    plan_thread: false,
                 };
                 match self.create_conversation_within_cap(&new, None).await? {
                     SlotClaim::Claimed(conversation) => Ok(*conversation),
@@ -968,16 +970,6 @@ macro_rules! impl_chat_repository {
                 tenant_id: TenantId,
             ) -> AppResult<Option<ConversationRecord>> {
                 self.read_plan_thread(user_id, tenant_id).await
-            }
-
-            async fn designate_plan_thread(
-                &self,
-                conversation_id: &str,
-                user_id: &str,
-                tenant_id: TenantId,
-            ) -> AppResult<bool> {
-                self.designate_plan(conversation_id, user_id, tenant_id)
-                    .await
             }
 
             async fn open_subject_conversation(

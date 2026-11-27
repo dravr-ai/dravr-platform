@@ -46,6 +46,7 @@ use pierre_tool_runtime::implementations::training_plan_push::{
     own_pending_send, review_own_send, send_own_plan, OwnSendRefusal,
 };
 use serde_json::json;
+use tracing::warn;
 
 use crate::mcp::resources::ServerContext;
 use crate::routes::athlete_home::TrainingPlanQuery;
@@ -273,6 +274,14 @@ pub(super) async fn send_own_plan_route(
         Ok(report) => report,
         Err(refused) => return Ok(send_refused(&refused)),
     };
+    for failed in &report.failed {
+        warn!(
+            user_id = %auth.user_id,
+            date = %failed.date,
+            error = %failed.error,
+            "athlete's send: an entry failed"
+        );
+    }
     let after = own_pending_send(&caller.context, &weeks, today).await?;
     let response = SendResponse::of(report, PendingSendResponse::of(after));
     Ok((StatusCode::OK, Json(response)).into_response())

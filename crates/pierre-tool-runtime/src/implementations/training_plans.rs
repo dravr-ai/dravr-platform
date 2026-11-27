@@ -582,7 +582,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
         let schema = object_schema(properties, None);
         answers_with::<SaveTrainingPlanResult>(tool_definition(
             "save_training_plan",
-            "Persist the plan you agreed with the athlete — the outline and/or day-by-day weeks — in the SAME turn you state it; an unsaved plan is forgotten. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or with replace_season when the athlete asked you to re-lay one another agent laid; re-save a week another agent wrote only when the athlete asks. Adjustments re-save only the changed weeks and supersede prospectively; past weeks are immutable. What the athlete asked for is saved onto their plan at once; what nobody asked for (a turn with no message of theirs) is proposed instead (draft: true), weeks only, for them to accept or refuse date by date. Saving never sends anything to their calendar: never say it was sent. They send it themselves with « Envoyer »; on a channel ask whether to send it to their calendar and call push_training_plan only on their yes. In Dravr's app or channels a group's human coach can save for a consenting athlete as a draft: the reply says draft: true, and the athlete sees none of it until the coach publishes it with publish_training_plan; elsewhere a save is the caller's own.",
+            "Persist the plan you agreed with the athlete — the outline and/or day-by-day weeks — in the SAME turn you state it; an unsaved plan is forgotten. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or with replace_season when the athlete asked you to re-lay one another agent laid; re-save a week another agent wrote only when the athlete asks. Adjustments re-save only the changed weeks and supersede prospectively; past weeks are immutable. A save the athlete asked for is live; one nobody asked for (no message of theirs) is proposed instead (draft: true), weeks only. A save never sends: never say it did; send with push_training_plan only on the athlete's yes. In Dravr's app or channels a group's human coach can save for a consenting athlete as a draft (draft: true), unseen until they publish it with publish_training_plan; elsewhere a save is the caller's own.",
             schema,
             // A save overwrites the athlete's live weeks, or a coach's draft
             // of them; it sends nothing to a calendar (carnet#1841).
@@ -1017,11 +1017,15 @@ async fn nothing_sent(context: &ToolExecutionContext, plan_id: &str, today: Civi
             .training_plans
             .list_plan_weeks(&tenant.to_string(), &ctx_user_id(context), plan_id, false)
             .await
+            .map_err(|error| warn!(error = %error, "save_training_plan: live weeks unread for the waiting count"))
             .ok(),
         None => None,
     };
     let pending = match weeks {
-        Some(weeks) => own_pending_send(context, &weeks, today).await.ok(),
+        Some(weeks) => own_pending_send(context, &weeks, today)
+            .await
+            .map_err(|error| warn!(error = %error, "save_training_plan: pending send unread for the waiting count"))
+            .ok(),
         None => None,
     };
     match pending {

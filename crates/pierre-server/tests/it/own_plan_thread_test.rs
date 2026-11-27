@@ -185,14 +185,9 @@ async fn the_plan_thread_never_becomes_the_personal_thread_nor_takes_its_place()
         planned.agent_id, personal.agent_id,
         "bug: the plan thread is bound to another agent than Home's"
     );
-    // The personal thread is never designated a plan thread either.
     assert!(
-        !repos
-            .chat
-            .designate_plan_thread(&chat, &sam.id.to_string(), sam.tenant)
-            .await
-            .unwrap(),
-        "bug: the personal thread was made a plan thread"
+        !planned.personal && personal.id == chat,
+        "bug: the plan thread and the personal thread are one"
     );
     assert_ne!(
         alex_plan, sam_plan_id,
@@ -222,12 +217,13 @@ async fn each_athlete_reads_only_their_own_plan_thread_in_their_own_tenant() {
             .is_none(),
         "bug: alex's plan thread read under sam's tenant"
     );
-    assert!(
-        !chat
-            .designate_plan_thread(&alex_plan, &sam.id.to_string(), sam.tenant)
+    assert_eq!(
+        chat.plan_thread_conversation(&sam.id.to_string(), sam.tenant)
             .await
-            .unwrap(),
-        "bug: sam designated alex's thread"
+            .unwrap()
+            .map(|thread| thread.id),
+        Some(sam_plan),
+        "bug: sam reads another plan thread than their own"
     );
 }
 

@@ -929,7 +929,10 @@ async fn an_outside_client_is_refused_every_write_and_nothing_is_written() {
                 },
             })),
         ),
-        ("restore", AxumTestRequest::post(&day("restore")).json(&tempo)),
+        (
+            "restore",
+            AxumTestRequest::post(&day("restore")).json(&tempo),
+        ),
         ("remove", AxumTestRequest::post(&day("remove")).json(&tempo)),
         (
             "move",
@@ -944,7 +947,10 @@ async fn an_outside_client_is_refused_every_write_and_nothing_is_written() {
             "refuse",
             AxumTestRequest::post(&format!("/api/me/plan/proposals/dates/{}/refuse", on(2))),
         ),
-        ("send review", AxumTestRequest::post("/api/me/plan/send/review")),
+        (
+            "send review",
+            AxumTestRequest::post("/api/me/plan/send/review"),
+        ),
         (
             "send",
             AxumTestRequest::post("/api/me/plan/send").json(&json!({})),
@@ -981,5 +987,38 @@ async fn an_outside_client_is_refused_every_write_and_nothing_is_written() {
             .unwrap()
             .is_none(),
         "bug: a refused open made a plan thread"
+    );
+}
+
+#[tokio::test]
+async fn the_agent_reads_its_own_pending_proposals_until_they_are_answered() {
+    let fx = Fixture::new().await;
+    fx.lay_season(&live_week()).await;
+    assert!(
+        fx.agent_reads_the_plan().await.get("draft").is_none(),
+        "bug: with nothing proposed, the agent reads no draft"
+    );
+    fx.agent_proposes(&[
+        session(&on(1), "Tempo 40"),
+        session(&on(2), "Hills 45"),
+        session(&on(4), "Long 90"),
+    ])
+    .await;
+    let read = fx.agent_reads_the_plan().await;
+    assert_eq!(
+        read["draft"]["drafted_weeks"],
+        json!([on(0)]),
+        "bug: the agent does not see the week it proposed: {read}"
+    );
+    let (status, body) = fx
+        .write(AxumTestRequest::post(&format!(
+            "/api/me/plan/proposals/dates/{}/refuse",
+            on(2)
+        )))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(
+        fx.agent_reads_the_plan().await.get("draft").is_none(),
+        "bug: an overlay that proposes nothing more is still shown to the agent"
     );
 }

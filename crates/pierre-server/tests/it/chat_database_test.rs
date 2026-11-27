@@ -2400,6 +2400,7 @@ async fn the_capped_create_and_the_archive_read_follow_the_active_count() {
         model: "m",
         agent_id: None,
         group_id: None,
+        plan_thread: false,
     };
 
     let first = match manager

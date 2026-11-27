@@ -76,6 +76,9 @@ pub struct NewConversation<'a> {
     pub agent_id: Option<&'a str>,
     /// Coaching group the thread belongs to, if any.
     pub group_id: Option<&'a str>,
+    /// Whether the row is its owner's plan thread (carnet#1841), set as it is
+    /// written so it is never a plain thread personal adoption could take.
+    pub plan_thread: bool,
 }
 
 /// What [`ChatRepository::create_conversation_within_cap`] did.
@@ -757,20 +760,6 @@ pub trait ChatRepository: Send + Sync {
         tenant_id: TenantId,
     ) -> AppResult<Option<ConversationRecord>>;
 
-    /// Make `conversation_id` its owner's plan thread in `tenant_id`
-    /// (carnet#1841).
-    ///
-    /// `Ok(false)` when it is not a thread `user_id` owns outside any room,
-    /// about no other athlete and not their personal thread, or when another
-    /// thread already holds the designation — a race the unique index settles,
-    /// after which the caller reads the winner.
-    async fn designate_plan_thread(
-        &self,
-        conversation_id: &str,
-        user_id: &str,
-        tenant_id: TenantId,
-    ) -> AppResult<bool>;
-
     /// Open the coach's thread about one athlete: the one they already have
     /// in this tenant, active again and bound to `new`'s group and agent, or a
     /// new one when they have none (carnet#1070).
@@ -953,8 +942,8 @@ pub(crate) use participant_scope;
 /// `Timestamp` on both, which sqlx-sqlite writes as the RFC 3339 text
 /// the columns hold there.
 pub(crate) const CREATE_CONVERSATION_SQL: &str = r"
-    INSERT INTO chat_conversations (id, user_id, tenant_id, title, model, agent_id, group_id, total_tokens, created_at, updated_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $8)";
+    INSERT INTO chat_conversations (id, user_id, tenant_id, title, model, agent_id, group_id, total_tokens, created_at, updated_at, plan_thread)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $8, $9)";
 
 /// The owner's participant row, written in the same transaction as the
 /// conversation: every read path answers through the membership predicate,

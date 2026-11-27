@@ -281,6 +281,7 @@ async fn the_cap_refuses_only_a_room_not_yet_held() {
         model: "gemini-2.0-flash",
         agent_id: None,
         group_id: Some(&group),
+        plan_thread: false,
     };
     chat.create_conversation(
         &coach,
@@ -342,6 +343,7 @@ async fn opening_a_room_for_no_group_is_refused() {
                 model: "gemini-2.0-flash",
                 agent_id: None,
                 group_id: None,
+                plan_thread: false,
             },
             None,
         )

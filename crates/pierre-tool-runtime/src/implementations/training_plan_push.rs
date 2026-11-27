@@ -683,10 +683,9 @@ impl McpTool<dyn ToolRuntime> for PushTrainingPlanTool {
             "Put the athlete's active training plan on their calendar provider (Intervals.icu, \
              Wahoo or Garmin): creates missing days, updates changed ones, removes dropped ones, \
              leaves alone any the athlete edited there (Garmin reports no edits). Never touches \
-             dates before today. save_training_plan never sends: call this only when the \
-             athlete asks to send their plan (on a channel, their yes to sending it to their \
-             calendar), or when a coach asks. publish_training_plan already pushes a coach's \
-             publish (its calendar_push says what landed). Needs a saved plan and a connected \
+             dates before today. Call it only on the athlete's yes to sending, or a coach's ask: \
+             a save never sends, and publish_training_plan pushes a coach's publish itself \
+             (its calendar_push says what landed). Needs a saved plan and a connected \
              calendar-writing provider. In Dravr's app or channels a group's human coach can push a \
              consenting athlete's plan through their Intervals.icu link: they must allow \
              calendar writes on it, and Intervals.icu must list the coach as their coach; \

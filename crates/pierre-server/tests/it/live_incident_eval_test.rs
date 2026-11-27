@@ -533,6 +533,7 @@ mod live_incident_eval {
                 model: &model,
                 agent: ForgeAgent::Selected,
                 group_id: None,
+                plan_thread: false,
                 channel_type: "slack",
                 selection_source: AgentSelectionSource::MessagingSession,
                 guided_flow: true,

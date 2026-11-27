@@ -75,13 +75,3 @@ pub(crate) const PLAN_THREAD_CONVERSATION_SQL: &str = concat!(
     " FROM chat_conversations c \
      WHERE c.user_id = $1 AND c.tenant_id = $2 AND c.plan_thread = TRUE"
 );
-
-/// Designate one of the owner's threads their plan thread (carnet#1841): a
-/// thread of their own alone, in no group, about no other athlete, and never
-/// their personal thread. The partial unique index refuses a second plan
-/// thread for the same owner and tenant, and a thread already designated is
-/// not designated again.
-pub(crate) const DESIGNATE_PLAN_THREAD_SQL: &str = "UPDATE chat_conversations \
-     SET plan_thread = TRUE \
-     WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND group_id IS NULL \
-       AND subject_user_id IS NULL AND NOT personal AND NOT plan_thread";

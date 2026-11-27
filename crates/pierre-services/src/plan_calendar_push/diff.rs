@@ -207,8 +207,10 @@ pub async fn edited_on_calendar(
         .iter()
         .filter(|key| key.change == KeyChange::Update)
         .filter_map(|key| {
+            // The last live row of a key, as the diff and the push read it.
             live_rows
                 .iter()
+                .rev()
                 .find(|row| row.external_id.as_deref() == Some(key.external_id.as_str()))
                 .map(|row| (key, row))
         })

@@ -260,6 +260,7 @@ pub(super) async fn forge_fresh_session_conversation(
             // meantime.
             agent: ForgeAgent::SelectedInRoom,
             group_id: None,
+            plan_thread: false,
             channel_type,
             selection_source: AgentSelectionSource::MessagingSession,
             guided_flow: false,
@@ -739,6 +740,7 @@ async fn open_new_session(
                 // not the group resolved above.
                 agent: ForgeAgent::SelectedInRoom,
                 group_id: group_id_opt.as_deref(),
+                plan_thread: false,
                 channel_type,
                 selection_source: AgentSelectionSource::MessagingSession,
                 guided_flow: false,

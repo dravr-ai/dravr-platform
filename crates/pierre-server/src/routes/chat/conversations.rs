@@ -234,6 +234,7 @@ pub(super) async fn create_for(
         model: &model,
         agent_id: agent_id.as_deref(),
         group_id: request.group_id.as_deref(),
+        plan_thread: false,
     };
     let (conv, origin) = match (slot, request.group_id.is_some()) {
         (RoomSlot::CallersRoom, true) => {
