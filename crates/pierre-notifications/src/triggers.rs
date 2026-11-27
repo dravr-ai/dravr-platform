@@ -594,9 +594,11 @@ fn coach_plan_dispatch(
 }
 
 /// Trigger notification telling an athlete their human coach published the
-/// coach's draft of their plan, built for the goal race `race_name`, or for
-/// none yet: an athlete's own plan starts with no race (carnet#1841), and the
-/// notice then leaves the race out rather than name an empty one.
+/// coach's draft of their plan, built for the goal race `race_name`.
+///
+/// `race_name` is `None` for a plan with no race yet: an athlete's own plan
+/// starts at its first session (carnet#1841), and the notice then leaves the
+/// race out rather than name an empty one.
 ///
 /// It opens Home, where the published plan is. P1: the plan the athlete
 /// trains on changed. `transport_policy` is the published plan's own
