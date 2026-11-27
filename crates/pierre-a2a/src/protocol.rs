@@ -21,14 +21,12 @@
 use crate::coaching::CoachingTurns;
 use crate::events::TASK_EVENTS;
 use crate::protocol_types::{
-    authentication_required_info, error_info, A2ASpecError, Artifact, Message, Part, PartContent,
-    SendMessageRequest, StreamResponse, Task, TaskState, WireTaskStatus,
+    A2ASpecError, Artifact, Message, Part, PartContent, SendMessageRequest, StreamResponse, Task,
+    TaskState, WireTaskStatus,
 };
-use crate::{A2ARequest, A2AResponse, JSONRPC_VERSION};
+use crate::{A2ARequest, A2AResponse};
 use dravr_tronc::dates::SecondsFormat;
-use dravr_tronc::error::{
-    INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, SERVER_ERROR_START,
-};
+use dravr_tronc::error::{INTERNAL_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, SERVER_ERROR_START};
 use pierre_core::models::a2a::user_task_key;
 pub use pierre_core::models::a2a::{A2ATask, TaskStatus};
 use pierre_core::permissions::impersonation::CallerCredential;
@@ -54,6 +52,8 @@ use tokio::sync::broadcast;
 use tracing::{error, info};
 use uuid::Uuid;
 
+/// The JSON-RPC and A2A-spec error responses every handler answers with
+mod errors;
 /// `GetExtendedAgentCard`: the live registry's tools as skills, listed per caller
 mod extended_card;
 mod finalize;
@@ -295,73 +295,6 @@ impl A2AServer {
             Ok(principal) => handler(self, request, principal).await,
             Err(err_response) => *err_response,
         }
-    }
-
-    /// Create a standard A2A JSON-RPC error response
-    fn a2a_error(code: i32, message: impl Into<String>, request_id: Option<Value>) -> A2AResponse {
-        A2AResponse::error(request_id, code, message)
-    }
-
-    /// Create an A2A-spec error response (`-32001..-32009`) with the
-    /// mandatory `google.rpc.ErrorInfo` detail.
-    fn spec_error(err: A2ASpecError, request_id: Option<Value>) -> A2AResponse {
-        A2AResponse {
-            jsonrpc: JSONRPC_VERSION.to_owned(),
-            result: None,
-            error: Some(err.into()),
-            id: request_id,
-        }
-    }
-
-    /// Create an A2A-spec error response carrying a caller-facing message in
-    /// place of the variant's generic text, keeping the spec code and the
-    /// mandatory `google.rpc.ErrorInfo` detail.
-    fn spec_error_with_message(
-        err: A2ASpecError,
-        message: impl Into<String>,
-        request_id: Option<Value>,
-    ) -> A2AResponse {
-        A2AResponse::error_with_data(request_id, err.code(), message, error_info(err.reason()))
-    }
-
-    /// Create an invalid-params (`-32602`) error response.
-    fn invalid_params(message: impl Into<String>, request_id: Option<Value>) -> A2AResponse {
-        Self::a2a_error(INVALID_PARAMS, message, request_id)
-    }
-
-    /// Create an authentication-failure response. Carries the
-    /// `AUTHENTICATION_REQUIRED` reason so HTTP bindings can map it to 401.
-    fn auth_error(message: impl Into<String>, request_id: Option<Value>) -> A2AResponse {
-        A2AResponse::error_with_data(
-            request_id,
-            SERVER_ERROR_START,
-            message,
-            authentication_required_info(None),
-        )
-    }
-
-    /// An authentication refusal by the `DPoP` binding rules, naming the
-    /// RFC 9449 error `code` the 401 challenge carries.
-    fn dpop_auth_error(
-        message: impl Into<String>,
-        code: &str,
-        request_id: Option<Value>,
-    ) -> A2AResponse {
-        A2AResponse::error_with_data(
-            request_id,
-            SERVER_ERROR_START,
-            message,
-            authentication_required_info(Some(code)),
-        )
-    }
-
-    /// Create a standard server-not-configured error response
-    fn server_not_configured_error(request_id: Option<Value>) -> A2AResponse {
-        Self::a2a_error(
-            SERVER_ERROR_START,
-            "A2A server not properly configured",
-            request_id,
-        )
     }
 
     /// Successful JSON-RPC response wrapper.

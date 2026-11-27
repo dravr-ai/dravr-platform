@@ -91,6 +91,8 @@ mod provenance;
 mod source_classes;
 /// Provider-terms filtering of stored health records.
 mod stored_health;
+/// The transport a call is served over, as its layers declare it.
+mod transport;
 
 pub use consent::{
     ai_consent_withheld, ai_reads_tier, consented_read, subject_consents, tier_readable,
@@ -120,6 +122,7 @@ pub use source_classes::{
     note_source_classes, note_sport_anchors,
 };
 pub use stored_health::{filter_stored_health, StoredHealthRecord};
+pub use transport::{declared_transport, effective_transport, serve_over, served_outside};
 
 tokio::task_local! {
     /// Set while a read is for a model.
@@ -329,44 +332,6 @@ pub fn unfiltered<F: Future>(fut: F) -> impl Future<Output = F::Output> {
 /// transport never carries a first-party-only provider's data.
 pub fn for_display<F: Future>(fut: F) -> impl Future<Output = F::Output> {
     DISPLAY.scope(true, fut)
-}
-
-/// Run `fut` as a call served over `transport`.
-///
-/// A declaration only narrows: inside a call already served over an external
-/// transport, the work stays external whatever it declares. The enclosing
-/// declaration is read when the future runs, not when it is built, so a
-/// future built outside a scope and awaited inside it is still narrowed.
-pub async fn serve_over<F: Future>(transport: Transport, fut: F) -> F::Output {
-    let effective = declared_transport().map_or(transport, |outer| outer.narrowed_by(transport));
-    TRANSPORT.scope(effective, fut).await
-}
-
-/// The transport declared for the current call, if any.
-#[must_use]
-pub fn declared_transport() -> Option<Transport> {
-    TRANSPORT.try_with(|transport| *transport).ok()
-}
-
-/// Whether the current request is served to an outside client.
-///
-/// It is when its credential is an outside client's (`outside_credential`:
-/// an API key, an MCP token, an OAuth application's grant), or when the
-/// transport layer declared it outside Dravr's own surfaces. A request no
-/// layer declared is read by its credential alone.
-#[must_use]
-pub fn served_outside(outside_credential: bool) -> bool {
-    outside_credential || declared_transport().is_some_and(|served| !served.is_first_party())
-}
-
-/// The transport a call bound to `bound` serves when it runs here: the
-/// enclosing declaration narrowed by `bound`, or whichever of the two exists.
-#[must_use]
-pub fn effective_transport(bound: Option<Transport>) -> Option<Transport> {
-    match (declared_transport(), bound) {
-        (Some(outer), Some(inner)) => Some(outer.narrowed_by(inner)),
-        (outer, inner) => outer.or(inner),
-    }
 }
 
 fn flag(key: &'static LocalKey<bool>) -> bool {
