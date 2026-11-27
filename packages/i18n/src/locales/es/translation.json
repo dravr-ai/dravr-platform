@@ -1363,7 +1363,8 @@
       "newMemberNoPlan": "Se unió al grupo el {{date}}, todavía sin plan",
       "planEnded": "Plan terminado el {{date}}, nada lo reemplaza",
       "plannedSessionsMissed": "Ninguna actividad coincidente en {{count}} días planificados seguidos",
-      "plannedSessionsMissedOne": "Ninguna actividad coincidente el último día planificado"
+      "plannedSessionsMissedOne": "Ninguna actividad coincidente el último día planificado",
+      "unusualBreak": "Ninguna sesión desde hace {{days}}, más que cualquier pausa anterior"
     },
     "reasonTitle": {
       "consentRevoked": "{{name}} dejó de compartir sus datos contigo.",
@@ -1385,7 +1386,8 @@
       "newMemberNoPlan": "{{name}} se unió al grupo el {{date}} y todavía no tiene plan.",
       "planEnded": "El plan de {{name}} terminó el {{date}} y nada lo reemplaza.",
       "plannedSessionsMissed": "Ninguna actividad de {{name}} coincide con las sesiones planificadas en sus últimos {{count}} días planificados.",
-      "plannedSessionsMissedOne": "Ninguna actividad de {{name}} coincide con las sesiones planificadas en su último día planificado."
+      "plannedSessionsMissedOne": "Ninguna actividad de {{name}} coincide con las sesiones planificadas en su último día planificado.",
+      "unusualBreak": "{{name}} no ha hecho ninguna sesión desde hace {{days}}, más que cualquier pausa de las {{weeks}} semanas anteriores."
     },
     "evidence": {
       "sharingStopped": "Dejó de compartir el {{at}}",
@@ -1412,7 +1414,11 @@
       "planEndedAfterRace": "Plan terminado el {{date}}, con {{race}}",
       "plannedSessionsUnmatched": "{{missed}} de las {{planned}} sesiones planificadas desde el {{date}} no tienen actividad coincidente",
       "plannedSessionUnmatched": "Planificado el {{date}}: {{sport}}, sin actividad coincidente",
-      "wellnessNote": "Última nota de bienestar ({{date}}): «{{note}}»"
+      "wellnessNote": "Última nota de bienestar ({{date}}): «{{note}}»",
+      "breakLongestBefore": "Pausa más larga de las {{weeks}} semanas anteriores: {{days}}",
+      "trainingDaysPerWeek": "Suele entrenar {{count}} días por semana",
+      "trainingDaysPerWeekOne": "Suele entrenar un día por semana",
+      "lastTrainingDay": "Último día de entrenamiento: {{date}}"
     },
     "roster": {
       "title": "Mis atletas",
@@ -1497,7 +1503,7 @@
       "status_never": "Aún no se ha enviado",
       "status_empty": "Revisado a las {{time}}: nada que reportar",
       "status_empty_left_out": "Revisado a las {{time}}: nada que reportar · {{count}} sin incluir",
-      "missed_unreadable": "sesiones no realizadas sin revisar para {{count}}: no se pudo leer un calendario",
+      "missed_unreadable": "sesiones no realizadas sin revisar para {{count}}: no se pudo leer su calendario o sus actividades",
       "missed_off": "sesiones no realizadas sin revisar para {{count}}: desactivado por su parte",
       "status_posted": "Enviado a las {{time}}: {{count}} por atender",
       "status_held": "Retenido a las {{time}}",
@@ -1520,7 +1526,8 @@
         "planDraftWaiting": "Un borrador de plan pendiente",
         "newMemberNoPlan": "Nuevo miembro sin plan",
         "planEnded": "Plan terminado",
-        "plannedSessionsMissed": "Sesiones planificadas no realizadas"
+        "plannedSessionsMissed": "Sesiones planificadas no realizadas",
+        "unusualBreak": "Una pausa más larga de lo habitual"
       }
     }
   },
@@ -3219,6 +3226,16 @@
       "label": "Avisar a {{coach}} cuando no se realicen sesiones planificadas",
       "hint": "Cuando ninguna de las sesiones planificadas en días planificados consecutivos tiene una actividad coincidente, Por atender y el resumen de la mañana de {{coach}} lo indican, con las cifras. Dravr solo compara lo planificado con lo registrado; nunca adivina por qué. Desactívalo y {{coach}} no verá nada sobre sesiones no realizadas."
     },
+    "routineDetection": {
+      "label": "Avisar a {{coach}} cuando una pausa sea inusual para ti",
+      "hint": "Dravr aprende tu patrón habitual a partir de tus últimas 8 semanas de entrenamiento: con qué frecuencia entrenas y cuánto duran tus pausas. Cuando no hay nada planificado para ti y tu pausa actual es más larga que cualquiera de ese patrón, Por atender y el resumen de la mañana de {{coach}}, escrito por el agente de Dravr, lo indican, con las cifras. Nunca adivina por qué, y necesita al menos 4 semanas de tu entrenamiento antes de decir nada. Desactivado hasta que lo actives."
+    },
+    "routineDetectionNotice": {
+      "title": "Pausas inusuales",
+      "body": "Dravr puede avisar a {{coach}} cuando una pausa en tu entrenamiento es más larga de lo habitual para ti. Para ello, Dravr aprende tu patrón a partir de tus últimas 8 semanas de entrenamiento (con qué frecuencia entrenas, cuánto duran tus pausas) y compara con él tu pausa actual cuando no hay nada planificado para ti. {{coach}} ve las cifras, nunca una suposición sobre el porqué. Está desactivado salvo que lo actives, y puedes desactivarlo en cualquier momento más abajo.",
+      "turnOn": "Activar",
+      "notNow": "Ahora no"
+    },
     "seat": {
       "title": "Todavía no eres el coach de este grupo",
       "stripBody": "Para ver el entrenamiento de tus atletas y crear sus planes, necesitas el acceso de coach. Lo activa el equipo de Dravr.",
@@ -4617,7 +4634,7 @@
     "morning_brief": {
       "links": "Abrir en Por atender:",
       "missed_off": "Sesiones no realizadas sin revisar para {0}: desactivado por su parte",
-      "missed_unreadable": "Sesiones no realizadas sin revisar para {0}: no se pudo leer un calendario",
+      "missed_unreadable": "Sesiones no realizadas sin revisar para {0}: no se pudo leer su calendario o sus actividades",
       "not_sharing": "{0} sin incluir: no comparten datos",
       "prompt": "Resumen de la mañana. Estos son los atletas de mi lista que me necesitan esta mañana, sacados de mi lista Por atender, uno por línea con lo que los señaló:\n{0}\nEscríbeme un resumen de la mañana breve solo a partir de estas líneas: primero lo de hoy y luego lo de esta semana, una línea corta por atleta en el orden dado, diciendo qué mirar. Conserva las cifras y el contexto que traen las líneas; nunca un porcentaje, nunca una suposición sobre la salud de nadie o sobre cómo se siente. No añadas ningún atleta, cifra ni consejo que las líneas no traigan, y no pongas enlaces: van después de tu texto. Sin títulos, menos de 120 palabras.",
       "unreadable": "{0} sin incluir: no se pudieron leer sus datos"

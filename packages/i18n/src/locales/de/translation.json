@@ -1363,7 +1363,8 @@
       "newMemberNoPlan": "Ist der Gruppe am {{date}} beigetreten, noch kein Plan",
       "planEnded": "Plan endete am {{date}}, nichts ersetzt ihn",
       "plannedSessionsMissed": "Keine passende Aktivität an {{count}} geplanten Tagen in Folge",
-      "plannedSessionsMissedOne": "Keine passende Aktivität am letzten geplanten Tag"
+      "plannedSessionsMissedOne": "Keine passende Aktivität am letzten geplanten Tag",
+      "unusualBreak": "Seit {{days}} keine Einheit, länger als jede frühere Pause"
     },
     "reasonTitle": {
       "consentRevoked": "{{name}} teilt die Daten nicht mehr mit dir.",
@@ -1385,7 +1386,8 @@
       "newMemberNoPlan": "{{name}} ist der Gruppe am {{date}} beigetreten und hat noch keinen Plan.",
       "planEnded": "Der Plan von {{name}} endete am {{date}}, und nichts ersetzt ihn.",
       "plannedSessionsMissed": "Keine Aktivität von {{name}} passt zu den Einheiten, die an den letzten {{count}} geplanten Tagen anstanden.",
-      "plannedSessionsMissedOne": "Keine Aktivität von {{name}} passt zu den Einheiten, die am letzten geplanten Tag anstanden."
+      "plannedSessionsMissedOne": "Keine Aktivität von {{name}} passt zu den Einheiten, die am letzten geplanten Tag anstanden.",
+      "unusualBreak": "{{name}} hat seit {{days}} keine Einheit gemacht, länger als jede Pause in den {{weeks}} Wochen davor."
     },
     "evidence": {
       "sharingStopped": "Freigabe am {{at}} beendet",
@@ -1412,7 +1414,11 @@
       "planEndedAfterRace": "Plan endete am {{date}}, mit {{race}}",
       "plannedSessionsUnmatched": "{{missed}} der {{planned}} seit dem {{date}} geplanten Einheiten haben keine passende Aktivität",
       "plannedSessionUnmatched": "Geplant am {{date}}: {{sport}}, keine passende Aktivität",
-      "wellnessNote": "Letzte Wellness-Notiz ({{date}}): „{{note}}“"
+      "wellnessNote": "Letzte Wellness-Notiz ({{date}}): „{{note}}“",
+      "breakLongestBefore": "Längste Pause in den {{weeks}} Wochen davor: {{days}}",
+      "trainingDaysPerWeek": "Trainiert üblicherweise an {{count}} Tagen pro Woche",
+      "trainingDaysPerWeekOne": "Trainiert üblicherweise an einem Tag pro Woche",
+      "lastTrainingDay": "Letzter Trainingstag: {{date}}"
     },
     "roster": {
       "title": "Meine Athleten",
@@ -1497,7 +1503,7 @@
       "status_never": "Noch nicht gelaufen",
       "status_empty": "Um {{time}} gelaufen: nichts zu melden",
       "status_empty_left_out": "Um {{time}} gelaufen: nichts zu melden · {{count}} nicht enthalten",
-      "missed_unreadable": "verpasste Einheiten für {{count}} nicht geprüft: ein Kalender konnte nicht gelesen werden",
+      "missed_unreadable": "verpasste Einheiten für {{count}} nicht geprüft: Kalender oder Aktivitäten konnten nicht gelesen werden",
       "missed_off": "verpasste Einheiten für {{count}} nicht geprüft: auf ihrer Seite ausgeschaltet",
       "status_posted": "Um {{time}} gesendet: {{count}} zu erledigen",
       "status_held": "Um {{time}} zurückgehalten",
@@ -1520,7 +1526,8 @@
         "planDraftWaiting": "Ein Planentwurf wartet",
         "newMemberNoPlan": "Neues Mitglied ohne Plan",
         "planEnded": "Plan beendet",
-        "plannedSessionsMissed": "Verpasste geplante Einheiten"
+        "plannedSessionsMissed": "Verpasste geplante Einheiten",
+        "unusualBreak": "Eine längere Pause als üblich"
       }
     }
   },
@@ -3219,6 +3226,16 @@
       "label": "{{coach}} benachrichtigen, wenn geplante Einheiten verpasst werden",
       "hint": "Wenn zu keiner der an aufeinanderfolgenden geplanten Tagen geplanten Einheiten eine passende Aktivität vorliegt, zeigen Zu erledigen und das Morgen-Briefing von {{coach}} das mit den Zahlen an. Dravr vergleicht nur, was geplant war, mit dem, was aufgezeichnet wurde; es rät nie, warum. Schalte das aus, und {{coach}} sieht nichts mehr über verpasste Einheiten."
     },
+    "routineDetection": {
+      "label": "{{coach}} benachrichtigen, wenn eine Pause für dich ungewöhnlich ist",
+      "hint": "Dravr lernt dein übliches Muster aus deinen letzten 8 Trainingswochen: wie oft du trainierst und wie lange deine Pausen dauern. Wenn für dich nichts geplant ist und deine aktuelle Pause länger ist als jede in diesem Muster, zeigen Zu erledigen und das Morgen-Briefing von {{coach}}, das der Agent von Dravr schreibt, das mit den Zahlen an. Es rät nie, warum, und es braucht mindestens 4 Wochen deines Trainings, bevor es etwas sagt. Aus, bis du es einschaltest."
+    },
+    "routineDetectionNotice": {
+      "title": "Ungewöhnliche Pausen",
+      "body": "Dravr kann {{coach}} benachrichtigen, wenn eine Pause in deinem Training länger ist als für dich üblich. Dazu lernt Dravr dein Muster aus deinen letzten 8 Trainingswochen (wie oft du trainierst, wie lange deine Pausen dauern) und vergleicht deine aktuelle Pause damit, wenn für dich nichts geplant ist. {{coach}} sieht die Zahlen, nie eine Vermutung über den Grund. Es bleibt aus, solange du es nicht einschaltest, und du kannst es unten jederzeit ausschalten.",
+      "turnOn": "Einschalten",
+      "notNow": "Nicht jetzt"
+    },
     "seat": {
       "title": "Du bist noch nicht der Coach dieser Gruppe",
       "stripBody": "Um das Training deiner Athleten zu sehen und ihre Pläne zu erstellen, brauchst du Coach-Zugang. Das Dravr-Team schaltet ihn frei.",
@@ -4617,7 +4634,7 @@
     "morning_brief": {
       "links": "In Zu erledigen öffnen:",
       "missed_off": "Verpasste Einheiten für {0} nicht geprüft: auf ihrer Seite ausgeschaltet",
-      "missed_unreadable": "Verpasste Einheiten für {0} nicht geprüft: ein Kalender konnte nicht gelesen werden",
+      "missed_unreadable": "Verpasste Einheiten für {0} nicht geprüft: Kalender oder Aktivitäten konnten nicht gelesen werden",
       "not_sharing": "{0} nicht enthalten: Teilen ausgeschaltet",
       "prompt": "Morgen-Briefing. Das sind die Athleten auf meiner Liste, die mich heute Morgen brauchen, aus meiner Liste Zu erledigen, einer pro Zeile mit dem, was sie markiert hat:\n{0}\nSchreib mir ein kurzes Morgen-Briefing nur aus diesen Zeilen: zuerst was heute ansteht, dann diese Woche, eine kurze Zeile pro Athlet in der gegebenen Reihenfolge, mit dem, was anzuschauen ist. Behalte die Zahlen und den Kontext der Zeilen bei; nie ein Prozentsatz, nie eine Vermutung über die Gesundheit oder das Befinden von jemandem. Füge keinen Athleten, keine Zahl und keinen Rat hinzu, den die Zeilen nicht enthalten, und nenne keine Links: Sie folgen deinem Text. Keine Überschriften, unter 120 Wörtern.",
       "unreadable": "{0} nicht enthalten: Ihre Daten konnten nicht gelesen werden"

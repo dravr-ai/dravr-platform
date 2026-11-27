@@ -1363,7 +1363,8 @@
       "newMemberNoPlan": "Joined the group on {{date}}, no plan yet",
       "planEnded": "Plan ended on {{date}}, nothing replaces it",
       "plannedSessionsMissed": "No matching activity on {{count}} planned days in a row",
-      "plannedSessionsMissedOne": "No matching activity on the last planned day"
+      "plannedSessionsMissedOne": "No matching activity on the last planned day",
+      "unusualBreak": "No session for {{days}}, longer than any earlier break"
     },
     "reasonTitle": {
       "consentRevoked": "{{name}} stopped sharing their data with you.",
@@ -1385,7 +1386,8 @@
       "newMemberNoPlan": "{{name}} joined the group on {{date}} and has no plan yet.",
       "planEnded": "{{name}}’s plan ended on {{date}} and nothing replaces it.",
       "plannedSessionsMissed": "{{name}} has no activity matching the sessions planned on their last {{count}} planned days.",
-      "plannedSessionsMissedOne": "{{name}} has no activity matching the sessions planned on their last planned day."
+      "plannedSessionsMissedOne": "{{name}} has no activity matching the sessions planned on their last planned day.",
+      "unusualBreak": "{{name}} has had no session for {{days}}, longer than any break they took in the {{weeks}} weeks before."
     },
     "evidence": {
       "sharingStopped": "Sharing stopped on {{at}}",
@@ -1412,7 +1414,11 @@
       "planEndedAfterRace": "Plan ended on {{date}}, with {{race}}",
       "plannedSessionsUnmatched": "{{missed}} of the {{planned}} sessions planned since {{date}} have no matching activity",
       "plannedSessionUnmatched": "Planned on {{date}}: {{sport}}, no matching activity",
-      "wellnessNote": "Last wellness note ({{date}}): “{{note}}”"
+      "wellnessNote": "Last wellness note ({{date}}): “{{note}}”",
+      "breakLongestBefore": "Longest break in the {{weeks}} weeks before: {{days}}",
+      "trainingDaysPerWeek": "Usually trains {{count}} days a week",
+      "trainingDaysPerWeekOne": "Usually trains one day a week",
+      "lastTrainingDay": "Last training day: {{date}}"
     },
     "roster": {
       "title": "My athletes",
@@ -1497,7 +1503,7 @@
       "status_never": "Hasn't run yet",
       "status_empty": "Ran at {{time}}: nothing to report",
       "status_empty_left_out": "Ran at {{time}}: nothing to report · {{count}} not included",
-      "missed_unreadable": "missed sessions not checked for {{count}}: a calendar couldn’t be read",
+      "missed_unreadable": "missed sessions not checked for {{count}}: their calendar or activities couldn’t be read",
       "missed_off": "missed sessions not checked for {{count}}: switched off on their side",
       "status_posted": "Sent at {{time}}: {{count}} to handle",
       "status_held": "Held back at {{time}}",
@@ -1520,7 +1526,8 @@
         "planDraftWaiting": "A plan draft waiting",
         "newMemberNoPlan": "New member without a plan",
         "planEnded": "Plan ended",
-        "plannedSessionsMissed": "Missed planned sessions"
+        "plannedSessionsMissed": "Missed planned sessions",
+        "unusualBreak": "A break longer than usual"
       }
     }
   },
@@ -3219,6 +3226,16 @@
       "label": "Tell {{coach}} when planned sessions are missed",
       "hint": "When none of the sessions planned on consecutive planned days has a matching activity, {{coach}}’s To handle and morning brief say so, with the counts. Dravr only compares what was planned with what was recorded; it never guesses why. Turn this off and {{coach}} sees nothing about missed sessions."
     },
+    "routineDetection": {
+      "label": "Tell {{coach}} when a break is unusual for you",
+      "hint": "Dravr learns your usual pattern from your last 8 weeks of training: how often you train and how long your breaks last. When nothing is planned for you and your current break is longer than any in that pattern, {{coach}}’s To handle and the morning brief Dravr’s agent writes for them say so, with the counts. It never guesses why, and it needs at least 4 weeks of your training before it says anything. Off until you turn it on."
+    },
+    "routineDetectionNotice": {
+      "title": "Unusual breaks",
+      "body": "Dravr can tell {{coach}} when a break in your training is longer than usual for you. To do that, Dravr learns your pattern from your last 8 weeks of training (how often you train, how long your breaks last) and compares your current break with it whenever nothing is planned for you. {{coach}} sees the counts, never a guess at why. It stays off unless you turn it on, and you can turn it off at any time below.",
+      "turnOn": "Turn on",
+      "notNow": "Not now"
+    },
     "seat": {
       "title": "You're not this group's coach yet",
       "stripBody": "To see your athletes' training and build their plans, you need coach access. The Dravr team turns it on.",
@@ -4617,7 +4634,7 @@
     "morning_brief": {
       "links": "Open in To handle:",
       "missed_off": "Missed sessions not checked for {0}: switched off on their side",
-      "missed_unreadable": "Missed sessions not checked for {0}: a calendar couldn't be read",
+      "missed_unreadable": "Missed sessions not checked for {0}: their calendar or activities couldn't be read",
       "not_sharing": "{0} not included: sharing off",
       "prompt": "Morning brief. These are the athletes on my roster who need me this morning, from my To handle queue, one per line with what flagged them:\n{0}\nWrite me a short morning brief from these lines only: today's items first, then this week's, one short line per athlete in the order given, saying what to look at. Keep the counts and context the lines carry; never a percentage, never a guess about anyone's health or how they feel. Add no athlete, figure or advice the lines don't carry, and list no links: they follow your text. No headings, under 120 words.",
       "unreadable": "{0} not included: their data couldn't be read"
