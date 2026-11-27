@@ -67,9 +67,9 @@ pub struct LiveWrite<'a> {
     pub weeks: &'a [PlanWeekInput<'a>],
     /// The stamp of what the write was derived from (carnet#769).
     pub transport_policy: TransportPolicy,
-    /// Who made it and what kind of change it was, as the history records it.
+    /// Who made it, as the history records it.
     pub source: PlanChangeSource,
-    /// The kind of change.
+    /// What kind of change it was, as the history records it.
     pub kind: PlanChangeKind,
 }
 
@@ -513,8 +513,20 @@ mod tests {
 
     #[test]
     fn a_week_field_follows_the_live_write_unless_the_overlay_changed_it() {
-        assert_eq!(rebased_field("build", Some("build"), "recover"), "recover");
-        assert_eq!(rebased_field("taper", Some("build"), "recover"), "taper");
-        assert_eq!(rebased_field("taper", None, "recover"), "recover");
+        assert_eq!(
+            rebased_field("build", Some("build"), "recover"),
+            "recover",
+            "bug: a field the overlay left as live takes the live write's value"
+        );
+        assert_eq!(
+            rebased_field("taper", Some("build"), "recover"),
+            "taper",
+            "bug: a field the overlay changed keeps the overlay's value"
+        );
+        assert_eq!(
+            rebased_field("taper", None, "recover"),
+            "recover",
+            "bug: a week the live plan did not hold before takes the live write's value"
+        );
     }
 }

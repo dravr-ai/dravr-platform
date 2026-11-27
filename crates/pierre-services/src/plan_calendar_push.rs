@@ -313,11 +313,10 @@ pub fn desired_entries(
 
 /// What a push would do, judged from the ledger alone — no provider call.
 ///
-/// This is the preview `save_training_plan` reports after a save so the
-/// athlete learns the calendar is behind, and the count `get_training_plan`
-/// shows next to the calendar block. It is folded from the per-key diff
-/// ([`LedgerDiff::preview`]), so a count and the entries behind it never
-/// disagree.
+/// This is the preview a coach's publish reports when its push did not run,
+/// and the count `get_training_plan` shows next to the calendar block. It is
+/// folded from the per-key diff ([`LedgerDiff::preview`]), so a count and the
+/// entries behind it never disagree.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, schemars::JsonSchema)]
 pub struct PushPreview {
     /// Entries the ledger has no live row for.

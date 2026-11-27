@@ -757,7 +757,11 @@ async fn an_own_edit_never_reads_as_a_proposal_and_wins_over_one() {
         session(&on(4), "Long 90"),
     ])
     .await;
-    assert_eq!(dates(&fx.plan().await["proposed_dates"]), [on(2)]);
+    assert_eq!(
+        dates(&fx.plan().await["proposed_dates"]),
+        [on(2)],
+        "bug: the agent's unasked Wednesday is the one proposed date"
+    );
 
     // The athlete edits Friday, another date of that week.
     let (status, body) = fx
@@ -880,4 +884,102 @@ async fn with_no_calendar_the_send_and_its_review_are_refused() {
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     assert_eq!(body["details"]["reason"], "no_calendar", "{body}");
+}
+
+/// Every write on the athlete's own plan is Dravr's own app's: an outside
+/// client holding the athlete's API key is refused each one before anything
+/// is read, and the plan, its proposals and the plan thread stay as they
+/// were.
+#[tokio::test]
+async fn an_outside_client_is_refused_every_write_and_nothing_is_written() {
+    let fx = Fixture::new().await;
+    fx.lay_season(&live_week()).await;
+    fx.agent_proposes(&[
+        session(&on(1), "Tempo 40"),
+        session(&on(2), "Hills 45"),
+        session(&on(4), "Long 90"),
+    ])
+    .await;
+    let before = fx.plan().await;
+    let key = common::issue_test_api_key(&fx.res.agent.database, fx.athlete.id, "athlete script")
+        .await
+        .unwrap();
+    let tempo = json!({ "expect": expect("Tempo 40") });
+    let day = |action: &str| format!("/api/me/plan/days/{}/0/{action}", on(1));
+    let writes = [
+        (
+            "add",
+            AxumTestRequest::post(&format!("/api/me/plan/days/{}/sessions", on(3)))
+                .json(&easy("Easy 30")),
+        ),
+        (
+            "family build",
+            AxumTestRequest::put(&format!("/api/me/plan/days/{}/0", on(1))).json(&json!({
+                "expect": expect("Tempo 40"),
+                "build": { "family": "vo2max_short", "sport": "ride" },
+            })),
+        ),
+        (
+            "hand edit",
+            AxumTestRequest::put(&day("session")).json(&json!({
+                "expect": expect("Tempo 40"),
+                "day": {
+                    "rest": false, "sport": "run", "workout": "Tempo 30", "duration_min": 30,
+                    "intensity": "Z3",
+                },
+            })),
+        ),
+        ("restore", AxumTestRequest::post(&day("restore")).json(&tempo)),
+        ("remove", AxumTestRequest::post(&day("remove")).json(&tempo)),
+        (
+            "move",
+            AxumTestRequest::post(&day("move"))
+                .json(&json!({ "expect": expect("Tempo 40"), "to_date": on(3) })),
+        ),
+        (
+            "accept",
+            AxumTestRequest::post(&format!("/api/me/plan/proposals/dates/{}/accept", on(2))),
+        ),
+        (
+            "refuse",
+            AxumTestRequest::post(&format!("/api/me/plan/proposals/dates/{}/refuse", on(2))),
+        ),
+        ("send review", AxumTestRequest::post("/api/me/plan/send/review")),
+        (
+            "send",
+            AxumTestRequest::post("/api/me/plan/send").json(&json!({})),
+        ),
+        ("plan thread", AxumTestRequest::post("/api/me/plan/thread")),
+    ];
+    for (write, request) in writes {
+        let resp = request
+            .header("authorization", &key)
+            .send(ChatRoutes::routes(Arc::clone(&fx.res)))
+            .await;
+        let status = resp.status_code();
+        let body: Value = resp.json();
+        assert_eq!(
+            status,
+            StatusCode::FORBIDDEN,
+            "bug: an outside client is refused the {write} write: {body}"
+        );
+        assert_eq!(
+            body["details"]["reason"], "external_transport",
+            "bug: the {write} refusal carries the plan tools' reason: {body}"
+        );
+    }
+    assert_eq!(
+        fx.plan().await,
+        before,
+        "bug: a refused write changed the athlete's plan or its proposals"
+    );
+    assert!(
+        fx.repos()
+            .chat
+            .plan_thread_conversation(&fx.athlete.id.to_string(), fx.athlete.tenant)
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: a refused open made a plan thread"
+    );
 }

@@ -206,7 +206,10 @@ mod notification_event_locale_tests {
 
         let rows = feed(&router, &token).await;
         let row = rows.first().expect("the feed returns the notice");
-        assert_eq!(row["title"], "Plan publié par Casey Coach");
+        assert_eq!(
+            row["title"], "Plan publié par Casey Coach",
+            "bug: a publish with no race keeps the published-plan title"
+        );
         assert_eq!(
             row["body"],
             "Casey Coach a publié ton plan d’entraînement. Tu le retrouves sur l’Accueil."

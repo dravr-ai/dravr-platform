@@ -176,6 +176,34 @@ fn renders_goal_countdown_blocks_and_current_weeks() {
     assert!(block.contains("1 more stored week(s)"));
 }
 
+/// A season the athlete started with a session, before any race (carnet#1841),
+/// says so in its goal line: no race is named and nothing counts down.
+#[test]
+fn a_season_with_no_race_yet_says_so_in_its_goal_line() {
+    let mut no_race = plan();
+    no_race.goal_race = None;
+    let block = render_training_plan_block(
+        &no_race,
+        &[week("2026-07-13", "volume")],
+        d("2026-07-14"),
+        &catalogue(),
+        &FuelingDisclosure::Shown,
+    )
+    .unwrap_or_default();
+    assert!(
+        block.contains("Goal race: none yet — the athlete started this plan with no race."),
+        "bug: a season with no race says so in its goal line: {block}"
+    );
+    assert!(
+        !block.contains("Big Red") && !block.contains("days out"),
+        "bug: a season with no race names none and counts down to none: {block}"
+    );
+    assert!(
+        block.contains("This week (starting 2026-07-13) — focus: volume"),
+        "bug: a season with no race still renders its weeks: {block}"
+    );
+}
+
 #[test]
 fn past_weeks_render_nothing_and_future_weeks_relabel() {
     let weeks = vec![week("2026-07-06", "done"), week("2026-07-20", "tempo")];

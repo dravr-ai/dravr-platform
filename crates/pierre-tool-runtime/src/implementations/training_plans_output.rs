@@ -675,9 +675,9 @@ pub struct CalendarEntry {
 
 /// What a push would change, without the entry list.
 ///
-/// The save reply reports the counts only: the athlete has just written the
-/// plan and needs to know whether the calendar is behind, not to re-read
-/// every entry they already have.
+/// A coach's publish reply reports the counts only when its push did not
+/// run: the plan has just been written and the coach needs to know whether
+/// the athlete's calendar is behind, not to re-read every entry on it.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct CalendarPreview {
     /// The calendar provider.

@@ -20523,7 +20523,7 @@
             "type": "object"
           },
           "PushPreview": {
-            "description": "What a push would do, judged from the ledger alone — no provider call.\n\nThis is the preview `save_training_plan` reports after a save so the\nathlete learns the calendar is behind, and the count `get_training_plan`\nshows next to the calendar block. It is folded from the per-key diff\n([`LedgerDiff::preview`]), so a count and the entries behind it never\ndisagree.",
+            "description": "What a push would do, judged from the ledger alone — no provider call.\n\nThis is the preview a coach's publish reports when its push did not run,\nand the count `get_training_plan` shows next to the calendar block. It is\nfolded from the per-key diff ([`LedgerDiff::preview`]), so a count and the\nentries behind it never disagree.",
             "properties": {
               "create": {
                 "description": "Entries the ledger has no live row for.",
@@ -21821,7 +21821,7 @@
       },
       "_meta": {
         "ai.dravr.vault/tool": {
-          "def_hash": "sha256:0ae20e6d242f97a9d40f6d38e0ee25b65b38c4e1ae4941be8dd5fb13fc1c2292"
+          "def_hash": "sha256:0dfd2772d0c53cbed98828e75151957a567f78232c20cfb1c18f3341497a190c"
         }
       }
     },

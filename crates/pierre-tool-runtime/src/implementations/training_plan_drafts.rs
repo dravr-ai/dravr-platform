@@ -98,14 +98,16 @@ pub(super) struct DraftSave<'a> {
     pub(super) ignored_arguments: Vec<String>,
 }
 
-/// Write a coach's save into their draft of the athlete's plan.
+/// Write a coach's save into their draft of the athlete's plan, or the
+/// athlete's own agent's unasked save into the athlete's own overlay
+/// (carnet#1841).
 ///
-/// Nothing the athlete reads changes: not their season, not their goal fact,
-/// not their calendar, and nothing is reported as a write to their plan. The
-/// reply says so, and names the tool that makes the draft live. It carries
-/// the two safety-shaped findings on the draft view ([`draft_plan_safety`]),
-/// so the coach learns of a ramp spike or crowded hard days while the draft
-/// is still theirs to change.
+/// Nothing the athlete trains on changes: not their season, not their goal
+/// fact, not their calendar, and nothing is reported as a write to their
+/// plan. The reply says so, and names what makes the draft live: the coach's
+/// publish, or the athlete's accept. It carries the two safety-shaped
+/// findings on the draft view ([`draft_plan_safety`]), so the writer learns
+/// of a ramp spike or crowded hard days while the draft is still a draft.
 ///
 /// A save that changed a date or laid an outline is recorded in the plan's
 /// change history as the agent's, naming the dates whose sessions it changed
@@ -148,7 +150,8 @@ pub(super) async fn save_into_draft(
         opened = saved.opened,
         outline_drafted = saved.draft.outline_drafted,
         weeks_saved = saved.weeks.len(),
-        "coach saved into their draft of a coached athlete's plan"
+        own_overlay = target.is_own(),
+        "agent saved into a draft of an athlete's plan"
     );
     let dates = plan_change_history::dates_changed(save.written_over, &saved.weeks);
     if laid_outline || !dates.is_empty() {

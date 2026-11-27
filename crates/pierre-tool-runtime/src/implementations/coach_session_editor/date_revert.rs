@@ -1,4 +1,4 @@
-// ABOUTME: A coach refuses what their draft proposes on one date — every entry on it replaced by the live plan's entries, whole
+// ABOUTME: A coach refuses what their draft proposes on one date, the athlete what their own overlay does — the live entries put back, whole
 // ABOUTME: A date that already reads as the live plan writes nothing and opens no draft; the coach's editor marks go with the entries
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -35,8 +35,8 @@ use pierre_core::errors::AppResult;
 use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::PlanChangeKind;
 use pierre_database::repositories::PlanChangeSource;
-use pierre_memory::training_plans::PlannedDay;
-use pierre_services::coach_plan_draft::{coach_plan_view, CoachDraftTarget};
+use pierre_memory::training_plans::{PlanWeek, PlannedDay};
+use pierre_services::coach_plan_draft::{coach_plan_view, CoachDraftTarget, CoachPlanView};
 use pierre_services::own_plan::with_entries_on;
 use tracing::info;
 
@@ -70,6 +70,42 @@ fn reverted(days: &[PlannedDay], live: &[PlannedDay], date: &str) -> Option<Vec<
     Some(with_entries_on(days, &wanted, date))
 }
 
+/// A drafted week with the live plan's entries put back on one of its dates.
+struct DateReverted {
+    /// The drafted week holding the date, as the draft holds it.
+    week: PlanWeek,
+    /// The week's days once the date holds the live plan's entries.
+    days: Vec<PlannedDay>,
+    /// How many entries the live plan holds on the date.
+    live_entries: usize,
+}
+
+/// What putting the live plan's entries back on `date` makes of `view`'s
+/// draft — a coach's, or the athlete's own overlay; `None` when there is
+/// nothing to put back: no draft, the date sits in a week the draft never
+/// wrote, or the draft's entries on the date already are the live plan's.
+fn date_reverted(view: CoachPlanView, date: CivilDate) -> Option<DateReverted> {
+    let draft = view.draft?;
+    let week = draft
+        .weeks
+        .into_iter()
+        .find(|week| week.holds(date) && draft.drafted_weeks.contains(&week.week_start))?;
+    let dated = date.to_string();
+    let live: Vec<PlannedDay> = view.live.map_or_default(|live| {
+        live.weeks
+            .into_iter()
+            .flat_map(|week| week.days)
+            .filter(|day| day.date == dated)
+            .collect()
+    });
+    let days = reverted(&week.days, &live, &dated)?;
+    Some(DateReverted {
+        week,
+        days,
+        live_entries: live.len(),
+    })
+}
+
 /// Put the live plan's entries back on `date` of the coach's draft.
 ///
 /// Every entry the draft of the athlete's plan holds on the date is replaced
@@ -94,38 +130,21 @@ pub async fn revert_draft_date(
     let write = async {
         super::day_edits::note_coach_read(thread);
         let view = coach_plan_view(repos, target).await?;
-        let Some(draft) = view.draft else {
-            return Ok(DraftDayOutcome::Unchanged);
-        };
-        let drafted = draft
-            .weeks
-            .into_iter()
-            .find(|week| week.holds(date) && draft.drafted_weeks.contains(&week.week_start));
-        let Some(week) = drafted else {
-            return Ok(DraftDayOutcome::Unchanged);
-        };
-        let dated = date.to_string();
-        let live: Vec<PlannedDay> = view.live.map_or_default(|live| {
-            live.weeks
-                .into_iter()
-                .flat_map(|week| week.days)
-                .filter(|day| day.date == dated)
-                .collect()
-        });
-        let Some(days) = reverted(&week.days, &live, &dated) else {
+        let Some(put_back) = date_reverted(view, date) else {
             return Ok(DraftDayOutcome::Unchanged);
         };
         let change = DayChange {
             kind: PlanChangeKind::DateRevert,
             date,
         };
-        let saved = save_days_into_week(repos, thread, &week, &days, change).await?;
+        let saved =
+            save_days_into_week(repos, thread, &put_back.week, &put_back.days, change).await?;
         info!(
             athlete_user_id = %target.athlete(),
             coach_user_id = %target.coach(),
             draft_id = %saved.draft.plan.id,
-            date = %dated,
-            live_entries = live.len(),
+            date = %date,
+            live_entries = put_back.live_entries,
             "coach put a date of their draft back to the live plan"
         );
         Ok(DraftDayOutcome::Saved)
@@ -155,43 +174,25 @@ pub async fn refuse_own_date(
     let target: CoachDraftTarget = own.target();
     let refuse = async {
         let view = coach_plan_view(repos, &target).await?;
-        let Some(draft) = view.draft else {
-            return Ok(DraftDayOutcome::Unchanged);
-        };
-        let drafted = draft
-            .weeks
-            .into_iter()
-            .find(|week| week.holds(date) && draft.drafted_weeks.contains(&week.week_start));
-        let Some(week) = drafted else {
-            return Ok(DraftDayOutcome::Unchanged);
-        };
-        let dated = date.to_string();
-        let live: Vec<PlannedDay> = view.live.map_or_default(|live| {
-            live.weeks
-                .into_iter()
-                .flat_map(|week| week.days)
-                .filter(|day| day.date == dated)
-                .collect()
-        });
-        let Some(days) = reverted(&week.days, &live, &dated) else {
+        let Some(put_back) = date_reverted(view, date) else {
             return Ok(DraftDayOutcome::Unchanged);
         };
         let change = DayChange {
             kind: PlanChangeKind::DateRevert,
             date,
         };
-        let author = PlanAuthor::from_agent(week.author_agent_id.as_deref());
+        let author = PlanAuthor::from_agent(put_back.week.author_agent_id.as_deref());
         save_draft_week(
             repos,
             &target,
             author,
             PlanChangeSource::Athlete,
-            &week,
-            &days,
+            &put_back.week,
+            &put_back.days,
             change,
         )
         .await?;
-        info!(user_id = %own.athlete, date = %dated, "athlete refused a proposal of their agent's");
+        info!(user_id = %own.athlete, date = %date, "athlete refused a proposal of their agent's");
         Ok(DraftDayOutcome::Saved)
     };
     as_own_write(repos, own, refuse).await

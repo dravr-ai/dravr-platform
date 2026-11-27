@@ -1,5 +1,5 @@
 // ABOUTME: The plan's wanted calendar entries against Dravr's push ledger, key by key, and the entries the athlete edited on the provider
-// ABOUTME: The one diff the calendar block, the save preview and « Envoyer » read; the provider check is the send review's (carnet#1841)
+// ABOUTME: The one diff the calendar block, the publish preview and « Envoyer » read; the provider check is the send review's (carnet#1841)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -61,7 +61,7 @@ impl KeyDiff {
 }
 
 /// The plan's wanted entries against the ledger's live plan rows, key by
-/// key: the one diff the calendar block, the save's preview and the
+/// key: the one diff the calendar block, the publish's preview and the
 /// athlete's « Envoyer » count all read.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct LedgerDiff {

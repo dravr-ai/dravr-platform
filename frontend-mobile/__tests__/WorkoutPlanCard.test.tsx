@@ -122,6 +122,16 @@ describe('WorkoutPlanCard', () => {
     expect(getByText(/chosen by your human coach/)).toBeTruthy();
   });
 
+  it("draws an athlete's own plan with no race yet, its header naming none", () => {
+    const { getByText, queryByTestId, queryByText } = render(
+      <WorkoutPlanCard plan={plan({ goal_race: null, races: [], phases: [] })} />,
+    );
+
+    expect(getByText('Training plan')).toBeTruthy();
+    expect(queryByTestId('plan-goal-race')).toBeNull();
+    expect(queryByText('Parkrun PB')).toBeNull();
+  });
+
   it('lays every phase on the timeline and marks exactly the current one', () => {
     const { getByText, getAllByText } = render(<WorkoutPlanCard plan={plan()} />);
 

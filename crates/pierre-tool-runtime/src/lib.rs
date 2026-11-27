@@ -167,7 +167,7 @@ pub mod tool_data;
 pub mod tool_progress;
 /// Daily CTL/ATL/TSB rollup, sourced from the durable activity cache.
 pub mod training_history_compute;
-/// What a chat turn runs once after its reply, handed over by its calls (carnet#1702).
+/// The destructive charge a chat turn's call gives back when it wrote nothing destructive (carnet#1702, carnet#1841).
 pub mod turn_end;
 /// The per-turn store a headless turn's signals leave the ACP loopback through.
 mod turn_store;

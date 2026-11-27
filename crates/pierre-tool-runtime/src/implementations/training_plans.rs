@@ -584,8 +584,8 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             "save_training_plan",
             "Persist the plan you agreed with the athlete — the outline and/or day-by-day weeks — in the SAME turn you state it; an unsaved plan is forgotten. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or with replace_season when the athlete asked you to re-lay one another agent laid; re-save a week another agent wrote only when the athlete asks. Adjustments re-save only the changed weeks and supersede prospectively; past weeks are immutable. What the athlete asked for is saved onto their plan at once; what nobody asked for (a turn with no message of theirs) is proposed instead (draft: true), weeks only, for them to accept or refuse date by date. Saving never sends anything to their calendar: never say it was sent. They send it themselves with « Envoyer »; on a channel ask whether to send it to their calendar and call push_training_plan only on their yes. In Dravr's app or channels a group's human coach can save for a consenting athlete as a draft: the reply says draft: true, and the athlete sees none of it until the coach publishes it with publish_training_plan; elsewhere a save is the caller's own.",
             schema,
-            // The athlete's own save reconciles their calendar, removing the
-            // days Dravr put there that the plan dropped (carnet#1492).
+            // A save overwrites the athlete's live weeks, or a coach's draft
+            // of them; it sends nothing to a calendar (carnet#1841).
             annotations("Save training plan", Effect::Destructive, Reach::AthleteAccount),
         ))
     }

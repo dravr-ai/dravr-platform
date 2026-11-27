@@ -108,7 +108,10 @@ async fn the_plan_thread_is_opened_once_and_every_call_answers_it() {
         .await
         .unwrap()
         .expect("the plan thread is stored");
-    assert_eq!(stored.id, id);
+    assert_eq!(
+        stored.id, id,
+        "bug: the designated plan thread is not the one the route answered"
+    );
     assert!(
         !stored.personal,
         "bug: the plan thread is the personal thread"
@@ -151,7 +154,8 @@ async fn the_plan_thread_never_becomes_the_personal_thread_nor_takes_its_place()
     let chat = new_chat(&res, &sam).await;
     assert_eq!(
         personal_id(&res, &sam).await.as_deref(),
-        Some(chat.as_str())
+        Some(chat.as_str()),
+        "bug: Home did not adopt the athlete's only chat as the personal thread"
     );
     let sam_plan = plan_thread(&res, &sam).await;
     let sam_plan_id = sam_plan["conversation"]["id"].as_str().unwrap().to_owned();
@@ -190,7 +194,10 @@ async fn the_plan_thread_never_becomes_the_personal_thread_nor_takes_its_place()
             .unwrap(),
         "bug: the personal thread was made a plan thread"
     );
-    assert_ne!(alex_plan, sam_plan_id);
+    assert_ne!(
+        alex_plan, sam_plan_id,
+        "bug: two athletes were answered the same plan thread"
+    );
 }
 
 #[tokio::test]

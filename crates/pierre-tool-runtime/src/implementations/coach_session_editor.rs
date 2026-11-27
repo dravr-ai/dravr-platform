@@ -714,9 +714,8 @@ mod tests {
     use crate::implementations::tests::{
         catalogue_with_family, catalogue_with_shapes, FAMILY_SLUG, SHAPES_SLUG,
     };
-    use dravr_tronc::dates::Timestamp;
     use pierre_contremaitre::TrainingCatalogueRegistry;
-    use pierre_memory::training_plans::{parse_plan_date, WeekStatus};
+    use pierre_memory::training_plans::parse_plan_date;
     use serde_json::Value;
 
     fn date(text: &str) -> CivilDate {
@@ -922,40 +921,7 @@ mod tests {
     }
 
     #[test]
-    fn a_week_holds_its_seven_days_and_a_label_its_sport_family() {
-        let week = PlanWeek {
-            id: "week".to_owned(),
-            tenant_id: "tenant".to_owned(),
-            user_id: "user".to_owned(),
-            plan_id: "plan".to_owned(),
-            week_start: "2026-11-16".to_owned(),
-            focus: String::new(),
-            phase_index: None,
-            days: Vec::new(),
-            status: WeekStatus::Active,
-            supersedes_id: None,
-            adjustment_reason: String::new(),
-            author_agent_id: None,
-            created_at: Timestamp::now(),
-            updated_at: Timestamp::now(),
-        };
-        assert!(
-            week.holds(date("2026-11-16")),
-            "bug: a week holds its first day"
-        );
-        assert!(
-            week.holds(date("2026-11-22")),
-            "bug: a week holds its seventh day"
-        );
-        assert!(
-            !week.holds(date("2026-11-23")),
-            "bug: a week does not hold the next Monday"
-        );
-        assert!(
-            !week.holds(date("2026-11-15")),
-            "bug: a week does not hold the day before it"
-        );
-
+    fn a_label_keeps_its_sport_family() {
         let gravel: PlannedDay = serde_json::from_value(
             json!({ "date": "2026-11-18", "sport": "gravel", "workout": "x" }),
         )

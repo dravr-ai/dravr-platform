@@ -534,16 +534,19 @@ pub struct PlannedDay {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub envelope: Option<DayEnvelope>,
     /// The day as it stood before the coach's first edit in this draft, when
-    /// the coach edited it from their plan thread (carnet#1714). Stamped by the
-    /// coach's day saves only, never taken from an agent payload, never shown
-    /// to the agent, and dropped when the draft is published.
+    /// the coach edited it from their plan thread (carnet#1714), or before the
+    /// athlete's first edit of their own live plan from their Plan tab
+    /// (carnet#1841). Stamped by those editors' day saves only, never taken
+    /// from an agent payload, never shown to the agent, and dropped when a
+    /// coach's draft is published.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(skip)]
     pub coach_original: Option<Box<Self>>,
     /// Whether the coach added this session to its date from their plan
-    /// thread (carnet#1716): restoring it removes it. Set by the coach's "add
-    /// a session" only, never taken from an agent payload, never shown to the
-    /// agent, and dropped when the draft is published.
+    /// thread (carnet#1716), or the athlete to their own live plan from their
+    /// Plan tab (carnet#1841): restoring it removes it. Set by those editors'
+    /// "add a session" only, never taken from an agent payload, never shown to
+    /// the agent, and dropped when a coach's draft is published.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(skip)]
     pub coach_added: bool,
@@ -750,9 +753,11 @@ impl PlanWeek {
     }
 
     /// Drop the coach's editor marks from every day — the pre-edit snapshot
-    /// (carnet#1714) and the added-session flag (carnet#1716): a week that
-    /// goes live, or that an agent reads, carries neither. The coach's call
-    /// on a day (carnet#1814) is no editor mark and stays.
+    /// (carnet#1714) and the added-session flag (carnet#1716): a coach's week
+    /// that goes live, or one an agent or a coach reads, carries neither; the
+    /// athlete's own editor keeps the marks it stamped on their live plan
+    /// (carnet#1841). The coach's call on a day (carnet#1814) is no editor
+    /// mark and stays.
     pub fn drop_coach_marks(&mut self) {
         for day in &mut self.days {
             day.coach_original = None;
@@ -1087,5 +1092,31 @@ mod tests {
             created_at: Timestamp::now(),
             updated_at: Timestamp::now(),
         }
+    }
+
+    #[test]
+    fn a_week_holds_its_seven_days_and_no_other() {
+        let date = |text: &str| parse_plan_date(text).unwrap();
+        let week = week_of("2026-11-16", Vec::new());
+        assert!(
+            week.holds(date("2026-11-16")),
+            "bug: a week holds its first day"
+        );
+        assert!(
+            week.holds(date("2026-11-22")),
+            "bug: a week holds its seventh day"
+        );
+        assert!(
+            !week.holds(date("2026-11-23")),
+            "bug: a week does not hold the next Monday"
+        );
+        assert!(
+            !week.holds(date("2026-11-15")),
+            "bug: a week does not hold the day before it"
+        );
+        assert!(
+            !week_of("2026-11-1", Vec::new()).holds(date("2026-11-01")),
+            "bug: a week whose start does not parse holds no date"
+        );
     }
 }

@@ -521,7 +521,11 @@ fn the_ledger_diff_counts_creates_updates_unchanged_and_removals() {
         Some("Easy"),
         "bug: a withdrawal's before is the entry Dravr wrote, from the ledger's payload"
     );
-    assert_eq!(withdrawn.kind, PlannedSessionKind::Workout);
+    assert_eq!(
+        withdrawn.kind,
+        PlannedSessionKind::Workout,
+        "bug: a withdrawal's kind is read from the entry Dravr wrote"
+    );
 
     // Rows that are not plan rows never count: a single prescription on the
     // calendar is neither wanted nor unwanted by the plan.

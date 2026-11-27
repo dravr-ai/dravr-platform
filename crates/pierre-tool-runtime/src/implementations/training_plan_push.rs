@@ -1,5 +1,5 @@
 // ABOUTME: push_training_plan tool — puts the athlete's active plan on their provider calendar and reconciles the ledger
-// ABOUTME: Also the same push a save or a coach's publish ends with, the calendar block get_training_plan shows and the save's preview
+// ABOUTME: Also the push a coach's publish ends with, the athlete's own « Envoyer » and its review, the calendar block and the publish's preview
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -74,7 +74,7 @@ pub struct LedgerRead {
 }
 
 /// The one diff of `weeks` against the ledger on `backend` that the calendar
-/// block, the save's preview and the athlete's « Envoyer » count all read
+/// block, the publish's preview and the athlete's « Envoyer » count all read
 /// (carnet#1841), so none of them recomputes it its own way.
 ///
 /// The days render with the push's own disclosure
@@ -552,12 +552,13 @@ pub(super) async fn calendar_block(
     Ok(block)
 }
 
-/// What a push would change, for the `save_training_plan` reply — only once
-/// the calendar already carries this plan, so an athlete who never pushed is
-/// not nagged about a calendar they do not use.
+/// What a push would change, for a coach's `publish_training_plan` reply
+/// when its push did not run — only once the calendar already carries this
+/// plan, so an athlete who never pushed is not nagged about a calendar they
+/// do not use.
 ///
 /// Best-effort like the ramp check: the plan is already committed, so an
-/// unreadable ledger degrades to `None` rather than failing the save.
+/// unreadable ledger degrades to `None` rather than failing the publish.
 /// What a push would change is [`ledger_diff`]'s, and `scope` says who
 /// pushes it, as [`calendar_block`] does.
 pub(super) async fn calendar_preview_after_save(
