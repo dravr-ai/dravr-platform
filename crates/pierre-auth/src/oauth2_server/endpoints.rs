@@ -8,7 +8,7 @@
 // - String ownership transfers to struct constructors (OAuth2AuthCode, TokenResponse)
 // - Arc clone for database manager creation
 
-use super::authorization_details::ResolvedDetails;
+use super::authorization_details::{is_agent_write_scope, ResolvedAgentWrite, ResolvedDetails};
 use super::cimd::{self, MetadataFetcher, MetadataResolver};
 use super::client_registration::{
     is_public_client, redirect_uri_matches, redirects_to_any_local_process,
@@ -53,8 +53,14 @@ use auth_code::{check_dpop_jkt, AuthCodeParams};
 /// Admin access at consent: the one way a grant holds `admin` (carnet#1511)
 mod admin_grant;
 pub use admin_grant::{without_admin, AdminAccess};
+/// Agent-write grants at authorization: the binding a detail asks for
+mod agent_write;
+pub use agent_write::AGENT_WRITE_NOT_OFFERED;
 /// The request's RFC 9396 details, and the details a grant's tokens echo
 mod details;
+pub use details::RequestDetails;
+/// The resource servers this server mints for, and their builders
+mod resource_servers;
 /// Access-token validation with refresh, `validate_and_refresh`
 mod first_party_code;
 mod grant_checks;
@@ -92,6 +98,8 @@ pub struct CheckedAuthorization {
     /// The request's RFC 9396 details, resolved: the preset grant it asks
     /// for; `None` when it asks for none
     pub details: Option<ResolvedDetails>,
+    /// The records the request asks to propose; `None` when it asks none
+    pub agent_write: Option<ResolvedAgentWrite>,
     /// The resource a preset grant on this request reads from, which the
     /// consent screen's picker grants for; `None` when no preset may be
     /// granted (a request bound to a satellite)
@@ -119,6 +127,9 @@ pub struct OAuth2AuthorizationServer {
     /// mints for: `/a2a` on those origins; empty until
     /// [`Self::with_a2a_resources`] names them
     a2a_resources: Vec<String>,
+    /// The agent-write resource's identifiers (owl PDPP §5.3): only a
+    /// binding-A agent-write grant is bound to them
+    agent_write_resources: Vec<String>,
     /// Identifiers of the satellite MCP servers this authorization server also
     /// mints for, one each; empty until [`Self::with_satellite_resources`]
     satellites: Vec<String>,
@@ -139,6 +150,9 @@ pub struct OAuth2AuthorizationServer {
     /// offered yet"; off until [`Self::with_step_up_offered`] says the
     /// catalogue words the screen (carnet#1544 slice 4b)
     step_up_offered: bool,
+    /// Whether agent-write details are resolved; off until
+    /// [`Self::with_agent_write_offered`] says the catalogue words them
+    agent_write_offered: bool,
 }
 
 impl fmt::Debug for OAuth2AuthorizationServer {
@@ -186,12 +200,14 @@ impl OAuth2AuthorizationServer {
             refresh_token_lifetime: refresh_token_lifetime(refresh_token_expiry_days),
             resources,
             a2a_resources: Vec::new(),
+            agent_write_resources: Vec::new(),
             satellites: Vec::new(),
             first_party: FirstPartyRedirects::default(),
             metadata_fetcher: cimd::production_fetcher(),
             max_pending_registrations: ClientRetentionConfig::default().max_pending_registrations,
             token_limiter: None,
             step_up_offered: false,
+            agent_write_offered: false,
         }
     }
 
@@ -226,6 +242,7 @@ impl OAuth2AuthorizationServer {
                 .collect(),
         )
         .with_a2a_resources(config.a2a_resources())
+        .with_agent_write_resources(config.agent_write_resources())
         .with_satellite_resources(config.satellite_resources.clone())
         .with_first_party_redirects(config.first_party_redirects.clone())
         .with_max_pending_registrations(config.client_retention.max_pending_registrations)
@@ -271,41 +288,12 @@ impl OAuth2AuthorizationServer {
         self
     }
 
-    /// Also mint for the A2A resource server, known by `a2a_resources`
-    /// (`OAuth2ServerConfig::a2a_resources`): a grant bound to it never mints
-    /// for the MCP resource server, or the reverse.
-    #[must_use]
-    pub fn with_a2a_resources(mut self, a2a_resources: Vec<String>) -> Self {
-        self.a2a_resources = a2a_resources;
-        self
-    }
-
-    /// Also mint for the satellite MCP servers `satellites` names
-    /// (`OAuth2ServerConfig::satellite_resources`), each its own resource
-    /// server: a grant bound to one never mints for the platform or another.
-    #[must_use]
-    pub fn with_satellite_resources(mut self, satellites: Vec<String>) -> Self {
-        self.satellites = satellites;
-        self
-    }
-
     /// Serve Dravr's own web and mobile apps, sending their codes only where
     /// `redirects` allows (carnet#787).
     #[must_use]
     pub fn with_first_party_redirects(mut self, redirects: FirstPartyRedirects) -> Self {
         self.first_party = redirects;
         self
-    }
-
-    /// Every identifier this server mints for, the platform's then the
-    /// satellites', as the resource checks take them.
-    fn served(&self) -> Vec<&str> {
-        self.resources
-            .iter()
-            .chain(&self.a2a_resources)
-            .chain(&self.satellites)
-            .map(String::as_str)
-            .collect()
     }
 
     /// Check an authorization request and resolve the scope and resource it
@@ -469,20 +457,26 @@ impl OAuth2AuthorizationServer {
             .transpose()?;
         // RFC 9396: details the server cannot resolve are refused now too.
         let asked = self.step_up_details(step_up.as_ref(), request, resource.as_deref())?;
-        let details = self.resolve_request_details(
+        let RequestDetails {
+            details,
+            agent_write,
+        } = self.resolve_request_details(
             asked
                 .as_deref()
                 .or(request.authorization_details.as_deref()),
             resource.as_deref(),
+            request.dpop_jkt.as_deref(),
         )?;
         let preset_source = self
             .preset_sources(resource.as_deref())
             .first()
             .map(|s| (*s).to_owned());
         // A preset grant never carries `admin`.
-        let admin_grantable = details.is_none() && self.is_platform_resource(resource.as_deref());
+        let admin_grantable = details.is_none()
+            && agent_write.is_none()
+            && self.is_platform_resource(resource.as_deref());
         Ok(CheckedAuthorization {
-            scope,
+            scope: Self::agent_write_scope(scope, details.as_ref(), agent_write.as_ref()),
             resource,
             client_name: client.client_name.clone(),
             consent_every_time: redirects_to_any_local_process(client, &request.redirect_uri),
@@ -490,6 +484,7 @@ impl OAuth2AuthorizationServer {
             client_host_profile: None,
             admin_grantable,
             details,
+            agent_write,
             preset_source,
         })
     }
@@ -785,6 +780,7 @@ impl OAuth2AuthorizationServer {
                     family_id: &family_id,
                     client_grant_id: auth_code.client_grant_id.as_deref(),
                     dpop_jkt,
+                    agent_write: is_agent_write_scope(auth_code.scope.as_deref()),
                 }),
                 &granted,
                 audience.as_deref(),
@@ -815,7 +811,7 @@ impl OAuth2AuthorizationServer {
             client_id: request.client_id.clone(),                   // Safe: Clone for ownership
             user_id: auth_code.user_id,
             tenant_id: auth_code.tenant_id.clone(), // Safe: Clone for tenant isolation
-            scope: Self::rendered_scope(&granted),
+            scope: Self::minted_scope(&granted, auth_code.scope.as_deref()),
             expires_at,
             created_at: now,
             revoked: false,
@@ -846,7 +842,7 @@ impl OAuth2AuthorizationServer {
             access_token: SecretString::from(access_token),
             token_type: grant_checks::token_type(dpop_jkt).to_owned(),
             expires_in: oauth_access_token_lifetime_secs(&request.client_id),
-            scope: Self::rendered_scope(&granted),
+            scope: Self::minted_scope(&granted, auth_code.scope.as_deref()),
             refresh_token: Some(SecretString::from(refresh_token_value)),
             authorization_details,
             step_up,
@@ -969,6 +965,7 @@ impl OAuth2AuthorizationServer {
                     family_id: &old_refresh_token.family_id,
                     client_grant_id: old_refresh_token.client_grant_id.as_deref(),
                     dpop_jkt,
+                    agent_write: is_agent_write_scope(old_refresh_token.scope.as_deref()),
                 }),
                 &granted,
                 audience.as_deref(),
@@ -990,7 +987,7 @@ impl OAuth2AuthorizationServer {
             access_token: SecretString::from(access_token),
             token_type: grant_checks::token_type(dpop_jkt).to_owned(),
             expires_in: oauth_access_token_lifetime_secs(&request.client_id),
-            scope: Self::rendered_scope(&granted),
+            scope: Self::minted_scope(&granted, old_refresh_token.scope.as_deref()),
             refresh_token: Some(SecretString::from(new_refresh_token_value)),
             authorization_details,
             step_up,

@@ -368,7 +368,10 @@ mod tests {
         ]);
         approved(
             &resolve(
-                &parse_authorization_details(&raw.to_string()).unwrap(),
+                &parse_authorization_details(&raw.to_string())
+                    .unwrap()
+                    .data_access
+                    .unwrap(),
                 &[MCP],
             )
             .unwrap(),

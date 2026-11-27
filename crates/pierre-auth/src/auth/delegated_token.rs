@@ -30,6 +30,9 @@ pub struct TokenLineage<'grant> {
     /// The RFC 7638 thumbprint of the `DPoP` key the token is bound to, which
     /// it carries as `cnf.jkt` ([`Claims::cnf`]); `None` mints a Bearer token
     pub dpop_jkt: Option<&'grant str>,
+    /// Whether the family is an agent-write grant's (owl PDPP §5.1): its
+    /// tokens carry `pdpp:agent_write` as their scope, and nothing else
+    pub agent_write: bool,
 }
 
 /// How long an access token minted for `client_id` lives, in seconds.

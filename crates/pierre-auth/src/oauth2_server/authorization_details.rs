@@ -39,6 +39,10 @@ use tracing::warn;
 
 use super::models::OAuth2Error;
 
+/// The agent-write detail: records a client may propose (owl PDPP §4.5)
+mod agent_write;
+/// The one typed reader of a grant's stored document
+mod document;
 /// ISO 8601 durations of fixed-length units
 mod duration;
 /// A client's request, parsed and checked against the field table
@@ -46,18 +50,25 @@ mod parse;
 /// The resolved document a grant stores
 mod resolved;
 
-pub use parse::{parse_authorization_details, RequestedDetails};
+pub use agent_write::{
+    agent_write_review_digest, is_agent_write_scope, AgentWriteRate, AgentWriteTarget, ResolvedAgentWrite,
+    SenderConstraint, StepUpResult, AGENT_WRITE_RESOURCE_PATH, AGENT_WRITE_SCOPE,
+    AGENT_WRITE_TYPE, WRITE_STEP_UP_RECORDS_PER_DAY,
+};
+pub use document::GrantDocument;
+pub use parse::{parse_authorization_details, ParsedDetails, RequestedDetails};
 pub use resolved::{athlete_zone, preset_defaults, resolve, review_digest, ResolvedDetails};
 
 /// The PDPP Core detail type a client asks for data with.
-pub(crate) const DATA_ACCESS_TYPE: &str = "https://pdpp.dev/data-access";
+pub const DATA_ACCESS_TYPE: &str = "https://pdpp.dev/data-access";
 
 /// Dravr's health-profile detail type, narrowing one data-access detail.
-pub(crate) const HEALTH_CONSTRAINTS_TYPE: &str =
+pub const HEALTH_CONSTRAINTS_TYPE: &str =
     "https://dravr.ai/pdpp/health-profile/v0/health-constraints";
 
 /// The detail types this server resolves, as discovery lists them.
-pub const AUTHORIZATION_DETAILS_TYPES: [&str; 2] = [DATA_ACCESS_TYPE, HEALTH_CONSTRAINTS_TYPE];
+pub const AUTHORIZATION_DETAILS_TYPES: [&str; 3] =
+    [DATA_ACCESS_TYPE, HEALTH_CONSTRAINTS_TYPE, AGENT_WRITE_TYPE];
 
 /// The prefix owl's stream names carry on the wire (`health.vault.labs.summary`);
 /// a name without it is read as barrage's own.
@@ -182,6 +193,10 @@ mod tests {
 
     /// `details` parsed and resolved for tokens bound to [`MCP`].
     pub(super) fn resolved(details: &Value) -> Result<ResolvedDetails, OAuth2Error> {
-        resolve(&parse_authorization_details(&details.to_string())?, &[MCP])
+        let parsed = parse_authorization_details(&details.to_string())?;
+        let access = parsed
+            .data_access
+            .ok_or_else(|| OAuth2Error::invalid_authorization_details("no data-access detail"))?;
+        resolve(&access, &[MCP])
     }
 }

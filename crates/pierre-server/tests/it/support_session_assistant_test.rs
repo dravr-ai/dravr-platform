@@ -207,6 +207,7 @@ mod support_session_assistant_tests {
                         family_id: &family,
                         client_grant_id: None,
                         dpop_jkt: None,
+                        agent_write: false,
                     },
                     &who.id,
                     Some(who.tenant.to_string()),

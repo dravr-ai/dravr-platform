@@ -12,6 +12,7 @@ use pierre_core::redaction::redact_url;
 use url::Url;
 
 use super::oauth::OAuth2ServerConfig;
+use crate::oauth2_server::authorization_details::AGENT_WRITE_RESOURCE_PATH;
 
 /// The well-known path of the RFC 9728 protected resource metadata document.
 const PROTECTED_RESOURCE_WELL_KNOWN: &str = "/.well-known/oauth-protected-resource";
@@ -278,6 +279,29 @@ impl OAuth2ServerConfig {
         let mut identifiers: Vec<String> = Vec::new();
         for resource in self.mcp_resources() {
             let identifier = format!("{}{A2A_RESOURCE_PATH}", origin_of(resource));
+            if !identifiers.contains(&identifier) {
+                identifiers.push(identifier);
+            }
+        }
+        identifiers
+    }
+
+    /// The canonical agent-write resource identifier (owl PDPP §5.3): its
+    /// path on the protocol origin, the PRM's `health_agent_write_base`.
+    #[must_use]
+    pub fn agent_write_resource_url(&self) -> String {
+        format!("{}{AGENT_WRITE_RESOURCE_PATH}", self.protocol_origin())
+    }
+
+    /// Every identifier of the agent-write resource, canonical first: its
+    /// path on each origin that serves `/mcp`. None is an MCP or A2A
+    /// identifier, so a token bound to one is good at the write endpoint
+    /// alone.
+    #[must_use]
+    pub fn agent_write_resources(&self) -> Vec<String> {
+        let mut identifiers: Vec<String> = Vec::new();
+        for resource in self.mcp_resources() {
+            let identifier = format!("{}{AGENT_WRITE_RESOURCE_PATH}", origin_of(resource));
             if !identifiers.contains(&identifier) {
                 identifiers.push(identifier);
             }

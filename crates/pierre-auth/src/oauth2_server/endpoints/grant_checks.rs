@@ -11,7 +11,7 @@ use uuid::Uuid;
 use super::details::granted_details;
 use super::OAuth2AuthorizationServer;
 use crate::dpop::{BEARER_SCHEME, DPOP_SCHEME};
-use crate::oauth2_server::authorization_details::ResolvedDetails;
+use crate::oauth2_server::authorization_details::{GrantDocument, AGENT_WRITE_SCOPE};
 use crate::oauth2_server::models::{OAuth2Error, OAuth2RefreshToken};
 use crate::oauth2_server::resource::{token_audience, ResourceServers};
 use crate::oauth2_server::step_up_echo::StepUpEcho;
@@ -116,11 +116,17 @@ impl OAuth2AuthorizationServer {
     ) -> Result<Option<String>, OAuth2Error> {
         let platform: Vec<&str> = self.resources.iter().map(String::as_str).collect();
         let a2a: Vec<&str> = self.a2a_resources.iter().map(String::as_str).collect();
+        let agent_write: Vec<&str> = self
+            .agent_write_resources
+            .iter()
+            .map(String::as_str)
+            .collect();
         let satellites: Vec<&str> = self.satellites.iter().map(String::as_str).collect();
         token_audience(
             &ResourceServers {
                 platform: &platform,
                 a2a: &a2a,
+                agent_write: &agent_write,
                 satellites: &satellites,
             },
             requested,
@@ -206,7 +212,7 @@ impl OAuth2AuthorizationServer {
         &self,
         presented: &str,
         requested: Option<&str>,
-    ) -> Result<(Option<OAuth2RefreshToken>, Option<ResolvedDetails>), OAuth2Error> {
+    ) -> Result<(Option<OAuth2RefreshToken>, Option<GrantDocument>), OAuth2Error> {
         let grant = self
             .oauth2_server
             .get_refresh_token_by_value(presented)
@@ -260,7 +266,7 @@ impl OAuth2AuthorizationServer {
         tenant_id: &str,
         client_id: &str,
         client_grant_id: Option<&str>,
-    ) -> Result<Option<ResolvedDetails>, OAuth2Error> {
+    ) -> Result<Option<GrantDocument>, OAuth2Error> {
         let Some(client_grant_id) = client_grant_id else {
             return Ok(None);
         };
@@ -310,7 +316,11 @@ impl OAuth2AuthorizationServer {
             .await
             .map_err(failed)?
             .iter()
-            .find(|child| child.terms.parent_grant_id == parent && child.grant.is_live_at(now))
+            .find(|child| {
+                child.terms.parent_grant_id == parent
+                    && child.grant.scope != AGENT_WRITE_SCOPE
+                    && child.grant.is_live_at(now)
+            })
             .map(StepUpEcho::of_child)
             .transpose()
             .map_err(failed)

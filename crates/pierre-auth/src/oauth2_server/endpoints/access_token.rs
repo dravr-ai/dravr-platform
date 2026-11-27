@@ -11,8 +11,19 @@ use uuid::Uuid;
 
 use super::OAuth2AuthorizationServer;
 use crate::auth::{DelegatedGrant, TokenLineage};
+use crate::oauth2_server::authorization_details::{is_agent_write_scope, AGENT_WRITE_SCOPE};
 
 impl OAuth2AuthorizationServer {
+    /// The scope a token response and a refresh row state for `granted`, the
+    /// grant a stored `scope` decided: `pdpp:agent_write` for an agent-write
+    /// family, the rendered grant otherwise; `None` for an empty one.
+    pub(super) fn minted_scope(granted: &[OAuthScope], stored: Option<&str>) -> Option<String> {
+        if is_agent_write_scope(stored) {
+            return Some(AGENT_WRITE_SCOPE.to_owned());
+        }
+        (!granted.is_empty()).then(|| OAuthScope::render_granted(granted))
+    }
+
     /// Generate JWT access token with RS256 asymmetric signing. The grant
     /// rides in the token's `scope` claim.
     ///
@@ -42,10 +53,16 @@ impl OAuth2AuthorizationServer {
                 "Minting an access token with an empty grant"
             );
         }
-        let scopes: Vec<String> = granted
-            .iter()
-            .map(|scope| scope.as_str().to_owned())
-            .collect();
+        // An agent-write family's tokens carry its scope alone: it parses to
+        // no `OAuthScope`, so the grant itself names no tool (owl PDPP §5.1).
+        let scopes: Vec<String> = if lineage.as_ref().is_some_and(|l| l.agent_write) {
+            vec![AGENT_WRITE_SCOPE.to_owned()]
+        } else {
+            granted
+                .iter()
+                .map(|scope| scope.as_str().to_owned())
+                .collect()
+        };
 
         let Some((uid, tenant_id)) = subject else {
             return self

@@ -191,6 +191,7 @@ mod tests {
             client_host_profile: None,
             admin_grantable: false,
             details,
+            agent_write: None,
             preset_source: Some(SOURCE.to_owned()),
         }
     }

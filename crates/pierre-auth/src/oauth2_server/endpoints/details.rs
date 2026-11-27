@@ -9,10 +9,19 @@ use tracing::error;
 
 use super::OAuth2AuthorizationServer;
 use crate::oauth2_server::authorization_details::{
-    parse_authorization_details, resolve, ResolvedDetails,
+    parse_authorization_details, resolve, GrantDocument, ResolvedAgentWrite, ResolvedDetails,
 };
 use crate::oauth2_server::models::{AuthorizeRequest, OAuth2Error};
-use crate::oauth2_server::step_up_scope::{one_off_details, StepUpScope};
+use crate::oauth2_server::step_up_scope::{agent_write_details, one_off_details, StepUpScope};
+
+/// What a request's RFC 9396 details ask for, resolved and bound.
+#[derive(Debug, Default)]
+pub struct RequestDetails {
+    /// The preset read grant; `None` when the request asks none
+    pub details: Option<ResolvedDetails>,
+    /// The records the client asks to propose; `None` when it asks none
+    pub agent_write: Option<ResolvedAgentWrite>,
+}
 
 impl OAuth2AuthorizationServer {
     /// The resources a preset grant on a request bound to `resource` may read
@@ -53,6 +62,9 @@ impl OAuth2AuthorizationServer {
                 "a step-up scope and authorization_details cannot be asked together",
             ));
         }
+        if let Some(write) = agent_write_details(step_up)? {
+            return Ok(Some(write));
+        }
         let source = self
             .preset_sources(resource)
             .first()
@@ -64,21 +76,38 @@ impl OAuth2AuthorizationServer {
     }
 
     /// The request's `authorization_details`, parsed and resolved for tokens
-    /// bound to `resource`; `None` when it asks for none.
+    /// bound to `resource`, an agent-write detail checked against the
+    /// binding it asks for ([`Self::bind_agent_write`]); empty when it asks
+    /// for none.
     ///
     /// # Errors
     /// `invalid_authorization_details` as
     /// [`parse_authorization_details`] and [`resolve`] refuse them, and for
-    /// a request bound to a satellite, whose tokens no preset governs.
+    /// a request bound to a satellite, whose tokens no preset governs;
+    /// `invalid_target` as [`Self::bind_agent_write`] refuses the resource.
     pub(super) fn resolve_request_details(
         &self,
         raw: Option<&str>,
         resource: Option<&str>,
-    ) -> Result<Option<ResolvedDetails>, OAuth2Error> {
+        dpop_jkt: Option<&str>,
+    ) -> Result<RequestDetails, OAuth2Error> {
         let Some(raw) = raw.filter(|raw| !raw.is_empty()) else {
-            return Ok(None);
+            self.bind_agent_write(None, false, resource, dpop_jkt)?;
+            return Ok(RequestDetails::default());
         };
-        let requested = parse_authorization_details(raw)?;
+        let parsed = parse_authorization_details(raw)?;
+        let agent_write = self.bind_agent_write(
+            parsed.agent_write,
+            parsed.data_access.is_some(),
+            resource,
+            dpop_jkt,
+        )?;
+        let Some(requested) = parsed.data_access else {
+            return Ok(RequestDetails {
+                details: None,
+                agent_write,
+            });
+        };
         // A step-up preset is granted only as a child of a live grant, after
         // a fresh sign-in (carnet#1544 slice 4b); while the step-up screen is
         // not offered (its words are not in the catalogue) it is never
@@ -88,23 +117,28 @@ impl OAuth2AuthorizationServer {
                 "step-up is not offered yet",
             ));
         }
-        resolve(&requested, &self.preset_sources(resource)).map(Some)
+        let details = resolve(&requested, &self.preset_sources(resource))?;
+        Ok(RequestDetails {
+            details: Some(details),
+            agent_write,
+        })
     }
 }
 
 /// The details `grant` was approved for, as its tokens echo them; `None` for
-/// a plain grant, or when no grant governs the token.
+/// a plain grant, or when no grant governs the token. A read grant echoes
+/// its resolved preset, an agent-write grant its detail.
 ///
 /// # Errors
 /// `server_error` when a stored document does not read: a grant whose terms
 /// are unknown mints nothing.
 pub(super) fn granted_details(
     grant: Option<&OAuthClientGrant>,
-) -> Result<Option<ResolvedDetails>, OAuth2Error> {
+) -> Result<Option<GrantDocument>, OAuth2Error> {
     grant
         .and_then(|grant| grant.authorization_details.as_deref())
         .map(|document| {
-            ResolvedDetails::from_document(document).map_err(|e| {
+            GrantDocument::from_document(document).map_err(|e| {
                 error!(error = %e, "A consent grant's authorization details do not read");
                 OAuth2Error::server_error("Failed to read the consent grant")
             })

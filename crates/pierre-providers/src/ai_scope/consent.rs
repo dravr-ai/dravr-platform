@@ -936,7 +936,10 @@ mod tests {
              "applies_to": 0, "critical": true, "max_tier": "T2"},
         ]);
         let one_off = resolve(
-            &parse_authorization_details(&raw.to_string()).unwrap(),
+            &parse_authorization_details(&raw.to_string())
+                .unwrap()
+                .data_access
+                .unwrap(),
             &[MCP],
         )
         .unwrap();

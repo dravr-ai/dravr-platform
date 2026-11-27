@@ -101,6 +101,8 @@ pub struct ResourceServers<'a> {
     pub platform: &'a [&'a str],
     /// Every identifier of the platform's A2A resource server.
     pub a2a: &'a [&'a str],
+    /// Every identifier of the agent-write resource (owl PDPP §5.3).
+    pub agent_write: &'a [&'a str],
     /// One identifier per satellite MCP resource server.
     pub satellites: &'a [&'a str],
 }
@@ -112,6 +114,7 @@ impl ResourceServers<'_> {
         self.platform
             .iter()
             .chain(self.a2a)
+            .chain(self.agent_write)
             .chain(self.satellites)
             .copied()
             .collect()
@@ -122,6 +125,7 @@ impl ResourceServers<'_> {
         a == b
             || (self.platform.contains(&a) && self.platform.contains(&b))
             || (self.a2a.contains(&a) && self.a2a.contains(&b))
+            || (self.agent_write.contains(&a) && self.agent_write.contains(&b))
     }
 }
 

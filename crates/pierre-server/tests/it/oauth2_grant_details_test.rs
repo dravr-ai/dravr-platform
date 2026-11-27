@@ -595,6 +595,7 @@ async fn a_token_naming_a_revoked_grant_is_refused_at_mcp() {
                     family_id: "family",
                     client_grant_id: Some(client_grant_id),
                     dpop_jkt: None,
+                    agent_write: false,
                 },
                 &world.user.id,
                 Some(world.tenant_id.clone()),

@@ -17,14 +17,24 @@
 //! and the Host Profile T2 every T2 grant needs. The rest of the scope is the
 //! grant the code carries, which a step-up never widens past its parent's.
 //!
+//! A write step-up (owl §7.4, last bullet) names `health:write:<stream>`
+//! instead ([`WRITE_STREAM_SCOPE`], [`write_challenge_scope`]): the server
+//! asks for an agent-write detail over those streams
+//! ([`ResolvedAgentWrite::for_write_scope`]), a child of the MCP package. A
+//! request names reading or writing, never both, and never
+//! [`AGENT_WRITE_SCOPE`], which only the server sets.
+//!
 //! Both halves are one vocabulary, here, so the challenge a host is sent is
 //! the request the server reads.
 
 use pierre_core::models::OWNER_VERIFIED_ACR;
 use serde_json::{json, Value};
 
+use dravr_barrage::agent_write::row_schema;
+
 use super::authorization_details::{
-    Preset, Stream, AUTHORIZATION_DETAILS_TYPES, STREAM_NAME_PREFIX,
+    Preset, ResolvedAgentWrite, Stream, AGENT_WRITE_SCOPE, DATA_ACCESS_TYPE,
+    HEALTH_CONSTRAINTS_TYPE, STREAM_NAME_PREFIX,
 };
 use super::models::OAuth2Error;
 
@@ -34,6 +44,10 @@ pub const STEP_UP_PRESET_SCOPE: &str = "pdpp:preset:one_off_question";
 /// The prefix of the scope naming one stream a one-off question reads, as
 /// owl names it (`pdpp:stream:labs.summary`).
 pub const STEP_UP_STREAM_SCOPE: &str = "pdpp:stream:";
+
+/// The prefix of the scope naming one stream a write step-up proposes into
+/// (`health:write:labs.summary`, owl §7.4).
+pub const WRITE_STREAM_SCOPE: &str = "health:write:";
 
 /// Every `pdpp:` name starts so.
 const PDPP_SCOPE_PREFIX: &str = "pdpp:";
@@ -47,8 +61,11 @@ const STEP_UP_DEFAULT_SCOPE: &str = "fitness:read";
 pub struct StepUpScope {
     /// The rest of the scope: the grant the code carries
     pub scope: String,
-    /// The streams the one-off question reads, as owl names them
+    /// The streams the one-off question reads, as owl names them; empty
+    /// for a write step-up
     pub streams: Vec<Stream>,
+    /// The streams a write step-up proposes into; empty for a read one
+    pub writes: Vec<Stream>,
 }
 
 /// The scope a `403` names for a call `granted` covers but whose `streams` a
@@ -62,6 +79,20 @@ pub fn challenge_scope(granted: &str, streams: &[Stream]) -> String {
         streams
             .iter()
             .map(|stream| format!("{STEP_UP_STREAM_SCOPE}{}", stream.name())),
+    );
+    names.join(" ")
+}
+
+/// The scope a `403` names for a write tool call whose `streams` no live
+/// agent-write child covers: the grant itself, then one
+/// [`WRITE_STREAM_SCOPE`] name per stream.
+#[must_use]
+pub fn write_challenge_scope(granted: &str, streams: &[Stream]) -> String {
+    let mut names: Vec<String> = granted.split_whitespace().map(str::to_owned).collect();
+    names.extend(
+        streams
+            .iter()
+            .map(|stream| format!("{WRITE_STREAM_SCOPE}{}", stream.name())),
     );
     names.join(" ")
 }
@@ -90,17 +121,37 @@ pub fn split(scope: Option<&str>) -> Result<Option<StepUpScope>, OAuth2Error> {
     let Some(scope) = scope else {
         return Ok(None);
     };
-    let (pdpp, rest): (Vec<&str>, Vec<&str>) = scope
-        .split_whitespace()
-        .partition(|name| name.starts_with(PDPP_SCOPE_PREFIX));
-    if pdpp.is_empty() {
+    let (asked, rest): (Vec<&str>, Vec<&str>) = scope.split_whitespace().partition(|name| {
+        name.starts_with(PDPP_SCOPE_PREFIX) || name.starts_with(WRITE_STREAM_SCOPE)
+    });
+    if asked.is_empty() {
         return Ok(None);
     }
     let mut preset = false;
     let mut streams = Vec::new();
-    for name in pdpp {
+    let mut writes = Vec::new();
+    for name in asked {
         if name == STEP_UP_PRESET_SCOPE {
             preset = true;
+            continue;
+        }
+        if name == AGENT_WRITE_SCOPE {
+            return Err(OAuth2Error::invalid_scope(&format!(
+                "{AGENT_WRITE_SCOPE} is set by the authorization server; ask \
+                 {WRITE_STREAM_SCOPE}<name> or an agent-write detail"
+            )));
+        }
+        if let Some(stream) = name.strip_prefix(WRITE_STREAM_SCOPE) {
+            let stream = Stream::from_name(stream)
+                .filter(|stream| row_schema(*stream).is_some())
+                .ok_or_else(|| {
+                    OAuth2Error::invalid_scope(&format!(
+                        "'{name}': no record of that stream can be proposed"
+                    ))
+                })?;
+            if !writes.contains(&stream) {
+                writes.push(stream);
+            }
             continue;
         }
         let stream = name
@@ -111,7 +162,12 @@ pub fn split(scope: Option<&str>) -> Result<Option<StepUpScope>, OAuth2Error> {
             streams.push(stream);
         }
     }
-    if !preset || streams.is_empty() {
+    if !writes.is_empty() && (preset || !streams.is_empty()) {
+        return Err(OAuth2Error::invalid_scope(
+            "A step-up asks to read or to propose records, never both at once",
+        ));
+    }
+    if writes.is_empty() && (!preset || streams.is_empty()) {
         return Err(OAuth2Error::invalid_scope(&format!(
             "A step-up scope names {STEP_UP_PRESET_SCOPE} and at least one \
              {STEP_UP_STREAM_SCOPE}<name>"
@@ -122,7 +178,28 @@ pub fn split(scope: Option<&str>) -> Result<Option<StepUpScope>, OAuth2Error> {
     } else {
         rest.join(" ")
     };
-    Ok(Some(StepUpScope { scope, streams }))
+    Ok(Some(StepUpScope {
+        scope,
+        streams,
+        writes,
+    }))
+}
+
+/// The `authorization_details` a write step-up asks for: an agent-write
+/// detail over its streams, bound by the MCP package; `None` for a read
+/// step-up.
+///
+/// # Errors
+/// `invalid_scope` for a stream no record of which can be proposed, or a
+/// detail that does not serialize.
+pub fn agent_write_details(step_up: &StepUpScope) -> Result<Option<String>, OAuth2Error> {
+    if step_up.writes.is_empty() {
+        return Ok(None);
+    }
+    ResolvedAgentWrite::for_write_scope(&step_up.writes)?
+        .to_document()
+        .map(Some)
+        .map_err(|_| OAuth2Error::server_error("Failed to build the write step-up's details"))
 }
 
 /// The `authorization_details` a step-up scope asks for, read from `source`.
@@ -131,7 +208,6 @@ pub fn split(scope: Option<&str>) -> Result<Option<StepUpScope>, OAuth2Error> {
 /// step-up `owner_verified`, for a host declaring a Host Profile T2.
 #[must_use]
 pub fn one_off_details(step_up: &StepUpScope, source: &str) -> String {
-    let [data_access, constraints] = AUTHORIZATION_DETAILS_TYPES;
     let streams: Vec<Value> = step_up
         .streams
         .iter()
@@ -144,14 +220,14 @@ pub fn one_off_details(step_up: &StepUpScope, source: &str) -> String {
         .collect();
     json!([
         {
-            "type": data_access,
+            "type": DATA_ACCESS_TYPE,
             "source": {"id": source},
             "selection_preset": Preset::OneOffQuestion.name(),
             "access_mode": "single_use",
             "streams": streams,
         },
         {
-            "type": constraints,
+            "type": HEALTH_CONSTRAINTS_TYPE,
             "applies_to": 0,
             "critical": true,
             "max_tier": "T2",
@@ -190,6 +266,7 @@ mod tests {
             Some(StepUpScope {
                 scope: "fitness:read profile:read".to_owned(),
                 streams: vec![Stream::Labs],
+                writes: Vec::new(),
             }),
             "bug: the challenge does not read back"
         );
@@ -227,10 +304,50 @@ mod tests {
         .flatten()
         .unwrap();
         let details = one_off_details(&step_up, "https://mcp.example.test/mcp");
-        let requested = parse_authorization_details(&details).unwrap();
+        let requested = parse_authorization_details(&details)
+            .unwrap()
+            .data_access
+            .unwrap();
         assert!(
             requested.requires_step_up(),
             "bug: no one-off question asked"
         );
+    }
+
+    #[test]
+    fn a_write_challenge_reads_back_and_builds_an_agent_write_detail() {
+        let challenge = write_challenge_scope("fitness:read", &[Stream::Labs, Stream::Sleep]);
+        assert_eq!(
+            challenge,
+            "fitness:read health:write:labs.summary health:write:sleep.summary"
+        );
+        let step_up = split(Some(&challenge)).unwrap().unwrap();
+        assert_eq!(step_up.scope, "fitness:read", "bug: health:write leaked into the scope");
+        assert_eq!(step_up.writes, vec![Stream::Labs, Stream::Sleep]);
+        assert!(step_up.streams.is_empty());
+        let details = agent_write_details(&step_up).unwrap().unwrap();
+        let parsed = parse_authorization_details(&details).unwrap();
+        assert!(parsed.data_access.is_none());
+        let write = parsed.agent_write.unwrap();
+        assert!(write.target(Stream::Labs).is_some() && write.target(Stream::Sleep).is_some());
+        let read = split(Some("pdpp:preset:one_off_question pdpp:stream:labs.summary"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(agent_write_details(&read).unwrap(), None);
+    }
+
+    #[test]
+    fn the_server_set_scope_and_mixed_or_unwritable_write_scopes_are_refused() {
+        for scope in [
+            "pdpp:agent_write",
+            "fitness:read pdpp:agent_write",
+            "health:write:labs.summary pdpp:preset:one_off_question pdpp:stream:labs.summary",
+            "health:write:workout.raw",
+            "health:write:nothing.summary",
+            "health:write:agent.pending",
+        ] {
+            let error = split(Some(scope)).expect_err(scope);
+            assert_eq!(error.error, "invalid_scope", "bug: {scope}");
+        }
     }
 }

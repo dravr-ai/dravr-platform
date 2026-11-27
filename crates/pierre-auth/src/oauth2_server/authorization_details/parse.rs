@@ -20,6 +20,7 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
+use super::agent_write::{ResolvedAgentWrite, SenderConstraint, AGENT_WRITE_TYPE};
 use super::duration::parse_seconds;
 use super::{
     refused, ClientClaims, Preset, Representation, Retention, Source, Tier, DATA_ACCESS_TYPE,
@@ -149,6 +150,18 @@ impl RequestedDetails {
     }
 }
 
+/// A request's `authorization_details`, split by what each detail grants:
+/// reading (a data-access detail, perhaps narrowed), proposing records (an
+/// agent-write detail), or both in one request (owl PDPP §4.1).
+#[derive(Debug)]
+pub struct ParsedDetails {
+    /// The read grant asked for; `None` for an agent-write detail alone, a
+    /// profile grant with no read authority
+    pub data_access: Option<RequestedDetails>,
+    /// The records the client asks to propose; `None` for a read alone
+    pub agent_write: Option<ResolvedAgentWrite>,
+}
+
 /// A health-constraints detail whose values passed their checks.
 #[derive(Debug)]
 pub(super) struct CheckedConstraints {
@@ -160,15 +173,19 @@ pub(super) struct CheckedConstraints {
 }
 
 /// Parse an `authorization_details` parameter (RFC 9396 §2): a JSON array
-/// of exactly one data-access detail naming a preset and at most one
-/// health-constraints detail applying to it.
+/// of at most one data-access detail naming a preset, at most one
+/// health-constraints detail applying to it, and at most one agent-write
+/// detail. An agent-write detail alone is a profile grant (owl PDPP §4.1);
+/// beside a data-access detail it is bound by the MCP package
+/// (`sender_constraint: none`), since no one token serves both a profile
+/// endpoint and `/mcp` (PDPP §5.1).
 ///
 /// # Errors
 /// `invalid_authorization_details` for anything this server does not
 /// resolve: a malformed or oversized value, an unknown type or member, an
 /// AS-set member, a value it cannot enforce, or a detail the profile's rules
 /// refuse.
-pub fn parse_authorization_details(raw: &str) -> Result<RequestedDetails, OAuth2Error> {
+pub fn parse_authorization_details(raw: &str) -> Result<ParsedDetails, OAuth2Error> {
     if raw.len() > MAX_AUTHORIZATION_DETAILS_BYTES {
         return Err(refused(&format!(
             "authorization_details must not exceed {MAX_AUTHORIZATION_DETAILS_BYTES} bytes"
@@ -181,6 +198,7 @@ pub fn parse_authorization_details(raw: &str) -> Result<RequestedDetails, OAuth2
     }
     let mut accesses = Vec::new();
     let mut constraints = Vec::new();
+    let mut agent_writes = Vec::new();
     for (index, detail) in details.into_iter().enumerate() {
         let Value::Object(mut members) = detail else {
             return Err(refused(&format!(
@@ -201,12 +219,33 @@ pub fn parse_authorization_details(raw: &str) -> Result<RequestedDetails, OAuth2
                 refuse_members(index, &members, &REFUSED_CONSTRAINT_MEMBERS, false)?;
                 constraints.push(typed::<ConstraintsRequest>(index, members)?);
             }
+            AGENT_WRITE_TYPE => agent_writes.push(ResolvedAgentWrite::parse(index, members)?),
             other => {
                 return Err(refused(&format!(
                     "authorization_details[{index}] has type {other}, which this server does not support"
                 )));
             }
         }
+    }
+    if agent_writes.len() > 1 {
+        return Err(refused(
+            "authorization_details may carry at most one agent-write detail",
+        ));
+    }
+    let agent_write = agent_writes.pop();
+    if accesses.is_empty() && constraints.is_empty() && agent_write.is_some() {
+        return Ok(ParsedDetails {
+            data_access: None,
+            agent_write,
+        });
+    }
+    if agent_write
+        .as_ref()
+        .is_some_and(|write| write.sender_constraint() == SenderConstraint::Dpop)
+    {
+        return Err(refused(
+            "an agent-write grant bound by DPoP is its own grant; request it alone",
+        ));
     }
     let Ok([(access_index, access)]) = <[_; 1]>::try_from(accesses) else {
         return Err(refused(
@@ -224,12 +263,15 @@ pub fn parse_authorization_details(raw: &str) -> Result<RequestedDetails, OAuth2
         .pop()
         .map(|constraint| check_constraints(constraint, access_index, preset))
         .transpose()?;
-    Ok(RequestedDetails {
-        access,
-        preset,
-        constraints,
-        streams,
-        from,
+    Ok(ParsedDetails {
+        data_access: Some(RequestedDetails {
+            access,
+            preset,
+            constraints,
+            streams,
+            from,
+        }),
+        agent_write,
     })
 }
 
@@ -699,6 +741,8 @@ mod tests {
         let requested = parse_authorization_details(
             &json!([one_off(&json!({})), step_up_constraints(&json!({}))]).to_string(),
         )
+        .unwrap()
+        .data_access
         .unwrap();
         assert!(
             requested.requires_step_up(),
@@ -772,6 +816,8 @@ mod tests {
             }))])
             .to_string(),
         )
+        .unwrap()
+        .data_access
         .unwrap();
         assert_eq!(
             requested.from,
@@ -980,5 +1026,74 @@ mod tests {
             ]),
             "purpose_dpv",
         );
+    }
+
+    /// An agent-write detail bound by `sender`.
+    fn write(sender: &str) -> Value {
+        json!({
+            "type": AGENT_WRITE_TYPE,
+            "critical": true,
+            "token_kind": "agent_write",
+            "targets": [{"stream": "health.vault.labs.summary",
+                "fields": ["effective_at", "code_system", "code", "value", "unit"]}],
+            "max_tier": "T2",
+            "rate": {"records_per_day": 20},
+            "lifetime": "P2W",
+            "review": "owner_confirm",
+            "sender_constraint": sender,
+        })
+    }
+
+    #[test]
+    fn an_agent_write_alone_is_a_profile_grant_either_binding() {
+        for sender in ["dpop", "none"] {
+            let parsed =
+                parse_authorization_details(&json!([write(sender)]).to_string()).unwrap();
+            assert!(parsed.data_access.is_none(), "bug: {sender} read authority");
+            assert!(parsed.agent_write.is_some(), "bug: {sender} write lost");
+        }
+    }
+
+    #[test]
+    fn a_combined_request_is_bound_by_the_package_only() {
+        let combined = |sender: &str| {
+            parse_authorization_details(&json!([access(&json!({})), write(sender)]).to_string())
+        };
+        let parsed = combined("none").expect("bug: combined none refused");
+        assert!(parsed.data_access.is_some() && parsed.agent_write.is_some());
+        let error = combined("dpop").expect_err("bug: combined dpop accepted");
+        assert!(
+            error
+                .error_description
+                .unwrap_or_default()
+                .contains("request it alone"),
+            "bug: combined dpop refused for another reason"
+        );
+        // A constraint index still counts the write detail's place.
+        let parsed = parse_authorization_details(
+            &json!([write("none"), access(&json!({})), constraints(&json!({"applies_to": 1}))])
+                .to_string(),
+        );
+        assert!(parsed.is_ok(), "bug: {parsed:?}");
+    }
+
+    #[test]
+    fn two_agent_writes_or_a_write_with_bare_constraints_are_refused() {
+        for details in [
+            json!([write("none"), write("none")]),
+            json!([write("none"), constraints(&json!({}))]),
+        ] {
+            let error = parse_authorization_details(&details.to_string())
+                .expect_err("bug: accepted");
+            assert_eq!(error.error, "invalid_authorization_details");
+        }
+        let mut as_set = write("dpop");
+        as_set["step_up_result"] = json!({"satisfied_at": "2026-01-01T00:00:00Z", "acr": "x"});
+        let error = parse_authorization_details(&json!([as_set]).to_string())
+            .expect_err("bug: a client set step_up_result");
+        assert!(error
+            .error_description
+            .unwrap_or_default()
+            .contains("set by the authorization server"));
     }
 }

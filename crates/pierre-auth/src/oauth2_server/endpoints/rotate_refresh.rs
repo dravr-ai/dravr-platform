@@ -82,7 +82,7 @@ impl OAuth2AuthorizationServer {
             client_id: consumed.client_id.clone(),
             user_id: consumed.user_id,
             tenant_id: consumed.tenant_id.clone(), // Safe: Clone for tenant isolation
-            scope: Self::rendered_scope(&granted),
+            scope: Self::minted_scope(&granted, consumed.scope.as_deref()),
             expires_at,
             created_at: now,
             revoked: false,

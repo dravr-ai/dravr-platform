@@ -184,6 +184,7 @@ mod tests {
             client_host_profile: None,
             admin_grantable,
             details: None,
+            agent_write: None,
             preset_source: None,
         }
     }

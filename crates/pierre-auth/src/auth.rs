@@ -31,6 +31,7 @@ use tracing::{debug, error, warn};
 use uuid::Uuid;
 
 use crate::admin::jwks::JwksManager;
+use crate::oauth2_server::authorization_details::AGENT_WRITE_SCOPE;
 use crate::oauth2_server::first_party::names_third_party;
 use crate::oauth2_server::grant_ceiling::GrantCeiling;
 use pierre_core::constants::{
@@ -264,22 +265,28 @@ pub struct Confirmation {
 /// The token kinds (owl PDPP §5.1) this server mints.
 ///
 /// The protected resource metadata lists them: `owner`, a session of Dravr's
-/// own apps, and `client`, a third party's delegated token. owl's
-/// `agent_write` and `relay_ingest` kinds are not minted, so not listed.
-pub const PDPP_TOKEN_KINDS: [&str; 2] = ["owner", "client"];
+/// own apps, `client`, a third party's delegated token, and `agent_write`,
+/// a third party's token for proposing records under an agent-write grant
+/// (carnet#1544 slice 4c). owl's `relay_ingest` kind is not minted, so not
+/// listed.
+pub const PDPP_TOKEN_KINDS: [&str; 3] = ["owner", "client", "agent_write"];
 
 impl Claims {
     /// The token's PDPP kind, derived and never stored.
     ///
     /// `owner` for a session ([`Self::is_session`]), an impersonation
-    /// included; `client` for a token a third party holds
-    /// ([`Self::is_delegated`]), a client-credentials token included; `None`
+    /// included; `agent_write` for a third party's token whose scope is
+    /// exactly `pdpp:agent_write`; `client` for any other token a third
+    /// party holds ([`Self::is_delegated`]), a client-credentials token
+    /// included; `None`
     /// for anything else (a token naming no client and holding less than the
     /// self grant, minted before the `client_id` or `scope` claim).
     #[must_use]
     pub fn pdpp_token_kind(&self) -> Option<&'static str> {
         if self.is_session() {
             Some(PDPP_TOKEN_KINDS[0])
+        } else if self.is_delegated() && self.scope == AGENT_WRITE_SCOPE {
+            Some(PDPP_TOKEN_KINDS[2])
         } else if self.is_delegated() {
             Some(PDPP_TOKEN_KINDS[1])
         } else {

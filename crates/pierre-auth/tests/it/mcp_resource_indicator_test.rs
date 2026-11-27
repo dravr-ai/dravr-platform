@@ -195,6 +195,7 @@ fn platform<'a>(identifiers: &'a [&'a str]) -> ResourceServers<'a> {
     ResourceServers {
         platform: identifiers,
         a2a: &[],
+        agent_write: &[],
         satellites: &[],
     }
 }
@@ -207,6 +208,7 @@ fn with_satellites() -> ResourceServers<'static> {
     ResourceServers {
         platform: &[MCP, BASE],
         a2a: &[],
+        agent_write: &[],
         satellites: &[SATELLITE, OTHER_SATELLITE],
     }
 }
@@ -568,6 +570,7 @@ fn tokens_bound_to_the_origin_and_to_the_path_are_both_served() {
     let servers = ResourceServers {
         platform: &resources,
         a2a: &[],
+        agent_write: &[],
         satellites: &[],
     };
     assert_eq!(
@@ -656,6 +659,7 @@ fn with_a2a<'a>(platform: &'a [&'a str], a2a: &'a [&'a str]) -> ResourceServers<
     ResourceServers {
         platform,
         a2a,
+        agent_write: &[],
         satellites: &[SATELLITE],
     }
 }
