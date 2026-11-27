@@ -39,7 +39,7 @@ dravr-colleur = { git = "https://github.com/dravr-ai/dravr-colleur.git", tag = "
 # tracks, route composition, OSM route discovery and place clustering.
 # Its dravr-cageux pin is a companion of this one (see its satellites.toml
 # stanza): the two move in one commit or Cargo.lock holds two.
-dravr-arpenteur = { git = "https://github.com/dravr-ai/dravr-arpenteur.git", tag = "v0.1.0" }
+dravr-arpenteur = { git = "https://github.com/dravr-ai/dravr-arpenteur.git", tag = "v0.2.0" }
 
 # Messaging types and channel adapters.
 dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.15.0" }
@@ -83,12 +83,6 @@ dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", tag = "v0
 # Secret-holding config fields: Debug prints a redaction and reading the value
 # takes an explicit expose_secret(), so no format of a config struct leaks one.
 secrecy = { version = "0.10.3", features = ["serde"] }
-
-# DEVELOPMENT ONLY: builds against the local dravr-arpenteur checkout
-# (feature/hedged-walk) until its release tag replaces it. Remove this
-# section and move the dravr-arpenteur tag above in the same commit.
-[patch."https://github.com/dravr-ai/dravr-arpenteur.git"]
-dravr-arpenteur = { path = "../dravr-arpenteur" }
 
 # ============================================================================
 # Build Profiles

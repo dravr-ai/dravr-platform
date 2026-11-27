@@ -1454,7 +1454,8 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-arpenteur"
-version = "0.1.0"
+version = "0.2.0"
+source = "git+https://github.com/dravr-ai/dravr-arpenteur.git?tag=v0.2.0#d8ec76074cca9a96f23ed89330ad0018a99706be"
 dependencies = [
  "dravr-cageux",
  "dravr-tronc",
