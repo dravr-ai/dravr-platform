@@ -107,7 +107,7 @@ pub(super) fn asks_step_up(details: Option<&ResolvedDetails>) -> bool {
 /// Whether approving `checked` needs a sign-in on Dravr's hosted page at most
 /// [`STEP_UP_MAX_AGE_SECS`] old.
 ///
-/// A step-up, and every agent-write grant under either binding (ChefFamille 2026-11-26, owl
+/// A step-up, and every agent-write grant under either binding (the 2026-11-26 directive, owl
 /// PDPP §4.5).
 pub(super) fn asks_fresh_sign_in(checked: &CheckedAuthorization) -> bool {
     asks_step_up(checked.details.as_ref()) || checked.agent_write.is_some()
