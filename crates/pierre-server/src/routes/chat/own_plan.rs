@@ -61,10 +61,8 @@ use crate::services::conversation_title::fresh_title_fallback;
 use crate::tools::runtime_adapter::into_runtime;
 
 use super::common::{conversation_response, get_tenant_id};
-use super::dto::{
-    FamilyCatalogueResponse, OwnPlanResponse, PendingSendResponse, PlanThreadResponse,
-    SessionPreviewRequest, SubjectPlanHistoryQuery,
-};
+use super::dto::{FamilyCatalogueResponse, SessionPreviewRequest, SubjectPlanHistoryQuery};
+use super::own_plan_dto::{OwnPlanResponse, PendingSendResponse, PlanThreadResponse};
 use super::subject_plan::plan_history;
 use super::subject_session::plan_date;
 

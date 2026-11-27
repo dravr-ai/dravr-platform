@@ -54,10 +54,10 @@ use crate::tools::runtime_adapter::into_runtime;
 
 use super::common::refusal;
 use super::dto::{
-    AddSessionRequest, DraftSessionRequest, HandSessionRequest, MoveSessionRequest,
-    SessionExpectRequest,
+    AddSessionRequest, DraftSessionRequest, HandSessionRequest, SessionExpectRequest,
 };
 use super::own_plan::{athlete_locale, own_caller, own_plan_response, OwnCaller};
+use super::own_plan_dto::MoveSessionRequest;
 use super::subject_session::{answered, plan_date, unprocessable};
 
 /// A write on one day of the athlete's own plan, past the gates every such

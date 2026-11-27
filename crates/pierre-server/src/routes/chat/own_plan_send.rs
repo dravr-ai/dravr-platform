@@ -52,8 +52,8 @@ use crate::routes::athlete_home::TrainingPlanQuery;
 use crate::tools::runtime_adapter::into_runtime;
 
 use super::common::refusal;
-use super::dto::{PendingSendResponse, SendRequest, SendResponse, SendReviewResponse};
 use super::own_plan::{own_caller, own_plan_response, OwnCaller};
+use super::own_plan_dto::{PendingSendResponse, SendRequest, SendResponse, SendReviewResponse};
 use super::subject_session::plan_date;
 
 /// The caller, past the gate every write on their own plan runs: an outside

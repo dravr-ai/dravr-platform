@@ -27,6 +27,7 @@
 //! - [`chat::room_quote`] — the room entry a coach's message quotes into their athlete thread, verified
 //! - [`chat::turn_response`] — the wire shape of one turn's envelope
 //! - [`chat::dto`] — request/response shapes shared across the handlers
+//! - [`chat::own_plan_dto`] — the request/response shapes of the athlete's own plan routes
 //! - [`chat::common`] — auth / tenant resolution shared by every handler
 
 mod athlete_physiology;
@@ -41,6 +42,7 @@ mod held_invite;
 mod messages;
 mod own_plan;
 mod own_plan_days;
+mod own_plan_dto;
 mod own_plan_send;
 mod participants;
 mod personal;

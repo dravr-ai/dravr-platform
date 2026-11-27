@@ -75,6 +75,8 @@ pub(crate) mod chat_list;
 pub(crate) mod chat_member_rows;
 /// A chat row written with the members it is about, in one transaction (carnet#1422).
 pub(crate) mod chat_message_write;
+/// An owner's personal and plan threads: their reads and designations (carnet#840, carnet#1841).
+pub(crate) mod chat_owner_threads;
 /// Who belongs to a conversation: its membership statements and the bodies behind them.
 pub(crate) mod chat_participants;
 /// The row parsers `chat_backend` emits per backend.
