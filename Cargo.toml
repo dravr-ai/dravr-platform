@@ -38,7 +38,7 @@ dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.1
 # (feature/owl-finish-barrage, which carries the owl presets, the re-key and
 # v0.35.2, plus slice 4c's agent writes) until consolidation swaps it to the
 # next barrage tag.
-dravr-barrage = { git = "https://github.com/dravr-ai/dravr-barrage.git", rev = "59bb0a47d8b854aa0d9799fcc8c67ed8cd835fd6", default-features = false }
+dravr-barrage = { git = "https://github.com/dravr-ai/dravr-barrage.git", rev = "017b7358ec1c8ad90b8ebad24e3dd67dc570a262", default-features = false }
 
 # Notification transport.
 dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", tag = "v0.12.0" }
