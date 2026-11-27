@@ -494,12 +494,15 @@ export default function WorkoutPlanCard({ plan, children, dayAction }: WorkoutPl
           place a hairline card survives in the thread (DESIGN.md "Chat surfaces"). */}
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b ghost-border-faint px-3 py-2.5">
         <span className="text-sm font-semibold text-on-surface">{t('chat.trainingPlanTitle')}</span>
-        <span className="text-xs text-on-surface-variant">
-          {t('plan.card.goalRace')}{' '}
-          <span className="font-medium text-on-surface">{plan.goal_race.name}</span>
-          {' · '}
-          <span className="font-mono">{planDate(plan.goal_race.date, language)}</span>
-        </span>
+        {/* An athlete's own plan starts with no race: the header names one once it is set. */}
+        {plan.goal_race !== null && (
+          <span className="text-xs text-on-surface-variant" data-testid="plan-goal-race">
+            {t('plan.card.goalRace')}{' '}
+            <span className="font-medium text-on-surface">{plan.goal_race.name}</span>
+            {' · '}
+            <span className="font-mono">{planDate(plan.goal_race.date, language)}</span>
+          </span>
+        )}
       </div>
 
       {plan.races !== undefined && plan.races.length > 0 && (

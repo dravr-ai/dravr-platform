@@ -92,7 +92,8 @@ export interface CoachRosterPlan {
   /** The season week today falls in, from 1. */
   week: number | null;
   weeks_total: number;
-  goal_race: CoachRosterRace;
+  /** Null while the athlete's own plan has no race yet. */
+  goal_race: CoachRosterRace | null;
   /** The rest of the race calendar, in date order; a second A race is a second peak. */
   races: CoachRosterRace[];
   /** The season's last day, `YYYY-MM-DD`; null when the plan ends with its goal race. */

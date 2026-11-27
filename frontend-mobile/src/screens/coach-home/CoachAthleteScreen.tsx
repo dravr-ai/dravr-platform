@@ -104,8 +104,9 @@ function PlanBlock({ athlete, today }: { athlete: CoachRosterAthlete; today: str
   const { t, language } = useTranslation();
   const plan = athlete.plan;
   const season = athlete.season;
-  const race = season?.state === 'a_race_ahead' && season.race ? season.race : plan?.goal_race;
-  const toRace = race === undefined ? null : daysBetween(today, race.date);
+  // An athlete's own plan can have no race yet (`goal_race` null).
+  const race = season?.state === 'a_race_ahead' && season.race ? season.race : (plan?.goal_race ?? null);
+  const toRace = race === null ? null : daysBetween(today, race.date);
 
   if (plan === undefined || plan.phases.length === 0) {
     const draft = athlete.plan_thread?.draft_updated_at !== null && athlete.plan_thread?.draft_updated_at !== undefined;
@@ -160,7 +161,7 @@ function PlanBlock({ athlete, today }: { athlete: CoachRosterAthlete; today: str
       <View className="gap-2 px-4">
         <View className="flex-row flex-wrap items-baseline gap-2">
           <Text className="text-sm text-text-primary">
-            {season?.state === 'a_race_ahead' && race !== undefined
+            {season?.state === 'a_race_ahead' && race !== null
               ? `${race.name} · ${civilShortDate(race.date, language)}`
               : t('coachHome.detail.noARace')}
           </Text>

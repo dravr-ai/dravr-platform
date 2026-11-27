@@ -122,6 +122,14 @@ describe('WorkoutPlanCard', () => {
     expect(screen.getByText(/chosen by your human coach/)).toBeInTheDocument();
   });
 
+  it("draws an athlete's own plan with no race yet, its header naming none", () => {
+    render(<WorkoutPlanCard plan={plan({ goal_race: null, races: [], phases: [] })} />);
+
+    expect(screen.getByText('Training plan')).toBeInTheDocument();
+    expect(screen.queryByTestId('plan-goal-race')).not.toBeInTheDocument();
+    expect(screen.queryByText('Parkrun PB')).not.toBeInTheDocument();
+  });
+
   it('lays every phase on the timeline and badges exactly the current one', () => {
     render(<WorkoutPlanCard plan={plan()} />);
 

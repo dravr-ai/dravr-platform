@@ -464,12 +464,15 @@ export default function WorkoutPlanCard({ plan, children, onBuildDay }: WorkoutP
     <View className="my-2 rounded-xl border border-border-faint overflow-hidden" testID="workout-plan-card">
       <View className="px-4 py-3 border-b border-border-faint">
         <Text className="text-sm font-semibold text-text-primary">{t('app.trainingPlan')}</Text>
-        <Text className="text-sm text-text-secondary mt-0.5">
-          {t('plan.card.goalRace')}{' '}
-          <Text className="font-semibold text-text-primary">{plan.goal_race.name}</Text>
-          {' · '}
-          <Figure>{planDate(plan.goal_race.date, language)}</Figure>
-        </Text>
+        {/* An athlete's own plan starts with no race: the header names one once it is set. */}
+        {plan.goal_race !== null ? (
+          <Text className="text-sm text-text-secondary mt-0.5" testID="plan-goal-race">
+            {t('plan.card.goalRace')}{' '}
+            <Text className="font-semibold text-text-primary">{plan.goal_race.name}</Text>
+            {' · '}
+            <Figure>{planDate(plan.goal_race.date, language)}</Figure>
+          </Text>
+        ) : null}
       </View>
 
       {plan.races !== undefined && plan.races.length > 0 ? (

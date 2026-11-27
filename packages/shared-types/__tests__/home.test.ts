@@ -351,6 +351,14 @@ describe('parseTrainingPlanResponse', () => {
     expect(parseWorkoutPlan('not json')).toBeNull();
     expect(parseWorkoutPlan(undefined)).toBeNull();
   });
+
+  it("keeps an athlete's own plan that has no race yet, and refuses a race with no name", () => {
+    const noRace = { ...planCard, goal_race: null, phases: [] };
+    expect(parseTrainingPlanResponse({ plan: noRace, today: '2026-09-24' })?.plan).toEqual(noRace);
+    expect(parseWorkoutPlan(JSON.stringify(noRace))).toEqual(noRace);
+    expect(parseWorkoutPlan(JSON.stringify({ ...planCard, goal_race: { date: '2026-11-14' } }))).toBeNull();
+    expect(parseWorkoutPlan(JSON.stringify({ ...planCard, goal_race: undefined }))).toBeNull();
+  });
 });
 
 /** A status as the route serializes it for an athlete with a deep history. */

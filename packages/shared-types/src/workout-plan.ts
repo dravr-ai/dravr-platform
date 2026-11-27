@@ -198,7 +198,8 @@ export interface PlanWeek {
 
 /** The card: the season and the fortnight the athlete acts on. */
 export interface WorkoutPlan {
-  goal_race: PlanGoalRace;
+  /** Null while the athlete's own plan has no race yet: it starts at the first session they add. */
+  goal_race: PlanGoalRace | null;
   /** The other races on the calendar, in the order the outline stores them. */
   races?: PlanGoalRace[];
   season_start?: string;
@@ -212,18 +213,17 @@ export interface WorkoutPlan {
 }
 
 /**
- * Whether a decoded value has the shape of a card: a named goal race, and
- * phase and week arrays. The one check both the chat block and the Home read
- * make, so the two cannot disagree about what counts as a plan.
+ * Whether a decoded value has the shape of a card: a named goal race or
+ * none yet, and phase and week arrays. The one check both the chat block and
+ * the Home read make, so the two cannot disagree about what counts as a plan.
  */
 export function isWorkoutPlan(value: unknown): value is WorkoutPlan {
   const candidate = value as Partial<WorkoutPlan> | null;
   return (
     typeof candidate === 'object' &&
     candidate !== null &&
-    typeof candidate.goal_race === 'object' &&
-    candidate.goal_race !== null &&
-    typeof candidate.goal_race.name === 'string' &&
+    (candidate.goal_race === null ||
+      (typeof candidate.goal_race === 'object' && typeof candidate.goal_race.name === 'string')) &&
     Array.isArray(candidate.phases) &&
     Array.isArray(candidate.weeks)
   );
