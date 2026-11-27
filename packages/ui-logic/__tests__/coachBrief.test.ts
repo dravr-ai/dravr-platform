@@ -107,7 +107,10 @@ describe('briefStatusWords', () => {
     const t = (key: string, options?: Record<string, unknown>) =>
       String(lookup(key) ?? key).replace(/\{\{(\w+)\}\}/g, (_m, name: string) => String(options?.[name] ?? ''));
     const words = briefStatusWords(t, 'en', brief({ last_run: { ran_at: RAN_AT, outcome: 'posted', items: 1, not_sharing: 0, unreadable: 0, missed_unreadable: 1, missed_off: 2 } }));
-    expect(words.status.endsWith(' · missed sessions not checked for 1: a calendar couldn’t be read · missed sessions not checked for 2: switched off on their side')).toBe(true);
+    const unreadable = t('coachHome.brief.missed_unreadable', { count: 1 });
+    const off = t('coachHome.brief.missed_off', { count: 2 });
+    expect(unreadable).not.toContain('coachHome.');
+    expect(words.status.endsWith(` · ${unreadable} · ${off}`)).toBe(true);
   });
 });
 
