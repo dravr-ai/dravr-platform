@@ -46,6 +46,7 @@ use pierre_core::models::FormBand;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::break_baseline::BreakCheck;
 use crate::coach_roster::{RosterAthleteStatus, RosterJoin};
 use crate::missed_sessions::PlannedVsDone;
 
@@ -74,6 +75,9 @@ pub enum AttentionKind {
     /// None of the sessions planned on consecutive planned days has a
     /// matching activity (carnet#1792).
     PlannedSessionsMissed,
+    /// The athlete has nothing planned and their current break is longer
+    /// than any in their own last weeks of training (carnet#1792, P3b).
+    UnusualBreak,
     /// The coach's draft of the athlete's plan is not published.
     PlanDraftWaiting,
     /// A new member of the coach's groups has no plan.
@@ -93,6 +97,7 @@ impl AttentionKind {
             Self::NothingReceived => "nothing_received",
             Self::DeepFatigueStreak => "deep_fatigue_streak",
             Self::PlannedSessionsMissed => "planned_sessions_missed",
+            Self::UnusualBreak => "unusual_break",
             Self::PlanDraftWaiting => "plan_draft_waiting",
             Self::NewMemberNoPlan => "new_member_no_plan",
             Self::PlanEnded => "plan_ended",
@@ -344,6 +349,8 @@ pub struct AttentionInputs<'row> {
     /// Their missed-session check; absent where it was not run (a
     /// non-sharer).
     pub missed_sessions: Option<&'row PlannedVsDone>,
+    /// Their break baseline; absent where it was not run (a non-sharer).
+    pub breaks: Option<&'row BreakCheck>,
 }
 
 /// Where the athlete's season stands, for the season view (carnet#1250).
@@ -397,7 +404,12 @@ pub fn attention_reasons(
         .filter_map(unverified_figure)
         .collect();
     if let Some(training) = &inputs.training {
-        reasons.extend(source_reasons(training, inputs.zone, thresholds));
+        reasons.extend(source_reasons(
+            training,
+            inputs.zone,
+            thresholds,
+            inputs.breaks,
+        ));
         reasons.extend(deep_fatigue_streak(training, inputs.zone, thresholds));
     }
     if let Some(check) = inputs.missed_sessions {
@@ -506,6 +518,7 @@ mod tests {
         new_member_days: 14,
         missed_planned_days: 2,
         missed_lookback_days: 14,
+        baseline_min_break_days: 3,
     };
 
     fn at(s: &str) -> Timestamp {
@@ -543,6 +556,7 @@ mod tests {
             draft: None,
             replies: &[],
             missed_sessions: None,
+            breaks: None,
         }
     }
 
@@ -829,6 +843,57 @@ mod tests {
         assert_eq!(kinds(&four), none(), "under the threshold, nothing");
         assert!(nine[0].rank < six[0].rank, "nine quiet days rank above six");
         assert_eq!(six[0].params["days"], 6);
+    }
+
+    #[test]
+    fn the_athletes_own_pattern_replaces_the_five_day_rule_never_a_dead_source() {
+        use dravr_cageux::training_gap::{TrainingGap, TrainingGapReading};
+        let join = joined("2026-01-01T00:00:00Z");
+        let sources = BTreeMap::from([("strava".to_owned(), at("2026-10-22T07:00:00Z"))]);
+        let dead = ["strava".to_owned()];
+        let reading = |longest| TrainingGapReading {
+            last_session: date("2026-10-22"),
+            break_days: 7,
+            longest_previous_break: longest,
+            days_per_week: 3,
+            weeks_of_history: 8,
+        };
+        let read = |gap| BreakCheck::Read {
+            read_at: at("2026-10-30T06:30:00Z"),
+            gap,
+            wellness: None,
+        };
+        let usual = read(TrainingGap::Usual(reading(9)));
+        let unusual = read(TrainingGap::Unusual(reading(3)));
+        let short = read(TrainingGap::NotEnoughHistory {
+            weeks_of_history: 2,
+        });
+        let (week, today) = (AttentionHorizon::Week, AttentionHorizon::Today);
+        let mut quiet = inputs(&join, Some(training(&sources, &[], &[], Some(8))));
+        for (check, want) in [
+            (&usual, none()),
+            (&unusual, vec![(AttentionKind::UnusualBreak, week)]),
+            (&short, vec![(AttentionKind::NothingReceived, week)]),
+        ] {
+            quiet.breaks = Some(check);
+            let got = kinds(&attention_reasons(&quiet, &THRESHOLDS));
+            assert_eq!(
+                got, want,
+                "bug: on live sources {check:?} must raise {want:?}"
+            );
+        }
+        let mut down = inputs(&join, Some(training(&sources, &dead, &[], Some(8))));
+        for check in [&usual, &unusual] {
+            down.breaks = Some(check);
+            assert_eq!(
+                kinds(&attention_reasons(&down, &THRESHOLDS)),
+                [
+                    (AttentionKind::NothingReceived, today),
+                    (AttentionKind::ProviderReconnect, today),
+                ],
+                "bug: with a dead source, {check:?} must leave the source reasons alone"
+            );
+        }
     }
 
     #[test]

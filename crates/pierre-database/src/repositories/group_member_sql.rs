@@ -18,6 +18,7 @@ macro_rules! member_columns {
               m.coach_wellness_read, m.coach_wellness_read_at,
               m.coach_assistant_read, m.coach_assistant_read_at,
               m.coach_missed_session_check, m.coach_missed_session_check_at,
+              m.coach_routine_detection, m.coach_routine_detection_at,
               m.coach_sensitive_t2_read, m.coach_sensitive_t2_read_at, m.coach_sensitive_t2_read_until,
               m.joined_at, m.left_at,
               ",
@@ -111,6 +112,14 @@ pub(crate) const SET_COACH_MISSED_SESSION_CHECK_SQL: &str = r"UPDATE coaching_gr
         SET coach_missed_session_check = $1,
             coach_missed_session_check_at = CASE WHEN $1 = coach_missed_session_check
                                                  THEN coach_missed_session_check_at ELSE $2 END
+      WHERE group_id = $3 AND user_id = $4 AND left_at IS NULL";
+
+/// A live member grants or revokes `$1` their human coach being told of a
+/// break longer than their own usual ones (carnet#1792, P3b), stamped `$2`
+/// on every answer, a repeat included: "not now" on the card that asks is a
+/// revoke while already off, and its stamp is what clears the card.
+pub(crate) const SET_COACH_ROUTINE_DETECTION_SQL: &str = r"UPDATE coaching_group_members
+        SET coach_routine_detection = $1, coach_routine_detection_at = $2
       WHERE group_id = $3 AND user_id = $4 AND left_at IS NULL";
 
 /// Live members of a group, counted by group alone: they may span tenants.

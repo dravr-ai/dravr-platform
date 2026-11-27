@@ -217,6 +217,9 @@ pub mod live_activities;
 /// Whether a coached athlete missed planned sessions on consecutive planned days (carnet#1792)
 pub mod missed_sessions;
 
+/// Whether a coached athlete with nothing planned is in a break unusual for them (carnet#1792, P3b)
+pub mod break_baseline;
+
 /// The platform's keys for barrage: the Index-key HMAC and the checkpoint signer (carnet#1542).
 pub mod barrage_keys;
 /// The activity store over dravr-barrage, its record store opener and its projection into the cache (carnet#1482)

@@ -162,6 +162,8 @@ macro_rules! impl_coaching_group_repository {
                     assistant_read_at: column(r, "coach_assistant_read_at")?,
                     missed_session_check: column(r, "coach_missed_session_check")?,
                     missed_session_check_at: column(r, "coach_missed_session_check_at")?,
+                    routine_detection: column(r, "coach_routine_detection")?,
+                    routine_detection_at: column(r, "coach_routine_detection_at")?,
                     sensitive_t2_read: column(r, "coach_sensitive_t2_read")?,
                     sensitive_t2_read_at: column(r, "coach_sensitive_t2_read_at")?,
                     sensitive_t2_read_until: column(r, "coach_sensitive_t2_read_until")?,
@@ -734,6 +736,31 @@ macro_rules! impl_coaching_group_repository {
                     .map_err(|e| {
                         AppError::database(format!(
                             "Failed to set a member's missed-session check: {e}"
+                        ))
+                    })?;
+                if result.rows_affected() == 0 {
+                    return Ok(None);
+                }
+                self.get_member(group_id, user_id).await
+            }
+
+            async fn set_coach_routine_detection(
+                &self,
+                group_id: &str,
+                user_id: Uuid,
+                on: bool,
+                now: Timestamp,
+            ) -> AppResult<Option<GroupMember>> {
+                let result = sqlx::query(SET_COACH_ROUTINE_DETECTION_SQL)
+                    .bind(on)
+                    .bind(now)
+                    .bind($ids::bind_text(group_id)?)
+                    .bind($ids::bind(user_id))
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to set a member's routine detection: {e}"
                         ))
                     })?;
                 if result.rows_affected() == 0 {

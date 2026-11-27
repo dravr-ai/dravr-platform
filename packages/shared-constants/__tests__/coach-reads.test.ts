@@ -11,6 +11,7 @@ import {
   COACH_ASSISTANT_NOTICE_KEYS,
   COACH_READ_LOG_ALL_KEYS,
   COACH_READ_LOG_KEYS,
+  ROUTINE_DETECTION_NOTICE_KEYS,
   coachReadClassKey,
   coachReadSourceKey,
 } from '../src/coach-reads';
@@ -64,6 +65,12 @@ describe('the outside-tool words', () => {
   it('the catalogue test asks for the read-log mark and every word of the notice', () => {
     for (const key of [COACH_READ_LOG_KEYS.servedToAssistant, ...Object.values(COACH_ASSISTANT_NOTICE_KEYS)]) {
       expect(COACH_READ_LOG_ALL_KEYS).toContain(key);
+    }
+  });
+
+  it('the catalogue test asks for every word of the routine-detection card', () => {
+    for (const key of Object.values(ROUTINE_DETECTION_NOTICE_KEYS)) {
+      expect(COACH_READ_LOG_ALL_KEYS, `the catalogue test does not check ${key}`).toContain(key);
     }
   });
 });

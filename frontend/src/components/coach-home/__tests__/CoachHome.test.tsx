@@ -141,18 +141,20 @@ describe('À traiter', () => {
       'coach-queue-row-u-lea',
     ]);
     const week = screen.getByTestId('coach-queue-week');
-    // missed planned sessions (290) first of the week, then draft (300), new member (310), plan ended (320)
+    // an unusual break (285) and missed planned sessions (290) share the first tier of the week, the
+    // longer run first; then draft (300), new member (310), plan ended (320)
     expect(within(week).getAllByRole('button').map((b) => b.getAttribute('data-testid'))).toEqual([
+      'coach-queue-row-u-rosalie',
       'coach-queue-row-u-kevin',
       'coach-queue-row-u-mathieu',
       'coach-queue-row-u-camille',
       'coach-queue-row-u-olivier',
     ]);
-    expect(screen.getByTestId('coach-queue-count')).toHaveTextContent('8');
+    expect(screen.getByTestId('coach-queue-count')).toHaveTextContent('9');
     const calm = screen.getByTestId('coach-queue-calm');
-    // Kevin missed planned sessions: he stands in the week, not among the calm.
+    // Kevin missed planned sessions and Rosalie's break is unusual for her: both stand in the week, not among the calm.
     expect(within(calm).queryByTestId('coach-calm-u-kevin')).not.toBeInTheDocument();
-    expect(within(calm).getByTestId('coach-calm-u-rosalie')).toBeInTheDocument();
+    expect(within(calm).queryByTestId('coach-calm-u-rosalie')).not.toBeInTheDocument();
     expect(within(calm).getByTestId('coach-not-sharing-u-hugo')).toBeInTheDocument();
   });
 
@@ -207,6 +209,28 @@ describe('À traiter', () => {
     expect(within(lines[3]).getByTestId('coach-evidence-source')).toHaveTextContent(/^Wellness · /);
     expect(within(screen.getByTestId('coach-queue-row-u-kevin')).getByTestId('coach-queue-reason')).toHaveTextContent(
       'No matching activity on 2 planned days in a row',
+    );
+  });
+
+  it('says a break is unusual for the athlete with her own counts: the longest earlier break, her weekly rate and her last day', async () => {
+    const user = userEvent.setup();
+    renderHome();
+    await user.click(await screen.findByTestId('coach-queue-row-u-rosalie'));
+    const block = within(await screen.findByTestId('coach-reason-unusual_break'));
+    expect(block.getByTestId('coach-reason-title')).toHaveTextContent(
+      'Rosalie Dubé has had no session for 5 days, longer than any break they took in the 8 weeks before.',
+    );
+    expect(block.getByTestId('coach-reason-label')).toHaveTextContent('No session for 5 days, longer than any earlier break');
+    const lines = block.getAllByTestId('coach-evidence');
+    expect(lines, 'the unusual break does not print its three evidence lines').toHaveLength(3);
+    const day = (offset: number) => civilShortDate(civilFromDayNumber(civilDayNumber(TODAY) + offset), 'en');
+    expect(lines[0]).toHaveTextContent('Longest break in the 8 weeks before: 3 days');
+    expect(lines[1]).toHaveTextContent('Usually trains 4 days a week');
+    expect(lines[2]).toHaveTextContent(`Last training day: ${day(-5)}`);
+    // Read from her activities, with no provider named the server did not name.
+    expect(within(lines[0]).getByTestId('coach-evidence-source')).toHaveTextContent(/^Source · /);
+    expect(within(screen.getByTestId('coach-queue-row-u-rosalie')).getByTestId('coach-queue-reason')).toHaveTextContent(
+      'No session for 5 days, longer than any earlier break',
     );
   });
 
@@ -361,7 +385,7 @@ describe('Traité', () => {
     // Out of the queue at once, into the treated block, and the pane says so.
     await waitFor(() => expect(screen.queryByTestId('coach-queue-row-u-julien')).not.toBeInTheDocument());
     expect(screen.getByTestId('coach-treated-row-u-julien')).toBeInTheDocument();
-    expect(screen.getByTestId('coach-queue-count')).toHaveTextContent('7');
+    expect(screen.getByTestId('coach-queue-count')).toHaveTextContent('8');
     expect(await screen.findByTestId('coach-treated-note')).toBeInTheDocument();
 
     await user.click(screen.getByTestId('coach-treated-undo-u-julien'));
@@ -495,13 +519,13 @@ describe('Tout voir', () => {
       .getAllByRole('row')
       .map((r) => r.getAttribute('data-testid'))
       .filter((id): id is string => id !== null && id.startsWith('coach-row-'));
-    // julien 6 days, olivier 3, camille 2, then 1 day: lea, rosalie (name), then 0: felix, kevin, mathieu
+    // julien 6 days, rosalie 5, olivier 3, camille 2, lea 1, then 0: felix, kevin, mathieu (name)
     expect(rows).toEqual([
       'coach-row-u-julien',
+      'coach-row-u-rosalie',
       'coach-row-u-olivier',
       'coach-row-u-camille',
       'coach-row-u-lea',
-      'coach-row-u-rosalie',
       'coach-row-u-felix',
       'coach-row-u-kevin',
       'coach-row-u-mathieu',
@@ -706,9 +730,17 @@ describe('the morning brief', () => {
     expect(fatigue).toHaveAttribute('aria-checked', 'true');
     await user.click(fatigue);
     await waitFor(() => expect(updateBrief).toHaveBeenLastCalledWith({ reasons_off: ['deep_fatigue_streak'] }));
-    // One switch per reason the brief checks, missed planned sessions included.
-    expect(within(sheet).getAllByRole('switch')).toHaveLength(8);
+    // One switch per reason the brief checks, missed planned sessions and unusual breaks included.
+    expect(within(sheet).getAllByRole('switch')).toHaveLength(9);
     expect(within(sheet).getByTestId('coach-brief-reason-planned_sessions_missed')).toHaveAttribute('aria-checked', 'true');
+    const unusual = within(sheet).getByTestId('coach-brief-reason-unusual_break');
+    expect(unusual).toHaveAttribute('aria-checked', 'true');
+    expect(unusual).toHaveAccessibleName('A break longer than usual');
+    // Drawn right after the missed planned sessions, whose tier it shares.
+    const drawn = within(sheet).getAllByRole('switch').map((el) => el.getAttribute('data-testid'));
+    expect(drawn.indexOf('coach-brief-reason-unusual_break'), 'the unusual-break switch is not right after the missed sessions').toBe(
+      drawn.indexOf('coach-brief-reason-planned_sessions_missed') + 1,
+    );
   });
 
   it('lists who is left out by their roster name and puts them back with the whole list', async () => {
@@ -819,7 +851,7 @@ describe('failure and emptiness', () => {
     await screen.findByTestId('coach-queue');
     expect(getRoster).toHaveBeenNthCalledWith(1, { offset: 0, limit: 100 });
     expect(getRoster).toHaveBeenNthCalledWith(2, { offset: 5, limit: 100 });
-    expect(screen.getByTestId('coach-queue-count')).toHaveTextContent('8');
+    expect(screen.getByTestId('coach-queue-count')).toHaveTextContent('9');
   });
 
   it('says so when the coach holds no athlete', async () => {

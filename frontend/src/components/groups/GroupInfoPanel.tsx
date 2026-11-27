@@ -45,6 +45,7 @@ import GroupInsightsPanel from './GroupInsightsPanel';
 import GroupTranscriptPanel from './GroupTranscriptPanel';
 import DelegatedConnectionsSection from './DelegatedConnectionsSection';
 import CoachAssistantNotice from './CoachAssistantNotice';
+import RoutineDetectionNotice from './RoutineDetectionNotice';
 import CoachConsentsSection from './CoachConsentsSection';
 import CoachReadLog from './CoachReadLog';
 import CoachAthleteCard from './CoachAthleteCard';
@@ -180,9 +181,11 @@ export default function GroupInfoPanel({
   const { setSharing: setCoachSharing, isPending: isSavingCoachSharing } =
     useSetCoachSharing(groupId);
   // Whether the coach's AI assistant includes the member in its roster tools
-  // (carnet#1511), off until the member turns it on here, and whether the
-  // coach is told of missed planned sessions (carnet#1792), on until the
-  // member turns it off here: both per membership.
+  // (carnet#1511), off until the member turns it on here, whether the coach
+  // is told of missed planned sessions (carnet#1792), on until the member
+  // turns it off here, and whether the coach is told of a break unusual for
+  // the member (carnet#1792), off until the member turns it on here: all per
+  // membership.
   const { setConsents: setCoachConsents, isPending: isSavingCoachConsents } =
     useSetCoachConsents(groupId);
   const { leaveGroup, isPending: isLeaving } = useLeaveGroup();
@@ -267,6 +270,22 @@ export default function GroupInfoPanel({
   const handleMissedSessionCheckChange = async (on: boolean) => {
     try {
       await setCoachConsents({ missed_session_check: on });
+      showSuccess(t('delegation.consentsSavedToast'));
+    } catch (err) {
+      const message = describeApiError(err, { t, fallbackKey: 'groups.consentFailed' });
+      showError(t('app.updateFailed'), message);
+    }
+  };
+
+  /**
+   * Let the coach be told when the caller's break is unusual for them, or
+   * stop it. The switch and the one-time card both answer here; the server
+   * stamps every answer, "Not now" (`false` while already off) included, so
+   * its reply clears the card.
+   */
+  const handleRoutineDetectionChange = async (on: boolean) => {
+    try {
+      await setCoachConsents({ routine_detection: on });
       showSuccess(t('delegation.consentsSavedToast'));
     } catch (err) {
       const message = describeApiError(err, { t, fallbackKey: 'groups.consentFailed' });
@@ -564,6 +583,17 @@ export default function GroupInfoPanel({
               />
             </div>
           )}
+          {/* Asked once of a sharing member until they answer it here: may
+              the coach be told of a break unusual for them (carnet#1792). */}
+          {showsCoachSharing && coachName && coachConsents?.routine_detection_notice_due && (
+            <div className="mb-3">
+              <RoutineDetectionNotice
+                coach={coachName}
+                disabled={isSavingCoachConsents}
+                onAnswer={(on) => void handleRoutineDetectionChange(on)}
+              />
+            </div>
+          )}
           <RowBox>
             {showsCoachSharing && (
               <div className={clsx('px-4 py-3', ROW_DIVIDER)} data-testid="coach-sharing-row">
@@ -607,6 +637,21 @@ export default function GroupInfoPanel({
                   disabled={isSavingCoachConsents}
                   onChange={(e) => void handleMissedSessionCheckChange(e.target.checked)}
                   data-testid="coach-missed-session-check-switch"
+                />
+              </div>
+            )}
+            {/* Whether the coach's To handle and morning brief say when the
+                member's break is longer than any in their own last 8 weeks
+                while nothing is planned (carnet#1792): off until granted. */}
+            {showsCoachSharing && group.coach_user_id && coachConsents?.routine_detection_supported && (
+              <div className={clsx('px-4 py-3', ROW_DIVIDER)} data-testid="coach-routine-detection-row">
+                <Checkbox
+                  label={t('humanCoach.routineDetection.label', { coach: coachName ?? '' })}
+                  description={t('humanCoach.routineDetection.hint', { coach: coachName ?? '' })}
+                  checked={coachConsents.routine_detection}
+                  disabled={isSavingCoachConsents}
+                  onChange={(e) => void handleRoutineDetectionChange(e.target.checked)}
+                  data-testid="coach-routine-detection-switch"
                 />
               </div>
             )}

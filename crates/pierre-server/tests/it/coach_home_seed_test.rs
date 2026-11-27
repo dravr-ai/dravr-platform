@@ -89,6 +89,7 @@ mod coach_home_seed_tests {
                 "plan_ended",
                 "planned_sessions_missed",
                 "provider_reconnect",
+                "unusual_break",
                 "unverified_figure",
             ]),
             "every reason the queue raises appears"

@@ -35,6 +35,8 @@ export const COACH_BRIEF_REASON_LABEL_KEY: Record<Exclude<CoachAttentionKind, 'c
   nothing_received: 'coachHome.brief.reason.nothingReceived',
   deep_fatigue_streak: 'coachHome.brief.reason.deepFatigueStreak',
   planned_sessions_missed: 'coachHome.brief.reason.plannedSessionsMissed',
+  // Shares the missed sessions' tier, and never meets them: read only with nothing planned.
+  unusual_break: 'coachHome.brief.reason.unusualBreak',
   plan_draft_waiting: 'coachHome.brief.reason.planDraftWaiting',
   new_member_no_plan: 'coachHome.brief.reason.newMemberNoPlan',
   plan_ended: 'coachHome.brief.reason.planEnded',
@@ -128,6 +130,8 @@ export const COACH_PLURAL_LINE_PARAM: Readonly<Record<string, string>> = {
   'coachHome.reason.unverifiedFigure': 'count',
   // The planned days missed in a row.
   'coachHome.reason.plannedSessionsMissed': 'count',
+  // The training days a week the athlete usually keeps; never sent as zero.
+  'coachHome.evidence.trainingDaysPerWeek': 'count',
 };
 
 /**

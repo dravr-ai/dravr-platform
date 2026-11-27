@@ -63,7 +63,7 @@ use pierre_services::missed_sessions::PlannedVsDone;
 use pierre_test_support::delegation::{create_group_agent, grant_coach_access};
 use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
 use pierre_tool_runtime::implementations::planned_workouts::GetPlannedWorkoutsTool;
-use pierre_tool_runtime::missed_session_check::{check_missed_sessions, MissedCheckRequest};
+use pierre_tool_runtime::missed_session_check::{check_sessions, MissedCheckRequest};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
@@ -924,7 +924,7 @@ async fn checked_for(w: &World, member: Person, for_model: bool) -> PlannedVsDon
     let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&w.res);
     let zone = Zone::utc();
     let thresholds = CoachHomeConfig::default();
-    let check = Box::pin(check_missed_sessions(
+    let check = Box::pin(check_sessions(
         &runtime,
         MissedCheckRequest {
             coach: w.coach.id,
@@ -938,11 +938,12 @@ async fn checked_for(w: &World, member: Person, for_model: bool) -> PlannedVsDon
             for_model,
         },
     ));
-    if for_model {
+    let checks = if for_model {
         ai_scope::for_model(check).await.unwrap()
     } else {
         ai_scope::for_human_coach(check).await.unwrap()
-    }
+    };
+    checks.missed
 }
 
 /// `member` shares their wellness with the coach and noted "tired" on the

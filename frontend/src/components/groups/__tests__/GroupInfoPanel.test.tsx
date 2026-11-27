@@ -48,6 +48,10 @@ function coachConsents(overrides: Partial<CoachConsentsResponse> = {}): CoachCon
     missed_session_check: true,
     missed_session_check_at: null,
     missed_session_check_supported: false,
+    routine_detection: false,
+    routine_detection_at: null,
+    routine_detection_supported: false,
+    routine_detection_notice_due: false,
     sensitive_t2_read: false,
     sensitive_t2_read_at: null,
     sensitive_t2_read_until: null,
@@ -961,6 +965,183 @@ describe('GroupInfoPanel', () => {
 
     expect(await screen.findByTestId('coach-assistant-read-switch')).toBeInTheDocument();
     expect(screen.queryByTestId('coach-missed-session-check-row')).toBeNull();
+  });
+
+  it('offers routine detection after the missed-session check, off until the member turns it on, and turns it back off', async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
+    );
+    const offered = { missed_session_check_supported: true, routine_detection_supported: true };
+    vi.mocked(groupsApi.getCoachConsents).mockResolvedValue(coachConsents(offered));
+    vi.mocked(groupsApi.updateCoachConsents)
+      .mockResolvedValueOnce(
+        coachConsents({ ...offered, routine_detection: true, routine_detection_at: '2026-11-27T09:00:00Z' }),
+      )
+      .mockResolvedValueOnce(
+        coachConsents({ ...offered, routine_detection: false, routine_detection_at: '2026-11-27T09:05:00Z' }),
+      );
+    renderPanel();
+
+    const toggle = (await screen.findByTestId('coach-routine-detection-switch')) as HTMLInputElement;
+    expect(toggle.checked, 'routine detection must be off until the member turns it on').toBe(false);
+    // In the sharing block, right after the missed-session check, naming the coach.
+    const row = screen.getByTestId('coach-routine-detection-row');
+    expect(screen.getByTestId('coach-missed-session-check-row').nextElementSibling).toBe(row);
+    expect(row).toHaveTextContent(i18n.t('humanCoach.routineDetection.label', { coach: 'Casey Coach' }));
+    expect(row).toHaveTextContent(i18n.t('humanCoach.routineDetection.hint', { coach: 'Casey Coach' }));
+    expect(row).toHaveTextContent('Tell Casey Coach when a break is unusual for you');
+
+    fireEvent.click(toggle);
+    await waitFor(() => {
+      expect(groupsApi.updateCoachConsents).toHaveBeenCalledWith(GROUP_ID, { routine_detection: true });
+    });
+    await waitFor(() => expect(toggle.checked, 'the switch does not show the granted answer').toBe(true));
+
+    fireEvent.click(toggle);
+    await waitFor(() => {
+      expect(groupsApi.updateCoachConsents).toHaveBeenLastCalledWith(GROUP_ID, { routine_detection: false });
+    });
+    expect(groupsApi.updateCoachConsents).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(toggle.checked, 'the switch does not show the revoke').toBe(false));
+    // A switch the member turns, with no dialog in between, and coach sharing left alone.
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(groupsApi.updateCoachSharing).not.toHaveBeenCalled();
+  });
+
+  it('offers no routine detection where the server says there is no coach to ask for', async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
+    );
+    vi.mocked(groupsApi.getCoachConsents).mockResolvedValue(coachConsents({ missed_session_check_supported: true }));
+    renderPanel();
+
+    expect(await screen.findByTestId('coach-missed-session-check-switch')).toBeInTheDocument();
+    expect(screen.queryByTestId('coach-routine-detection-row')).toBeNull();
+    expect(screen.queryByTestId('routine-detection-notice')).toBeNull();
+  });
+
+  it('asks a sharing member once whether the coach may be told of an unusual break, above the switches, and Turn on grants it', async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
+    );
+    vi.mocked(groupsApi.getCoachConsents).mockResolvedValue(
+      coachConsents({ routine_detection_supported: true, routine_detection_notice_due: true }),
+    );
+    vi.mocked(groupsApi.updateCoachConsents).mockResolvedValue(
+      coachConsents({
+        routine_detection_supported: true,
+        routine_detection: true,
+        routine_detection_at: '2026-11-27T09:00:00Z',
+        routine_detection_notice_due: false,
+      }),
+    );
+    renderPanel();
+
+    const notice = await screen.findByTestId('routine-detection-notice');
+    expect(notice).toHaveAccessibleName(i18n.t('humanCoach.routineDetectionNotice.title'));
+    expect(notice).toHaveClass('alert-info');
+    expect(notice).toHaveTextContent(i18n.t('humanCoach.routineDetectionNotice.body', { coach: 'Casey Coach' }));
+    // Above the consents it asks about, in the sharing block.
+    const sharing = screen.getByTestId('group-info-sharing');
+    expect(sharing).toContainElement(notice);
+    expect(
+      notice.compareDocumentPosition(screen.getByTestId('coach-routine-detection-row')) & Node.DOCUMENT_POSITION_FOLLOWING,
+      'the card is not above the routine-detection switch',
+    ).toBeTruthy();
+    // Nothing is granted while the member decides.
+    expect(screen.getByTestId('coach-routine-detection-switch')).not.toBeChecked();
+
+    const turnOn = within(notice).getByTestId('routine-detection-notice-turn-on');
+    expect(turnOn).toHaveTextContent(i18n.t('humanCoach.routineDetectionNotice.turnOn'));
+    fireEvent.click(turnOn);
+
+    await waitFor(() => expect(groupsApi.updateCoachConsents).toHaveBeenCalledWith(GROUP_ID, { routine_detection: true }));
+    expect(groupsApi.updateCoachConsents).toHaveBeenCalledTimes(1);
+    // The server's reply says the card is no longer due, and the switch shows the grant.
+    await waitFor(() => expect(screen.queryByTestId('routine-detection-notice')).toBeNull());
+    expect(screen.getByTestId('coach-routine-detection-switch')).toBeChecked();
+    expect(groupsApi.updateCoachSharing).not.toHaveBeenCalled();
+  });
+
+  it('answers Not now with routine detection off, and the card goes with the reply while the switch stays off', async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
+    );
+    vi.mocked(groupsApi.getCoachConsents).mockResolvedValue(
+      coachConsents({ routine_detection_supported: true, routine_detection_notice_due: true }),
+    );
+    // "Not now" is an answer the server stamps, so the card is no longer due.
+    vi.mocked(groupsApi.updateCoachConsents).mockResolvedValue(
+      coachConsents({
+        routine_detection_supported: true,
+        routine_detection_at: '2026-11-27T09:00:00Z',
+        routine_detection_notice_due: false,
+      }),
+    );
+    renderPanel();
+
+    const notice = await screen.findByTestId('routine-detection-notice');
+    const notNow = within(notice).getByTestId('routine-detection-notice-not-now');
+    expect(notNow).toHaveTextContent(i18n.t('humanCoach.routineDetectionNotice.notNow'));
+    fireEvent.click(notNow);
+
+    await waitFor(() => expect(groupsApi.updateCoachConsents).toHaveBeenCalledWith(GROUP_ID, { routine_detection: false }));
+    expect(groupsApi.updateCoachConsents).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByTestId('routine-detection-notice')).toBeNull());
+    expect(screen.getByTestId('coach-routine-detection-switch')).not.toBeChecked();
+  });
+
+  it('holds both answers of the card while its write is on its way', async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
+    );
+    vi.mocked(groupsApi.getCoachConsents).mockResolvedValue(
+      coachConsents({ routine_detection_supported: true, routine_detection_notice_due: true }),
+    );
+    let answer: (consents: CoachConsentsResponse) => void = () => {};
+    vi.mocked(groupsApi.updateCoachConsents).mockImplementation(
+      () =>
+        new Promise<CoachConsentsResponse>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    renderPanel();
+
+    const notice = await screen.findByTestId('routine-detection-notice');
+    const turnOn = within(notice).getByTestId('routine-detection-notice-turn-on');
+    const notNow = within(notice).getByTestId('routine-detection-notice-not-now');
+    fireEvent.click(turnOn);
+
+    await waitFor(() => expect(turnOn, 'Turn on stays live while its write is pending').toBeDisabled());
+    expect(notNow, 'Not now stays live while the Turn on write is pending').toBeDisabled();
+    expect(screen.getByTestId('coach-routine-detection-switch')).toBeDisabled();
+    fireEvent.click(notNow);
+    expect(groupsApi.updateCoachConsents).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      answer(
+        coachConsents({
+          routine_detection_supported: true,
+          routine_detection: true,
+          routine_detection_at: '2026-11-27T09:00:00Z',
+          routine_detection_notice_due: false,
+        }),
+      );
+    });
+    await waitFor(() => expect(screen.queryByTestId('routine-detection-notice')).toBeNull());
+  });
+
+  it('shows no routine-detection card to a member who already answered it', async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
+    );
+    vi.mocked(groupsApi.getCoachConsents).mockResolvedValue(
+      coachConsents({ routine_detection_supported: true, routine_detection_at: '2026-11-20T09:00:00Z' }),
+    );
+    renderPanel();
+
+    expect(await screen.findByTestId('coach-routine-detection-switch')).toBeInTheDocument();
+    expect(screen.queryByTestId('routine-detection-notice')).toBeNull();
   });
 
   it('offers coach sharing in a group with no coach yet, since joining granted it', async () => {

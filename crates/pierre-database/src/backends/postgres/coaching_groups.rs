@@ -48,8 +48,8 @@ use crate::repositories::group_invite_sql::{
 use crate::repositories::group_member_sql::{
     COUNT_MEMBERS_SQL, GET_MEMBER_SQL, GROUP_SETUP_TIMELINE_SQL, INSERT_MEMBER_SQL,
     LIST_MEMBERS_SQL, REMOVE_MEMBER_SQL, SET_COACH_CONSENTS_SQL,
-    SET_COACH_MISSED_SESSION_CHECK_SQL, UPDATE_COACH_SHARING_CONSENT_SQL, UPDATE_MEMBER_ROLE_SQL,
-    UPDATE_PEER_SHARING_CONSENT_SQL,
+    SET_COACH_MISSED_SESSION_CHECK_SQL, SET_COACH_ROUTINE_DETECTION_SQL,
+    UPDATE_COACH_SHARING_CONSENT_SQL, UPDATE_MEMBER_ROLE_SQL, UPDATE_PEER_SHARING_CONSENT_SQL,
 };
 use crate::repositories::group_transcript::{
     get_room_transcript_entry_sql, list_room_transcript_sql, list_transcript_visible_to_sql,

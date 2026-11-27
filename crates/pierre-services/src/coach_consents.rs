@@ -54,6 +54,12 @@
 //!   it reaches a coach's read only alongside `wellness_read`, and the
 //!   member's own consent to AI use of those records still applies on top
 //!   (J2, row 64). Offered whenever the group has a human coach.
+//! - `routine_detection`: the group's coach is told when the member's
+//!   current break is longer than any in their own last 8 weeks while
+//!   nothing is planned for them (carnet#1792). Learning the member's pattern
+//!   is profiling (Law 25 art. 8.1), so it is off until granted in the app.
+//!   Offered where the group has a human coach other than the member, who is
+//!   asked once ([`routine_detection_notice_due`]); every answer is stamped.
 //!
 //! No coach can change a consent: every write is scoped to the member's own
 //! membership.
@@ -125,6 +131,10 @@ pub struct ConsentOffer {
     /// who may be told of the sessions the member missed
     /// ([`CoachConsents::missed_session_check`]). A link never carries it.
     pub missed_session_check: bool,
+    /// For a relationship, the group has a human coach other than the member,
+    /// who may be told of a break longer than the member's usual ones
+    /// ([`CoachConsents::routine_detection`]). A link never carries it.
+    pub routine_detection: bool,
 }
 
 /// Whether a coaching platform Dravr serves takes a coach's writes to an
@@ -157,6 +167,7 @@ pub fn link_offer(registry: &ProviderRegistry, link: &DelegatedConnection) -> Co
         wellness_read: link_reads_wellness(registry, link),
         assistant_read: false,
         missed_session_check: false,
+        routine_detection: false,
     }
 }
 
@@ -178,6 +189,7 @@ pub fn consent_offer(
         wellness_read: coached,
         assistant_read: assistant_read_offered(group, member),
         missed_session_check: assistant_read_offered(group, member),
+        routine_detection: assistant_read_offered(group, member),
     }
 }
 
@@ -229,6 +241,21 @@ pub fn assistant_notice_due(
         .is_some_and(|coach| coach != member.user_id)
         && member.coach_sharing_consent
         && answered_at.is_none()
+}
+
+/// Whether the apps ask `member` once whether their coach may be told of a
+/// break longer than their own usual ones (carnet#1792, P3b).
+///
+/// Due while the relationship offers routine detection (`offer`: the group
+/// has a human coach other than the member), the member shares their training
+/// with the coach, and they never answered (`routine_detection_at` unset).
+/// Any answer clears it, "not now" included: that is a revoke while already
+/// off, and every answer is stamped ([`set_coach_consents`]).
+#[must_use]
+pub fn routine_detection_notice_due(offer: ConsentOffer, member: &GroupMember) -> bool {
+    offer.routine_detection
+        && member.coach_sharing_consent
+        && member.coach_consents.routine_detection_at.is_none()
 }
 
 /// The consents `member` gave the coach of the group `group_id`: those on
@@ -391,6 +418,10 @@ pub struct ConsentChange {
     pub assistant_read: Option<bool>,
     /// Turn on or off the coach being told of the sessions the member missed.
     pub missed_session_check: Option<bool>,
+    /// Grant or revoke the coach being told of a break longer than the
+    /// member's usual ones; a revoke while already off ("not now") is still
+    /// an answer, and stamped.
+    pub routine_detection: Option<bool>,
     /// Grant or revoke the coach's reads of the member's health records (T2).
     pub sensitive_t2_read: Option<bool>,
     /// How long a `sensitive_t2_read` grant holds.
@@ -407,6 +438,7 @@ impl ConsentChange {
             wellness_read: if wellness_read { Some(true) } else { None },
             assistant_read: None,
             missed_session_check: None,
+            routine_detection: None,
             sensitive_t2_read: None,
             sensitive_window: SensitiveWindow::UntilRevoked,
         }
@@ -419,6 +451,7 @@ impl ConsentChange {
             || matches!(self.wellness_read, Some(true))
             || matches!(self.assistant_read, Some(true))
             || matches!(self.missed_session_check, Some(true))
+            || matches!(self.routine_detection, Some(true))
             || matches!(self.sensitive_t2_read, Some(true))
     }
 
@@ -432,6 +465,7 @@ impl ConsentChange {
             wellness_read: keep(self.wellness_read, offer.wellness_read),
             assistant_read: keep(self.assistant_read, offer.assistant_read),
             missed_session_check: keep(self.missed_session_check, offer.missed_session_check),
+            routine_detection: keep(self.routine_detection, offer.routine_detection),
             sensitive_t2_read: keep(self.sensitive_t2_read, offer.wellness_read),
             sensitive_window: self.sensitive_window,
         }
@@ -452,10 +486,13 @@ const fn keep(change: Option<bool>, offered: bool) -> Option<bool> {
 /// A grant the relationship does not offer is ignored ([`consent_offer`]).
 /// A `wellness_read` grant is stamped even over a standing one: the member
 /// agrees to the consent as it reads now, which is how they keep a grant
-/// given before it widened ([`wellness_notice_due`]). Revoking
-/// `wellness_read` deletes the wellness the member's confirmed links in the
-/// group wrote, whatever it stood at before, so a revoke repeated after a
-/// failed purge deletes what the first one left.
+/// given before it widened ([`wellness_notice_due`]). Every
+/// `routine_detection` answer is stamped too, a revoke while already off
+/// included: that is "not now" on the card that asks for it
+/// ([`routine_detection_notice_due`]). Revoking `wellness_read` deletes the
+/// wellness the member's confirmed links in the group wrote, whatever it
+/// stood at before, so a revoke repeated after a failed purge deletes what
+/// the first one left.
 ///
 /// # Errors
 ///
@@ -518,6 +555,14 @@ pub async fn set_coach_consents(
             .ok_or_else(|| AppError::not_found("Group member"))?,
         None => updated,
     };
+    let updated = match change.routine_detection {
+        Some(on) => repos
+            .groups
+            .set_coach_routine_detection(&group_key, member, on, now)
+            .await?
+            .ok_or_else(|| AppError::not_found("Group member"))?,
+        None => updated,
+    };
     info!(
         group_id = %group.id,
         member_user_id = %member,
@@ -525,6 +570,7 @@ pub async fn set_coach_consents(
         wellness_read = updated.coach_consents.wellness_read,
         assistant_read = updated.coach_consents.assistant_read,
         missed_session_check = updated.coach_consents.missed_session_check,
+        routine_detection = updated.coach_consents.routine_detection,
         sensitive_t2_read = updated.coach_consents.sensitive_t2_read,
         sensitive_t2_read_until = ?updated.coach_consents.sensitive_t2_read_until,
         "Coach consents set"
@@ -670,6 +716,7 @@ mod tests {
             wellness_read: false,
             assistant_read: false,
             missed_session_check: false,
+            routine_detection: false,
         };
         assert_eq!(
             both.within(calendar_only),
@@ -683,6 +730,7 @@ mod tests {
             wellness_read: false,
             assistant_read: false,
             missed_session_check: false,
+            routine_detection: false,
         };
         assert_eq!(both.within(nothing), ConsentChange::default());
         let opt_in = ConsentChange {
@@ -703,6 +751,7 @@ mod tests {
             wellness_read: Some(false),
             assistant_read: Some(false),
             missed_session_check: Some(false),
+            routine_detection: Some(false),
             sensitive_t2_read: Some(false),
             ..ConsentChange::default()
         };
@@ -730,6 +779,7 @@ mod tests {
             wellness_read: true,
             assistant_read: false,
             missed_session_check: false,
+            routine_detection: false,
         };
         assert_eq!(
             records.within(coached),
@@ -741,6 +791,7 @@ mod tests {
             wellness_read: false,
             assistant_read: false,
             missed_session_check: false,
+            routine_detection: false,
         };
         assert_eq!(
             records.within(uncoached).sensitive_t2_read,
@@ -780,6 +831,7 @@ mod tests {
             wellness_read: true,
             assistant_read: true,
             missed_session_check: true,
+            routine_detection: true,
         };
         let granted_at = |at: Option<Timestamp>| CoachConsents {
             wellness_read: true,
@@ -812,6 +864,7 @@ mod tests {
             wellness_read: false,
             assistant_read: false,
             missed_session_check: false,
+            routine_detection: false,
         };
         assert!(
             !wellness_notice_due(no_coach, granted_at(Some(before))),
@@ -884,6 +937,116 @@ mod tests {
         assert!(
             !assistant_notice_due(&coached, &the_coach, None),
             "the coach is never told of their own tools"
+        );
+    }
+
+    /// Routine detection is offered where the group has a human coach other
+    /// than the member, is held to the app as any grant, and its card is
+    /// due to a sharing member until they answer it, "not now" included.
+    #[test]
+    fn the_routine_detection_card_is_due_once_to_a_sharing_member_of_a_coached_group() {
+        use pierre_core::models::groups::{GroupDigestMode, GroupRespondMode, GroupRole};
+
+        let now = Timestamp::now();
+        let coach = Uuid::new_v4();
+        let group = |coach_user_id: Option<Uuid>| CoachingGroup {
+            id: Uuid::new_v4(),
+            tenant_id: Uuid::new_v4().to_string(),
+            name: "Les Rouleurs".to_owned(),
+            description: None,
+            agent_id: Uuid::new_v4().to_string(),
+            owner_id: coach,
+            coach_user_id,
+            peer_data_sharing: false,
+            respond_mode: GroupRespondMode::default(),
+            digest_mode: GroupDigestMode::default(),
+            max_members: 20,
+            is_active: true,
+            channel_type: None,
+            channel_chat_id: None,
+            chat_connection: None,
+            created_at: now,
+            updated_at: now,
+        };
+        let member = |sharing: bool, answered_at: Option<Timestamp>| GroupMember {
+            id: Uuid::new_v4(),
+            group_id: Uuid::new_v4(),
+            user_id: Uuid::new_v4(),
+            tenant_id: Uuid::new_v4().to_string(),
+            role: GroupRole::Member,
+            peer_sharing_consent: false,
+            coach_sharing_consent: sharing,
+            coach_sharing_consent_at: Some(now),
+            coach_consents: CoachConsents {
+                routine_detection_at: answered_at,
+                ..CoachConsents::default()
+            },
+            consent_given_at: now,
+            joined_at: now,
+            left_at: None,
+            display_name: None,
+        };
+        let registry = ProviderRegistry::new();
+        let coached = group(Some(coach));
+        let sharer = member(true, None);
+        let offer = consent_offer(&registry, &coached, sharer.user_id);
+        assert!(
+            offer.routine_detection,
+            "bug: a group with a human coach other than the member offers routine detection"
+        );
+        assert!(
+            routine_detection_notice_due(offer, &sharer),
+            "bug: a sharing member who never answered is not asked"
+        );
+        assert!(
+            !routine_detection_notice_due(offer, &member(true, Some(now))),
+            "bug: the card is asked again after an answer"
+        );
+        assert!(
+            !routine_detection_notice_due(offer, &member(false, None)),
+            "bug: a member who does not share with the coach is asked"
+        );
+        let coachless = consent_offer(&registry, &group(None), sharer.user_id);
+        assert!(
+            !coachless.routine_detection && !routine_detection_notice_due(coachless, &sharer),
+            "bug: a group with no human coach offers or asks routine detection"
+        );
+        let own = consent_offer(&registry, &coached, coach);
+        assert!(
+            !own.routine_detection,
+            "bug: the coach is offered routine detection of themselves"
+        );
+
+        let grant = ConsentChange {
+            routine_detection: Some(true),
+            ..ConsentChange::default()
+        };
+        assert!(
+            grant.grants_any(),
+            "bug: a routine-detection grant is not held to the app"
+        );
+        assert_eq!(
+            grant.within(offer),
+            grant,
+            "bug: an offered routine-detection grant is dropped"
+        );
+        assert_eq!(
+            grant.within(own),
+            ConsentChange::default(),
+            "bug: a routine-detection grant the offer does not hold is kept"
+        );
+        let not_now = ConsentChange {
+            routine_detection: Some(false),
+            ..ConsentChange::default()
+        };
+        assert!(
+            !not_now.grants_any(),
+            "bug: \"not now\" is held to the app like a grant"
+        );
+        assert_eq!(
+            not_now.within(own),
+            not_now,
+            "bug: a routine-detection revoke is dropped"
         );
     }
 

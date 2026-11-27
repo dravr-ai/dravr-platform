@@ -826,6 +826,27 @@ export interface CoachConsentsResponse {
   /** The group has an active human coach other than the member, so the member can turn `missed_session_check` off. */
   missed_session_check_supported: boolean;
   /**
+   * The coach is told, on To handle and in the morning brief, when nothing is
+   * planned for the member and their current break is longer than any in
+   * their own last 8 weeks of training. Learning the member's pattern is
+   * profiling, so it is off until the member grants it from Dravr's own app.
+   */
+  routine_detection: boolean;
+  /**
+   * When the member last answered for `routine_detection` (RFC 3339): a grant,
+   * a revoke, or "Not now" on the card that asks for it; `null` while they
+   * never did.
+   */
+  routine_detection_at: string | null;
+  /** The group has an active human coach other than the member, so the member can be asked for `routine_detection`. */
+  routine_detection_supported: boolean;
+  /**
+   * Both apps ask the member, once, for `routine_detection`: it is offered,
+   * they share with the coach, and they never answered. Any answer, "Not now"
+   * (`routine_detection: false`) included, clears this.
+   */
+  routine_detection_notice_due: boolean;
+  /**
    * The coach may read the member's health records (lab results, clinical
    * records, blood glucose) now: granted and not lapsed. Its own grant, read
    * only alongside `wellness_read`; the member's own Sensitive health records
@@ -854,6 +875,12 @@ export interface UpdateCoachConsentsRequest {
   assistant_read?: boolean;
   /** Turn the coach's missed-session check on or off. */
   missed_session_check?: boolean;
+  /**
+   * Grant or revoke the coach being told of a break unusual for the member.
+   * Granted only from Dravr's own app; every answer is stamped, `false` while
+   * already off ("Not now" on the card) included.
+   */
+  routine_detection?: boolean;
   /** Grant or revoke the coach's reads of the member's health records. */
   sensitive_t2_read?: boolean;
   /** How long a `sensitive_t2_read` grant holds: 30 days, or left out for until revoked. */

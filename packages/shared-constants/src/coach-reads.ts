@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: What web and phone share for the member's record of their human coach's reads — its words, the class labels, the outside-tool mark, the notice
+// ABOUTME: What web and phone share for the member's record of their human coach's reads — its words, the class labels, the outside-tool mark, the notices
 // ABOUTME: A constants module cannot translate, so keys are named here and each client resolves them (carnet#1445)
 
 import type { CoachReadDataClass } from '@pierre/shared-types';
@@ -31,6 +31,21 @@ export const COACH_ASSISTANT_NOTICE_KEYS = {
   body: 'humanCoach.assistantNotice.body',
   keep: 'delegation.wellnessWidenedKeep',
   stop: 'delegation.wellnessRevokeConfirm',
+} as const;
+
+/**
+ * The words of the one-time card asking a member who shares with a human
+ * coach whether that coach may be told of a break unusual for them
+ * (`routine_detection_notice_due` on their coach consents, carnet#1792): its
+ * title, its body (naming `{{coach}}`), and its two answers. "Turn on" grants
+ * `routine_detection`, "Not now" answers `false`; either is stamped, so the
+ * server's reply clears the card.
+ */
+export const ROUTINE_DETECTION_NOTICE_KEYS = {
+  title: 'humanCoach.routineDetectionNotice.title',
+  body: 'humanCoach.routineDetectionNotice.body',
+  turnOn: 'humanCoach.routineDetectionNotice.turnOn',
+  notNow: 'humanCoach.routineDetectionNotice.notNow',
 } as const;
 
 /** The key of the words each kind of data a read reached reads as. */
@@ -80,6 +95,7 @@ export function coachReadSourceKey(tool: string): string | null {
 export const COACH_READ_LOG_ALL_KEYS: readonly string[] = [
   ...Object.values(COACH_READ_LOG_KEYS),
   ...Object.values(COACH_ASSISTANT_NOTICE_KEYS),
+  ...Object.values(ROUTINE_DETECTION_NOTICE_KEYS),
   ...Object.values(COACH_READ_CLASS_KEYS),
   ...Object.values(COACH_READ_SOURCE_KEYS),
 ];

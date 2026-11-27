@@ -93,6 +93,10 @@ const MISSED_PLAN_DAYS: [i64; 3] = [6, 4, 2];
 /// day of a planned ride.
 const MISSED_SINCE_DAYS: i64 = 9;
 
+/// An unusual-break athlete's last session, this many days before the seed
+/// day, after rides every other day: a seven-day break against one-day ones.
+const UNUSUAL_BREAK_SINCE_DAYS: i64 = 8;
+
 /// What one seeded athlete's situation is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Scenario {
@@ -132,6 +136,11 @@ enum Scenario {
     /// Their plan rode six, four and two days ago; nothing came in since nine
     /// days ago.
     MissedSessions,
+    /// No plan, routine detection granted to the coach, and a break longer
+    /// than any in their last eight weeks (carnet#1792, P3b).
+    ///
+    /// They rode every other day, then nothing for the last week.
+    UnusualBreak,
 }
 
 /// The 45 athletes, in order.
@@ -139,6 +148,7 @@ const SCENARIOS: [Scenario; 45] = {
     use Scenario::{
         Calm, DeadSource, DraftOnly, DraftOverPlan, Fatigue, MissedSessions, NeverShared,
         NewMember, NoARace, NoPlan, NoSource, PlanRanOut, Quiet, RaceRun, Revoked, UnmatchedFigure,
+        UnusualBreak,
     };
     [
         Fatigue,
@@ -184,7 +194,7 @@ const SCENARIOS: [Scenario; 45] = {
         Calm,
         Calm,
         Calm,
-        Calm,
+        UnusualBreak,
         MissedSessions,
     ]
 };
@@ -477,6 +487,17 @@ impl Seeded<'_> {
             Scenario::NoARace => self.live_plan(&b_race_season(self.slot, today)).await?,
             Scenario::MissedSessions => {
                 self.plan_with_days(&a_race_season(self.slot, today), today)
+                    .await?;
+            }
+            Scenario::UnusualBreak => {
+                self.repos
+                    .groups
+                    .set_coach_routine_detection(
+                        &self.group_id.to_string(),
+                        self.athlete.id,
+                        true,
+                        self.now,
+                    )
                     .await?;
             }
             Scenario::RaceRun => {
@@ -793,6 +814,8 @@ fn sessions(scenario: Scenario) -> Vec<(i64, u64)> {
         Scenario::Quiet(days) => every_other_day(days),
         // Nothing on or around the plan's last three ride days.
         Scenario::MissedSessions => every_other_day(MISSED_SINCE_DAYS),
+        // Their pattern, then a week without a session and nothing planned.
+        Scenario::UnusualBreak => every_other_day(UNUSUAL_BREAK_SINCE_DAYS),
         _ => every_other_day(1),
     }
 }
@@ -837,6 +860,7 @@ mod tests {
             Scenario::NoSource,
             Scenario::Calm,
             Scenario::MissedSessions,
+            Scenario::UnusualBreak,
         ] {
             assert!(SCENARIOS.contains(&wanted), "{wanted:?} has no athlete");
         }

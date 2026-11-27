@@ -109,7 +109,8 @@ describe('briefStatusWords', () => {
     const words = briefStatusWords(t, 'en', brief({ last_run: { ran_at: RAN_AT, outcome: 'posted', items: 1, not_sharing: 0, unreadable: 0, missed_unreadable: 1, missed_off: 2 } }));
     const unreadable = t('coachHome.brief.missed_unreadable', { count: 1 });
     const off = t('coachHome.brief.missed_off', { count: 2 });
-    expect(unreadable).not.toContain('coachHome.');
+    expect(unreadable, 'the unread-calendar clause is missing from the catalogue').not.toContain('coachHome.');
+    expect(off, 'the switched-off clause is missing from the catalogue').not.toContain('coachHome.');
     expect(words.status.endsWith(` · ${unreadable} · ${off}`)).toBe(true);
   });
 });
@@ -180,6 +181,7 @@ describe('the lists a change replaces', () => {
         'plan_ended',
         'planned_sessions_missed',
         'provider_reconnect',
+        'unusual_break',
         'unverified_figure',
       ],
     );
@@ -188,9 +190,23 @@ describe('the lists a change replaces', () => {
   it('draws the missed-session switch after the fatigue streak and before the plan states, as the queue ranks them', () => {
     const at = (kind: (typeof BRIEF_REASON_KINDS)[number]) => BRIEF_REASON_KINDS.indexOf(kind);
     expect(at('planned_sessions_missed')).toBe(at('deep_fatigue_streak') + 1);
-    expect(at('plan_draft_waiting')).toBe(at('planned_sessions_missed') + 1);
     expect(withReason([], 'planned_sessions_missed', false)).toEqual(['planned_sessions_missed']);
     expect(withReason(['plan_ended'], 'planned_sessions_missed', false)).toEqual(['planned_sessions_missed', 'plan_ended']);
+  });
+
+  it('draws the unusual-break switch right after the missed sessions, whose tier it shares, and before the plan states', () => {
+    const at = (kind: (typeof BRIEF_REASON_KINDS)[number]) => BRIEF_REASON_KINDS.indexOf(kind);
+    expect(at('unusual_break'), 'unusual_break is not drawn right after planned_sessions_missed').toBe(
+      at('planned_sessions_missed') + 1,
+    );
+    expect(at('plan_draft_waiting'), 'the plan states no longer follow unusual_break').toBe(at('unusual_break') + 1);
+    expect(COACH_BRIEF_REASON_LABEL_KEY.unusual_break).toBe('coachHome.brief.reason.unusualBreak');
+    expect(withReason(['plan_ended', 'planned_sessions_missed'], 'unusual_break', false)).toEqual([
+      'planned_sessions_missed',
+      'unusual_break',
+      'plan_ended',
+    ]);
+    expect(withReason(['planned_sessions_missed', 'unusual_break'], 'unusual_break', true)).toEqual(['planned_sessions_missed']);
   });
 
   it('lists the left-out athletes the roster names, in the order they were left out', () => {

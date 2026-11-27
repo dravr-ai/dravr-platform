@@ -89,7 +89,9 @@ use pierre_services::missed_sessions::PlannedVsDone;
 use pierre_tool_runtime::coach_roster::{
     fetch_page_snapshots, gate_page_reads, read_snapshot, RosterReading,
 };
-use pierre_tool_runtime::missed_session_check::{check_missed_sessions, MissedCheckRequest};
+use pierre_tool_runtime::missed_session_check::{
+    check_sessions, MissedCheckRequest, SessionChecks,
+};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -557,17 +559,18 @@ struct PageRead<'a> {
 }
 
 impl PageRead<'_> {
-    /// The missed-session check of the sharer `access` names, read under the
-    /// page's AI rules and bounded by [`MISSED_CHECK_TIMEOUT`]. A check that
-    /// fails or runs out of time could not read the athlete's calendars: it
-    /// is unreadable, never a miss and never a failed roster.
-    async fn missed_sessions(
+    /// The session checks of the sharer `access` names, read under the page's
+    /// AI rules and bounded by [`MISSED_CHECK_TIMEOUT`]. Checks that fail or
+    /// run out of time could not read the athlete's calendars or activities:
+    /// each one the athlete keeps on is unreadable, never a finding and never
+    /// a failed roster.
+    async fn session_checks(
         &self,
         access: &CoachedAthleteAccess,
         zone: &Zone,
         today: CivilDate,
         plan_read: bool,
-    ) -> PlannedVsDone {
+    ) -> SessionChecks {
         let request = MissedCheckRequest {
             coach: self.coach,
             access,
@@ -582,7 +585,7 @@ impl PageRead<'_> {
         // Boxed: the calendar reads behind it make a large future.
         let check = time::timeout(
             MISSED_CHECK_TIMEOUT,
-            Box::pin(check_missed_sessions(self.runtime, request)),
+            Box::pin(check_sessions(self.runtime, request)),
         );
         let checked = if self.reader.for_model {
             ai_scope::for_model(check).await
@@ -596,24 +599,24 @@ impl PageRead<'_> {
                     coach = %self.coach,
                     athlete = %access.athlete_user_id,
                     error = %e,
-                    "missed-session check failed; counted as unreadable"
+                    "session checks failed; counted as unreadable"
                 );
-                PlannedVsDone::Unreadable
+                SessionChecks::unreadable(&access.consents)
             }
             Err(_) => {
                 warn!(
                     coach = %self.coach,
                     athlete = %access.athlete_user_id,
-                    "missed-session check ran out of time; counted as unreadable"
+                    "session checks ran out of time; counted as unreadable"
                 );
-                PlannedVsDone::Unreadable
+                SessionChecks::unreadable(&access.consents)
             }
         }
     }
 }
 
-/// How long one athlete's missed-session check may read their calendars
-/// before it counts as unreadable.
+/// How long one athlete's session checks may read their calendars and
+/// activities before they count as unreadable.
 const MISSED_CHECK_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// One row: name, groups, status and the consent reason for everyone; the
@@ -658,9 +661,9 @@ async fn row(
         SharedPlan::default()
     };
 
-    let missed = match (member.member.status, read.readable.get(&athlete)) {
+    let checks = match (member.member.status, read.readable.get(&athlete)) {
         (RosterAthleteStatus::Shared, Some(access)) => {
-            Some(read.missed_sessions(access, &zone, today, plan.read).await)
+            Some(read.session_checks(access, &zone, today, plan.read).await)
         }
         _ => None,
     };
@@ -680,11 +683,12 @@ async fn row(
         plan: plan.plan.as_ref(),
         draft: plan.draft.as_ref(),
         replies,
-        missed_sessions: missed.as_ref(),
+        missed_sessions: checks.as_ref().map(|checks| &checks.missed),
+        breaks: checks.as_ref().map(|checks| &checks.breaks),
     };
     row.season = season_view(&inputs, &read.thresholds);
     row.attention = attention_reasons(&inputs, &read.thresholds);
-    row.missed_sessions = missed;
+    row.missed_sessions = checks.map(|checks| checks.missed);
     if let Some(dismissed) = read.dismissals.get(&athlete) {
         apply_dismissals(&mut row.attention, dismissed);
     }

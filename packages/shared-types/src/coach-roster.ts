@@ -158,6 +158,7 @@ export type CoachAttentionKind =
   | 'nothing_received'
   | 'deep_fatigue_streak'
   | 'planned_sessions_missed'
+  | 'unusual_break'
   | 'plan_draft_waiting'
   | 'new_member_no_plan'
   | 'plan_ended';

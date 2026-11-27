@@ -16,7 +16,7 @@ test.describe('Coach Home', () => {
     await expect(page.getByTestId('coach-scope')).toContainText(/8.*10/);
     // The queue, today first, and the first of it open beside.
     await expect(page.getByTestId('coach-queue-today').getByRole('button')).toHaveCount(4);
-    await expect(page.getByTestId('coach-queue-week').getByRole('button')).toHaveCount(4);
+    await expect(page.getByTestId('coach-queue-week').getByRole('button')).toHaveCount(5);
     await expect(page.getByTestId('coach-athlete-pane').getByRole('heading', { level: 2 })).toHaveText('Maude Poirier');
     // A non-sharer: status only, nothing of training.
     await expect(page.getByTestId('coach-hidden-note')).toBeVisible();

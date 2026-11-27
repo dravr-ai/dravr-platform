@@ -497,6 +497,95 @@ describe('missed planned sessions', () => {
   });
 });
 
+describe('an unusual break', () => {
+  const lookup = (catalogue: unknown, key: string): unknown =>
+    key.split('.').reduce<unknown>((node, part) => (node !== null && typeof node === 'object' ? (node as Record<string, unknown>)[part] : undefined), catalogue);
+  const t = (catalogue: unknown) => (key: string, options?: Record<string, unknown>) =>
+    String(lookup(catalogue, key) ?? key).replace(/\{\{(\w+)\}\}/g, (_m, name: string) => String(options?.[name] ?? ''));
+
+  /** The reason as the server raises it: the break, the weeks read, and its lines in the server's order. */
+  function unusual(daysPerWeek: number | null): CoachAttentionReason {
+    const activities = { kind: 'provider' as const, providers: [] };
+    return reason({
+      id: 'unusual_break',
+      kind: 'unusual_break',
+      horizon: 'week',
+      key: 'coachHome.reason.unusualBreak',
+      params: { days: 7, weeks: 8 },
+      evidence: [
+        { key: 'coachHome.evidence.breakLongestBefore', params: { weeks: 8, days: 3 }, source: activities, at: '2026-11-27T05:00:00Z' },
+        // The server leaves the rate out when it rounds to none.
+        ...(daysPerWeek === null
+          ? []
+          : [{ key: 'coachHome.evidence.trainingDaysPerWeek', params: { count: daysPerWeek }, source: activities, at: '2026-11-27T05:00:00Z' }]),
+        { key: 'coachHome.evidence.lastTrainingDay', params: { date: '2026-11-20' }, source: activities, at: '2026-11-27T05:00:00Z' },
+      ],
+    });
+  }
+
+  it('reads one training day a week in the singular and any other count in the plural', () => {
+    expect(
+      lineKey('coachHome.evidence.trainingDaysPerWeek', { count: 1 }, 'en'),
+      'a rate of one day a week did not pick the One variant',
+    ).toBe('coachHome.evidence.trainingDaysPerWeekOne');
+    for (const count of [2, 4, 7]) {
+      expect(
+        lineKey('coachHome.evidence.trainingDaysPerWeek', { count }, 'en'),
+        `a rate of ${count} days a week picked a variant`,
+      ).toBe('coachHome.evidence.trainingDaysPerWeek');
+    }
+    // The other lines it raises name no count to pick a variant on.
+    expect(lineKey('coachHome.reason.unusualBreak', { days: 1, weeks: 8 }, 'en')).toBe('coachHome.reason.unusualBreak');
+    expect(lineKey('coachHome.evidence.breakLongestBefore', { weeks: 8, days: 1 }, 'en')).toBe(
+      'coachHome.evidence.breakLongestBefore',
+    );
+  });
+
+  it('writes the label with the break as a phrase of days, and the title naming the athlete and the weeks read', () => {
+    expect(describeLine(t(en), 'en', 'coachHome.reason.unusualBreak', unusual(4).params)).toBe(
+      'No session for 7 days, longer than any earlier break',
+    );
+    expect(describeLine(t(en), 'en', 'coachHome.reason.unusualBreak', { days: 1, weeks: 8 }), 'one day is not a phrase in the singular').toBe(
+      'No session for 1 day, longer than any earlier break',
+    );
+    expect(reasonTitle(unusual(4), 'A', 'en')).toEqual({
+      key: 'coachHome.reasonTitle.unusualBreak',
+      params: { days: 7, weeks: 8, name: 'A' },
+    });
+    expect(describeReasonTitle(t(en), 'en', unusual(4), 'Chloé')).toBe(
+      'Chloé has had no session for 7 days, longer than any break they took in the 8 weeks before.',
+    );
+  });
+
+  it('prints each evidence line in the server order: the longest earlier break, the weekly rate, the last training day', () => {
+    expect(describeEvidence(t(en), 'en', unusual(4).evidence).map((line) => line.text)).toEqual([
+      'Longest break in the 8 weeks before: 3 days',
+      'Usually trains 4 days a week',
+      `Last training day: ${civilShortDate('2026-11-20', 'en')}`,
+    ]);
+    expect(describeEvidence(t(en), 'en', unusual(1).evidence)[1]?.text, 'one day a week did not read in the singular').toBe(
+      'Usually trains one day a week',
+    );
+    expect(describeEvidence(t(en), 'en', unusual(null).evidence).map((line) => line.line.key), 'a line was made up for a rate the server left out').toEqual([
+      'coachHome.evidence.breakLongestBefore',
+      'coachHome.evidence.lastTrainingDay',
+    ]);
+  });
+
+  it('writes the same lines in French, with its own phrase of days', () => {
+    const lines = describeEvidence(t(fr), 'fr', unusual(4).evidence).map((line) => line.text);
+    expect(lines[0], 'the French line does not count the longest break in days').toContain('3 jours');
+    expect(lines[0]).toContain('8');
+    expect(lines[1]).toBe('S’entraîne d’habitude 4 jours par semaine');
+    expect(describeLine(t(fr), 'fr', 'coachHome.reason.unusualBreak', unusual(4).params)).toContain('7 jours');
+  });
+
+  it('names the activities the lines were read from as the source, with no provider it cannot know', () => {
+    const [longest] = unusual(4).evidence;
+    expect(describeSource(t(en), 'en', longest.source, null)).toBe(t(en)(COACH_EVIDENCE_SOURCE_LABEL_KEY.provider));
+  });
+});
+
 describe('a date-only start on an evidence line', () => {
   const zoneBefore = process.env.TZ;
   const DATE_ONLY = '2026-05-28T00:00:00Z';

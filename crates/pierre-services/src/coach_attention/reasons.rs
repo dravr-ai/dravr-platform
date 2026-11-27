@@ -12,7 +12,8 @@ use pierre_config::coach_home::CoachHomeConfig;
 use pierre_core::models::FormBand;
 use serde_json::Value;
 
-use crate::missed_sessions::{self, MissedRun, PlannedVsDone};
+use crate::break_baseline::BreakCheck;
+use crate::missed_sessions::{self, MissedRun, PlannedVsDone, WellnessNote};
 
 use super::{
     season_view, AttentionAction, AttentionEvidence, AttentionHorizon, AttentionInputs,
@@ -28,7 +29,9 @@ const TIER_VERIFICATION: u32 = 2 * TIER;
 const TIER_SOURCE: u32 = 3 * TIER;
 const TIER_FATIGUE: u32 = 4 * TIER;
 /// First of the week (Phil, 2026-11-26): before the plan states, and before
-/// the quiet days it would otherwise restate.
+/// the quiet days it would otherwise restate. `unusual_break` shares it, and
+/// never meets the missed planned sessions: it is read only with nothing
+/// planned.
 const TIER_MISSED: u32 = 5 * TIER;
 const TIER_DRAFT: u32 = 6 * TIER;
 const TIER_NEW_MEMBER: u32 = 7 * TIER;
@@ -132,10 +135,18 @@ fn last_received(source: &str, at: Timestamp, zone: &Zone) -> AttentionEvidence 
 /// dead source, and `nothing_received` once the athlete has gone the
 /// threshold without a session — today when a source is dead or the data
 /// stale, this week otherwise.
+///
+/// When the athlete's break baseline (`breaks`, carnet#1792, P3b) read their
+/// current break, a quiet spell on live sources is the baseline's to raise
+/// (`unusual_break`), never the population threshold's (Phil, 2026-11-27).
+/// With a dead source or stale data the source reason stands alone: the
+/// break may be sessions that never arrived, and an unread session is never
+/// a finding (Phil, 2026-11-27).
 pub(super) fn source_reasons(
     training: &TrainingSignals<'_>,
     zone: &Zone,
     thresholds: &CoachHomeConfig,
+    breaks: Option<&BreakCheck>,
 ) -> Vec<AttentionReason> {
     let mut reconnect: Vec<&String> = training.needs_reconnect.iter().collect();
     reconnect.sort_unstable();
@@ -145,11 +156,17 @@ pub(super) fn source_reasons(
         .map(|provider| provider_reconnect(training, provider, zone))
         .collect();
     let threshold = i32::try_from(thresholds.days_without_activity).unwrap_or(i32::MAX);
+    let source_down = !reconnect.is_empty() || training.stale;
+    let own_pattern = breaks.is_some_and(BreakCheck::has_reading);
     if training
         .days_since_last_activity
         .is_none_or(|days| days >= threshold)
+        && (source_down || !own_pattern)
     {
         reasons.push(nothing_received(training, reconnect.first().copied(), zone));
+    }
+    if !source_down {
+        reasons.extend(breaks.and_then(unusual_break));
     }
     reasons
 }
@@ -538,15 +555,7 @@ pub(super) fn planned_sessions_missed(check: &PlannedVsDone) -> Option<Attention
         ),
         at: *read_at,
     }));
-    evidence.extend(wellness.iter().map(|note| AttentionEvidence {
-        key: "coachHome.evidence.wellnessNote",
-        params: params([
-            ("date", day(note.date)),
-            ("note", Value::String(note.text.clone())),
-        ]),
-        source: EvidenceSource::of(EvidenceSourceKind::Wellness),
-        at: *read_at,
-    }));
+    evidence.extend(wellness.iter().map(|note| wellness_note(note, *read_at)));
     let days = u32::try_from(run.days.len()).unwrap_or(u32::MAX);
     let kind = AttentionKind::PlannedSessionsMissed;
     Some(AttentionReason {
@@ -590,8 +599,76 @@ fn window_count(run: &MissedRun, read_at: Timestamp) -> AttentionEvidence {
     }
 }
 
+/// The athlete's last wellness note, as the line that quotes it.
+fn wellness_note(note: &WellnessNote, read_at: Timestamp) -> AttentionEvidence {
+    AttentionEvidence {
+        key: "coachHome.evidence.wellnessNote",
+        params: params([
+            ("date", day(note.date)),
+            ("note", Value::String(note.text.clone())),
+        ]),
+        source: EvidenceSource::of(EvidenceSourceKind::Wellness),
+        at: read_at,
+    }
+}
+
+/// `unusual_break` when the athlete's own pattern says their current break is
+/// longer than any they took before it.
+///
+/// carnet#1792, P3b. Its lines are the longest earlier break, the training
+/// days a week the athlete usually keeps (left out when it rounds to none),
+/// their last training day, and their last wellness note when their coach
+/// may read it. It shares the missed planned sessions' tier and never meets
+/// them: the baseline is read only with nothing planned.
+pub(super) fn unusual_break(check: &BreakCheck) -> Option<AttentionReason> {
+    let (reading, read_at, wellness) = check.unusual()?;
+    let weeks = Value::from(reading.weeks_of_history);
+    let activities = || EvidenceSource::of(EvidenceSourceKind::Provider);
+    let mut evidence = vec![AttentionEvidence {
+        key: "coachHome.evidence.breakLongestBefore",
+        params: params([
+            ("weeks", weeks.clone()),
+            ("days", Value::from(reading.longest_previous_break)),
+        ]),
+        source: activities(),
+        at: read_at,
+    }];
+    if reading.days_per_week > 0 {
+        evidence.push(AttentionEvidence {
+            key: "coachHome.evidence.trainingDaysPerWeek",
+            params: params([("count", Value::from(reading.days_per_week))]),
+            source: activities(),
+            at: read_at,
+        });
+    }
+    evidence.push(AttentionEvidence {
+        key: "coachHome.evidence.lastTrainingDay",
+        params: params([("date", day(reading.last_session))]),
+        source: activities(),
+        at: read_at,
+    });
+    evidence.extend(wellness.map(|note| wellness_note(note, read_at)));
+    let kind = AttentionKind::UnusualBreak;
+    Some(AttentionReason {
+        id: kind.as_str().to_owned(),
+        kind,
+        horizon: AttentionHorizon::Week,
+        rank: TIER_MISSED + largest_first(reading.break_days),
+        key: "coachHome.reason.unusualBreak",
+        params: params([("days", Value::from(reading.break_days)), ("weeks", weeks)]),
+        evidence,
+        action: AttentionAction::WriteToAthlete,
+        target: AttentionTarget::default(),
+        // Like the quiet spell it stands for: handled, it stays handled until
+        // a new session ends the break.
+        fingerprint: reading.last_session.to_string(),
+        dismissed_at: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
+    use dravr_cageux::training_gap::{TrainingGap, TrainingGapReading};
     use dravr_tronc::dates::{CivilDate, Timestamp};
     use pierre_core::models::SportType;
 
@@ -725,6 +802,108 @@ mod tests {
                 planned_sessions_missed(&check),
                 None,
                 "bug: a check with no run raised the reason: {check:?}"
+            );
+        }
+    }
+
+    fn gap_reading(days_per_week: u32) -> TrainingGapReading {
+        TrainingGapReading {
+            last_session: date("2026-11-20"),
+            break_days: 6,
+            longest_previous_break: 3,
+            days_per_week,
+            weeks_of_history: 8,
+        }
+    }
+
+    #[test]
+    fn an_unusual_break_is_a_week_reason_with_the_athletes_own_counts() {
+        let check = BreakCheck::Read {
+            read_at: read_at(),
+            gap: TrainingGap::Unusual(gap_reading(4)),
+            wellness: Some(WellnessNote {
+                date: date("2026-11-24"),
+                text: "sick".to_owned(),
+            }),
+        };
+        let reason = unusual_break(&check).expect("bug: an unusual break raised nothing");
+        assert_eq!(
+            (reason.kind, reason.horizon),
+            (AttentionKind::UnusualBreak, AttentionHorizon::Week),
+            "bug: an unusual break is not a this-week unusual_break"
+        );
+        assert_eq!(
+            reason.key, "coachHome.reason.unusualBreak",
+            "bug: the reason reads under another key"
+        );
+        assert_eq!(
+            reason.params["days"], 6,
+            "bug: the break is not its day count"
+        );
+        assert_eq!(
+            reason.params["weeks"], 8,
+            "bug: the reason does not name the weeks of history read"
+        );
+        let keys: Vec<&str> = reason.evidence.iter().map(|line| line.key).collect();
+        assert_eq!(
+            keys,
+            [
+                "coachHome.evidence.breakLongestBefore",
+                "coachHome.evidence.trainingDaysPerWeek",
+                "coachHome.evidence.lastTrainingDay",
+                "coachHome.evidence.wellnessNote",
+            ],
+            "bug: the evidence lines are not the longest break, the weekly rate, the last day and the note"
+        );
+        assert_eq!(
+            reason.evidence[0].params["days"], 3,
+            "bug: the longest earlier break is not quoted"
+        );
+        assert_eq!(
+            reason.evidence[1].params["count"], 4,
+            "bug: the weekly rate is not the athlete's own"
+        );
+        assert_eq!(
+            reason.evidence[2].params["date"], "2026-11-20",
+            "bug: the last training day is not the reading's"
+        );
+        assert_eq!(
+            reason.fingerprint, "2026-11-20",
+            "bug: a handled break must stay handled until a new session"
+        );
+        let rare = BreakCheck::Read {
+            read_at: read_at(),
+            gap: TrainingGap::Unusual(gap_reading(0)),
+            wellness: None,
+        };
+        let lines = unusual_break(&rare)
+            .expect("bug: an unusual break with no weekly rate raised nothing")
+            .evidence;
+        assert!(
+            lines
+                .iter()
+                .all(|line| line.key != "coachHome.evidence.trainingDaysPerWeek"),
+            "bug: a weekly rate that rounds to none was quoted as zero days a week"
+        );
+    }
+
+    #[test]
+    fn a_usual_break_or_no_reading_raises_nothing() {
+        let usual = BreakCheck::Read {
+            read_at: read_at(),
+            gap: TrainingGap::Usual(gap_reading(4)),
+            wellness: None,
+        };
+        for check in [
+            usual,
+            BreakCheck::NotGranted,
+            BreakCheck::Planned,
+            BreakCheck::Unreadable,
+        ] {
+            assert_eq!(
+                unusual_break(&check),
+                None,
+                "bug: {check:?} raised an unusual break"
             );
         }
     }

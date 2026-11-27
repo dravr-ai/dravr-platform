@@ -36,7 +36,7 @@ use axum::{
 use dravr_tronc::dates::Timestamp;
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
-use pierre_core::models::groups::{CoachConsents, CoachingGroup};
+use pierre_core::models::groups::{CoachConsents, CoachingGroup, GroupMember};
 use pierre_core::models::{DelegatedConnection, DelegationStatus, TenantId, User};
 use pierre_database::RepositoryRegistry;
 use pierre_middleware::AuthenticatedUser;
@@ -47,9 +47,9 @@ use pierre_providers::request_budget::in_background;
 use pierre_runtime_context::require_tenant;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
 use pierre_services::coach_consents::{
-    consent_offer, link_consents, link_offer, link_reads_wellness, set_coach_consents,
-    wellness_notice_due, wellness_read_skipped, ConsentChange, ConsentOffer, SensitiveWindow,
-    WellnessReadSkip,
+    consent_offer, link_consents, link_offer, link_reads_wellness, routine_detection_notice_due,
+    set_coach_consents, wellness_notice_due, wellness_read_skipped, ConsentChange, ConsentOffer,
+    SensitiveWindow, WellnessReadSkip,
 };
 use pierre_services::coach_platform::{check_roster_transport, roster_platform};
 use pierre_services::delegated_connections::{
@@ -227,6 +227,12 @@ pub struct UpdateCoachConsentsRequest {
     /// (carnet#1792)
     #[serde(default)]
     pub missed_session_check: Option<bool>,
+    /// Grant (`true`) or revoke (`false`) the coach being told, on To handle
+    /// and in the morning brief, of a break longer than the member's usual
+    /// ones (carnet#1792); every answer is stamped, `false` while already off
+    /// ("not now" on the card) included
+    #[serde(default)]
+    pub routine_detection: Option<bool>,
     /// Grant (`true`) or revoke (`false`) the coach's reads of the member's
     /// health records (T2: labs, clinical records, blood glucose), its own
     /// grant beside `wellness_read`
@@ -284,6 +290,19 @@ pub struct CoachConsentsResponse {
     /// Whether the group has a human coach other than the member, so the
     /// member can turn `missed_session_check` off
     pub missed_session_check_supported: bool,
+    /// The group's coach is told of a break longer than the member's usual
+    /// ones while nothing is planned for them; off until granted (carnet#1792)
+    pub routine_detection: bool,
+    /// When the member last answered for `routine_detection` (RFC 3339): a
+    /// grant, a revoke, or "not now" on the card
+    pub routine_detection_at: Option<String>,
+    /// Whether the group has a human coach other than the member, so the
+    /// member can be asked for `routine_detection`
+    pub routine_detection_supported: bool,
+    /// Whether the apps ask the member, once, for `routine_detection`: it is
+    /// offered, they share with the coach, and they never answered; any
+    /// answer, "not now" included, clears this
+    pub routine_detection_notice_due: bool,
     /// The group's coach may read the member's health records (T2) now: the
     /// grant is given and has not lapsed. It reaches a read only alongside
     /// `wellness_read`, and the member's own consent to AI use of those
@@ -714,14 +733,16 @@ impl DelegatedConnectionRoutes {
         Ok((StatusCode::OK, Json(response)).into_response())
     }
 
-    /// The coach consents of `member` in `group`, as the member reads them.
+    /// The coach consents of `membership` in `group`, as the member reads
+    /// them.
     async fn coach_consents_response(
         repos: &RepositoryRegistry,
         registry: &ProviderRegistry,
         group: &CoachingGroup,
-        consents: CoachConsents,
-        member: Uuid,
+        membership: &GroupMember,
     ) -> Result<CoachConsentsResponse, AppError> {
+        let member = membership.user_id;
+        let consents = membership.coach_consents;
         let offer = consent_offer(registry, group, member);
         let mut skipped = None;
         if offer.wellness_read {
@@ -753,6 +774,10 @@ impl DelegatedConnectionRoutes {
             missed_session_check: consents.missed_session_check,
             missed_session_check_at: consents.missed_session_check_at.map(Timestamp::to_rfc3339),
             missed_session_check_supported: offer.missed_session_check,
+            routine_detection: consents.routine_detection,
+            routine_detection_at: consents.routine_detection_at.map(Timestamp::to_rfc3339),
+            routine_detection_supported: offer.routine_detection,
+            routine_detection_notice_due: routine_detection_notice_due(offer, membership),
             sensitive_t2_read: consents.sensitive_t2_standing(Timestamp::now()),
             sensitive_t2_read_at: consents.sensitive_t2_read_at.map(Timestamp::to_rfc3339),
             sensitive_t2_read_until: consents.sensitive_t2_read_until.map(Timestamp::to_rfc3339),
@@ -777,14 +802,7 @@ impl DelegatedConnectionRoutes {
             .await?
             .ok_or_else(|| AppError::not_found("Group member"))?;
         let registry = ToolRuntime::provider_registry(resources.as_ref());
-        let response = Self::coach_consents_response(
-            repos,
-            registry,
-            &group,
-            member.coach_consents,
-            auth.user_id,
-        )
-        .await?;
+        let response = Self::coach_consents_response(repos, registry, &group, &member).await?;
         Ok((StatusCode::OK, Json(response)).into_response())
     }
 
@@ -804,6 +822,7 @@ impl DelegatedConnectionRoutes {
             wellness_read: body.wellness_read,
             assistant_read: body.assistant_read,
             missed_session_check: body.missed_session_check,
+            routine_detection: body.routine_detection,
             sensitive_t2_read: body.sensitive_t2_read,
             sensitive_window: SensitiveWindow::try_from_days(body.sensitive_days)?,
         };
@@ -833,14 +852,7 @@ impl DelegatedConnectionRoutes {
             change,
         )
         .await?;
-        let response = Self::coach_consents_response(
-            repos,
-            registry,
-            &group,
-            updated.coach_consents,
-            auth.user_id,
-        )
-        .await?;
+        let response = Self::coach_consents_response(repos, registry, &group, &updated).await?;
         Ok((StatusCode::OK, Json(response)).into_response())
     }
 

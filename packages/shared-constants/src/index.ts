@@ -355,6 +355,7 @@ export {
   COACH_ASSISTANT_NOTICE_KEYS,
   COACH_READ_LOG_ALL_KEYS,
   COACH_READ_LOG_KEYS,
+  ROUTINE_DETECTION_NOTICE_KEYS,
   coachReadClassKey,
   coachReadSourceKey,
 } from './coach-reads';

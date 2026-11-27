@@ -53,6 +53,18 @@ pub struct CoachConsents {
     /// while they never did.
     #[serde(default)]
     pub missed_session_check_at: Option<Timestamp>,
+    /// The group's coach is told, on To handle and in the morning brief,
+    /// when the member's current break is longer than any in their own last
+    /// weeks of training while nothing is planned for them (carnet#1792, P3b).
+    /// Learning the member's pattern to flag a deviation is profiling (Law 25
+    /// art. 8.1), so it is off until the member grants it from Dravr's app.
+    #[serde(default)]
+    pub routine_detection: bool,
+    /// When the member last answered for `routine_detection`: a grant, a
+    /// revoke, or "not now" on the card that asks for it; `None` while they
+    /// never did, which is when the card is due.
+    #[serde(default)]
+    pub routine_detection_at: Option<Timestamp>,
     /// The group's coach may also read the member's health records (owl tier
     /// T2: labs, clinical records, self-measured glucose) while
     /// `sensitive_t2_read_until` has not passed. Its own grant: it reaches a
@@ -87,6 +99,8 @@ impl Default for CoachConsents {
             assistant_read_at: None,
             missed_session_check: true,
             missed_session_check_at: None,
+            routine_detection: false,
+            routine_detection_at: None,
             sensitive_t2_read: false,
             sensitive_t2_read_at: None,
             sensitive_t2_read_until: None,

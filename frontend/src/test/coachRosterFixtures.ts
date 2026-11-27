@@ -367,9 +367,41 @@ export function namedAthletes(today: string): CoachRosterAthlete[] {
       name: 'Rosalie Dubé',
       groups: [ROAD],
       status: 'shared',
-      training: training(today, 'balanced', 1, { ctl: 55 }),
+      training: training(today, 'balanced', 5, { ctl: 55 }),
       season: { state: 'no_plan', race: null, ends: null },
-      attention: [],
+      // Nothing planned, and her five quiet days are longer than any break in her last 8 weeks:
+      // the missed sessions' tier, the longer run first, as the server ranks it.
+      attention: [
+        reason({
+          id: 'unusual_break',
+          kind: 'unusual_break',
+          key: 'coachHome.reason.unusualBreak',
+          params: { days: 5, weeks: 8 },
+          horizon: 'week',
+          rank: 285,
+          fingerprint: dayOffset(today, -5),
+          evidence: [
+            {
+              key: 'coachHome.evidence.breakLongestBefore',
+              params: { weeks: 8, days: 3 },
+              source: { kind: 'provider', providers: [] },
+              at: at(today, 0, '05:00:00'),
+            },
+            {
+              key: 'coachHome.evidence.trainingDaysPerWeek',
+              params: { count: 4 },
+              source: { kind: 'provider', providers: [] },
+              at: at(today, 0, '05:00:00'),
+            },
+            {
+              key: 'coachHome.evidence.lastTrainingDay',
+              params: { date: dayOffset(today, -5) },
+              source: { kind: 'provider', providers: [] },
+              at: at(today, 0, '05:00:00'),
+            },
+          ],
+        }),
+      ],
     },
   ];
 }

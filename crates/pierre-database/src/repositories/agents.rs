@@ -580,6 +580,18 @@ pub trait CoachingGroupRepository:
         now: Timestamp,
     ) -> AppResult<Option<GroupMember>>;
 
+    /// [`Self::set_coach_missed_session_check`] for routine detection (carnet#1792, P3b).
+    ///
+    /// The coach is told of a break longer than the member's usual ones;
+    /// every answer is stamped `now`, a repeat included.
+    async fn set_coach_routine_detection(
+        &self,
+        group_id: &str,
+        user_id: Uuid,
+        on: bool,
+        now: Timestamp,
+    ) -> AppResult<Option<GroupMember>>;
+
     /// [`Self::set_coach_consents`], in the same statement as the live
     /// member sharing (`Some((true, until))`) or no longer sharing
     /// (`Some((false, _))`) their health records (T2) with their coach,
