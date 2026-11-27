@@ -373,6 +373,7 @@ pub(super) async fn list_conversations(
                 channel_type: c.channel_type,
                 archived_at: c.archived_at,
                 personal: c.personal,
+                plan_thread: c.plan_thread,
                 subject_user_id: c.subject_user_id.map(|id| id.to_string()),
                 subject_group_id: c.subject_group_id.map(|id| id.to_string()),
                 subject_display_name: c.subject_display_name,

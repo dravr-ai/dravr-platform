@@ -749,6 +749,28 @@ pub trait ChatRepository: Send + Sync {
         tenant_id: TenantId,
     ) -> AppResult<bool>;
 
+    /// `user_id`'s own plan thread in `tenant_id`, or `None` before one is
+    /// designated (carnet#1841).
+    async fn plan_thread_conversation(
+        &self,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<ConversationRecord>>;
+
+    /// Make `conversation_id` its owner's plan thread in `tenant_id`
+    /// (carnet#1841).
+    ///
+    /// `Ok(false)` when it is not a thread `user_id` owns outside any room,
+    /// about no other athlete and not their personal thread, or when another
+    /// thread already holds the designation — a race the unique index settles,
+    /// after which the caller reads the winner.
+    async fn designate_plan_thread(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<bool>;
+
     /// Open the coach's thread about one athlete: the one they already have
     /// in this tenant, active again and bound to `new`'s group and agent, or a
     /// new one when they have none (carnet#1070).
@@ -1092,12 +1114,13 @@ pub(crate) const GET_RECENT_MESSAGES_SQL: &str = concat!(
 /// slot of the cap they manage (carnet#840). Nor is a coach's thread bound to
 /// one athlete: there is one per athlete they coach, so the roster already
 /// bounds them, and a cap would leave a coach unable to open an athlete's
-/// plan (carnet#1070).
+/// plan (carnet#1070). Nor is the athlete's own plan thread: one per athlete,
+/// opened by their Plan tab (carnet#1841).
 pub(crate) const COUNT_CONVERSATIONS_SQL: &str = r"
     SELECT COUNT(*)
     FROM chat_conversations
     WHERE user_id = $1 AND tenant_id = $2 AND archived_at IS NULL AND personal = FALSE
-      AND subject_user_id IS NULL";
+      AND subject_user_id IS NULL AND plan_thread = FALSE";
 
 /// The owner slot lock: every decision that can take one of a user's
 /// `max_active_conversations` slots runs this first, in its transaction.

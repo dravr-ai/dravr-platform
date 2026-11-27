@@ -851,6 +851,10 @@ pub struct ConversationSummary {
     /// [`ConversationRecord::personal`]. A personal thread is never shared,
     /// so a list row carrying it is always the caller's own.
     pub personal: bool,
+    /// Whether this is the caller's own plan thread, their Plan tab's Dravr
+    /// tab (carnet#1841): never their personal thread, so a client lists it
+    /// apart from Home's.
+    pub plan_thread: bool,
     /// The athlete a human coach's thread works on — see
     /// [`ConversationRecord::subject_user_id`].
     pub subject_user_id: Option<Uuid>,
@@ -891,6 +895,7 @@ impl fmt::Debug for ConversationSummary {
             .field("channel_type", &self.channel_type)
             .field("archived_at", &self.archived_at)
             .field("personal", &self.personal)
+            .field("plan_thread", &self.plan_thread)
             .field("subject_user_id", &self.subject_user_id)
             .field("subject_group_id", &self.subject_group_id)
             .field("subject_display_name", &self.subject_display_name)

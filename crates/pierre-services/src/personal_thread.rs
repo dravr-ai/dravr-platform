@@ -178,6 +178,105 @@ pub async fn resolve_personal_thread(
     forge_personal(repos, user_id, tenant_id, forge).await
 }
 
+/// The athlete's own plan thread, as [`resolve_plan_thread`] found it
+/// (carnet#1841).
+#[derive(Debug, Clone)]
+pub struct PlanThread {
+    /// The conversation.
+    pub conversation: ConversationRecord,
+    /// Whether this call opened it.
+    pub opened: bool,
+}
+
+/// The athlete's own plan thread in `tenant_id` — their Plan tab's Dravr tab
+/// (carnet#1841) — opening one when they have none.
+///
+/// A new plan thread is bound to the agent of the athlete's personal thread,
+/// else of the thread personal adoption would pick, else the agent a forged
+/// personal thread would be bound to (their selected agent), so the athlete
+/// talks to the same agent about their plan as on Home. It holds no slot of
+/// the `max_active_conversations` cap, is never the personal thread, and
+/// carries no guided walk. Of two requests racing to open it, the loser's
+/// thread is removed and both read the winner.
+///
+/// # Errors
+///
+/// Returns the repository error when a thread cannot be read, forged or
+/// designated, and an internal error when no plan thread can be designated.
+pub async fn resolve_plan_thread(
+    repos: &RepositoryRegistry,
+    user_id: &str,
+    tenant_id: TenantId,
+    forge: PersonalForge<'_>,
+) -> AppResult<PlanThread> {
+    let chat = repos.chat.as_ref();
+    if let Some(conversation) = chat.plan_thread_conversation(user_id, tenant_id).await? {
+        return Ok(PlanThread {
+            conversation,
+            opened: false,
+        });
+    }
+    let home = match chat.personal_conversation(user_id, tenant_id).await? {
+        Some(personal) => Some(personal),
+        None => {
+            chat.latest_personal_conversation(user_id, tenant_id)
+                .await?
+        }
+    };
+    let agent_id = home.as_ref().map(|thread| thread.agent_id.clone());
+    let agent = agent_id.as_ref().map_or(ForgeAgent::Selected, |agent| {
+        ForgeAgent::Explicit(agent.as_deref())
+    });
+    let model = resolve_conversation_model(None, forge.llm_chain)?;
+    let forged_id = forge_conversation(
+        repos,
+        ForgeParams {
+            id: None,
+            user_id,
+            tenant_id,
+            title_fallback: forge.title_fallback,
+            model: &model,
+            agent,
+            group_id: None,
+            channel_type: CHANNEL_TYPE_WEB,
+            selection_source: AgentSelectionSource::ChatConversation,
+            guided_flow: false,
+            quota: SlotQuota::Exempt,
+        },
+    )
+    .await?;
+    let designated = chat
+        .designate_plan_thread(&forged_id, user_id, tenant_id)
+        .await?;
+    let winner = chat.plan_thread_conversation(user_id, tenant_id).await?;
+    match winner {
+        Some(conversation) if designated && conversation.id == forged_id => {
+            info!(user_id, conversation_id = %forged_id, "plan thread: opened");
+            Ok(PlanThread {
+                conversation,
+                opened: true,
+            })
+        }
+        Some(conversation) => {
+            // A racing request designated its own thread first: this one was
+            // forged for nothing and nobody was sent to it, so it goes.
+            if let Err(e) = chat
+                .delete_conversation(&forged_id, user_id, tenant_id)
+                .await
+            {
+                warn!(error = %e, conversation_id = %forged_id, "plan thread: removing the losing forge failed");
+            }
+            Ok(PlanThread {
+                conversation,
+                opened: false,
+            })
+        }
+        None => Err(AppError::internal(
+            "the plan thread could not be designated and no other holds the designation",
+        )),
+    }
+}
+
 /// The athlete's personal thread as their messaging DM reaches it: the DM
 /// writes into the thread Home shows (carnet#840).
 ///

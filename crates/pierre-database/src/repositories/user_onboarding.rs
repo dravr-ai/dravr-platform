@@ -148,10 +148,13 @@ pub struct OnboardingReset {
 /// work on that athlete's plan, kept like a room, and never the coach's own
 /// thread for the platform to adopt or post into. The designated personal
 /// thread always matches, whichever channel opened it: one adopted from the
-/// athlete's messaging DM carries that channel (carnet#840).
+/// athlete's messaging DM carries that channel (carnet#840). The athlete's own
+/// plan thread never does (carnet#1841): Home stays free of plan traffic, so
+/// it is neither adopted as the personal thread nor cleared by a reset.
 macro_rules! personal_conversation {
     () => {
         "CAST(user_id AS TEXT) = $1 AND group_id IS NULL AND subject_user_id IS NULL \
+         AND plan_thread = FALSE \
          AND (channel_type IN ('web', 'mobile') OR personal = TRUE) \
          AND NOT EXISTS (SELECT 1 FROM conversation_participants p \
          WHERE p.conversation_id = chat_conversations.id AND CAST(p.user_id AS TEXT) <> $1)"

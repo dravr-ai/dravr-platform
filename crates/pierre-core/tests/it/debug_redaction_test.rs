@@ -351,6 +351,7 @@ fn a_conversation_summary_prints_neither_its_title_nor_its_preview() {
         channel_type: Some("web".to_owned()),
         archived_at: None,
         personal: false,
+        plan_thread: false,
         subject_user_id: None,
         subject_group_id: None,
         subject_display_name: None,

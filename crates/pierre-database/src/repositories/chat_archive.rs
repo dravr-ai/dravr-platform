@@ -25,11 +25,12 @@ pub(crate) const IS_ARCHIVED_SQL: &str = r"
     WHERE id = $1 AND user_id = $2 AND tenant_id = $3";
 
 /// [`IS_ARCHIVED_SQL`], and whether the row holds one of its owner's
-/// `max_active_conversations` slots once active: the personal thread and a
-/// coach's thread about one athlete never do, so neither is refused at the cap.
+/// `max_active_conversations` slots once active: the personal thread, a
+/// coach's thread about one athlete and the athlete's own plan thread
+/// (carnet#1841) never do, so none of them is refused at the cap.
 pub(crate) const ARCHIVED_SLOT_SQL: &str = r"
     SELECT archived_at IS NOT NULL AS archived,
-           (personal = FALSE AND subject_user_id IS NULL) AS holds_slot
+           (personal = FALSE AND subject_user_id IS NULL AND plan_thread = FALSE) AS holds_slot
     FROM chat_conversations
     WHERE id = $1 AND user_id = $2 AND tenant_id = $3";
 

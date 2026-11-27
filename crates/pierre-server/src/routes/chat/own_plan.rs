@@ -17,7 +17,9 @@
 //!   on the athlete's own anchors, in their own units, read under their own
 //!   AI consents. Nothing is written;
 //! - `GET /api/me/plan/history` — the changes made to their plan from it,
-//!   newest first.
+//!   newest first;
+//! - `POST /api/me/plan/thread` — their own plan thread, the Dravr tab:
+//!   found, or opened bound to their Home thread's agent.
 //!
 //! The plan is the caller's own, under the tenant their token names: there
 //! is no coaching gate, no conversation and no coach's read to record. The
@@ -40,6 +42,7 @@ use pierre_middleware::AuthenticatedUser;
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::coach_plan_draft::{coach_plan_view, CoachDraftTarget};
 use pierre_services::locale::user_locale;
+use pierre_services::personal_thread::{resolve_plan_thread, PersonalForge};
 use pierre_services::personas::resolve_persona_locale;
 use pierre_services::plan_card::PlanCard;
 use pierre_services::plan_fueling::FuelingDisclosure;
@@ -47,18 +50,20 @@ use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::implementations::coach_session_editor::{
     preview_session, thread_families, EditorWords, OwnPlan, PlanEditor,
 };
+use pierre_tool_runtime::implementations::plan_scope::external_own_write_error;
 use pierre_tool_runtime::implementations::training_plan_push::own_pending_send;
 use uuid::Uuid;
 
 use crate::mcp::host_seams::tool_auth_method;
 use crate::mcp::resources::ServerContext;
 use crate::routes::athlete_home::TrainingPlanQuery;
+use crate::services::conversation_title::fresh_title_fallback;
 use crate::tools::runtime_adapter::into_runtime;
 
-use super::common::get_tenant_id;
+use super::common::{conversation_response, get_tenant_id};
 use super::dto::{
-    FamilyCatalogueResponse, OwnPlanResponse, PendingSendResponse, SessionPreviewRequest,
-    SubjectPlanHistoryQuery,
+    FamilyCatalogueResponse, OwnPlanResponse, PendingSendResponse, PlanThreadResponse,
+    SessionPreviewRequest, SubjectPlanHistoryQuery,
 };
 use super::subject_plan::plan_history;
 use super::subject_session::plan_date;
@@ -237,5 +242,40 @@ pub(super) async fn get_own_plan_history(
     let tenant: TenantId = get_tenant_id(&auth, &resources).await?;
     let athlete = auth.user_id;
     let response = plan_history(&resources, tenant, athlete, athlete, &query).await?;
+    Ok((StatusCode::OK, Json(response)).into_response())
+}
+
+/// `POST /api/me/plan/thread`: the athlete's own plan thread, their Plan
+/// tab's Dravr tab — the one they have, or one opened now bound to the agent
+/// of their Home thread. Never their personal thread, and outside the cap of
+/// threads they keep. Idempotent: every call answers the same thread.
+///
+/// 403 `external_transport` for an outside client: opening a thread is a
+/// write.
+pub(super) async fn open_own_plan_thread(
+    State(resources): State<Arc<ServerContext>>,
+    auth: AuthenticatedUser,
+) -> Result<Response, AppError> {
+    if auth.acts_for_outside_client() {
+        return Err(external_own_write_error());
+    }
+    let tenant = get_tenant_id(&auth, &resources).await?;
+    let user = auth.user_id.to_string();
+    let title_fallback = fresh_title_fallback(&resources, &user).await;
+    let thread = resolve_plan_thread(
+        &resources.common.repos,
+        &user,
+        tenant,
+        PersonalForge {
+            title_fallback: &title_fallback,
+            guided_flow: false,
+            llm_chain: &resources.common.config.llm_chain,
+        },
+    )
+    .await?;
+    let response = PlanThreadResponse {
+        conversation: conversation_response(&resources, thread.conversation).await,
+        opened: thread.opened,
+    };
     Ok((StatusCode::OK, Json(response)).into_response())
 }

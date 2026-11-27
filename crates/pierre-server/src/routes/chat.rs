@@ -268,6 +268,9 @@ impl ChatRoutes {
                 post(own_plan_send::review_own_plan_send),
             )
             .route("/api/me/plan/send", post(own_plan_send::send_own_plan_route))
+            // The athlete's own plan thread, their Plan tab's Dravr tab: found
+            // or opened, never their personal thread (carnet#1841)
+            .route("/api/me/plan/thread", post(own_plan::open_own_plan_thread))
             // The use-case starters an empty thread offers, ranked from the
             // athlete's state (carnet#829)
             .route("/api/chat/starters", get(starters::list_starters))

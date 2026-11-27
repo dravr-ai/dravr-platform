@@ -771,6 +771,16 @@ pub struct PersonalThreadResponse {
     pub conversation: Option<ConversationResponse>,
 }
 
+/// `POST /api/me/plan/thread`: the caller's own plan thread, their Plan
+/// tab's Dravr tab (carnet#1841).
+#[derive(Debug, Serialize)]
+pub(super) struct PlanThreadResponse {
+    /// The thread.
+    pub conversation: ConversationResponse,
+    /// Whether this call opened it.
+    pub opened: bool,
+}
+
 /// Request to open a new topic in the caller's personal thread — Home's "+"
 /// (carnet#840).
 #[derive(Debug, Default, Deserialize)]
@@ -849,6 +859,10 @@ pub struct ConversationSummaryResponse {
     /// Home opens. It is bound to no group, so it is never a Groups row.
     #[serde(default)]
     pub personal: bool,
+    /// Whether this is the caller's own plan thread (carnet#1841), their Plan
+    /// tab's Dravr tab: never the personal thread, listed apart from it.
+    #[serde(default)]
+    pub plan_thread: bool,
     /// The athlete a human coach's thread works on (carnet#1070). The three
     /// `subject_*` fields are set together or not at all.
     #[serde(default)]

@@ -1,4 +1,4 @@
-// ABOUTME: The personal-thread statements: the thread one is adopted from, the designated one, and designating it
+// ABOUTME: The personal and plan-thread statements: the thread one is adopted from, the designated ones, and designating them
 // ABOUTME: Run by impl_chat_repository!; the owner predicate is user_onboarding's personal_conversation!
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -63,6 +63,25 @@ pub(crate) const DESIGNATE_PERSONAL_SQL: &str = concat!(
     "UPDATE chat_conversations \
      SET personal = TRUE \
      WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND group_id IS NULL \
-       AND subject_user_id IS NULL AND NOT personal AND ",
+       AND subject_user_id IS NULL AND NOT personal AND NOT plan_thread AND ",
     written_by_no_room!()
 );
+
+/// The user's own plan thread in a tenant, once one is designated
+/// (carnet#1841).
+pub(crate) const PLAN_THREAD_CONVERSATION_SQL: &str = concat!(
+    "SELECT ",
+    conversation_columns!(),
+    " FROM chat_conversations c \
+     WHERE c.user_id = $1 AND c.tenant_id = $2 AND c.plan_thread = TRUE"
+);
+
+/// Designate one of the owner's threads their plan thread (carnet#1841): a
+/// thread of their own alone, in no group, about no other athlete, and never
+/// their personal thread. The partial unique index refuses a second plan
+/// thread for the same owner and tenant, and a thread already designated is
+/// not designated again.
+pub(crate) const DESIGNATE_PLAN_THREAD_SQL: &str = "UPDATE chat_conversations \
+     SET plan_thread = TRUE \
+     WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND group_id IS NULL \
+       AND subject_user_id IS NULL AND NOT personal AND NOT plan_thread";

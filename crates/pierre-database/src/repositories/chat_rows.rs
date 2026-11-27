@@ -146,6 +146,9 @@ macro_rules! impl_chat_row_parsers {
                 personal: row
                     .try_get("personal")
                     .map_err(|e| chat_column_error("personal", &e))?,
+                plan_thread: row
+                    .try_get("plan_thread")
+                    .map_err(|e| chat_column_error("plan_thread", &e))?,
                 subject_user_id: $ids::read_opt(row, "subject_user_id")?,
                 subject_group_id: $ids::read_opt(row, "subject_group_id")?,
                 subject_display_name,

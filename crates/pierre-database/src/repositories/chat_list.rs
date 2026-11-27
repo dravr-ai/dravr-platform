@@ -50,7 +50,7 @@ pub(crate) const LIST_CONVERSATIONS_SQL: &str = concat!(
     r"
     SELECT c.id, c.title, c.model, c.total_tokens, c.agent_id, c.channel_type,
            c.created_at, c.updated_at, c.group_id, c.archived_at,
-           c.personal, c.subject_user_id, c.subject_group_id,
+           c.personal, c.plan_thread, c.subject_user_id, c.subject_group_id,
            su.display_name AS subject_display_name, su.email AS subject_email,
            g.name AS group_name, co.slug AS agent_handle, co.title AS agent_title,
            (SELECT COUNT(*) FROM chat_messages m
