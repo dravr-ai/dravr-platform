@@ -20,6 +20,7 @@ use pierre_memory::training_plans::{parse_plan_date, PlanWeek};
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::coach_plan_draft::{draft_state, CoachDraftTarget};
 use pierre_services::coach_plan_notice::{tell_plan_pushed, CoachCalendarPush};
+use pierre_services::own_plan::clear_sent_marks;
 use pierre_services::plan_calendar_push::{
     calendar_holds_week_notes, desired_entries, diff_against_ledger, edited_on_calendar,
     for_calendar, push_active_plan, KeyDiff, LedgerDiff, PushPlanParams, PushReport,
@@ -371,26 +372,22 @@ pub async fn review_own_send(
 /// The athlete's own « Envoyer » (carnet#1841).
 ///
 /// Their live plan is put on their calendar by the push `push_training_plan`
-/// runs, its every gate first,
-/// overwriting the entries they edited on the provider only on the dates
-/// `replace_edited` names. `weeks` and `today` are what the send is judged
-/// on before it runs: the dates it changed are recorded in the plan's change
-/// history as the athlete's `send`, those it skipped or failed left out.
+/// runs, its every gate first, overwriting the entries they edited on the
+/// provider only on the dates `replace_edited` names. The push records the
+/// sessions it wrote as the athlete's `send` and clears their editor marks,
+/// as it does for the agent's push on the athlete's yes.
 ///
 /// # Errors
 ///
 /// The lookup errors of the gates and of the push.
 pub async fn send_own_plan(
     context: &ToolExecutionContext,
-    weeks: &[PlanWeek],
-    today: CivilDate,
     replace_edited: &[CivilDate],
 ) -> AppResult<Result<PushReport, OwnSendRefusal>> {
     let tenant = TenantId::from_uuid(context.require_tenant()?);
     if !caller_tool_enabled(&context.resources, tenant, context.user_id, PUSH_TOOL).await {
         return Ok(Err(OwnSendRefusal::TenantDisabled));
     }
-    let before = own_pending_send(context, weeks, today).await?;
     let pushed = Box::pin(push_active_plan_for(
         context,
         &json!({}),
@@ -410,30 +407,41 @@ pub async fn send_own_plan(
         }
         Err(error) => return Err(error),
     };
-    let left: Vec<CivilDate> = report
-        .skipped
-        .iter()
-        .map(|entry| entry.date)
-        .chain(report.failed.iter().map(|entry| entry.date))
-        .collect();
-    let mut dates: Vec<CivilDate> = before
-        .entries
-        .iter()
-        .map(|key| key.date)
-        .filter(|date| !left.contains(date))
-        .collect();
+    Ok(Ok(report))
+}
+
+/// What the athlete's own send leaves once it wrote their calendar
+/// (carnet#1841): the dates it sent recorded as their `send`, and the editor
+/// marks on those dates cleared (Phil, 2026-11-27).
+///
+/// Best-effort: the calendar write has landed, so a mark that cannot be
+/// cleared is logged, never reported as a failed send.
+async fn own_send_landed(
+    context: &ToolExecutionContext,
+    tenant: TenantId,
+    athlete: Uuid,
+    report: &PushReport,
+) {
+    let mut dates = report.sent_dates.clone();
     dates.sort_unstable();
     dates.dedup();
-    if !dates.is_empty() {
-        let change = PlanChange {
-            source: PlanChangeSource::Athlete,
-            kind: PlanChangeKind::Send,
-            dates: &dates,
-        };
-        let own = CoachDraftTarget::own(tenant, context.user_id);
-        record_plan_change(context.resources.repos(), &own, change).await;
+    if dates.is_empty() {
+        return;
     }
-    Ok(Ok(report))
+    let repos = context.resources.repos();
+    let change = PlanChange {
+        source: PlanChangeSource::Athlete,
+        kind: PlanChangeKind::Send,
+        dates: &dates,
+    };
+    record_plan_change(repos, &CoachDraftTarget::own(tenant, athlete), change).await;
+    if let Err(error) = clear_sent_marks(repos, tenant, athlete, &dates).await {
+        warn!(
+            error = %error,
+            user_id = %athlete,
+            "own send: the sent dates' editor marks could not be cleared"
+        );
+    }
 }
 
 /// The calendars a `choose_calendar` refusal offers, as the push names them.
@@ -883,6 +891,9 @@ pub(super) async fn push_active_plan_for(
             emit_calendar_sync_completed(tenant, user_id, &target, trigger, landed);
         }
         scope.record_coach_write(trigger, attempted);
+        if scope.athlete_name().is_none() {
+            own_send_landed(context, tenant, user_id, &report).await;
+        }
         Ok(PlanPush::Pushed(report))
     })
     .await

@@ -26,8 +26,8 @@ use uuid::Uuid;
 
 use crate::backends::postgres::PostgresDatabase;
 use crate::repositories::chat::personal_sql::{
-    DESIGNATE_PERSONAL_SQL, LATEST_PERSONAL_CONVERSATION_SQL,
-    PERSONAL_CONVERSATION_SQL, PLAN_THREAD_CONVERSATION_SQL,
+    DESIGNATE_PERSONAL_SQL, LATEST_PERSONAL_CONVERSATION_SQL, PERSONAL_CONVERSATION_SQL,
+    PLAN_THREAD_CONVERSATION_SQL,
 };
 use crate::repositories::chat::{
     owner_slot_lock_sql, AssistantMessage, ChatRepository, GroupRoomClaim, NewConversation,

@@ -2674,8 +2674,7 @@ async fn the_send_review_names_an_entry_edited_on_the_provider_and_the_send_repl
     let today = Timestamp::now().utc_date();
 
     // The first send puts both runs on the calendar.
-    let weeks = own_live_weeks(&fixture).await;
-    let first = send_own_plan(&context, &weeks, today, &[])
+    let first = send_own_plan(&context, &[])
         .await?
         .expect("the first send runs");
     assert_eq!(first.created, 2, "got: {first:?}");
@@ -2692,8 +2691,18 @@ async fn the_send_review_names_an_entry_edited_on_the_provider_and_the_send_repl
             &[(
                 monday,
                 "",
+                // Edited and added from the Plan tab: each carries its mark.
                 vec![
-                    planned(monday, "run", "Easy 60", Some(60), "Z1"),
+                    PlannedDay {
+                        coach_original: Some(Box::new(planned(
+                            monday,
+                            "run",
+                            "Tempo 45",
+                            Some(45),
+                            "Z3",
+                        ))),
+                        ..planned(monday, "run", "Easy 60", Some(60), "Z1")
+                    },
                     planned(
                         monday + Elapsed::days(2),
                         "run",
@@ -2701,6 +2710,16 @@ async fn the_send_review_names_an_entry_edited_on_the_provider_and_the_send_repl
                         Some(50),
                         "Z2",
                     ),
+                    PlannedDay {
+                        coach_added: true,
+                        ..planned(
+                            monday + Elapsed::days(3),
+                            "run",
+                            "Strides 30",
+                            Some(30),
+                            "Z2",
+                        )
+                    },
                 ],
             )],
         )
@@ -2717,9 +2736,7 @@ async fn the_send_review_names_an_entry_edited_on_the_provider_and_the_send_repl
     );
 
     // Sent as it stands, the edited entry is left alone.
-    let kept = send_own_plan(&context, &weeks, today, &[])
-        .await?
-        .expect("the send runs");
+    let kept = send_own_plan(&context, &[]).await?.expect("the send runs");
     assert_eq!(kept.updated, 0, "got: {kept:?}");
     assert_eq!(
         kept.skipped
@@ -2729,9 +2746,30 @@ async fn the_send_review_names_an_entry_edited_on_the_provider_and_the_send_repl
         [monday],
         "bug: the edited entry was overwritten without « Remplacer »: {kept:?}"
     );
+    // The send clears the mark of the session it put on the calendar and
+    // keeps the one it left alone (Phil, 2026-11-27).
+    let marks: Vec<(String, bool)> = own_live_weeks(&fixture)
+        .await
+        .iter()
+        .flat_map(|week| week.days.iter())
+        .map(|day| {
+            (
+                day.date.clone(),
+                day.coach_original.is_some() || day.coach_added,
+            )
+        })
+        .collect();
+    assert!(
+        marks.contains(&(monday.to_string(), true)),
+        "bug: the skipped session lost its mark: {marks:?}"
+    );
+    assert!(
+        marks.contains(&((monday + Elapsed::days(3)).to_string(), false)),
+        "bug: the sent session kept its mark: {marks:?}"
+    );
 
     // « Remplacer » on Monday overwrites it.
-    let replaced = send_own_plan(&context, &weeks, today, &[monday])
+    let replaced = send_own_plan(&context, &[monday])
         .await?
         .expect("the send runs");
     assert_eq!(replaced.updated, 1, "got: {replaced:?}");

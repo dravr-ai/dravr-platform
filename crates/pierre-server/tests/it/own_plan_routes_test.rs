@@ -33,6 +33,7 @@ use pierre_database::repositories::{
 };
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_mcp_server::routes::chat::ChatRoutes;
 use pierre_memory::training_plans::{GoalRace, PlanWeek, PlannedDay, RacePriority};
 use pierre_services::coach_plan_draft::CoachDraftTarget;
@@ -117,6 +118,18 @@ impl Fixture {
             .await;
         let status = resp.status_code();
         (status, resp.json())
+    }
+
+    /// Home's read of the plan, `GET /api/me/training-plan`.
+    async fn home_plan(&self) -> Value {
+        let resp = AxumTestRequest::get("/api/me/training-plan")
+            .header("authorization", &self.athlete.auth)
+            .send(athlete_home_routes().with_state(Arc::clone(&self.res)))
+            .await;
+        let status = resp.status_code();
+        let body: Value = resp.json();
+        assert_eq!(status, StatusCode::OK, "{body}");
+        body
     }
 
     async fn plan(&self) -> Value {
@@ -575,6 +588,21 @@ async fn the_first_session_added_starts_a_season_with_no_race() {
     assert_eq!(
         added["added"], true,
         "bug: a session the athlete added is marked so, for Annuler: {body}"
+    );
+    // Home shows the plan plainly: the mark is the Plan tab's alone
+    // (Phil, 2026-11-27).
+    let home = fx.home_plan().await;
+    let on_home = home["plan"]["weeks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|week| week["days"].as_array().unwrap())
+        .find(|day| day["date"] == on(2))
+        .unwrap_or_else(|| panic!("fixture: Home shows the added session: {home}"));
+    assert_eq!(on_home["workout"], "Easy 40", "{home}");
+    assert!(
+        on_home["added"] != true && on_home["edited"] != true,
+        "bug: Home shows the athlete's « Ajoutée » mark, which is the Plan tab's alone: {home}"
     );
     assert_eq!(
         fx.history_kinds().await,

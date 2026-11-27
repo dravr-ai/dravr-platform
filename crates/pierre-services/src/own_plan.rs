@@ -43,7 +43,7 @@ use pierre_database::repositories::{
     SavePlanBundleParams, SavedPlanBundle,
 };
 use pierre_database::RepositoryRegistry;
-use pierre_memory::training_plans::{training_content, PlanWeek, PlannedDay};
+use pierre_memory::training_plans::{parse_plan_date, training_content, PlanWeek, PlannedDay};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -431,6 +431,71 @@ pub async fn accept_proposal(
         "athlete accepted a proposal of their agent's"
     );
     Ok(ProposalAccept::Accepted(group))
+}
+
+/// Clear the editor marks the athlete's own edits left on `dates` of their
+/// live plan, once a send put those dates on their calendar (carnet#1841,
+/// Phil 2026-11-27).
+///
+/// « Ajoutée » / « Modifiée » and the restore point go with the send; marks
+/// on other dates stay, and a week with none on `dates` is not re-saved.
+/// Each week keeps its author. The sessions are unchanged, so the ledger
+/// keys and hashes, and with them what a send would change, are too.
+///
+/// # Errors
+///
+/// The repository errors of the live read and of the re-save.
+pub async fn clear_sent_marks(
+    repos: &RepositoryRegistry,
+    tenant: TenantId,
+    athlete: Uuid,
+    dates: &[CivilDate],
+) -> AppResult<()> {
+    if dates.is_empty() {
+        return Ok(());
+    }
+    let view = coach_plan_view(repos, &CoachDraftTarget::own(tenant, athlete)).await?;
+    let Some(live) = view.live else {
+        return Ok(());
+    };
+    for week in &live.weeks {
+        let mut days = week.days.clone();
+        let mut cleared = false;
+        for day in &mut days {
+            let sent = parse_plan_date(&day.date).is_some_and(|date| dates.contains(&date));
+            if sent && (day.coach_original.is_some() || day.coach_added) {
+                day.coach_original = None;
+                day.coach_added = false;
+                cleared = true;
+            }
+        }
+        if !cleared {
+            continue;
+        }
+        write_live_weeks(
+            repos,
+            tenant,
+            athlete,
+            LiveWrite {
+                author: PlanAuthor::from_agent(week.author_agent_id.as_deref()),
+                goal_fact_id: None,
+                outline: None,
+                replace_season: false,
+                weeks: &[PlanWeekInput {
+                    week_start: &week.week_start,
+                    focus: &week.focus,
+                    days: &days,
+                    adjustment_reason: &week.adjustment_reason,
+                    phase_index: week.phase_index,
+                }],
+                transport_policy: live.plan.transport_policy,
+                source: PlanChangeSource::Athlete,
+                kind: PlanChangeKind::Send,
+            },
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

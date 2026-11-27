@@ -163,33 +163,6 @@ pub(super) struct SendFailed {
     pub reason: &'static str,
 }
 
-/// The stable code of a push's failed entry, read from what the push wrote
-/// of it: a provider call it refused or could not reach, else Dravr's own
-/// ledger.
-pub(super) fn failure_reason(error: &str) -> &'static str {
-    let provider = ["create refused:", "update refused:", "delete refused:"]
-        .iter()
-        .any(|prefix| error.starts_with(prefix));
-    if !provider {
-        return "internal";
-    }
-    let lowered = error.to_lowercase();
-    if [
-        "timed out",
-        "timeout",
-        "connect",
-        "unreachable",
-        "unavailable",
-    ]
-    .iter()
-    .any(|sign| lowered.contains(sign))
-    {
-        "provider_unreachable"
-    } else {
-        "provider_refused"
-    }
-}
-
 /// `POST /api/me/plan/send` answered 200: what the send did, and what is
 /// still pending after it.
 #[derive(Debug, Serialize)]
@@ -227,7 +200,7 @@ impl SendResponse {
                 .into_iter()
                 .map(|entry| SendFailed {
                     date: entry.date,
-                    reason: failure_reason(&entry.error),
+                    reason: entry.cause.as_str(),
                 })
                 .collect(),
             pending_send,

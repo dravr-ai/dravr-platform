@@ -268,9 +268,7 @@ pub(super) async fn send_own_plan_route(
         .iter()
         .map(|raw| plan_date(raw))
         .collect::<Result<Vec<CivilDate>, AppError>>()?;
-    let weeks = live_weeks(&resources, &caller).await?;
-    let today = athlete_today(&resources.common.repos, auth.user_id).await;
-    let report = match send_own_plan(&caller.context, &weeks, today, &replace_edited).await? {
+    let report = match send_own_plan(&caller.context, &replace_edited).await? {
         Ok(report) => report,
         Err(refused) => return Ok(send_refused(&refused)),
     };
@@ -282,6 +280,9 @@ pub(super) async fn send_own_plan_route(
             "athlete's send: an entry failed"
         );
     }
+    // What « Envoyer » would send now, read from the plan as the send left it.
+    let weeks = live_weeks(&resources, &caller).await?;
+    let today = athlete_today(&resources.common.repos, auth.user_id).await;
     let after = own_pending_send(&caller.context, &weeks, today).await?;
     let response = SendResponse::of(report, PendingSendResponse::of(after));
     Ok((StatusCode::OK, Json(response)).into_response())

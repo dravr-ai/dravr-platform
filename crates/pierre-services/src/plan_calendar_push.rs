@@ -64,8 +64,10 @@ use uuid::Uuid;
 use crate::plan_fueling::FuelingDisclosure;
 
 mod diff;
+mod failure;
 mod target;
 pub use diff::{diff_against_ledger, edited_on_calendar, KeyChange, KeyDiff, LedgerDiff};
+pub use failure::FailureCause;
 pub use target::{
     calendar_holds_week_notes, calendar_read_target, chosen_calendar, connected_calendars,
     named_calendar, resolve_calendar_target, writes_a_calendar, CalendarCandidates,
@@ -375,6 +377,10 @@ pub struct FailedEntry {
     pub name: String,
     /// What went wrong, in the provider's or the database's words.
     pub error: String,
+    /// Why, as a client words it; never serialised (carnet#1841).
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub cause: FailureCause,
 }
 
 /// What a push did.
@@ -415,6 +421,12 @@ pub struct PushReport {
     /// go to — saying where it went instead (carnet#1393).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub calendar_note: Option<String>,
+    /// The dates of the plan sessions this push created or updated, which
+    /// the athlete's own send clears its editor marks on (carnet#1841);
+    /// never serialised.
+    #[serde(skip)]
+    #[schemars(skip)]
+    pub sent_dates: Vec<CivilDate>,
 }
 
 /// Inputs of one push.
@@ -670,6 +682,7 @@ pub async fn push_active_plan(
                                 "the entry is gone from the calendar but the ledger row could \
                                  not be marked withdrawn: {e}"
                             ),
+                            cause: FailureCause::Internal,
                         }),
                     }
                 }
@@ -681,6 +694,7 @@ pub async fn push_active_plan(
                         date: row.prescribed_for_date,
                         name: row.template_slug.clone().unwrap_or_default(),
                         error: format!("delete refused: {e}"),
+                        cause: FailureCause::of_provider(&e),
                     });
                 }
             }
@@ -906,10 +920,12 @@ impl LedgerWrite<'_> {
             Ok(event_id) => {
                 if self.settle(Some(event_id), supersedes, report).await {
                     report.created += 1;
+                    self.note_sent(report);
                 }
             }
             Err(e) => {
-                self.record_failure(&format!("create refused: {e}"), report)
+                let cause = FailureCause::of_provider(&e);
+                self.record_failure(&format!("create refused: {e}"), cause, report)
                     .await;
             }
         }
@@ -934,10 +950,12 @@ impl LedgerWrite<'_> {
                     .await
                 {
                     report.updated += 1;
+                    self.note_sent(report);
                 }
             }
             Err(e) => {
-                self.record_failure(&format!("update refused: {e}"), report)
+                let cause = FailureCause::of_provider(&e);
+                self.record_failure(&format!("update refused: {e}"), cause, report)
                     .await;
             }
         }
@@ -964,11 +982,14 @@ impl LedgerWrite<'_> {
                 )
                 .await
             {
-                report.failed.push(self.failed_entry(format!(
-                    "the entry is on the calendar (event {}) but the previous ledger row could \
-                     not be superseded: {e}",
-                    event_id.as_deref().unwrap_or("unknown")
-                )));
+                report.failed.push(self.failed_entry(
+                    format!(
+                        "the entry is on the calendar (event {}) but the previous ledger row \
+                         could not be superseded: {e}",
+                        event_id.as_deref().unwrap_or("unknown")
+                    ),
+                    FailureCause::Internal,
+                ));
                 return false;
             }
         }
@@ -982,35 +1003,50 @@ impl LedgerWrite<'_> {
         {
             Ok(()) => true,
             Err(e) => {
-                report.failed.push(self.failed_entry(format!(
-                    "the entry is on the calendar (event {}) but its ledger row failed to save — \
-                     the next push adopts it: {e}",
-                    event_id.as_deref().unwrap_or("unknown")
-                )));
+                report.failed.push(self.failed_entry(
+                    format!(
+                        "the entry is on the calendar (event {}) but its ledger row failed to \
+                         save — the next push adopts it: {e}",
+                        event_id.as_deref().unwrap_or("unknown")
+                    ),
+                    FailureCause::Internal,
+                ));
                 false
             }
         }
     }
 
-    async fn record_failure(&self, error: &str, report: &mut PushReport) {
+    async fn record_failure(&self, error: &str, cause: FailureCause, report: &mut PushReport) {
         if let Err(e) = self
             .record(None, PrescribedWorkout::STATUS_FAILED, None)
             .await
         {
-            report.failed.push(self.failed_entry(format!(
-                "{error}; and the failure could not be recorded: {e}"
-            )));
+            report.failed.push(self.failed_entry(
+                format!("{error}; and the failure could not be recorded: {e}"),
+                cause,
+            ));
             return;
         }
-        report.failed.push(self.failed_entry(error.to_owned()));
+        report
+            .failed
+            .push(self.failed_entry(error.to_owned(), cause));
     }
 
-    fn failed_entry(&self, error: String) -> FailedEntry {
+    fn failed_entry(&self, error: String, cause: FailureCause) -> FailedEntry {
         FailedEntry {
             external_id: self.entry.session.external_id.clone(),
             date: self.entry.session.date,
             name: self.entry.session.name.clone(),
             error,
+            cause,
+        }
+    }
+
+    /// Note a plan session this push wrote: its date is one the athlete's own
+    /// send clears its editor marks on. A week note marks nothing.
+    fn note_sent(&self, report: &mut PushReport) {
+        if self.entry.source == CalendarEventSource::PlanDay {
+            report.sent_dates.push(self.entry.session.date);
         }
     }
 

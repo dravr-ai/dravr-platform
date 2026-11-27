@@ -555,10 +555,16 @@ async fn load_active_plan(
             "this athlete's training plan is not available over this interface",
         ));
     }
-    let weeks = repos
+    let mut weeks = repos
         .training_plans
         .list_plan_weeks(&tenant_id, &user, &plan.id, false)
         .await?;
+    // The athlete's own « Ajoutée » / « Modifiée » marks show only in their
+    // Plan tab, which reads the live plan through `coach_plan_view`
+    // (carnet#1841): every card shows the plan plainly.
+    for week in &mut weeks {
+        week.drop_coach_marks();
+    }
     let fueling = FuelingDisclosure::for_athlete(repos, tenant, user_id).await?;
     Ok(Some(ActivePlan {
         plan,
