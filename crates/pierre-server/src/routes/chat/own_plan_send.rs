@@ -77,8 +77,7 @@ async fn live_weeks(
     Ok(coach_plan_view(&resources.common.repos, &target)
         .await?
         .live
-        .map(|season| season.weeks)
-        .unwrap_or_default())
+        .map_or_default(|season| season.weeks))
 }
 
 /// The status a refused send answers with: 409 to choose a calendar, 422
