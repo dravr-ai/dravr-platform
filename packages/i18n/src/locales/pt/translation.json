@@ -2885,7 +2885,7 @@
       "previousMonth": "Mês anterior",
       "nextMonth": "Mês seguinte",
       "noPlan": "Ainda sem plano: aqui só aparece o que você já fez.",
-      "historyStart": "Suas atividades guardadas começam em {{date}}; os dias anteriores não são mantidos.",
+      "historyStart": "As tuas atividades guardadas começam em {{date}}; os dias anteriores não são mantidos.",
       "stepsOne": "{{count}} etapa",
       "stepsN": "{{count}} etapas",
       "notKept": "Este dia é anterior às suas atividades guardadas.",
