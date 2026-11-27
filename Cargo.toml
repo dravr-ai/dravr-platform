@@ -26,12 +26,12 @@ members = ["crates/*"]
 dravr-tronc = "8.2.0"
 
 # Sports science engine -- VDOT, TSS, TRIMP, FTP, VO2max, recovery, nutrition.
-dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.62.0" }
+dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.63.0" }
 
 # Reply claim checking: extraction, the verdict layers and the claim types.
 # Its dravr-cageux pin is a companion of this one (see its satellites.toml
 # stanza): the two move in one commit or Cargo.lock holds two.
-dravr-colleur = { git = "https://github.com/dravr-ai/dravr-colleur.git", tag = "v0.2.0" }
+dravr-colleur = { git = "https://github.com/dravr-ai/dravr-colleur.git", tag = "v0.2.1" }
 
 # Messaging types and channel adapters.
 dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.15.0" }
@@ -39,7 +39,7 @@ dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.1
 # Activity history: kept originals, archive imports and the one FIT decoder.
 # Its dravr-cageux pin is a companion of this one (see its satellites.toml
 # stanza): the two move in one commit or Cargo.lock holds two.
-dravr-barrage = { git = "https://github.com/dravr-ai/dravr-barrage.git", tag = "v0.35.3", default-features = false }
+dravr-barrage = { git = "https://github.com/dravr-ai/dravr-barrage.git", tag = "v0.35.4", default-features = false }
 
 # Notification transport.
 dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", tag = "v0.12.0" }
@@ -50,7 +50,7 @@ dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git
 
 # Health provider sync. default-features off so each consumer's own
 # provider-* features select the backends.
-dravr-enforme = { version = "0.24.1", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.24.1", default-features = false }
+dravr-enforme = { version = "0.24.2", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.24.2", default-features = false }
 
 # Health and wellness domain models.
 dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.12.0" }

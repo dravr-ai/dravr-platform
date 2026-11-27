@@ -1454,8 +1454,8 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-barrage"
-version = "0.35.3"
-source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.35.3#576ed2eaac42ea845e840e38adf1e0def2f24ced"
+version = "0.35.4"
+source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.35.4#46454f0b8baa671c44edc843153c8049be744a34"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1500,8 +1500,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.62.0"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.62.0#22d30f55bf3f177130e64a889050822d24fc1138"
+version = "0.63.0"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.63.0#de6aba5fe38be95c41b2e256b3beef849009af21"
 dependencies = [
  "async-trait",
  "dravr-tronc",
@@ -1544,8 +1544,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-colleur"
-version = "0.2.0"
-source = "git+https://github.com/dravr-ai/dravr-colleur.git?tag=v0.2.0#ff54b379d13f233ee28ab0f033bed2e03addd742"
+version = "0.2.1"
+source = "git+https://github.com/dravr-ai/dravr-colleur.git?tag=v0.2.1#3a8223d75f21ed760e6a74a36ca054ab32c18a68"
 dependencies = [
  "async-trait",
  "dravr-cageux",
@@ -1584,8 +1584,8 @@ source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=bbd0158251c
 
 [[package]]
 name = "dravr-enforme"
-version = "0.24.1"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.24.1#bfba02756de10a3fcdcfd7f15bda087d4c29d929"
+version = "0.24.2"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.24.2#151e2844295741a62812706e226658cbec2115ef"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
