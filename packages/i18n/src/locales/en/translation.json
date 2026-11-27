@@ -3920,6 +3920,9 @@
         "body": "{0} published your training plan for {1}. You'll find it on Home.",
         "title": "New plan from {0}"
       },
+      "coach_plan_published_no_race": {
+        "body": "{0} published your training plan. You'll find it on Home."
+      },
       "coach_plan_pushed": {
         "body": "{0} put the workouts from your plan on your {1} calendar.",
         "title": "Workouts on your {1} calendar"

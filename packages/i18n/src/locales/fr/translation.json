@@ -3920,6 +3920,9 @@
         "body": "{0} a publié ton plan d’entraînement pour {1}. Tu le retrouves sur l’Accueil.",
         "title": "Plan publié par {0}"
       },
+      "coach_plan_published_no_race": {
+        "body": "{0} a publié ton plan d’entraînement. Tu le retrouves sur l’Accueil."
+      },
       "coach_plan_pushed": {
         "body": "{0} a ajouté les séances de ton plan à ton calendrier {1}.",
         "title": "Séances ajoutées à ton calendrier {1}"
