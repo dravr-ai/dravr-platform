@@ -26,7 +26,7 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::Row;
 
 /// The migration under test; everything before it builds the old shape.
-const STEP_UP_MIGRATION: i64 = 20_261_126_100_000;
+const STEP_UP_MIGRATION: i64 = 20_261_126_200_000;
 
 // The migration files are embedded on purpose: the shipped SQL is the data
 // under test, replayed up to and through the step-up migration, since a test
