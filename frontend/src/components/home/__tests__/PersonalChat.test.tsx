@@ -371,7 +371,9 @@ describe('Home — the personal surface', () => {
     renderHome('conv-fuel');
 
     await waitFor(() => expect(screen.getByTestId('thread-title')).toHaveTextContent('Agent Ravitaillement'));
-    expect(screen.getByTestId('thread-subtitle')).toHaveTextContent('@fuelling-agent');
+    // Home names its agent in the title and leaves the @handle out.
+    expect(screen.queryByTestId('thread-subtitle')).not.toBeInTheDocument();
+    expect(screen.getByTestId('thread-header')).not.toHaveTextContent('@fuelling-agent');
     // The reply is signed with the same name the header prints.
     await screen.findByText('Bonjour, parlons ravitaillement.');
     expect(screen.getAllByText('Agent Ravitaillement').length).toBeGreaterThan(1);
@@ -381,6 +383,46 @@ describe('Home — the personal surface', () => {
     await user.click(screen.getByTestId('home-history-button'));
     const history = await screen.findByRole('dialog', { name: 'History' });
     expect(await within(history).findByRole('button', { name: /Fuelling Agent/ })).toBeInTheDocument();
+  });
+
+  // Home leaves out the handle only: a plan thread and a room run on an agent
+  // with a handle too, and their line names the athlete or the group.
+  it("names a plan thread's athlete and a room's group under the title, never their agent's handle", async () => {
+    getConversations.mockResolvedValue({
+      conversations: [
+        {
+          id: 'conv-plan',
+          title: 'Alice Runner',
+          agent_id: null,
+          agent_handle: 'marathon-coach',
+          subject_user_id: 'user-alice',
+          subject_display_name: 'Alice Runner',
+          channel_type: 'web',
+          unread_count: 0,
+          updated_at: '2026-10-05T09:00:00Z',
+        },
+        {
+          id: 'room-gravel',
+          title: 'Saturday gravel',
+          agent_id: null,
+          agent_handle: 'gravel',
+          group_id: 'group-9',
+          group_name: 'Sunday Riders',
+          unread_count: 0,
+          updated_at: '2026-10-05T08:00:00Z',
+        },
+      ],
+      total: 2,
+    });
+
+    const { unmount } = renderHome('conv-plan');
+    expect(await screen.findByTestId('thread-subtitle')).toHaveTextContent('Plan · Alice Runner');
+    expect(screen.getByTestId('thread-header')).not.toHaveTextContent('@marathon-coach');
+    unmount();
+
+    renderHome('room-gravel');
+    expect(await screen.findByTestId('thread-subtitle')).toHaveTextContent('Sunday Riders');
+    expect(screen.getByTestId('thread-header')).not.toHaveTextContent('@gravel');
   });
 
   it('keeps the stored title for a thread no agent is bound to', async () => {

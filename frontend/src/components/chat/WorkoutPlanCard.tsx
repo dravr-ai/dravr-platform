@@ -24,6 +24,7 @@ import {
   formatCivilDate,
   ROW_DATE,
   SESSION_EDITOR_KEYS,
+  sessionFacts,
   sportLabel,
 } from '@pierre/ui-logic';
 import { BADGE_TONE, Badge } from '../ui';
@@ -286,14 +287,18 @@ function FoldedSteps({ steps }: { steps: readonly PlanStep[] }) {
 /**
  * What a date's entry says, wherever it is laid out: the session — its text,
  * duration and intensity, the marks it carries — then its steps, template and
- * fuel; a rest entry is the one word. `foldSteps` folds the steps under their
- * count, for the stacked list.
+ * fuel; a rest entry is the one word. `stacked` lays it out like Home's Today
+ * card, for a column too narrow for the table: the title on its own line, the
+ * sport, minutes and intensity under it, the steps folded under their count.
  */
-function EntryBody({ day, sessionId, foldSteps = false }: { day: PlanDay; sessionId: string; foldSteps?: boolean }) {
+function EntryBody({ day, sessionId, stacked = false }: { day: PlanDay; sessionId: string; stacked?: boolean }) {
   const { t } = useTranslation();
-  const meta = [day.duration_min !== undefined ? `${day.duration_min} min` : null, day.intensity].filter(
-    (part): part is string => typeof part === 'string' && part.length > 0,
-  );
+  // The table's sport has a cell of its own; the stacked facts carry it, as Today's card does.
+  const meta = stacked
+    ? sessionFacts(t, day)
+    : [day.duration_min !== undefined ? `${day.duration_min} min` : null, day.intensity].filter(
+        (part): part is string => typeof part === 'string' && part.length > 0,
+      );
   const steps = day.steps ?? [];
   const outside = outsideEvidenceLabel(day, t);
   const countsAs = countsAsLine(day, t);
@@ -309,6 +314,23 @@ function EntryBody({ day, sessionId, foldSteps = false }: { day: PlanDay; sessio
       </Badge>
     )
   );
+  // What the evidence says of the session: outside it, its chip, a coach's call.
+  const chips =
+    outside || day.evidence || day.coach_call ? (
+      <>
+        {outside && (
+          <Badge variant="warning" className="ml-2">
+            {outside}
+          </Badge>
+        )}
+        {day.evidence && <EvidenceChip evidence={day.evidence} />}
+        {day.coach_call && (
+          <Badge variant="neutral" className="ml-2" data-testid="plan-day-coach-call">
+            {t(COACH_CALL_KEYS.badge)}
+          </Badge>
+        )}
+      </>
+    ) : null;
   return (
     <>
       {day.rest ? (
@@ -320,26 +342,35 @@ function EntryBody({ day, sessionId, foldSteps = false }: { day: PlanDay; sessio
         </>
       ) : (
         <>
-          <span id={sessionId} className="font-medium text-on-surface">
-            {day.workout}
-          </span>
-          {meta.length > 0 && (
-            <span className="text-on-surface-variant">
-              {' · '}
-              {meta.join(' · ')}
-            </span>
-          )}
-          {mark}
-          {outside && (
-            <Badge variant="warning" className="ml-2">
-              {outside}
-            </Badge>
-          )}
-          {day.evidence && <EvidenceChip evidence={day.evidence} />}
-          {day.coach_call && (
-            <Badge variant="neutral" className="ml-2" data-testid="plan-day-coach-call">
-              {t(COACH_CALL_KEYS.badge)}
-            </Badge>
+          {stacked ? (
+            <>
+              <span className="block">
+                <span id={sessionId} className="font-medium text-on-surface">
+                  {day.workout}
+                </span>
+                {mark}
+              </span>
+              {(meta.length > 0 || chips) && (
+                <span className="block text-on-surface-variant" data-testid="plan-day-facts">
+                  {meta.join(' · ')}
+                  {chips}
+                </span>
+              )}
+            </>
+          ) : (
+            <>
+              <span id={sessionId} className="font-medium text-on-surface">
+                {day.workout}
+              </span>
+              {meta.length > 0 && (
+                <span className="text-on-surface-variant">
+                  {' · '}
+                  {meta.join(' · ')}
+                </span>
+              )}
+              {mark}
+              {chips}
+            </>
           )}
           {countsAs && (
             <div className="mt-0.5 text-xs text-on-surface-variant" data-testid="plan-day-counts-as">
@@ -354,7 +385,7 @@ function EntryBody({ day, sessionId, foldSteps = false }: { day: PlanDay; sessio
         </>
       )}
       {steps.length > 0 &&
-        (foldSteps ? (
+        (stacked ? (
           <FoldedSteps steps={steps} />
         ) : (
           <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-on-surface-variant">
@@ -392,9 +423,10 @@ function EntryBody({ day, sessionId, foldSteps = false }: { day: PlanDay; sessio
 /**
  * One date's entries stacked, for a column too narrow for the card's table:
  * the Home page's day detail, where the selected cell already says the date.
- * Each entry is its sport over the same words the card's row carries, its
- * steps folded under their count, then `action` (carnet#1840). With no date
- * cell, an action is described by the entry's own title.
+ * Each entry is laid out like Home's Today card — its title, then its sport,
+ * minutes and intensity — with its steps folded under their count, then
+ * `action` (carnet#1840). With no date cell, an action is described by the
+ * entry's own title.
  */
 export function PlanDateList({ entries, action }: { entries: readonly PlanDay[]; action?: PlanDayAction }) {
   return (
@@ -406,7 +438,7 @@ export function PlanDateList({ entries, action }: { entries: readonly PlanDay[];
   );
 }
 
-/** One entry of the stacked list: its sport, its words, its action. */
+/** One entry of the stacked list: its title, its facts, its action. */
 function DayItem({
   day,
   entries,
@@ -418,12 +450,10 @@ function DayItem({
   position: number;
   action?: PlanDayAction;
 }) {
-  const { t } = useTranslation();
   const sessionId = useId();
   return (
     <li className="border-b ghost-border-faint py-1.5 text-sm last:border-0" data-testid={`plan-day-${day.date}-${position}`}>
-      {!day.rest && <span className="block text-xs text-on-surface-variant">{sportLabel(t, day.sport)}</span>}
-      <EntryBody day={day} sessionId={sessionId} foldSteps />
+      <EntryBody day={day} sessionId={sessionId} stacked />
       {action && <div className="mt-1">{action(day, { dateId: sessionId, sessionId, entries, position })}</div>}
     </li>
   );

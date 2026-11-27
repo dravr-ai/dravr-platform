@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode, type UIEvent } from 'react';
 import { History, PanelRightClose, PanelRightOpen, Plus } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { avatarSlot, initialsFor } from '@pierre/chat-utils';
+import { avatarSlot, initialsFor, threadSubtitle } from '@pierre/chat-utils';
 import type { UseCaseStarter } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { chatApi } from '../../services/api';
@@ -97,6 +97,11 @@ export default function PersonalChat({
   // replies signed "Agent Ravitaillement" (carnet#1146). A rename shows in
   // the History list; the header follows the agent.
   const title = thread.activeCoachTitle ?? thread.title;
+  // Home is the athlete's own conversation with their agent, named in the
+  // title: the @handle under it is how a room addresses an agent and says
+  // nothing here, so Home leaves it out. A room's group and a plan thread's
+  // athlete still show.
+  const homeSubtitle = threadSubtitle(activeConversation)?.kind === 'handle' ? null : thread.subtitle;
 
   const isDesktop = useIsDesktop();
   const isMobile = useIsMobile();
@@ -265,7 +270,7 @@ export default function PersonalChat({
         selectedConversation ? (
           <ThreadHeader
             title={title}
-            subtitle={thread.subtitle}
+            subtitle={homeSubtitle}
             initials={initialsFor(title)}
             avatarSlot={activeConversation ? avatarSlot(activeConversation) : 0}
             avatarShape={activeConversation?.group_id ? 'square' : 'circle'}

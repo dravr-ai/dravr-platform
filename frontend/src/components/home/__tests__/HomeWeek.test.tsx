@@ -158,6 +158,8 @@ describe('HomeWeek — this week', () => {
     expect(cell).toHaveAttribute('aria-controls', 'home-week-detail');
     expect(within(detail).getByText('No activity this day.')).toBeInTheDocument();
     expect(within(detail).getByText('Tempo run')).toBeInTheDocument();
+    // Laid out like Today's card: the title alone, its sport, minutes and intensity under it.
+    expect(within(detail).getByTestId('plan-day-facts')).toHaveTextContent(/^Run · 50 min · threshold/);
     expect(within(detail).getByText('Fuel')).toBeInTheDocument();
     // The steps wait under their count until asked for (carnet#1840).
     const steps = within(detail).getByRole('button', { name: '3 steps' });
