@@ -1544,8 +1544,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-colleur"
-version = "0.2.1"
-source = "git+https://github.com/dravr-ai/dravr-colleur.git?tag=v0.2.1#3a8223d75f21ed760e6a74a36ca054ab32c18a68"
+version = "0.3.0"
+source = "git+https://github.com/dravr-ai/dravr-colleur.git?tag=v0.3.0#4ac043388e2cf62eada15cc39fb8cee5f42d983b"
 dependencies = [
  "async-trait",
  "dravr-cageux",
