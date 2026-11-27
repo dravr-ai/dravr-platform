@@ -68,6 +68,12 @@ export interface Conversation {
    */
   personal?: boolean;
   /**
+   * Whether this is the caller's own plan thread: the Plan tab's Dravr tab,
+   * one per athlete, bound to their personal thread's agent and never their
+   * personal thread itself (carnet#1841).
+   */
+  plan_thread?: boolean;
+  /**
    * The athlete a coach's plan thread is bound to (carnet#1070): the one
    * thread per coach per athlete where the coach works on that athlete's
    * plan. Null for every other thread. The three `subject_*` fields are set
