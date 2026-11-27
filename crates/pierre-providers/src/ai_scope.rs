@@ -49,11 +49,10 @@
 //! The same accumulator records whose data was read when it is a group
 //! member's (carnet#1174): a tool that reads a member under their consent, or
 //! a coach's message quoting their room words (carnet#1249), calls
-//! [`note_member_read`], and a row derived from that one member is
-//! stamped with them ([`derived_member`]), so a member who withdraws or
+//! [`note_member_read`] with how it read them (carnet#1511 call 19), and a
+//! row derived from it carries that read, so a member who withdraws or
 //! deletes their account takes the row out of every later prompt. A tool
-//! round's rows are stamped from the calls of that round alone
-//! ([`reading_members`]).
+//! round's rows carry the reads of that round alone ([`reading_members`]).
 
 use std::cell::RefCell;
 use std::future::Future;
@@ -111,7 +110,9 @@ pub use group_chat::{
 };
 pub use human_coach::for_human_coach;
 pub use provenance::{
-    derived_member, note_member_read, reading_about, reading_members, sole, Provenance,
+    note_member_read, note_member_written, note_replayed_member_read, note_replayed_unknown_member,
+    note_round_read, reading_about, reading_in_room, reading_member_about, reading_members,
+    Provenance, RoomView,
 };
 pub use source_classes::{
     admit_agent_written, admit_profile, judging, note_agent_written, note_served_from,

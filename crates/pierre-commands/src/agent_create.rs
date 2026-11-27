@@ -25,7 +25,7 @@ use pierre_contremaitre::messaging_strings::{
     KEY_AGENT_CREATE_NO_CONVERSATION, KEY_AGENT_CREATE_PROPOSAL_BODY, KEY_AGENT_CREATE_QUOTA,
     KEY_AGENT_CREATE_USAGE,
 };
-use pierre_core::errors::AppError;
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::agents::{Agent, AgentCategory, CreateAgentRequest};
 use pierre_core::usage_log::{self, LimitHit};
 use pierre_database::repositories::{PendingAgentDraft, AGENT_PROPOSAL_ACTION};
@@ -59,18 +59,45 @@ struct ParkedProposal {
     system_prompt: String,
     category: String,
     tags: Vec<String>,
+    /// The conversation the draft was proposed in, the only one it is
+    /// confirmed from. A draft parked before the binding carries none and
+    /// is confirmed from nowhere.
+    #[serde(default)]
+    conversation_id: Option<String>,
 }
 
-impl From<AgentProposal> for ParkedProposal {
-    fn from(proposal: AgentProposal) -> Self {
+impl ParkedProposal {
+    fn new(proposal: AgentProposal, conversation_id: &str) -> Self {
         Self {
             title: proposal.title,
             description: proposal.description,
             system_prompt: proposal.system_prompt,
             category: proposal.category,
             tags: proposal.tags,
+            conversation_id: Some(conversation_id.to_owned()),
         }
     }
+}
+
+/// Whether the parked draft `action` is confirmed from the conversation the
+/// command runs in: the one it was proposed in.
+///
+/// The claim token alone names the drafter, not the room: confirmed from a
+/// group's room, the agent would become that group's agent, and its prompt
+/// would answer every member there. A dispatch that names no conversation
+/// (a Slack card's button) cannot show it is the drafting one, so it does
+/// not confirm. A row that is no draft is not this check's to refuse.
+pub(crate) fn confirmed_where_drafted(
+    ctx: &PlatformCommandContext,
+    action: &PendingAgentDraft,
+) -> bool {
+    if action.tool_name != AGENT_PROPOSAL_ACTION {
+        return true;
+    }
+    let drafted_in = serde_json::from_value::<ParkedProposal>(action.arguments.clone())
+        .ok()
+        .and_then(|parked| parked.conversation_id);
+    drafted_in.is_some() && drafted_in.as_deref() == ctx.conversation_id.as_deref()
 }
 
 /// Handler for `/agent create` and `/agent create confirm <token>`.
@@ -128,7 +155,7 @@ async fn propose(ctx: &PlatformCommandContext) -> Result<CommandResponse, AppErr
         tenant_id: ctx.conversation_tenant_id,
         max_messages: DEFAULT_MAX_MESSAGES,
     };
-    let Some(excerpt) = conversation_excerpt(ctx.ctx.repos().chat.as_ref(), &request).await? else {
+    let Some(excerpt) = conversation_excerpt(ctx.ctx.repos(), &request).await? else {
         return Ok(CommandResponse::text(reg.render(
             KEY_AGENT_CREATE_EMPTY,
             locale,
@@ -145,7 +172,7 @@ async fn propose(ctx: &PlatformCommandContext) -> Result<CommandResponse, AppErr
         proposal.category.clone(),
         tags,
     ];
-    let token = park(ctx, proposal).await?;
+    let token = park(ctx, ParkedProposal::new(proposal, conversation_id)).await?;
 
     let body = reg.render(
         KEY_AGENT_CREATE_PROPOSAL_BODY,
@@ -183,10 +210,10 @@ async fn propose(ctx: &PlatformCommandContext) -> Result<CommandResponse, AppErr
 ///
 /// Filed under the caller's own tenant — the tenant `/agent create confirm`
 /// and `/deny` claim with — even when the conversation lives under a shared
-/// room's channel tenant.
-async fn park(ctx: &PlatformCommandContext, proposal: AgentProposal) -> Result<String, AppError> {
+/// room's channel tenant, and bound to the conversation it was proposed in
+/// ([`confirmed_where_drafted`]).
+async fn park(ctx: &PlatformCommandContext, parked: ParkedProposal) -> Result<String, AppError> {
     let token = Uuid::new_v4().simple().to_string();
-    let parked = ParkedProposal::from(proposal);
     let arguments = serde_json::to_value(&parked)
         .map_err(|e| AppError::internal(format!("serialize coach draft: {e}")))?;
     let action = PendingAgentDraft {
@@ -296,9 +323,22 @@ pub(crate) async fn create_from_claimed_proposal(
         "coach created from a conversation via /coach create"
     );
 
-    let key = match bind_agent(ctx, &agent).await? {
-        AgentBinding::Personal | AgentBinding::Group(_) => KEY_AGENT_CREATE_DONE,
-        AgentBinding::Refused => KEY_AGENT_CREATE_DONE_UNBOUND,
+    // The draft is spent and the agent exists, so the reply says where it
+    // answers: here when it bound, nowhere yet when it did not. A thread whose
+    // room names no group the caller is in binds nothing; that is the agent
+    // left unbound, never "not found" for an agent that was just created.
+    let key = match bind_agent(ctx, &agent).await {
+        Ok(AgentBinding::Personal | AgentBinding::Group(_)) => KEY_AGENT_CREATE_DONE,
+        Ok(AgentBinding::Refused) => KEY_AGENT_CREATE_DONE_UNBOUND,
+        Err(e) if e.code == ErrorCode::ResourceNotFound => {
+            info!(
+                user_id = %ctx.user_id,
+                agent_id = %agent_id,
+                "created agent left unbound: no group of the caller's names this thread"
+            );
+            KEY_AGENT_CREATE_DONE_UNBOUND
+        }
+        Err(e) => return Err(e),
     };
     Ok(CommandResponse::text(reg.render(
         key,

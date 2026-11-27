@@ -96,6 +96,7 @@ use pierre_services::units::resolve_user_units;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::{info, warn};
+use uuid::Uuid;
 
 use super::plan_scope::PlanWriter;
 use super::training_plan_vision::{check_template_params, instantiate_template_day};
@@ -137,6 +138,8 @@ pub struct SessionBuild {
 pub struct EditorThread {
     /// The athlete, under their own tenant, and the coach whose draft it is.
     pub target: CoachDraftTarget,
+    /// The group whose coaching gates let the coach edit the athlete's week.
+    pub group: Uuid,
     /// The coach and the agent the thread answers as: whose package the
     /// families resolve through, and the author the draft records.
     pub writer: PlanWriter,
@@ -676,7 +679,7 @@ pub async fn preview_session(
     let target = &thread.target;
     let preview = async {
         // What follows reads the athlete's own data (carnet#1174).
-        ai_scope::note_member_read(target.athlete());
+        day_edits::note_coach_read(thread);
         let catalogue = writer_catalogue(runtime, &thread.writer).await?;
         let anchors = stored_athlete_anchors(repos, target.tenant(), target.athlete()).await?;
         let label = build.sport.as_str().to_owned();
@@ -723,7 +726,7 @@ pub async fn save_draft_day(
     let repos = runtime.repos();
     let target = &thread.target;
     let write = async {
-        ai_scope::note_member_read(target.athlete());
+        day_edits::note_coach_read(thread);
         let week = match week_holding(repos, target, date, WeekFrom::DraftOrLive).await? {
             Ok(week) => week,
             Err(outcome) => return Ok(outcome),

@@ -267,6 +267,7 @@ fn a_feedback_record_prints_the_size_of_its_comment_never_the_comment() {
 fn a_last_message_preview_prints_the_size_of_its_head_never_the_head() {
     let head = "sentinel-head-7f3a I think I tore something";
     let last = ConversationLastMessage {
+        id: "m-1".to_owned(),
         content_head: head.to_owned(),
         role: "user".to_owned(),
         created_at: "2026-10-24T00:00:00Z".to_owned(),
@@ -347,6 +348,7 @@ fn a_conversation_summary_prints_neither_its_title_nor_its_preview() {
         subject_group_id: None,
         subject_display_name: None,
         last_message: Some(ConversationLastMessage {
+            id: "m-2".to_owned(),
             content_head: "sentinel-sumhead-7f3a".to_owned(),
             role: "assistant".to_owned(),
             created_at: "2026-10-24T00:00:00Z".to_owned(),

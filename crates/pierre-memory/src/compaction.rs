@@ -49,6 +49,13 @@ pub struct CompactionBlock {
     /// goes with the member's account. `None` for a summary about nobody.
     #[serde(default, skip_serializing)]
     pub about_user_id: Option<Uuid>,
+    /// Whether the block was written with its record (carnet#1511 call 17):
+    /// a block written since is read by the reads its covered rows carry,
+    /// and is recorded when every row it covers was. A block from before, or
+    /// one covering a row from before, has no record, and no room or thread
+    /// others read replays it.
+    #[serde(default, skip_serializing)]
+    pub audience_recorded: bool,
     /// The AI-consent keys of the provider data the summarized rows were drawn
     /// from (carnet#1157): once the athlete withdraws one, no prompt replays
     /// the summary. Empty for rows written before the column.

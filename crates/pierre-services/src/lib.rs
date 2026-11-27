@@ -39,6 +39,8 @@ pub mod api_key_cleanup;
 pub mod archetype_aggregation;
 /// Adopting the activity cache into the activity store, once per environment (carnet#1482)
 pub mod cache_adoption;
+/// Who reads what is said in a conversation: the one room classifier (carnet#1422)
+pub mod call_room;
 /// Coach-access requests: a coach asks, an admin grants or declines (carnet#738)
 pub mod coach_access;
 /// An Intervals.icu key whose roster coaches active athletes files its owner's coach-access request, never a grant
@@ -79,6 +81,12 @@ pub mod coached_athlete;
 
 /// Whether a group member's data may be read by another person now: the coach by coach consent, a peer by peer consent (carnet#1174).
 pub mod member_reads;
+
+/// What of a conversation's stored rows one person may read: the one withholding rule every transcript read goes through (carnet#1422).
+pub mod transcript_reading;
+
+/// Whether a stored A2A task is served to its owner now, by the reads it recorded: one answer for the export and the A2A task reads (carnet#1511).
+pub mod task_reading;
 
 /// A human coach's draft of an athlete's plan: the view, publish and discard (carnet#1069).
 pub mod coach_plan_draft;

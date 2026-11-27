@@ -404,7 +404,8 @@ pub fn create_endurance_intervals_tools() -> Vec<Box<dyn RuntimeTool>> {
 // caller, or a coached athlete for a coach's read — internal, no egress.
 pierre_tool_runtime::declare_security!(
     ExportIntervalsTool => empty; export,
-    reads: ToolData::of(DataClass::Training, &[Stream::Workout, Stream::WorkoutRaw]),
+    reads: ToolData::of(DataClass::Training, &[Stream::Workout, Stream::WorkoutRaw])
+        .with_beyond_activities(),
 );
 pierre_tool_runtime::declare_security!(
     ExportRoutesTool => empty; export,

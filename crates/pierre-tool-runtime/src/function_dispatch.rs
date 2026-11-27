@@ -30,8 +30,8 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use pierre_core::errors::AppError;
-use pierre_core::models::TenantId;
-use pierre_llm::{FunctionCall, FunctionResponse};
+use pierre_core::models::{CarriedRead, TenantId};
+use pierre_llm::{FunctionCall, FunctionResponse, Tool};
 use pierre_providers::ai_scope;
 use pierre_services::chat_stream::{TurnEventSink, TOOL_STATUS_IN_PROGRESS};
 
@@ -40,6 +40,7 @@ use crate::protocol::types::{
     auth_required_provider, failed_dispatch, guardian_block_reason, metadata_str,
 };
 use crate::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
+use crate::protocols::ProtocolError;
 use crate::tool_execution::{build_function_response, log_tool_response_size};
 use crate::tool_loop_io::GuardianDenial;
 use crate::tool_progress::{closing_status, report_call};
@@ -72,9 +73,9 @@ pub struct ExecutedFunctionCalls {
     /// visuals checks a cited `source_tool` against this, and a citation met by
     /// a merely-attempted call is not evidence.
     pub executed: Vec<String>,
-    /// The group members whose data the batch read under their consent
-    /// (carnet#1174): what the round's rows are about.
-    pub members_read: BTreeSet<Uuid>,
+    /// The member reads the batch made, each with how it was made
+    /// (carnet#1174, carnet#1511 call 19): what the round's rows carry.
+    pub members_read: BTreeSet<CarriedRead>,
 }
 
 /// Lift a provider-emitted `{"parameters": {...}}` envelope off a tool call's
@@ -167,7 +168,27 @@ fn capture_guardian_block(
     })
 }
 
+/// The refusal of a call to `tool_name`, which the turn did not offer.
+///
+/// The shape a name the registry does not hold gets ([`ProtocolError::ToolNotFound`]),
+/// counted against what the turn offered: to the model it is a name it was
+/// never given.
+#[must_use]
+pub fn not_offered(tool_name: &str, offered_count: usize) -> UniversalResponse {
+    failed_dispatch(&ProtocolError::ToolNotFound {
+        tool_id: tool_name.to_owned(),
+        available_count: offered_count,
+    })
+}
+
 /// Execute a batch of function calls via the MCP executor and return responses.
+///
+/// Only a name `offered` declares runs: a chat turn runs no tool its
+/// catalogue did not offer (carnet#1511 design call 13). Any other name is
+/// refused here, once, before the executor sees it ([`not_offered`]), so a
+/// model talked into naming another tool (a prompt injection in a member's
+/// room words) reaches nothing the turn's listing left out, whatever the
+/// listing left it out for.
 ///
 /// With a `sink`, each call is reported to it as a step while it runs: a
 /// started frame before dispatch, a closing one after (see the module docs).
@@ -179,6 +200,7 @@ fn capture_guardian_block(
 /// Returns error if any tool execution produces an unrecoverable failure.
 pub async fn execute_function_calls(
     executor: &UniversalExecutor,
+    offered: &Tool,
     function_calls: &[FunctionCall],
     user_id: &str,
     tenant_id: TenantId,
@@ -186,6 +208,7 @@ pub async fn execute_function_calls(
 ) -> Result<ExecutedFunctionCalls, AppError> {
     let (executed, members_read) = ai_scope::reading_members(run_function_calls(
         executor,
+        offered,
         function_calls,
         user_id,
         tenant_id,
@@ -201,6 +224,7 @@ pub async fn execute_function_calls(
 /// members the batch read.
 async fn run_function_calls(
     executor: &UniversalExecutor,
+    offered: &Tool,
     function_calls: &[FunctionCall],
     user_id: &str,
     tenant_id: TenantId,
@@ -218,7 +242,8 @@ async fn run_function_calls(
         );
         let call_id = Uuid::new_v4().to_string();
         report_call(sink, &call_id, &function_call.name, TOOL_STATUS_IN_PROGRESS);
-        let tool_response = execute_mcp_tool(executor, function_call, user_id, tenant_id).await;
+        let tool_response =
+            execute_offered_tool(executor, offered, function_call, user_id, tenant_id).await;
         report_call(
             sink,
             &call_id,
@@ -282,4 +307,31 @@ async fn run_function_calls(
         executed,
         members_read: BTreeSet::new(),
     })
+}
+
+/// Run `function_call` when `offered` declares it, else refuse it
+/// ([`not_offered`]) without reaching the executor.
+async fn execute_offered_tool(
+    executor: &UniversalExecutor,
+    offered: &Tool,
+    function_call: &FunctionCall,
+    user_id: &str,
+    tenant_id: TenantId,
+) -> UniversalResponse {
+    if offers(offered, &function_call.name) {
+        return execute_mcp_tool(executor, function_call, user_id, tenant_id).await;
+    }
+    warn!(
+        tool_name = %function_call.name,
+        "Tool call refused: the turn did not offer it"
+    );
+    not_offered(&function_call.name, offered.function_declarations.len())
+}
+
+/// Whether `offered` declares `tool_name`, deferred or loaded.
+fn offers(offered: &Tool, tool_name: &str) -> bool {
+    offered
+        .function_declarations
+        .iter()
+        .any(|declaration| declaration.name == tool_name)
 }

@@ -697,7 +697,9 @@ async fn arm_exposure_notice(
     Ok(())
 }
 
-/// Create a single demo user with tenant via [`SeederRepository`] operations
+/// Create a single demo user with tenant via [`SeederRepository`] operations.
+/// An account another run created at the email meanwhile is refused, never
+/// overwritten.
 async fn create_demo_user(repos: &RepositoryRegistry, user: &DemoUser) -> AppResult<Uuid> {
     let password_hash = hash_password(user.password.unwrap_or(DEMO_USER_PASSWORD))?;
     create_account(
@@ -708,9 +710,16 @@ async fn create_demo_user(repos: &RepositoryRegistry, user: &DemoUser) -> AppRes
             password_hash: &password_hash,
             tier: user.tier,
             status: user.status,
+            tenant_slug: None,
         },
     )
-    .await
+    .await?
+    .ok_or_else(|| {
+        AppError::config(format!(
+            "An account already exists at {}; it was not modified",
+            mask_email(user.email)
+        ))
+    })
 }
 
 /// Seed API keys

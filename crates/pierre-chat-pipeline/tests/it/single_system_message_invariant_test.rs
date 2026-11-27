@@ -289,6 +289,7 @@ fn the_platforms_own_replayed_summary_keeps_its_framing() {
         created_at: Timestamp::parse_from_rfc3339("2026-07-30T08:00:00Z").unwrap(),
         transport_policy: TransportPolicy::AnyTransport,
         about_user_id: None,
+        audience_recorded: true,
         ai_consent_sources: Vec::new(),
     }];
 

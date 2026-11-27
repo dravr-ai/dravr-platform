@@ -23,7 +23,7 @@ use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::SeedTable;
 use pierre_database::seed_models::{
-    SeedA2AClient, SeedA2AUsage, SeedAgent, SeedApiKey, SeedApiKeyUsage, SeedDemoUser,
+    SeedA2AClient, SeedA2AUsage, SeedAgent, SeedApiKey, SeedApiKeyUsage, SeedDemoUser, SeedTenant,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;
@@ -678,5 +678,149 @@ async fn an_agent_seed_lands_every_field_in_its_own_column_and_updates_only_its_
         agent_row(&db, &neighbour.id).await,
         expected_agent_row(&neighbour),
         "an update keyed on one agent leaves every other agent untouched"
+    );
+}
+
+/// A new account's personal tenant, under a slug of its own.
+fn account_tenant(owner: Uuid) -> SeedTenant {
+    let now = Timestamp::now();
+    SeedTenant {
+        id: Uuid::new_v4(),
+        name: "Seeded Workspace".to_owned(),
+        slug: format!("seed-account-{}", owner.simple()),
+        plan: "starter".to_owned(),
+        owner_user_id: owner,
+        created_at: now,
+        updated_at: now,
+    }
+}
+
+/// Two runs creating one account race between their existence check and
+/// the insert. The one that loses writes nothing: the account keeps the
+/// password the winner set, and no tenant is left without its owner.
+#[tokio::test]
+async fn creating_an_account_at_a_taken_email_changes_nothing() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let first = SeedDemoUser {
+        password_hash: "first-run-hash".to_owned(),
+        ..seed_demo_user("active")
+    };
+    let first_tenant = account_tenant(first.id);
+    assert!(
+        repos
+            .seeder
+            .seed_create_account(&first, &first_tenant)
+            .await
+            .unwrap(),
+        "the first run creates the account"
+    );
+    let second = SeedDemoUser {
+        id: Uuid::new_v4(),
+        email: first.email.clone(),
+        password_hash: "second-run-hash".to_owned(),
+        ..seed_demo_user("active")
+    };
+    let second_tenant = account_tenant(second.id);
+    let created = repos
+        .seeder
+        .seed_create_account(&second, &second_tenant)
+        .await
+        .unwrap();
+
+    let stored = repos
+        .users
+        .get_by_email(&first.email)
+        .await
+        .unwrap()
+        .expect("the account reads back");
+    assert_eq!(
+        (stored.id, stored.password_hash.as_str()),
+        (first.id, "first-run-hash"),
+        "the account keeps the first run's id and password"
+    );
+    assert!(
+        repos
+            .tenants
+            .get_by_slug(&second_tenant.slug)
+            .await
+            .is_err(),
+        "the losing run leaves no tenant behind"
+    );
+    assert!(!created, "the losing run is told the email is taken");
+    assert_eq!(
+        repos
+            .tenants
+            .get_by_slug(&first_tenant.slug)
+            .await
+            .unwrap()
+            .id,
+        TenantId::from_uuid(first_tenant.id),
+        "the account owns the tenant the first run made"
+    );
+}
+
+/// The email a racing run stored, in the case it came in: only the
+/// case-insensitive unique index (`idx_users_email_lower`) tells it from the
+/// losing run's, as on PostgreSQL a concurrent insert of the same normalized
+/// email meets that index, not the `email` constraint, first.
+async fn store_email_upper(db: &Database, user: Uuid) {
+    let sql = "UPDATE users SET email = upper(email) WHERE id = $1";
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
+            sqlx::query(sql)
+                .bind(user.to_string())
+                .execute(sqlite.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(pg) => {
+            sqlx::query(sql)
+                .bind(user)
+                .execute(pg.pool())
+                .await
+                .unwrap();
+        }
+    }
+}
+
+/// The losing run of a race is told the email is taken whichever unique
+/// index catches it: an account held at the same email in another case
+/// fails the case-insensitive index, not the `email` constraint, and the
+/// run still writes nothing and answers `false` rather than erroring.
+#[tokio::test]
+async fn an_account_held_in_another_case_is_taken_not_an_error() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let first = seed_demo_user("active");
+    assert!(
+        repos
+            .seeder
+            .seed_create_account(&first, &account_tenant(first.id))
+            .await
+            .unwrap(),
+        "the first account is created"
+    );
+    store_email_upper(&db, first.id).await;
+    let second = SeedDemoUser {
+        id: Uuid::new_v4(),
+        email: first.email.clone(),
+        ..seed_demo_user("active")
+    };
+    let second_tenant = account_tenant(second.id);
+    let created = repos
+        .seeder
+        .seed_create_account(&second, &second_tenant)
+        .await
+        .expect("a taken email is an answer, not an error");
+    assert!(!created, "the losing run is told the email is taken");
+    assert!(
+        repos
+            .tenants
+            .get_by_slug(&second_tenant.slug)
+            .await
+            .is_err(),
+        "the losing run leaves no tenant behind"
     );
 }

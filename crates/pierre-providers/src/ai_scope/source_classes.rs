@@ -74,12 +74,16 @@ pub fn admit_agent_written(policy: TransportPolicy) -> bool {
 ///
 /// It is admitted as [`admit_derived`] admits it; when it is, the running read
 /// is recorded as having served where each value it holds came from
-/// ([`UserPhysiologicalProfile::source_classes`]).
+/// ([`UserPhysiologicalProfile::source_classes`]), and, inside a coach's
+/// read of the profile's owner, as having served their physiology
+/// (carnet#1511 call 27). A write onto the owner that admits it for its own
+/// computation reads no one (call 35).
 #[must_use]
 pub fn admit_profile(profile: &UserPhysiologicalProfile) -> bool {
     let admitted = admit_derived(profile.transport_policy);
     if admitted {
         note_source_classes(profile.source_classes());
+        super::provenance::note_physiology_served(profile.user_id);
     }
     admitted
 }
@@ -115,7 +119,10 @@ mod tests {
 
     use super::*;
     use crate::ai_scope::tests::{first_party, NolioOnly, Relay};
-    use crate::ai_scope::{ai_read, derived, filter_activities, tracking, unfiltered};
+    use crate::ai_scope::{
+        ai_read, derived, filter_activities, note_member_written, tracking, unfiltered,
+    };
+    use pierre_core::models::CarriedRead;
 
     fn profile() -> UserPhysiologicalProfile {
         let mut profile = UserPhysiologicalProfile::new(Uuid::nil(), SportType::Run);
@@ -143,6 +150,40 @@ mod tests {
                 SourceClass::AgentWritten
             ]),
             "the profile, the agent's writing and Wahoo's profile each name their class"
+        );
+    }
+
+    // carnet#1511 calls 26 and 35: a write onto a member draws on no one,
+    // even when it admits their stored physiology for its own computation:
+    // a coach's prescription anchored to the athlete's saved FTP is still
+    // no read of them, so the next free-text write onto another athlete is
+    // taken. It is carried, as a write, so its rows keep their audience.
+    #[tokio::test]
+    async fn a_write_that_admits_its_targets_physiology_draws_on_no_one() {
+        let alex = Uuid::new_v4();
+        let written = CarriedRead::coach(alex, Uuid::new_v4(), Uuid::new_v4()).beyond_activities();
+        let served = Provenance::new();
+        tracking(served.clone(), async {
+            note_member_written(written.clone());
+            let mut alexs = profile();
+            alexs.user_id = alex;
+            assert!(admit_profile(&alexs), "an unstamped profile is served");
+            let mut someone_elses = profile();
+            someone_elses.user_id = Uuid::new_v4();
+            assert!(
+                admit_profile(&someone_elses),
+                "a write's admission serves another member's unstamped profile too"
+            );
+        })
+        .await;
+        assert!(
+            served.members_drawn_on().is_empty(),
+            "bug: a write that admitted its target's stored physiology drew on them"
+        );
+        assert_eq!(
+            served.carried_reads(),
+            BTreeSet::from([written.written()]),
+            "the write is carried, as a write"
         );
     }
 

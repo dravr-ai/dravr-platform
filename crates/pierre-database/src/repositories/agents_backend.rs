@@ -26,16 +26,20 @@ macro_rules! impl_agents_repository {
             })
         }
 
-        #[async_trait::async_trait]
-        impl AgentsRepository for $ty {
-            async fn create(
+        impl $ty {
+            /// Insert the agent `request` describes under `id` with `sql`
+            /// ([`INSERT_AGENT_SQL`] or [`INSERT_AGENT_IF_ABSENT_SQL`]), and
+            /// hold it on its owner's team. `None` when the statement wrote
+            /// no row: an agent already held the id.
+            async fn insert_agent(
                 &self,
+                sql: &str,
+                id: Uuid,
                 user_id: Uuid,
                 tenant_id: TenantId,
                 request: &CreateAgentRequest,
-            ) -> AppResult<Agent> {
+            ) -> AppResult<Option<Agent>> {
                 let now = Timestamp::now();
-                let id = Uuid::new_v4();
                 // Structured `instructions`, when given, are the runtime prompt.
                 let effective_system_prompt = request
                     .instructions
@@ -79,7 +83,7 @@ macro_rules! impl_agents_repository {
                     .as_ref()
                     .and_then(|dr| serde_json::to_string(dr).ok());
 
-                sqlx::query(INSERT_AGENT_SQL)
+                let inserted = sqlx::query(sql)
                     .bind(id.to_string())
                     .bind($ids::bind(user_id))
                     .bind(tenant_id)
@@ -104,16 +108,56 @@ macro_rules! impl_agents_repository {
                     .bind(compute_request_hash(request))
                     .execute(self.pool())
                     .await
-                    .map_err(|e| AppError::database(format!("Failed to create coach: {e}")))?;
+                    .map_err(|e| AppError::database(format!("Failed to create coach: {e}")))?
+                    .rows_affected();
 
                 // The creator's own agent is on their team.
                 self.ensure_agent_assignment(&id.to_string(), user_id, true)
                     .await?;
 
-                Ok(Agent {
+                Ok((inserted > 0).then_some(Agent {
                     token_count,
                     ..agent
-                })
+                }))
+            }
+        }
+
+        #[async_trait::async_trait]
+        impl AgentsRepository for $ty {
+            async fn create(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                request: &CreateAgentRequest,
+            ) -> AppResult<Agent> {
+                self.insert_agent(
+                    INSERT_AGENT_SQL,
+                    Uuid::new_v4(),
+                    user_id,
+                    tenant_id,
+                    request,
+                )
+                .await?
+                .ok_or_else(|| AppError::internal("Agent insert wrote no row"))
+            }
+
+            async fn create_if_absent(
+                &self,
+                agent_id: Uuid,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                request: &CreateAgentRequest,
+            ) -> AppResult<bool> {
+                Ok(self
+                    .insert_agent(
+                        INSERT_AGENT_IF_ABSENT_SQL,
+                        agent_id,
+                        user_id,
+                        tenant_id,
+                        request,
+                    )
+                    .await?
+                    .is_some())
             }
 
             async fn get_by_id(

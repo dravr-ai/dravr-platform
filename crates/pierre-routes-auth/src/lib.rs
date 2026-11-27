@@ -41,6 +41,7 @@
 
 #![warn(missing_docs)]
 
+use std::collections::BTreeSet;
 use std::fmt;
 use std::sync::Arc;
 
@@ -281,6 +282,12 @@ pub struct AuthRoutesContext {
     /// Non-empty, the connect picker offers the hosted import page and the
     /// page opens on it; each provider card names its own offered source.
     pub offered_archive_sources: Vec<&'static str>,
+    /// The registered tools that read their caller's own data alone
+    /// (`pierre_tool_runtime::read_subject::may_read_others` false for each):
+    /// a legacy A2A tool task whose tool is one of them, naming no person,
+    /// is the exporter's own (carnet#1511 design §6.2). A tool not listed,
+    /// one no longer registered included, may have read someone else.
+    pub own_data_tools: Arc<BTreeSet<String>>,
     /// Single-use nonce store for hosted-login link-token jti claims.
     #[cfg(feature = "provider-sciotte")]
     pub nonce_store: Arc<NonceStore<Cache>>,
@@ -317,6 +324,7 @@ impl fmt::Debug for AuthRoutesContext {
         debug.field("group_service", &self.group_service);
         debug.field("admin_jwt_secret", &"[REDACTED]");
         debug.field("offered_archive_sources", &self.offered_archive_sources);
+        debug.field("own_data_tools", &self.own_data_tools.len());
         #[cfg(feature = "provider-sciotte")]
         debug.field("nonce_store", &self.nonce_store);
         #[cfg(feature = "provider-sciotte")]

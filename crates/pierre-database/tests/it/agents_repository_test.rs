@@ -487,3 +487,54 @@ async fn an_edit_is_versioned_and_a_revert_restores_it() {
         2
     );
 }
+
+/// An agent created under an id the caller chose is created once: a second
+/// create under that id writes nothing and says so, the first one's row is
+/// kept, and the owner holds it on their team either way.
+#[tokio::test]
+async fn an_agent_created_if_absent_is_created_once_under_its_id() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let owner = seed_user(repos, "if-absent").await;
+    let tenant = seed_tenant(repos, owner).await;
+    let id = Uuid::new_v4();
+
+    assert!(
+        repos
+            .agents
+            .create_if_absent(
+                id,
+                owner,
+                tenant,
+                &request("Squad Agent", AgentCategory::Custom)
+            )
+            .await
+            .unwrap(),
+        "the first create writes the agent"
+    );
+    assert!(
+        !repos
+            .agents
+            .create_if_absent(id, owner, tenant, &request("Second", AgentCategory::Custom))
+            .await
+            .unwrap(),
+        "the second writes nothing"
+    );
+    let agent = repos
+        .agents
+        .get_by_id(&id.to_string(), owner, tenant)
+        .await
+        .unwrap()
+        .expect("the agent reads back under its id");
+    assert_eq!(agent.title, "Squad Agent", "the first create's row is kept");
+    let listed = repos
+        .agents
+        .search(owner, tenant, "Agent", None, Some(10), None)
+        .await
+        .unwrap();
+    assert_eq!(
+        listed.iter().filter(|agent| agent.id == id).count(),
+        1,
+        "one agent under the id: {listed:?}"
+    );
+}

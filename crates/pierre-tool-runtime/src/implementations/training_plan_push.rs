@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::annotations::{annotations, Effect, Reach};
-use crate::tool_data::ToolData;
+use crate::tool_data::{ToolData, WriteKind};
 use dravr_barrage::Stream;
 use pierre_providers::ai_scope;
 use std::collections::HashMap;
@@ -683,5 +683,6 @@ pub fn create_training_plan_push_tools() -> Vec<Box<dyn RuntimeTool>> {
 // but as a new one. Destructive, so it spends the Guardian's per-turn destructive budget.
 crate::declare_security!(
     PushTrainingPlanTool => IRREVERSIBLE,
-    reads: ToolData::own(&[Stream::Workout]),
+    reads: ToolData::own(&[Stream::Workout])
+        .writes(WriteKind::Structured),
 );

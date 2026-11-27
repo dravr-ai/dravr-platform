@@ -10,6 +10,7 @@ macro_rules! impl_chat_repository {
         $crate::repositories::chat_subject::impl_chat_subject_open!($ty, $ids, $begin);
         $crate::repositories::chat_windows::impl_chat_windows!($ty, $ids);
         $crate::repositories::chat_member_rows::impl_chat_member_rows!($ty, $ids);
+        $crate::repositories::chat_message_write::impl_chat_message_write!($ty, $ids, $begin);
         $crate::repositories::chat_stop_notice::impl_chat_stop_notice!($ty, $ids);
         $crate::repositories::chat_feedback::impl_chat_feedback!($ty, $ids);
         $crate::repositories::chat_participants::impl_chat_participants!($ty, $ids);
@@ -312,6 +313,26 @@ macro_rules! impl_chat_repository {
                     })
             }
 
+            async fn shares_a_private_thread(&self, user_id: Uuid) -> AppResult<bool> {
+                sqlx::query_scalar(SHARES_PRIVATE_THREAD_SQL)
+                    .bind($ids::bind(user_id))
+                    .fetch_one(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to read the private threads an account joined: {e}"
+                        ))
+                    })
+            }
+
+            async fn list_subject_thread_athletes(&self, user_id: Uuid) -> AppResult<Vec<Uuid>> {
+                self.subject_thread_athletes(user_id).await
+            }
+
+            async fn list_room_thread_groups(&self, user_id: Uuid) -> AppResult<Vec<String>> {
+                self.room_thread_groups(user_id).await
+            }
+
             async fn mark_conversation_read(
                 &self,
                 conversation_id: &str,
@@ -454,82 +475,15 @@ macro_rules! impl_chat_repository {
             }
 
             async fn add_message(&self, params: &AddMessageParams<'_>) -> AppResult<MessageRecord> {
-                let id = Uuid::new_v4().to_string();
-                let now = Timestamp::now();
-                let tenant = params.tenant_id.to_string();
+                self.add_message_about(params, &[]).await
+            }
 
-                let result = sqlx::query(ADD_MESSAGE_SQL)
-                    .bind(&id)
-                    .bind(params.conversation_id)
-                    .bind(params.role)
-                    .bind(params.content)
-                    .bind(params.token_count.map(i64::from))
-                    .bind(params.finish_reason)
-                    .bind(now)
-                    .bind(params.prompt_tokens.map(i64::from))
-                    .bind(params.model)
-                    .bind($ids::bind_text(params.user_id)?)
-                    .bind(&tenant)
-                    .bind(params.content_blocks)
-                    .bind(params.transport_policy.is_first_party_only())
-                    .bind(params.channel_type)
-                    .bind($ids::bind_opt(params.about_user_id))
-                    .bind(params.turn_attempted_write)
-                    .bind(consent_sources_column(params.ai_consent_sources))
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| AppError::database(format!("Failed to add message: {e}")))?;
-
-                if result.rows_affected() == 0 {
-                    return Err(AppError::not_found(
-                        "Conversation not found or access denied",
-                    ));
-                }
-
-                // Touch the conversation and count the tokens; membership was
-                // verified by the insert above.
-                if let Some(tokens) = params.token_count {
-                    sqlx::query(BUMP_CONVERSATION_TOKENS_SQL)
-                        .bind(now)
-                        .bind(i64::from(tokens))
-                        .bind(params.conversation_id)
-                        .bind(&tenant)
-                        .execute(self.pool())
-                        .await
-                        .map_err(|e| {
-                            AppError::database(format!("Failed to update conversation tokens: {e}"))
-                        })?;
-                } else {
-                    sqlx::query(TOUCH_CONVERSATION_SQL)
-                        .bind(now)
-                        .bind(params.conversation_id)
-                        .bind(&tenant)
-                        .execute(self.pool())
-                        .await
-                        .map_err(|e| {
-                            AppError::database(format!(
-                                "Failed to update conversation timestamp: {e}"
-                            ))
-                        })?;
-                }
-
-                Ok(MessageRecord {
-                    id,
-                    conversation_id: params.conversation_id.to_owned(),
-                    role: params.role.to_owned(),
-                    content: params.content.to_owned(),
-                    token_count: params.token_count.map(i64::from),
-                    prompt_tokens: params.prompt_tokens.map(i64::from),
-                    model: params.model.map(ToOwned::to_owned),
-                    finish_reason: params.finish_reason.map(ToOwned::to_owned),
-                    content_blocks: params.content_blocks.map(ToOwned::to_owned),
-                    created_at: now.to_rfc3339(),
-                    transport_policy: params.transport_policy,
-                    channel_type: params.channel_type.map(ToOwned::to_owned),
-                    about_user_id: params.about_user_id,
-                    turn_attempted_write: params.turn_attempted_write,
-                    ai_consent_sources: params.ai_consent_sources.to_vec(),
-                })
+            async fn add_message_about(
+                &self,
+                params: &AddMessageParams<'_>,
+                carried: &[CarriedRead],
+            ) -> AppResult<MessageRecord> {
+                self.insert_message(params, carried).await
             }
 
             async fn get_messages(
@@ -538,14 +492,31 @@ macro_rules! impl_chat_repository {
                 user_id: &str,
                 tenant_id: TenantId,
             ) -> AppResult<Vec<MessageRecord>> {
-                let rows = sqlx::query(GET_MESSAGES_SQL)
-                    .bind(conversation_id)
-                    .bind($ids::bind_text(user_id)?)
-                    .bind(tenant_id.to_string())
-                    .fetch_all(self.pool())
+                self.readable_messages(conversation_id, user_id, tenant_id, None)
                     .await
-                    .map_err(|e| AppError::database(format!("Failed to get messages: {e}")))?;
-                rows.iter().map(message_from_row).collect()
+            }
+
+            async fn get_readable_messages(
+                &self,
+                conversation_id: &str,
+                user_id: &str,
+                tenant_id: TenantId,
+                readable: ReadableReads<'_>,
+            ) -> AppResult<Vec<MessageRecord>> {
+                self.readable_messages(conversation_id, user_id, tenant_id, Some(readable))
+                    .await
+            }
+
+            async fn message_withheld(
+                &self,
+                conversation_id: &str,
+                user_id: &str,
+                tenant_id: TenantId,
+                message_id: &str,
+                readable: ReadableReads<'_>,
+            ) -> AppResult<bool> {
+                self.message_withheld(conversation_id, user_id, tenant_id, message_id, readable)
+                    .await
             }
 
             async fn get_recent_messages(
@@ -598,26 +569,49 @@ macro_rules! impl_chat_repository {
                 tenant_id: TenantId,
                 limit: i64,
                 readable: TransportPolicy,
-                readable_about: &[Uuid],
+                replay: MemberReplay<'_>,
             ) -> AppResult<Vec<MessageRecord>> {
-                self.prompt_messages(
-                    conversation_id,
-                    user_id,
-                    tenant_id,
-                    limit,
-                    readable,
-                    readable_about,
-                )
-                .await
+                self.prompt_messages(conversation_id, user_id, tenant_id, limit, readable, replay)
+                    .await
             }
 
-            async fn list_message_subjects(
+            async fn list_member_reads(
                 &self,
                 conversation_id: &str,
                 user_id: &str,
                 tenant_id: TenantId,
-            ) -> AppResult<Vec<Uuid>> {
-                self.message_subjects(conversation_id, user_id, tenant_id)
+            ) -> AppResult<Vec<RowRead>> {
+                self.member_reads(conversation_id, user_id, tenant_id).await
+            }
+
+            async fn list_thread_read_keys(
+                &self,
+                conversation_id: &str,
+                user_id: &str,
+                tenant_id: TenantId,
+            ) -> AppResult<Vec<String>> {
+                self.thread_read_keys(conversation_id, user_id, tenant_id)
+                    .await
+            }
+
+            async fn get_durable_messages(
+                &self,
+                conversation_id: &str,
+                user_id: &str,
+                tenant_id: TenantId,
+                legacy: bool,
+            ) -> AppResult<Vec<MessageRecord>> {
+                self.durable_messages(conversation_id, user_id, tenant_id, legacy)
+                    .await
+            }
+
+            async fn message_conversation(
+                &self,
+                message_id: &str,
+                user_id: &str,
+                tenant_id: TenantId,
+            ) -> AppResult<Option<String>> {
+                self.conversation_of_message(message_id, user_id, tenant_id)
                     .await
             }
 
@@ -1043,9 +1037,17 @@ macro_rules! impl_chat_repository {
                 tenant_id: TenantId,
                 before: Option<&str>,
                 limit: i64,
+                readable: ReadableReads<'_>,
             ) -> AppResult<MessagePage> {
-                self.message_page(conversation_id, user_id, tenant_id, before, limit)
-                    .await
+                self.message_page(
+                    conversation_id,
+                    user_id,
+                    tenant_id,
+                    before,
+                    limit,
+                    Some(readable),
+                )
+                .await
             }
 
             async fn list_topics(

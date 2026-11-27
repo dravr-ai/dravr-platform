@@ -7,7 +7,7 @@
 use dravr_barrage::Stream;
 use pierre_tool_runtime::annotations::{annotations, Effect, Reach};
 use pierre_tool_runtime::read_subject::DataClass;
-use pierre_tool_runtime::tool_data::ToolData;
+use pierre_tool_runtime::tool_data::{ToolData, WriteKind};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -539,7 +539,8 @@ pub fn create_endurance_history_tools() -> Vec<Box<dyn RuntimeTool>> {
 // The history recomputed from the sessions.
 pierre_tool_runtime::declare_security!(
     ComputeTrainingHistoryTool => empty,
-    reads: ToolData::own(&[Stream::TrainingLoad, Stream::Workout]),
+    reads: ToolData::own(&[Stream::TrainingLoad, Stream::Workout])
+        .writes(WriteKind::Structured),
 );
 // The daily load history and the activities it is computed from.
 pierre_tool_runtime::declare_security!(

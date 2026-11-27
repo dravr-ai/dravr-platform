@@ -8,6 +8,7 @@
 //! formats it with `{:?}` and `{:#?}`, and asserts no sentinel comes out.
 
 use pierre_core::permissions::scopes::OAuthScope;
+use std::collections::BTreeSet;
 use std::fmt::Debug;
 
 use pierre_chat_pipeline::stages::viz_blocks::VizExtraction;
@@ -18,6 +19,7 @@ use pierre_chat_pipeline::{
 };
 use pierre_core::models::{ConversationRecord, ConversationTurnId, MessageRecord, TenantId};
 use pierre_core::transport::{Transport, TransportPolicy};
+use pierre_tool_runtime::tool_access::CallerRole;
 use uuid::Uuid;
 
 /// Formats `value` both ways, asserts none of `secrets` appears in either,
@@ -85,6 +87,7 @@ fn a_turn_request_prints_the_size_of_the_message_never_its_text_or_sender() {
         ambient_context: Some(AmbientContext {
             text: "sentinel-room-7f3a said hello".to_owned(),
             transport_policy: TransportPolicy::AnyTransport,
+            members: BTreeSet::new(),
         }),
         quote: None,
         channel_type: "telegram",
@@ -243,12 +246,14 @@ fn a_turn_input_prints_the_size_of_the_message_never_its_text_or_the_room() {
         ambient_context: Some(AmbientContext {
             text: "sentinel-room-7f3a said hello".to_owned(),
             transport_policy: TransportPolicy::AnyTransport,
+            members: BTreeSet::new(),
         }),
         quote: None,
         quota: QuotaState::default(),
         mentioned_agent: None,
         steps_after: None,
         grant: OAuthScope::self_grant(),
+        role: CallerRole::default(),
     };
     let printed = printed_without(&input, &["sentinel-message-7f3a", "sentinel-room-7f3a"]);
     assert!(printed.starts_with("TurnInput"), "{printed}");
@@ -339,6 +344,7 @@ fn an_ambient_context_prints_the_size_of_the_room_never_its_transcript() {
     let ambient = AmbientContext {
         text: "sentinel-room-7f3a".to_owned(),
         transport_policy: TransportPolicy::default(),
+        members: BTreeSet::new(),
     };
 
     let printed = printed_without(&ambient, &["sentinel-room-7f3a"]);

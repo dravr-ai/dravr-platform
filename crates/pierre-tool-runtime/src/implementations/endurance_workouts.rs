@@ -6,7 +6,7 @@
 
 use crate::annotations::{annotations, Effect, Reach};
 use crate::read_subject::DataClass;
-use crate::tool_data::ToolData;
+use crate::tool_data::{ToolData, WriteKind};
 use dravr_barrage::Stream;
 use pierre_providers::ai_scope;
 use std::collections::BTreeMap;
@@ -1175,8 +1175,10 @@ crate::declare_security!(
 );
 // Lands on the athlete's provider calendar. Replaceable and withdrawable, so it
 // charges no destructive budget.
-crate::declare_security!(PrescribeWorkoutTool => empty, reads: ToolData::own(&[Stream::Workout]));
+crate::declare_security!(PrescribeWorkoutTool => empty, reads: ToolData::own(&[Stream::Workout])
+        .writes(WriteKind::FreeText));
 crate::declare_security!(
     WithdrawPrescribedWorkoutTool => IRREVERSIBLE,
-    reads: ToolData::own(&[Stream::Workout]),
+    reads: ToolData::own(&[Stream::Workout])
+        .writes(WriteKind::Structured),
 );

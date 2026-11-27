@@ -14,10 +14,12 @@
 //! configuration, data sources and consents it asks (the athlete's) from
 //! whose turn and charge it is (the coach's).
 
+use std::future::Future;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use dravr_tronc::mcp::tool::ToolContext;
-use pierre_core::models::TenantId;
+use pierre_core::models::{CarriedRead, TenantId};
 use pierre_core::transport::Transport;
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_providers::{ai_scope, backend_resolver};
@@ -37,6 +39,8 @@ use crate::read_subject::{
 };
 use crate::reconnect::{RECONNECT_BACKEND_KEY, RECONNECT_REQUIRED_KEY};
 use crate::runtime::ToolRuntime;
+use crate::tool_data::ToolData;
+use dravr_barrage::Tier;
 
 /// Who a call is for and whose data it reads.
 ///
@@ -146,7 +150,12 @@ impl UniversalExecutor {
         let athlete = take_athlete_argument(args);
         let first_party =
             ai_scope::effective_transport(self.transport).is_some_and(Transport::is_first_party);
-        let named_externally = self.caller_writes_reply && !first_party;
+        // Named outside Dravr's own app: by an MCP client or an A2A agent,
+        // or on a chat turn served over an API key or the A2A text turn,
+        // whose catalogue offers the argument by the same rule `/mcp` lists
+        // it by (carnet#1511, Q16). In the app a chat turn never offers it.
+        let named_externally =
+            (self.caller_writes_reply || self.turn_role.is_some()) && !first_party;
         let resolved = resolve_read_subject(ReadSubjectRequest {
             resources: &self.resources,
             requester,
@@ -154,6 +163,8 @@ impl UniversalExecutor {
             seat: self.seat,
             class,
             conversation_id: self.conversation_id.as_deref(),
+            conversation_tenant: self.conversation_tenant_id.map(TenantId::from_uuid),
+            direct_message: self.turn_direct_message,
             athlete: athlete.as_deref(),
             named_externally,
             tool_name,
@@ -361,6 +372,53 @@ pub(super) async fn build_tool_context(
     }
 
     Ok((ctx, is_admin))
+}
+
+impl UniversalExecutor {
+    /// The tiers `tool_name` reads, and the coach's read of the athlete
+    /// `subject` names through it: with the class and tiers the tool reads,
+    /// and whether it reads their activities alone, what their peer sharing
+    /// covers (carnet#1511 calls 19 and 23). An outside client reaches a
+    /// tool reading T2/T3 streams only under the athlete's tier consent
+    /// (`tier_gate`, carnet#1544).
+    pub(super) fn coach_read(
+        &self,
+        tool_name: &str,
+        subject: Option<&ReadSubject>,
+    ) -> (Vec<Tier>, Option<(CarriedRead, Arc<AtomicBool>)>) {
+        let registry = self.resources.tool_registry();
+        let tiers = registry
+            .tool_data(tool_name)
+            .map_or_else(Vec::new, ToolData::tiers);
+        let activities_only = registry.reads_activities_only(tool_name);
+        let member_read = subject.and_then(|subject| subject.carried_read(&tiers, activities_only));
+        (tiers, member_read)
+    }
+}
+
+/// Run `body`, a tool's read of the coached athlete `read` names, noting the
+/// read on the call, and after it whatever else of the athlete it went on to
+/// read.
+///
+/// What the call derives is the athlete's (carnet#1174), and so is every
+/// attribution what it serves owes (carnet#1464). A read that served the
+/// athlete's stored physiology went beyond their activities, whatever the
+/// tool declared (carnet#1511 call 27); a training read that went on to read
+/// their wellness under their grant carries their wellness.
+pub(super) async fn reading_member<F: Future>(
+    read: CarriedRead,
+    wellness_recorded: &AtomicBool,
+    body: F,
+) -> F::Output {
+    ai_scope::note_member_read(read.clone());
+    let (output, physiology_served) = ai_scope::reading_member_about(read.member, body).await;
+    if physiology_served {
+        ai_scope::note_member_read(read.clone().beyond_activities());
+    }
+    if wellness_recorded.load(Ordering::Acquire) {
+        ai_scope::note_member_read(read.wellness());
+    }
+    output
 }
 
 #[cfg(test)]

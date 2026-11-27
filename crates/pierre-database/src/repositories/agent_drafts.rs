@@ -75,6 +75,18 @@ pub trait AgentDraftsRepository: Send + Sync {
         resolution: &str,
     ) -> AppResult<ClaimOutcome>;
 
+    /// The payload of the pending action `id` when it is `user_id`'s in
+    /// `tenant_id` and still waits for an answer, without claiming it: what
+    /// a resolution checks before it spends the single-use claim. `None` for
+    /// an unknown id, another user's row, one already resolved, or one whose
+    /// TTL elapsed, which the claim reports as expired.
+    async fn pending_action(
+        &self,
+        id: &str,
+        user_id: &str,
+        tenant_id: &str,
+    ) -> AppResult<Option<PendingAgentDraft>>;
+
     /// Delete rows whose TTL elapsed, returning how many were removed.
     ///
     /// Claims already filter expired rows, so this is storage hygiene only;
@@ -111,6 +123,14 @@ pub(crate) const READ_CLAIMED_ACTION_SQL: &str = r"
                 SELECT tenant_id, user_id, tool_name, arguments, deny_reason
                 FROM guardian_pending_actions
                 WHERE id = $1 AND user_id = $2 AND tenant_id = $3
+                ";
+
+/// An owned row still waiting for its answer, read without claiming it.
+pub(crate) const READ_PENDING_ACTION_SQL: &str = r"
+                SELECT tenant_id, user_id, tool_name, arguments, deny_reason
+                FROM guardian_pending_actions
+                WHERE id = $1 AND user_id = $2 AND tenant_id = $3
+                  AND status = 'pending' AND expires_at > $4
                 ";
 
 /// Distinguish "owned but elapsed" (mark + report expired) from everything
@@ -250,6 +270,27 @@ macro_rules! impl_agent_drafts_repository {
                 } else {
                     Ok(ClaimOutcome::NotFound)
                 }
+            }
+
+            async fn pending_action(
+                &self,
+                id: &str,
+                user_id: &str,
+                tenant_id: &str,
+            ) -> AppResult<Option<PendingAgentDraft>> {
+                let row = sqlx::query(READ_PENDING_ACTION_SQL)
+                    .bind(id)
+                    .bind(user_id)
+                    .bind(tenant_id)
+                    .bind(Timestamp::now().epoch_seconds())
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to read pending guardian_pending_action: {e}"
+                        ))
+                    })?;
+                row.map(|row| action_from_row(id, &row)).transpose()
             }
 
             async fn delete_expired_pending_actions(&self) -> AppResult<u64> {

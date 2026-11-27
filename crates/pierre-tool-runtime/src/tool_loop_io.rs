@@ -27,8 +27,7 @@ use pierre_services::chat_stream::TurnEventSink;
 
 use pierre_core::errors::AppError;
 use pierre_core::llm::is_llm_provider_fault;
-use pierre_core::models::{TenantId, GUARDIAN_DENIED_FINISH_REASON};
-use uuid::Uuid;
+use pierre_core::models::{CarriedRead, TenantId, GUARDIAN_DENIED_FINISH_REASON};
 
 use crate::envelope_notices::{merge_notice_days, NoticeDay};
 use crate::protocol::UniversalExecutor;
@@ -51,9 +50,9 @@ pub struct ToolRoundRecord {
     /// Formatted tool result the loop pushes back to the model as a user
     /// turn (e.g. `"[Tool Result for get_activities]: ..."`). Always set.
     pub tool_result_text: String,
-    /// The group members whose data the round's calls read under their
-    /// consent (carnet#1174): what its rows are about.
-    pub members_read: BTreeSet<Uuid>,
+    /// The member reads the round's calls made, each with how it was made
+    /// (carnet#1174, carnet#1511 call 19): what its rows carry.
+    pub members_read: BTreeSet<CarriedRead>,
 }
 
 /// Sink that receives one [`ToolRoundRecord`] per tool dispatch round.

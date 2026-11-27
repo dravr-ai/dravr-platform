@@ -117,6 +117,27 @@ pub trait RuntimeTool: McpTool<dyn ToolRuntime> {
         false
     }
 
+    /// Where a call is taken, by who reads its reply ([`RoomReach`]): what the
+    /// tool's own room gate (`call_room`) accepts, so a turn's listing
+    /// offers the tool only where a call would be taken. Every coach tool
+    /// declares it through [`declare_security!`](crate::declare_security)'s
+    /// `coach` arms.
+    fn room_reach(&self) -> RoomReach {
+        RoomReach::Anywhere
+    }
+
+    /// Whether a coach tool also serves a member of a group reading a peer
+    /// who shares with them (a member's activities), so that on Dravr's own
+    /// surfaces it is offered beyond the coach: its own gates then decide by
+    /// what the member shares. A coach tool that serves the coach alone (the
+    /// roster, a member's plan status) is withheld there from anyone the one
+    /// coach rule does not admit ([`crate::tool_access::withheld`]). Declared
+    /// through [`declare_security!`](crate::declare_security)'s
+    /// `coach_in_any_group_room` arm.
+    fn serves_group_peers(&self) -> bool {
+        false
+    }
+
     /// Whether the tool can only fail on a deployment holding no USDA key
     /// ([`crate::deployment_tools`]). A tool opts in through
     /// [`declare_security!`](crate::declare_security)'s `food_database` arm.
@@ -147,12 +168,32 @@ pub enum ToolReach {
 pub enum Audience {
     /// Everyone who signs in: the athlete tools.
     Athlete,
-    /// A human coach who leads an active group, and an admin: the roster
-    /// tools over other members' data. On Dravr's own surfaces the tool's own
-    /// gates decide (a peer reads a group member there too).
+    /// A human coach who leads an active group with coach access, and an
+    /// admin: the roster tools over other members' data. On Dravr's own
+    /// surfaces a tool that also serves a group's peers
+    /// ([`RuntimeTool::serves_group_peers`]) is left to its own gates, and
+    /// every other one goes to a human coach alone.
     Coach,
     /// An admin: the `ADMIN_ONLY` tools.
     Admin,
+}
+
+/// Where a tool's own room gate takes a call, by who reads the reply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RoomReach {
+    /// Wherever it is called: the tool keeps no room gate.
+    #[default]
+    Anywhere,
+    /// Where the caller alone reads the reply, or in a group's room, which
+    /// pins the call to that group (a member's activities).
+    PrivateOrGroupRoom,
+    /// Where the caller alone reads the reply, or in the room of a group the
+    /// caller coaches (the roster, a member's plan status).
+    PrivateOrCoachedRoom,
+    /// Only where the caller alone reads the reply: a tool whose gate
+    /// (`coach_scope::room_refusal`) refuses every room (the provider
+    /// roster, an athlete link).
+    PrivateOnly,
 }
 
 /// Implement [`RuntimeTool`] for a tool type, co-located with its `McpTool`
@@ -176,7 +217,13 @@ pub enum Audience {
 /// on Dravr's own surfaces, and to an admin holding `admin` in their grant.
 /// `; app_only` declares [`ToolReach::AppOnly`]: Dravr's own surfaces
 /// only, whoever asks. `; coach` declares that the tool serves a human coach
-/// ([`Audience::Coach`], [`RuntimeTool::audience`]). `; food_database`
+/// ([`Audience::Coach`], [`RuntimeTool::audience`]) taken in private or in
+/// the room of a group the caller coaches ([`RoomReach::PrivateOrCoachedRoom`]);
+/// `; coach_in_any_group_room` one taken in any group's room too
+/// ([`RoomReach::PrivateOrGroupRoom`]) that also serves the group's peers
+/// ([`RuntimeTool::serves_group_peers`]). `; first_party_only ; private`
+/// declares a first-party tool whose gate refuses every room
+/// ([`RoomReach::PrivateOnly`]). `; food_database`
 /// declares that the tool needs the deployment's USDA key
 /// ([`RuntimeTool::requires_food_database`]). `; export` declares that the
 /// tool carries the user's whole record away ([`RuntimeTool::exports_record`]).
@@ -242,6 +289,25 @@ macro_rules! declare_security {
             }
         }
     };
+    ($t:ty => empty ; first_party_only ; private , reads: $data:expr $(,)?) => {
+        impl $crate::security::RuntimeTool for $t {
+            fn tool_data(&self) -> $crate::tool_data::ToolData {
+                $data
+            }
+
+            fn security_class(&self) -> $crate::security::SecurityLabels {
+                $crate::security::SecurityLabels::empty()
+            }
+
+            fn reach(&self) -> $crate::security::ToolReach {
+                $crate::security::ToolReach::FirstPartyOnly
+            }
+
+            fn room_reach(&self) -> $crate::security::RoomReach {
+                $crate::security::RoomReach::PrivateOnly
+            }
+        }
+    };
     ($t:ty => $($flag:ident)|+ ; first_party_only , reads: $data:expr $(,)?) => {
         impl $crate::security::RuntimeTool for $t {
             fn tool_data(&self) -> $crate::tool_data::ToolData {
@@ -269,6 +335,33 @@ macro_rules! declare_security {
 
             fn audience(&self) -> $crate::security::Audience {
                 $crate::security::Audience::Coach
+            }
+
+            fn room_reach(&self) -> $crate::security::RoomReach {
+                $crate::security::RoomReach::PrivateOrCoachedRoom
+            }
+        }
+    };
+    ($t:ty => empty ; coach_in_any_group_room , reads: $data:expr $(,)?) => {
+        impl $crate::security::RuntimeTool for $t {
+            fn tool_data(&self) -> $crate::tool_data::ToolData {
+                $data
+            }
+
+            fn security_class(&self) -> $crate::security::SecurityLabels {
+                $crate::security::SecurityLabels::empty()
+            }
+
+            fn audience(&self) -> $crate::security::Audience {
+                $crate::security::Audience::Coach
+            }
+
+            fn room_reach(&self) -> $crate::security::RoomReach {
+                $crate::security::RoomReach::PrivateOrGroupRoom
+            }
+
+            fn serves_group_peers(&self) -> bool {
+                true
             }
         }
     };

@@ -55,6 +55,7 @@ use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_notify, named, only};
 use helpers::recording_llm::RecordingProvider;
 use pierre_services::locale::resolve_user_locale;
+use pierre_tool_runtime::tool_access::CallerRole;
 
 const LOCALE: &str = "en";
 
@@ -249,6 +250,7 @@ impl Fixture {
             mentioned_agent: None,
             steps_after: None,
             grant: OAuthScope::self_grant(),
+            role: CallerRole::default(),
         };
         let profile = SurfaceProfile::resolve(&SurfaceRequest {
             surface: SurfaceId::Web,

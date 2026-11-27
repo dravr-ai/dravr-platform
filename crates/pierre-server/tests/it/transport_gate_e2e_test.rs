@@ -40,6 +40,7 @@ use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_database::repositories::training_plans::PlanAuthor;
+use pierre_database::repositories::MemberReplay;
 use pierre_database::repositories::{PlanOutlineInput, SavePlanBundleParams, UpsertUserFactParams};
 use pierre_mcp_server::context::ServerContext;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
@@ -59,6 +60,7 @@ use pierre_tool_runtime::chat_catalogue::SwitchedOff;
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::tool_access::CallerRole;
 use serde_json::Value;
 use tokio::time::sleep;
 use tower::ServiceExt;
@@ -679,6 +681,7 @@ fn copilot_surface(resources: &Arc<ServerContext>, rider: &Rider) -> TurnToolSur
         ToolSessionTurn {
             user_id: &rider.user_id.to_string(),
             tenant_id: rider.tenant,
+            conversation_tenant_id: rider.tenant,
             conversation_id: "transport-gate-turn",
             turn_id: ConversationTurnId(Uuid::new_v4()),
             turn_agent_id: None,
@@ -686,6 +689,7 @@ fn copilot_surface(resources: &Arc<ServerContext>, rider: &Rider) -> TurnToolSur
             seat: TurnSeat::Subject,
             switched_off: &SwitchedOff::default(),
             grant: &OAuthScope::self_grant(),
+            role: CallerRole::default(),
         },
     )
 }
@@ -1068,7 +1072,7 @@ async fn a_stamped_message_is_withheld_and_an_unstamped_one_served_over_an_api_k
                 &owner,
                 rider.tenant,
                 50,
-                &[],
+                MemberReplay::about_nobody(),
             )),
         )
     };
@@ -1608,6 +1612,7 @@ async fn a_room_entry_copied_from_a_stamped_reply_keeps_its_place_withheld_over_
                 source_conversation_id: None,
                 source_message_id: None,
                 transport_policy,
+                carried: &[],
             })
             .await
             .unwrap();

@@ -24,9 +24,9 @@ use tracing::{debug, warn};
 use pierre_mcp_schema::{JsonSchema, ToolSchema};
 
 use crate::chat_catalogue;
-use crate::read_subject::{athlete_property, DataClass, ATHLETE_ARGUMENT};
-use crate::security::{Audience, RuntimeTool, SecurityLabels};
-use crate::tool_data::ToolData;
+use crate::read_subject::{athlete_property, strip_athlete_argument, DataClass};
+use crate::security::{Audience, RoomReach, RuntimeTool, SecurityLabels};
+use crate::tool_data::{ToolData, WriteKind};
 use dravr_tronc::mcp::schema::{TaskSupport, Tool};
 use dravr_tronc::mcp::tool::ToolCapabilities;
 use pierre_contremaitre::ToolDescriptionRegistry;
@@ -216,6 +216,22 @@ impl ToolRegistry {
         self.tool_data.get(name)
     }
 
+    /// What a tool that writes stores, as it declared ([`WriteKind`],
+    /// carnet#1511 call 16); `None` for an unknown tool and for one that
+    /// declared no write.
+    #[must_use]
+    pub fn write_kind(&self, name: &str) -> Option<WriteKind> {
+        self.tool_data(name).and_then(ToolData::write_kind)
+    }
+
+    /// Whether a coach's read through `name` reads the athlete's activities
+    /// alone, as it declared: what their peer sharing covers (carnet#1511
+    /// calls 23 and 27). `false` for an unknown tool.
+    #[must_use]
+    pub fn reads_activities_only(&self, name: &str) -> bool {
+        self.tool_data(name).is_some_and(ToolData::activities_only)
+    }
+
     /// Whose data a tool reads, as it declared; `None` for an unknown tool
     /// and for one that declared no class.
     #[must_use]
@@ -228,6 +244,15 @@ impl ToolRegistry {
     fn reads_a_coached_athlete(&self, name: &str) -> bool {
         self.data_class(name)
             .is_some_and(DataClass::reads_a_coached_athlete)
+    }
+
+    /// Where `name`'s own room gate takes a call ([`RuntimeTool::room_reach`]):
+    /// anywhere for an unknown name, which no listing holds.
+    #[must_use]
+    pub(crate) fn room_reach(&self, name: &str) -> RoomReach {
+        self.tools
+            .get(name)
+            .map_or(RoomReach::Anywhere, |tool| tool.room_reach())
     }
 
     /// Get a tool by name
@@ -421,11 +446,31 @@ impl ToolRegistry {
     /// Each schema here omits `format`: a chat turn never picks TOON
     /// (carnet#1314). The MCP listings (`all_schemas` and the rest)
     /// keep it, for external clients that opt in. A training- or
-    /// wellness-class tool also omits `athlete`: in a coach's thread the
-    /// athlete is implicit, and anywhere else in chat a name would be the
-    /// model's guess, which the dispatch chokepoint refuses (carnet#1387).
+    /// wellness-class tool also omits `athlete`: in a coach's thread in
+    /// Dravr's own app the athlete is implicit, and anywhere else in the app
+    /// a name would be the model's guess, which the dispatch chokepoint
+    /// refuses (carnet#1387). A turn served outside the app starts from
+    /// `chat_callable_schemas_naming_athletes` instead, where the one access
+    /// check decides who is offered the argument (carnet#1511, Q16).
     #[must_use]
     pub fn chat_callable_schemas(&self) -> Vec<ToolSchema> {
+        let mut schemas = self.chat_callable_schemas_naming_athletes();
+        schemas.retain_mut(|schema| {
+            !self.reads_a_coached_athlete(&schema.name)
+                || strip_athlete_argument(&mut schema.input_schema)
+        });
+        schemas
+    }
+
+    /// [`Self::chat_callable_schemas`] with every training- or wellness-class
+    /// tool's `athlete` property kept, as `/mcp` lists it: the set a chat
+    /// turn served outside Dravr's own app (an API key's, the A2A text
+    /// turn's) narrows with [`tool_access::retain_offered`], so a human coach
+    /// is offered the argument and no one else is.
+    ///
+    /// [`tool_access::retain_offered`]: crate::tool_access::retain_offered
+    #[must_use]
+    pub(crate) fn chat_callable_schemas_naming_athletes(&self) -> Vec<ToolSchema> {
         const CHAT_CALLABLE_CATEGORIES: &[&str] = &[
             "connection",
             "data",
@@ -465,17 +510,11 @@ impl ToolRegistry {
             .tools
             .iter()
             .filter(|(name, tool)| {
-                allowed_names.contains(name.as_str())
-                    && !tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY)
+                allowed_names.contains(name.as_str()) && !chat_withholds(tool.as_ref())
             })
-            .map(|(name, tool)| {
+            .map(|(_, tool)| {
                 let mut schema = self.build_schema(tool);
                 chat_catalogue::withhold_chat_parameters(&mut schema.input_schema);
-                if self.reads_a_coached_athlete(name) {
-                    if let Some(properties) = &mut schema.input_schema.properties {
-                        properties.remove(ATHLETE_ARGUMENT);
-                    }
-                }
                 schema
             })
             .collect();
@@ -619,4 +658,14 @@ impl fmt::Debug for ToolRegistry {
         );
         debug.finish()
     }
+}
+
+/// Whether a chat turn never offers `tool`, whoever asks: an admin tool.
+///
+/// The catalogue leaves it out before any role is read, so dispatch refuses
+/// it on a chat turn by this same test (`UniversalExecutor::access_refusal`),
+/// an admin's turn included (carnet#1511 design call 3).
+#[must_use]
+pub(crate) fn chat_withholds(tool: &dyn RuntimeTool) -> bool {
+    tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY)
 }

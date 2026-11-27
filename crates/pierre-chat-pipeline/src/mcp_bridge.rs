@@ -23,6 +23,7 @@ use pierre_core::models::{ConversationTurnId, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_tool_runtime::chat_catalogue::SwitchedOff;
 use pierre_tool_runtime::coach_seat::TurnSeat;
+use pierre_tool_runtime::tool_access::CallerRole;
 
 /// The turn a tool session is opened for.
 ///
@@ -58,6 +59,10 @@ pub struct ToolSessionTurn<'a> {
     pub user_id: &'a str,
     /// The tenant the caller's tools run under.
     pub tenant_id: TenantId,
+    /// The tenant the turn's conversation row is filed under: what the
+    /// session's listing and every call read the turn's room under, as the
+    /// in-process executor does.
+    pub conversation_tenant_id: TenantId,
     /// The conversation the turn belongs to.
     pub conversation_id: &'a str,
     /// The Guardian turn key for this utterance.
@@ -74,6 +79,9 @@ pub struct ToolSessionTurn<'a> {
     /// The grant the turn runs under: its executor's, and what the session's
     /// listing is narrowed to.
     pub grant: &'a [OAuthScope],
+    /// The role the turn is decided for ([`crate::turn::TurnInput::role`]):
+    /// its executor's, and what the session's listing offers by.
+    pub role: CallerRole,
 }
 
 /// Opens the turn-scoped tool session an ACP-managed provider calls into.

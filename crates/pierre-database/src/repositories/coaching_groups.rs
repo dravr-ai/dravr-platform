@@ -25,11 +25,12 @@
 mod sql;
 
 pub(crate) use sql::{
-    ARCHIVE_GROUP_SQL, COUNT_GROUPS_FOR_OWNER_SQL, DEACTIVATE_GROUP_INVITES_SQL,
-    FIND_GROUPS_FOR_USER_AND_AGENT_SQL, GET_GROUP_BY_CHANNEL_SQL, GET_GROUP_SQL, INSERT_GROUP_SQL,
-    LIST_ACTIVE_GROUPS_FOR_TENANT_SQL, LIST_ATHLETES_COACHED_BY_SQL,
-    LIST_COACHLESS_GROUPS_OWNED_BY_SQL, LIST_GROUPS_COACHED_BY_SQL, LIST_GROUPS_FOR_USER_SQL,
-    RELEASE_GROUP_MEMBERS_SQL, SET_GROUP_COACH_USER_SQL, UPDATE_GROUP_SQL,
+    ARCHIVE_GROUP_SQL, ATTACH_COACH_TO_COACHLESS_GROUP_SQL, COUNT_GROUPS_FOR_OWNER_SQL,
+    DEACTIVATE_GROUP_INVITES_SQL, FIND_GROUPS_FOR_USER_AND_AGENT_SQL, GET_GROUP_BY_CHANNEL_SQL,
+    GET_GROUP_SQL, INSERT_GROUP_IF_ABSENT_SQL, INSERT_GROUP_SQL, LIST_ACTIVE_GROUPS_FOR_TENANT_SQL,
+    LIST_ATHLETES_COACHED_BY_SQL, LIST_COACHLESS_GROUPS_OWNED_BY_SQL, LIST_GROUPS_COACHED_BY_SQL,
+    LIST_GROUPS_FOR_USER_SQL, LIST_GROUPS_HELD_BY_SQL, RELEASE_GROUP_MEMBERS_SQL,
+    SET_GROUP_COACH_USER_SQL, UPDATE_GROUP_SQL,
 };
 
 use dravr_tronc::dates::Timestamp;
@@ -194,6 +195,8 @@ macro_rules! impl_coaching_group_repository {
                     r,
                     "first_party_only",
                 )?),
+                author_coached: column(r, "author_coached")?,
+                room_reads: column(r, "room_reads")?,
             })
         }
 
@@ -283,16 +286,16 @@ macro_rules! impl_coaching_group_repository {
             })
         }
 
-        #[async_trait::async_trait]
-        impl CoachingGroupRepository for $ty {
-            // -- Group CRUD --
-
-            async fn create_group(
+        impl $ty {
+            /// Insert `group` under its own id with `sql` ([`INSERT_GROUP_SQL`]
+            /// or [`INSERT_GROUP_IF_ABSENT_SQL`]): how many rows it wrote.
+            async fn insert_group(
                 &self,
+                sql: &str,
                 tenant_id: TenantId,
                 group: &CoachingGroup,
-            ) -> AppResult<CoachingGroup> {
-                sqlx::query(INSERT_GROUP_SQL)
+            ) -> AppResult<u64> {
+                Ok(sqlx::query(sql)
                     .bind($ids::bind(group.id))
                     .bind(tenant_id.to_string())
                     .bind(&group.name)
@@ -309,11 +312,36 @@ macro_rules! impl_coaching_group_repository {
                     .bind($ids::bind_opt(group.coach_user_id))
                     .execute(self.pool())
                     .await
-                    .map_err(|e| AppError::database(format!("Failed to create group: {e}")))?;
+                    .map_err(|e| AppError::database(format!("Failed to create group: {e}")))?
+                    .rows_affected())
+            }
+        }
 
+        #[async_trait::async_trait]
+        impl CoachingGroupRepository for $ty {
+            // -- Group CRUD --
+
+            async fn create_group(
+                &self,
+                tenant_id: TenantId,
+                group: &CoachingGroup,
+            ) -> AppResult<CoachingGroup> {
+                self.insert_group(INSERT_GROUP_SQL, tenant_id, group)
+                    .await?;
                 self.get_group(&group.id.to_string(), tenant_id)
                     .await?
                     .ok_or_else(|| AppError::internal("Group not found after creation"))
+            }
+
+            async fn create_group_if_absent(
+                &self,
+                tenant_id: TenantId,
+                group: &CoachingGroup,
+            ) -> AppResult<bool> {
+                Ok(self
+                    .insert_group(INSERT_GROUP_IF_ABSENT_SQL, tenant_id, group)
+                    .await?
+                    > 0)
             }
 
             async fn get_group(
@@ -403,6 +431,18 @@ macro_rules! impl_coaching_group_repository {
                     })?;
 
                 rows.iter().map(|r| $ids::read(r, "user_id")).collect()
+            }
+
+            async fn list_groups_held_by(&self, user_id: Uuid) -> AppResult<Vec<Uuid>> {
+                let rows = sqlx::query(LIST_GROUPS_HELD_BY_SQL)
+                    .bind($ids::bind(user_id))
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to list the groups a user holds: {e}"))
+                    })?;
+
+                rows.iter().map(|r| $ids::read(r, "group_id")).collect()
             }
 
             async fn list_active_groups_for_tenant(
@@ -502,6 +542,28 @@ macro_rules! impl_coaching_group_repository {
                     .execute(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to set group coach: {e}")))?;
+
+                Ok(result.rows_affected() > 0)
+            }
+
+            async fn attach_coach_to_coachless_group(
+                &self,
+                group_id: &str,
+                coach_user_id: Uuid,
+                tenant_id: TenantId,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(ATTACH_COACH_TO_COACHLESS_GROUP_SQL)
+                    .bind($ids::bind(coach_user_id))
+                    .bind(Timestamp::now())
+                    .bind($ids::bind_text(group_id)?)
+                    .bind(tenant_id.to_string())
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to attach a coachless group's coach: {e}"
+                        ))
+                    })?;
 
                 Ok(result.rows_affected() > 0)
             }
@@ -869,8 +931,12 @@ macro_rules! impl_coaching_group_repository {
                 &self,
                 entry: &NewGroupTranscriptEntry<'_>,
             ) -> AppResult<()> {
+                let id = Uuid::new_v4();
+                let mut tx = self.pool().begin().await.map_err(|e| {
+                    AppError::database(format!("Failed to begin a transcript entry: {e}"))
+                })?;
                 sqlx::query(INSERT_TRANSCRIPT_ENTRY_SQL)
-                    .bind($ids::bind(Uuid::new_v4()))
+                    .bind($ids::bind(id))
                     .bind($ids::bind_text(entry.group_id)?)
                     .bind(entry.tenant_id)
                     .bind($ids::bind(entry.author_user_id))
@@ -880,11 +946,36 @@ macro_rules! impl_coaching_group_repository {
                     .bind(entry.source_message_id)
                     .bind(Timestamp::now())
                     .bind(entry.transport_policy.is_first_party_only())
-                    .execute(self.pool())
+                    .execute(&mut *tx)
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to append transcript entry: {e}"))
                     })?;
+                // One link row per member other than the author, the
+                // strictest of their reads (carnet#1511 call 19).
+                for read in CarriedRead::strictest_per_member(entry.carried)
+                    .into_iter()
+                    .filter(|read| read.member != entry.author_user_id)
+                {
+                    sqlx::query(INSERT_TRANSCRIPT_ENTRY_MEMBER_SQL)
+                        .bind($ids::bind(id))
+                        .bind($ids::bind(read.member))
+                        .bind(read.way.as_str())
+                        .bind($ids::bind_opt(read.group))
+                        .bind($ids::bind_opt(read.coach))
+                        .bind(&read.class)
+                        .bind(read.tier.as_deref())
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| {
+                            AppError::database(format!(
+                                "Failed to record a member a transcript entry carries: {e}"
+                            ))
+                        })?;
+                }
+                tx.commit().await.map_err(|e| {
+                    AppError::database(format!("Failed to commit a transcript entry: {e}"))
+                })?;
 
                 Ok(())
             }
@@ -894,16 +985,21 @@ macro_rules! impl_coaching_group_repository {
                 group_id: &str,
                 viewer_user_id: Uuid,
                 limit: i64,
+                readable: TranscriptReadable<'_>,
             ) -> AppResult<Vec<GroupTranscriptEntry>> {
-                let rows = sqlx::query(LIST_TRANSCRIPT_VISIBLE_TO_SQL)
+                let sql =
+                    list_transcript_visible_to_sql(readable.viewer.len(), readable.room.len());
+                let mut query = sqlx::query(&sql)
                     .bind($ids::bind_text(group_id)?)
                     .bind($ids::bind(viewer_user_id))
-                    .bind(limit.clamp(1, 500))
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to list transcript entries: {e}"))
-                    })?;
+                    .bind(limit.clamp(1, 500));
+                let keys = readable.viewer.iter().chain(readable.room);
+                for key in keys {
+                    query = query.bind(key);
+                }
+                let rows = query.fetch_all(self.pool()).await.map_err(|e| {
+                    AppError::database(format!("Failed to list transcript entries: {e}"))
+                })?;
 
                 rows.iter().map(row_to_transcript_entry).collect()
             }
@@ -914,12 +1010,18 @@ macro_rules! impl_coaching_group_repository {
                 viewer_user_id: Uuid,
                 before: Option<Uuid>,
                 limit: i64,
+                readable: &[String],
             ) -> AppResult<Vec<RoomTranscriptEntry>> {
-                let rows = sqlx::query(LIST_ROOM_TRANSCRIPT_SQL)
+                let sql = list_room_transcript_sql(readable.len());
+                let mut query = sqlx::query(&sql)
                     .bind($ids::bind_text(group_id)?)
                     .bind($ids::bind(viewer_user_id))
                     .bind(limit.clamp(1, 500))
-                    .bind($ids::bind_opt(before))
+                    .bind($ids::bind_opt(before));
+                for key in readable {
+                    query = query.bind(key);
+                }
+                let rows = query
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to list the room: {e}")))?;
@@ -933,19 +1035,56 @@ macro_rules! impl_coaching_group_repository {
                 viewer_user_id: Uuid,
                 entry_id: Uuid,
                 tenants: [TenantId; 2],
+                readable: &[String],
             ) -> AppResult<Option<RoomTranscriptEntry>> {
                 let [first_tenant, second_tenant] = tenants;
-                let row = sqlx::query(GET_ROOM_TRANSCRIPT_ENTRY_SQL)
+                let sql = get_room_transcript_entry_sql(readable.len());
+                let mut query = sqlx::query(&sql)
                     .bind($ids::bind_text(group_id)?)
                     .bind($ids::bind(viewer_user_id))
                     .bind($ids::bind(entry_id))
                     .bind(first_tenant.to_string())
-                    .bind(second_tenant.to_string())
+                    .bind(second_tenant.to_string());
+                for key in readable {
+                    query = query.bind(key);
+                }
+                let row = query
                     .fetch_optional(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to read a room entry: {e}")))?;
 
                 row.as_ref().map(row_to_room_entry).transpose()
+            }
+
+            async fn list_group_read_keys(&self, group_id: &str) -> AppResult<Vec<String>> {
+                let rows = sqlx::query(GROUP_READ_KEYS_SQL)
+                    .bind($ids::bind_text(group_id)?)
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to list a room's reads: {e}"))
+                    })?;
+                rows.iter().map(|row| column(row, "rkey")).collect()
+            }
+
+            async fn list_transcript_entry_reads(
+                &self,
+                entry_ids: &[Uuid],
+            ) -> AppResult<Vec<(Uuid, String)>> {
+                if entry_ids.is_empty() {
+                    return Ok(Vec::new());
+                }
+                let sql = transcript_entry_reads_sql(entry_ids.len());
+                let mut query = sqlx::query(&sql);
+                for id in entry_ids {
+                    query = query.bind($ids::bind(*id));
+                }
+                let rows = query.fetch_all(self.pool()).await.map_err(|e| {
+                    AppError::database(format!("Failed to list a room entry's reads: {e}"))
+                })?;
+                rows.iter()
+                    .map(|row| Ok(($ids::read(row, "entry_id")?, column(row, "rkey")?)))
+                    .collect()
             }
 
             async fn claim_group_digest(

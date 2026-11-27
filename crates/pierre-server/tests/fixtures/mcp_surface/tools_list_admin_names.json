@@ -94,7 +94,6 @@
   "optimize_sleep_schedule",
   "predict_performance",
   "prescribe_workout",
-  "propose_athlete_link",
   "push_training_plan",
   "query_activities",
   "recall_user_memory",

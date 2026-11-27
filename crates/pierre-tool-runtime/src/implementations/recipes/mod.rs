@@ -17,7 +17,7 @@
 
 use crate::annotations::{annotations, Effect, Reach};
 use crate::read_subject::DataClass;
-use crate::tool_data::ToolData;
+use crate::tool_data::{ToolData, WriteKind};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
@@ -671,7 +671,8 @@ pub fn create_recipe_tools() -> Vec<Box<dyn RuntimeTool>> {
 // Guardian security classifications (see `crate::security`). Co-located here so
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
-crate::declare_security!(DeleteRecipeTool => IRREVERSIBLE, reads: ToolData::own(&[]));
+crate::declare_security!(DeleteRecipeTool => IRREVERSIBLE, reads: ToolData::own(&[])
+        .writes(WriteKind::Structured));
 crate::declare_security!(
     GetRecipeConstraintsTool => empty,
     reads: ToolData::of(DataClass::NoSubject, &[]),
@@ -679,7 +680,8 @@ crate::declare_security!(
 // The caller's own recipes.
 crate::declare_security!(GetRecipeTool => empty, reads: ToolData::own(&[]));
 crate::declare_security!(ListRecipesTool => empty, reads: ToolData::own(&[]));
-crate::declare_security!(SaveRecipeTool => empty, reads: ToolData::own(&[]));
+crate::declare_security!(SaveRecipeTool => empty, reads: ToolData::own(&[])
+        .writes(WriteKind::FreeText));
 crate::declare_security!(SearchRecipesTool => empty, reads: ToolData::own(&[]));
 crate::declare_security!(
     ValidateRecipeTool => empty; food_database,

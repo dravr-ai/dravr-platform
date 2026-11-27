@@ -71,8 +71,10 @@ pub(super) async fn append_ambient_transcript_entry(
         content: &body,
         source_conversation_id: None,
         source_message_id: Some(&message.channel_message_id),
-        // A member's own words in the room, derived from no provider data.
+        // A member's own words in the room, derived from no provider data
+        // and drawn from no other member's.
         transport_policy: TransportPolicy::AnyTransport,
+        carried: &[],
     };
     if let Err(e) = resources
         .common

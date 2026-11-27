@@ -41,7 +41,9 @@ mod coach_tools_external_surface_tests {
     use pierre_chat_pipeline::ToolSessionTurn;
     use pierre_core::ai_policy::ProviderTerms;
     use pierre_core::constants::oauth::providers::{INTERVALS_ICU, STRAVA};
-    use pierre_core::models::{Activity, ActivityBuilder, ConversationTurnId, SportType};
+    use pierre_core::models::{
+        Activity, ActivityBuilder, CarriedRead, ConversationTurnId, SportType,
+    };
     use pierre_core::permissions::scopes::OAuthScope;
     use pierre_core::transport::Transport;
     use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
@@ -51,13 +53,21 @@ mod coach_tools_external_surface_tests {
     use pierre_services::coach_roster::{
         gather_roster, order_roster, roster_access, OrderedMember, RosterAccess,
     };
-    use pierre_tool_runtime::chat_catalogue::{offered_schemas, SwitchedOff};
-    use pierre_tool_runtime::coach_seat::TurnSeat;
-    use pierre_tool_runtime::first_party_tools::FIRST_PARTY_SURFACE_ERROR_CODE;
+    use pierre_tool_runtime::chat_catalogue::{
+        declarations, offered_schemas, OfferedTo, SwitchedOff, TurnReaders,
+    };
+    use pierre_tool_runtime::coach_seat::{
+        after_member_read_refusal, offer_declaration_after_member_read, MemberReads, TurnSeat,
+    };
+    use pierre_tool_runtime::context::TURN_DIRECT_MESSAGE;
+    use pierre_tool_runtime::first_party_tools::{
+        EXTERNAL_WRITE_ERROR_CODE, FIRST_PARTY_SURFACE_ERROR_CODE,
+    };
     use pierre_tool_runtime::implementations::group_roster::KEPT_IN_DRAVR;
     use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
     use pierre_tool_runtime::runtime::ToolRuntime;
     use pierre_tool_runtime::security::{Audience, ToolReach};
+    use pierre_tool_runtime::tool_access::CallerRole;
     use pierre_tool_runtime::tool_access::COACH_ROLE_REQUIRED;
     use serde_json::{json, Value};
     use tower::ServiceExt;
@@ -69,6 +79,10 @@ mod coach_tools_external_surface_tests {
         "get_group_member_plan_status",
         "get_roster_overview",
     ];
+
+    /// What a coach tool refused for the role reads
+    /// (`tool_access::coach_role_refusal`).
+    const COACH_ROLE_REFUSED: &str = "is for a human coach who leads an active group";
 
     /// The two coaching-platform tools, kept in Dravr's own app for a coach.
     const PLATFORM_TOOLS: [&str; 2] = ["get_provider_roster", "propose_athlete_link"];
@@ -396,13 +410,20 @@ mod coach_tools_external_surface_tests {
         let res = create_test_server_resources().await.unwrap();
         let casey = squad(&res).await.casey;
 
-        let offered = |transport| -> BTreeSet<String> {
+        let coach_role = CallerRole::resolve(&res.common.repos, casey.id).await;
+        assert!(coach_role.coach, "{coach_role:?}");
+        let offered = |transport, role| -> BTreeSet<String> {
             offered_schemas(
                 &res.mcp.tool_registry,
                 TurnSeat::Subject,
                 &SwitchedOff::default(),
-                transport,
-                &OAuthScope::self_grant(),
+                OfferedTo {
+                    transport,
+                    grant: &OAuthScope::self_grant(),
+                    role,
+                    readers: TurnReaders::CallerAlone,
+                    member_reads: MemberReads::default(),
+                },
                 &res.common.config,
             )
             .into_iter()
@@ -414,25 +435,44 @@ mod coach_tools_external_surface_tests {
             Transport::MobileApp,
             Transport::Messaging,
         ] {
-            let in_app = offered(Some(transport));
+            // The role the app's turn service resolves for the coach.
+            let role = CallerRole::resolve(&res.common.repos, casey.id).await;
+            let in_app = offered(Some(transport), role);
             assert!(
                 coach_tools().is_subset(&in_app),
                 "{transport:?}: {:?}",
                 coach_tools().difference(&in_app).collect::<Vec<_>>()
             );
-        }
-        // A chat turn served over an API key is decided for no role, so it
-        // lists none of them and its calls to them are refused; an
-        // undeclared transport is external. The coach list is the MCP and
-        // A2A listings'.
-        for transport in [Some(Transport::ApiKey), None] {
-            let external = offered(transport);
-            assert!(
-                external.is_disjoint(&coach_tools()),
-                "{transport:?}: {:?}",
-                external.intersection(&coach_tools()).collect::<Vec<_>>()
+            // A caller who coaches no one is offered in the app only the
+            // coach tool that also serves a group's peers, whose own gates
+            // answer them: never one refused for their role (carnet#1511 I7).
+            let no_role = offered(Some(transport), CallerRole::default());
+            let coach_tools_offered: BTreeSet<String> =
+                coach_tools().intersection(&no_role).cloned().collect();
+            assert_eq!(
+                coach_tools_offered,
+                BTreeSet::from(["get_group_member_activities".to_owned()]),
+                "{transport:?}"
             );
-            assert!(external.contains("get_activities"), "{transport:?}");
+        }
+        // A chat turn served outside the app (an API key's, the A2A text
+        // turn's; an undeclared transport is external) is decided for the
+        // caller's role through the one access check: the coach's lists
+        // them, a caller with no role lists none (carnet#1511, plan site 5).
+        for transport in [Some(Transport::ApiKey), Some(Transport::A2a), None] {
+            let for_coach = offered(transport, coach_role);
+            assert!(
+                coach_tools().is_subset(&for_coach),
+                "{transport:?}: {:?}",
+                coach_tools().difference(&for_coach).collect::<Vec<_>>()
+            );
+            let no_role = offered(transport, CallerRole::default());
+            assert!(
+                no_role.is_disjoint(&coach_tools()),
+                "{transport:?}: {:?}",
+                no_role.intersection(&coach_tools()).collect::<Vec<_>>()
+            );
+            assert!(no_role.contains("get_activities"), "{transport:?}");
         }
 
         for transport in [
@@ -459,44 +499,169 @@ mod coach_tools_external_surface_tests {
     }
 
     /// The Copilot loopback lists the coach tools by the transport the turn
-    /// was opened under, read off its executor: the listing runs on embacle's
-    /// host task, where the turn's own declaration is gone.
+    /// was opened under and the role it was decided for, both read off its
+    /// executor: the listing runs on embacle's host task, where the turn's
+    /// own declaration is gone. Its calls read the same role, so an outside
+    /// turn's roster names only the member who allowed the coach's
+    /// assistant (carnet#1511, plan site 5).
     #[tokio::test]
-    async fn the_loopback_lists_the_coach_tools_only_for_an_in_app_turn() {
+    async fn the_loopback_offers_the_coach_tools_by_the_turns_role() {
         let res = create_test_server_resources().await.unwrap();
         let casey = squad(&res).await.casey;
+        let coach_role = CallerRole::resolve(&res.common.repos, casey.id).await;
         let tool_runtime: Arc<dyn ToolRuntime> = res.clone();
         let bridge = HostedToolBridge::new(true, res.mcp.tool_registry.clone(), tool_runtime);
         let user_id = casey.id.to_string();
-        let open = |transport| {
-            ai_scope::serve_over(transport, async {
-                bridge.turn_surface(ToolSessionTurn {
-                    user_id: &user_id,
-                    tenant_id: casey.tenant,
-                    conversation_id: "conv-loopback",
-                    turn_id: ConversationTurnId(Uuid::new_v4()),
-                    turn_agent_id: None,
-                    budget: 64,
-                    seat: TurnSeat::Subject,
-                    switched_off: &SwitchedOff::default(),
-                    grant: &OAuthScope::self_grant(),
-                })
-            })
+        // A direct-message turn in the coach's own conversation: the room
+        // every coach tool's gate takes a call in.
+        let conversation = common::own_conversation(&res, casey.id, casey.tenant).await;
+        let (bridge, user_id, conversation) = (&bridge, &user_id, &conversation);
+        let open = move |transport, role| {
+            TURN_DIRECT_MESSAGE.scope(
+                Some(true),
+                ai_scope::serve_over(transport, async move {
+                    bridge.turn_surface(ToolSessionTurn {
+                        user_id,
+                        tenant_id: casey.tenant,
+                        conversation_tenant_id: casey.tenant,
+                        conversation_id: conversation,
+                        turn_id: ConversationTurnId(Uuid::new_v4()),
+                        turn_agent_id: None,
+                        budget: 64,
+                        seat: TurnSeat::Subject,
+                        switched_off: &SwitchedOff::default(),
+                        grant: &OAuthScope::self_grant(),
+                        role,
+                    })
+                }),
+            )
         };
 
-        let in_app = open(Transport::WebApp).await;
+        let app_role = CallerRole::resolve(&res.common.repos, casey.id).await;
+        let in_app = open(Transport::WebApp, app_role).await;
         let in_app_names = listed(&in_app).await;
         assert!(coach_tools().is_subset(&in_app_names), "{in_app_names:?}");
 
-        let api_key = open(Transport::ApiKey).await;
-        let api_key_names = listed(&api_key).await;
+        for transport in [Transport::ApiKey, Transport::A2a] {
+            let coach_turn = open(transport, coach_role).await;
+            let names = listed(&coach_turn).await;
+            assert!(coach_tools().is_subset(&names), "{transport:?}: {names:?}");
+            // The call passes the role check and reaches the tool, whose own
+            // gates answer; what the roster then shows an outside turn is
+            // `coach_tools_chat_surfaces_test`'s, through a whole turn.
+            let roster = coach_turn.call("get_roster_overview", &json!({})).await;
+            assert!(
+                !roster.text.contains(COACH_ROLE_REFUSED),
+                "{transport:?}: {}",
+                roster.text
+            );
+
+            let no_role = open(transport, CallerRole::default()).await;
+            let names = listed(&no_role).await;
+            assert!(
+                names.is_disjoint(&coach_tools()),
+                "{transport:?}: {names:?}"
+            );
+            assert!(
+                names.contains("get_activities"),
+                "{transport:?}: a caller with no role keeps the athlete tools: {names:?}"
+            );
+            // Not offered, so refused before the role check is reached
+            // (carnet#1511 design call 13).
+            let refused = no_role.call("get_roster_overview", &json!({})).await;
+            assert!(refused.is_error, "{transport:?}: {}", refused.text);
+            assert!(
+                refused
+                    .text
+                    .contains("Tool 'get_roster_overview' not found. Available tools"),
+                "{transport:?}: {}",
+                refused.text
+            );
+        }
+    }
+
+    /// The tools `surface` lists with the `athlete` argument.
+    async fn listed_naming(surface: &TurnToolSurface) -> BTreeSet<String> {
+        surface
+            .list_tools()
+            .await
+            .into_iter()
+            .filter(|tool| tool.input_schema["properties"].get("athlete").is_some())
+            .map(|tool| tool.name)
+            .collect()
+    }
+
+    /// The loopback offers a coach's outside turn the `athlete` argument on
+    /// a read only where dispatch takes a name: in a conversation confirmed
+    /// private to the coach. Not where the turn says others may read it, and
+    /// not in a conversation that does not resolve for the coach, where the
+    /// room rule refuses every name (carnet#1422).
+    #[tokio::test]
+    async fn the_loopback_offers_a_name_only_where_dispatch_takes_one() {
+        let res = create_test_server_resources().await.unwrap();
+        let casey = squad(&res).await.casey;
+        let coach_role = CallerRole::resolve(&res.common.repos, casey.id).await;
+        let tool_runtime: Arc<dyn ToolRuntime> = res.clone();
+        let bridge = HostedToolBridge::new(true, res.mcp.tool_registry.clone(), tool_runtime);
+        let user_id = casey.id.to_string();
+        let own = res
+            .common
+            .repos
+            .chat
+            .create_conversation(
+                &user_id,
+                casey.tenant,
+                "Coach script",
+                "mock-model",
+                None,
+                None,
+            )
+            .await
+            .unwrap()
+            .id;
+        let (bridge, user_id) = (&bridge, &user_id);
+        let open = move |conversation_id: String, direct_message: bool| async move {
+            TURN_DIRECT_MESSAGE
+                .scope(
+                    Some(direct_message),
+                    ai_scope::serve_over(Transport::ApiKey, async {
+                        bridge.turn_surface(ToolSessionTurn {
+                            user_id,
+                            tenant_id: casey.tenant,
+                            conversation_tenant_id: casey.tenant,
+                            conversation_id: &conversation_id,
+                            turn_id: ConversationTurnId(Uuid::new_v4()),
+                            turn_agent_id: None,
+                            budget: 64,
+                            seat: TurnSeat::Subject,
+                            switched_off: &SwitchedOff::default(),
+                            grant: &OAuthScope::self_grant(),
+                            role: coach_role,
+                        })
+                    }),
+                )
+                .await
+        };
+
+        let private = listed_naming(&open(own.clone(), true).await).await;
         assert!(
-            api_key_names.is_disjoint(&coach_tools()),
-            "{api_key_names:?}"
+            private.contains("get_activities"),
+            "a coach's own direct conversation offers a name on a read: {private:?}"
         );
-        assert!(api_key_names.contains("get_activities"));
-        let refused = api_key.call("get_roster_overview", &json!({})).await;
-        assert!(refused.is_error, "{}", refused.text);
+        for (conversation_id, direct_message, room) in [
+            (own, false, "a conversation not marked a direct message"),
+            (
+                Uuid::new_v4().to_string(),
+                true,
+                "a conversation that does not resolve for the coach",
+            ),
+        ] {
+            let naming = listed_naming(&open(conversation_id, direct_message).await).await;
+            assert!(
+                !naming.contains("get_activities"),
+                "{room}: a read is not offered a name dispatch would refuse: {naming:?}"
+            );
+        }
     }
 
     /// A ride from Intervals.icu `days_ago`, whose terms let it reach an
@@ -660,6 +825,425 @@ mod coach_tools_external_surface_tests {
             place(&outside, squad.kim.id),
             outside.len() - 1,
             "bug: outside, Kim, with nothing readable, is placed last"
+        );
+    }
+
+    /// `tool_name` with `arguments` for `coach` through the executor bound
+    /// as the A2A and MCP entry points bind it, over `transport` under
+    /// `grant`.
+    async fn call_with(
+        res: &Arc<ServerContext>,
+        coach: &Person,
+        (tool_name, arguments): (&str, Value),
+        transport: Transport,
+        grant: Vec<OAuthScope>,
+    ) -> UniversalResponse {
+        let runtime: Arc<dyn ToolRuntime> = res.clone();
+        UniversalExecutor::new(runtime)
+            .with_scopes(grant)
+            .with_transport(transport)
+            .with_caller_writing_reply()
+            .execute_tool(UniversalRequest {
+                tool_name: tool_name.to_owned(),
+                parameters: arguments,
+                user_id: coach.id.to_string(),
+                protocol: "test".to_owned(),
+                tenant_id: Some(coach.tenant.to_string()),
+            })
+            .await
+            .expect("the executor answers in band")
+    }
+
+    /// carnet#1533 at the dispatch chokepoint: a write naming an athlete
+    /// over an external transport is refused for every role, before its
+    /// body runs, as the listing offers no write the argument. A coach's
+    /// plan write over MCP, A2A and an API key; an admin's athlete link with
+    /// the admin grant, which needs the athlete it names, is not over this
+    /// interface at all.
+    #[tokio::test]
+    async fn an_external_write_naming_an_athlete_is_refused_for_every_role() {
+        let res = create_test_server_resources().await.unwrap();
+        let squad = squad(&res).await;
+        let plan_for_alex = || {
+            (
+                "save_training_plan",
+                json!({
+                    "athlete": "Alex",
+                    "outline": {
+                        "goal_race": {
+                            "name": "Spring Trail",
+                            "date": "2027-05-16",
+                            "discipline": "trail",
+                            "priority": "A"
+                        },
+                        "strategy": "build toward the spring trail"
+                    }
+                }),
+            )
+        };
+        let assert_refused = |response: &UniversalResponse, case: &str| {
+            assert!(!response.success, "{case}: {response:?}");
+            let result = response.result.as_ref().expect("the refusal's code");
+            assert_eq!(
+                result["error_code"], EXTERNAL_WRITE_ERROR_CODE,
+                "{case}: {result}"
+            );
+            assert_eq!(result["reason"], "external_transport", "{case}: {result}");
+        };
+        res.common
+            .repos
+            .users
+            .set_admin_status(squad.casey.id, true)
+            .await
+            .unwrap();
+        let mut admin_grant = OAuthScope::self_grant();
+        admin_grant.push(OAuthScope::Admin);
+        for transport in [Transport::A2a, Transport::ApiKey, Transport::McpHttp] {
+            let refused = call_with(
+                &res,
+                &squad.casey,
+                ("propose_athlete_link", json!({ "athlete": "Alex" })),
+                transport,
+                admin_grant.clone(),
+            )
+            .await;
+            // The link cannot be called without the athlete it names, which
+            // no one is offered over this interface: the access gate refuses
+            // it before the write rule is asked (carnet#1511).
+            assert!(!refused.success, "{refused:?}");
+            let result = refused.result.as_ref().expect("the refusal's code");
+            assert_eq!(
+                result["error_code"], FIRST_PARTY_SURFACE_ERROR_CODE,
+                "the admin's athlete link over {transport:?}: {result}"
+            );
+            assert_eq!(result["reason"], "external_transport", "{result}");
+            let unnamed = call_with(
+                &res,
+                &squad.casey,
+                ("propose_athlete_link", json!({ "athlete": null })),
+                transport,
+                admin_grant.clone(),
+            )
+            .await;
+            assert_ne!(
+                unnamed.result.as_ref().map(|r| r["error_code"].clone()),
+                Some(json!(EXTERNAL_WRITE_ERROR_CODE)),
+                "a null athlete names no one: {unnamed:?}"
+            );
+        }
+        for transport in [Transport::A2a, Transport::ApiKey, Transport::McpHttp] {
+            let refused = call_with(
+                &res,
+                &squad.casey,
+                plan_for_alex(),
+                transport,
+                OAuthScope::self_grant(),
+            )
+            .await;
+            assert_refused(
+                &refused,
+                &format!("the coach's plan write over {transport:?}"),
+            );
+        }
+
+        let app = ProviderToolRouter::build_http_app(&res);
+        let grant = delegated(&res, &squad.casey);
+        let (name, arguments) = plan_for_alex();
+        let over_mcp = mcp_call(&app, &grant, name, arguments).await;
+        assert_eq!(over_mcp["result"]["isError"], true, "{over_mcp}");
+        assert!(
+            over_mcp["result"]["content"]
+                .to_string()
+                .contains(EXTERNAL_WRITE_ERROR_CODE),
+            "the plan write over /mcp is refused at the chokepoint: {over_mcp}"
+        );
+
+        // The write still runs from Dravr's own app.
+        let in_app = call_with(
+            &res,
+            &squad.casey,
+            ("propose_athlete_link", json!({ "athlete": "Alex" })),
+            Transport::WebApp,
+            admin_grant,
+        )
+        .await;
+        let code = in_app.result.as_ref().map(|r| r["error_code"].clone());
+        assert!(
+            code != Some(json!(EXTERNAL_WRITE_ERROR_CODE))
+                && code != Some(json!(COACH_ROLE_REQUIRED))
+                && code != Some(json!(FIRST_PARTY_SURFACE_ERROR_CODE)),
+            "in the app the coach's name is the tool's own: {in_app:?}"
+        );
+    }
+
+    /// The writes a coach in the app names an athlete on, which write the
+    /// caller's own account when they name no one.
+    const NAMING_WRITES: [&str; 2] = ["prescribe_workout", "save_training_plan"];
+
+    /// Round-12 listing-dispatch (carnet#1511 I7, calls 12 and 16): once
+    /// another member's data entered a turn, a write that names no athlete
+    /// lands on the caller's own account and is refused. "Names an athlete"
+    /// is decided as the bodies read the argument, a non-blank string: a
+    /// blank, non-string or absent `athlete` names no one. The listing
+    /// offers what dispatch accepts: such a write with `athlete` required
+    /// where the caller is offered the argument, else not at all. And a
+    /// turn that read the member mid-turn is narrowed to the set it would
+    /// have been built with under that read.
+    #[tokio::test]
+    async fn after_a_member_read_a_write_naming_no_one_is_neither_offered_nor_accepted() {
+        let res = create_test_server_resources().await.unwrap();
+        let registry = &res.mcp.tool_registry;
+        // One other member drawn on: a write naming them is still taken.
+        let reads = MemberReads {
+            beyond_room: true,
+            any: true,
+            several: false,
+        };
+        for tool in NAMING_WRITES {
+            for athlete in [
+                json!(""),
+                json!("   "),
+                json!(false),
+                json!(0),
+                json!({}),
+                Value::Null,
+            ] {
+                assert!(
+                    after_member_read_refusal(
+                        registry,
+                        tool,
+                        &json!({ "athlete": athlete }),
+                        reads
+                    )
+                    .is_some(),
+                    "bug: {tool} with athlete={athlete} writes the caller's own account after a \
+                     member read"
+                );
+            }
+            assert!(
+                after_member_read_refusal(registry, tool, &json!({}), reads).is_some(),
+                "bug: {tool} naming no athlete writes the caller's own account after a member read"
+            );
+            assert!(
+                after_member_read_refusal(registry, tool, &json!({ "athlete": "Bea" }), reads)
+                    .is_none(),
+                "{tool} naming an athlete acts on them"
+            );
+        }
+
+        let squad = squad(&res).await;
+        let casey = squad.casey;
+        let role = CallerRole::resolve(&res.common.repos, casey.id).await;
+        let offered = |member_reads| {
+            offered_schemas(
+                registry,
+                TurnSeat::Subject,
+                &SwitchedOff::default(),
+                OfferedTo {
+                    transport: Some(Transport::WebApp),
+                    grant: &OAuthScope::self_grant(),
+                    role,
+                    readers: TurnReaders::CallerAlone,
+                    member_reads,
+                },
+                &res.common.config,
+            )
+        };
+        let after_read = offered(reads);
+        for tool in NAMING_WRITES {
+            let schema = after_read
+                .iter()
+                .find(|schema| schema.name == tool)
+                .unwrap_or_else(|| {
+                    panic!("a coach in the app is offered {tool} naming an athlete")
+                });
+            assert!(
+                schema
+                    .input_schema
+                    .required
+                    .as_ref()
+                    .is_some_and(|required| required.iter().any(|name| name == "athlete")),
+                "bug: {tool} is offered with `athlete` optional though dispatch refuses it left out"
+            );
+        }
+        let plain = offered(MemberReads::default());
+        assert!(
+            plain.iter().all(|schema| !schema
+                .input_schema
+                .required
+                .as_ref()
+                .is_some_and(|required| required.iter().any(|name| name == "athlete")
+                    && NAMING_WRITES.contains(&schema.name.as_str()))),
+            "before any member read `athlete` stays optional"
+        );
+
+        // A member read made mid-turn narrows the set the turn started with
+        // to exactly the set built under it.
+        let mut narrowed = declarations(plain);
+        narrowed.function_declarations.retain_mut(|declaration| {
+            offer_declaration_after_member_read(registry, declaration, reads)
+        });
+        assert_eq!(
+            serde_json::to_value(&narrowed).unwrap(),
+            serde_json::to_value(declarations(after_read)).unwrap(),
+            "bug: a turn narrowed mid-turn offers other than one built after the read"
+        );
+
+        // carnet#1511 call 24: once the topic drew on several other members,
+        // any athlete a free-text write names leaves another one drawn on,
+        // so no such write is offered, and a mid-turn read narrows to the
+        // same set.
+        let several = MemberReads::every_read();
+        let after_several = offered(several);
+        for tool in NAMING_WRITES {
+            assert!(
+                !after_several.iter().any(|schema| schema.name == tool),
+                "bug: {tool} is offered after the topic read several members, though dispatch \
+                 takes no athlete for it"
+            );
+        }
+        let mut narrowed = declarations(offered(MemberReads::default()));
+        narrowed.function_declarations.retain_mut(|declaration| {
+            offer_declaration_after_member_read(registry, declaration, several)
+        });
+        assert_eq!(
+            serde_json::to_value(&narrowed).unwrap(),
+            serde_json::to_value(declarations(after_several)).unwrap(),
+            "bug: a turn narrowed by a live read offers other than one built after it"
+        );
+    }
+
+    /// carnet#1511 call 25: a tier that lists its tools once (the loopback
+    /// for the Copilot runtime and the Claude Code CLI) lists them from the
+    /// reads the topic carries when the agent lists. A plain group member
+    /// who read no one is offered their own-account writes from the first
+    /// turn, as on main; a read made mid-turn refuses such a write at
+    /// dispatch, and the refusal says why rather than "not found".
+    #[tokio::test]
+    async fn the_loopback_lists_a_members_own_writes_until_a_read_and_then_says_why() {
+        let res = create_test_server_resources().await.unwrap();
+        let squad = squad(&res).await;
+        let alex = squad.alex;
+        let role = CallerRole::resolve(&res.common.repos, alex.id).await;
+        let tool_runtime: Arc<dyn ToolRuntime> = res.clone();
+        let bridge = HostedToolBridge::new(true, res.mcp.tool_registry.clone(), tool_runtime);
+        let user_id = alex.id.to_string();
+        let conversation = common::own_conversation(&res, alex.id, alex.tenant).await;
+        let (listed_first, refused) = ai_scope::tracking(
+            ai_scope::Provenance::new(),
+            TURN_DIRECT_MESSAGE.scope(
+                Some(true),
+                ai_scope::serve_over(Transport::WebApp, async {
+                    let surface = bridge.turn_surface(ToolSessionTurn {
+                        user_id: &user_id,
+                        tenant_id: alex.tenant,
+                        conversation_tenant_id: alex.tenant,
+                        conversation_id: &conversation,
+                        turn_id: ConversationTurnId(Uuid::new_v4()),
+                        turn_agent_id: None,
+                        budget: 64,
+                        seat: TurnSeat::Subject,
+                        switched_off: &SwitchedOff::default(),
+                        grant: &OAuthScope::self_grant(),
+                        role,
+                    });
+                    let listed_first = listed(&surface).await;
+                    ai_scope::note_member_read(CarriedRead::peer(
+                        squad.casey.id,
+                        Some(squad.group),
+                    ));
+                    let refused = surface
+                        .call("remember_fact", &json!({ "fact": "my FTP is 250" }))
+                        .await;
+                    (listed_first, refused)
+                }),
+            ),
+        )
+        .await;
+        for tool in ["remember_fact", "set_goal"] {
+            assert!(
+                listed_first.contains(tool),
+                "bug: a group member who read no one is not listed {tool} on the loopback: \
+                 {listed_first:?}"
+            );
+        }
+        assert!(refused.is_error, "{}", refused.text);
+        assert!(
+            refused.text.contains("member_read_withheld"),
+            "bug: a write a mid-turn read took away is refused without saying why: {}",
+            refused.text
+        );
+    }
+
+    /// What a tool answer holds, as one text.
+    fn answer_text(response: &Value) -> String {
+        response.to_string()
+    }
+
+    /// One A2A tool intent over `grant`.
+    async fn a2a_call(app: &Router, grant: &str, tool: &str, parameters: Value) -> Value {
+        post_json(
+            app,
+            "/a2a/jsonrpc",
+            grant,
+            rpc(
+                "SendMessage",
+                &json!({ "message": {
+                    "messageId": format!("m-{}", Uuid::new_v4()),
+                    "role": "ROLE_USER",
+                    "parts": [{ "data": { "tool_name": tool, "parameters": parameters } }]
+                } }),
+            ),
+        )
+        .await
+    }
+
+    /// carnet#1511 call 30: an outside call has no topic, so the taint is
+    /// the grant's. After a call by a grant that read another member, a
+    /// free-text write over `/mcp` or A2A by that grant is refused for
+    /// thirty minutes, and the refusal names the wait. Before any read the
+    /// write runs.
+    #[tokio::test]
+    async fn after_a_grant_read_a_member_its_free_text_writes_wait() {
+        let res = create_test_server_resources().await.unwrap();
+        let squad = squad(&res).await;
+        let app = ProviderToolRouter::build_http_app(&res);
+        let grant = delegated(&res, &squad.casey);
+        let goal = json!({ "goal_type": "distance", "target_value": 40, "timeframe": "week" });
+
+        let before = mcp_call(&app, &grant, "set_goal", goal.clone()).await;
+        assert_ne!(
+            before["result"]["isError"], true,
+            "with no member read the goal is set: {before}"
+        );
+
+        let read = mcp_call(
+            &app,
+            &grant,
+            "get_group_member_activities",
+            json!({ "member": "Bea Bright" }),
+        )
+        .await;
+        assert!(
+            answer_text(&read).contains("\"member\":\"Bea Bright\""),
+            "the grant read Bea: {read}"
+        );
+
+        let after = mcp_call(&app, &grant, "set_goal", goal.clone()).await;
+        assert_eq!(
+            after["result"]["isError"], true,
+            "bug: a free-text write over /mcp ran right after the grant read another member: \
+             {after}"
+        );
+        assert!(
+            answer_text(&after).contains("30 minutes"),
+            "the refusal names the wait: {after}"
+        );
+        let over_a2a = a2a_call(&app, &grant, "set_goal", goal).await;
+        assert!(
+            answer_text(&over_a2a).contains("30 minutes"),
+            "bug: a free-text write over A2A ran right after the grant read another member: \
+             {over_a2a}"
         );
     }
 }

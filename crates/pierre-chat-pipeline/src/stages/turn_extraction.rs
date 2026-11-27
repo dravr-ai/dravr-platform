@@ -91,6 +91,9 @@ pub(crate) struct ExtractedTurn<'a> {
 /// reach the coach's own dossier, and it is not the athlete's own statement
 /// either, so it is filed on nobody's account. The one exception is a guided
 /// walk the coach runs on themselves in their room, whose answers are theirs.
+/// A turn that read another member's data, wherever it ran, is about that
+/// member and is filed on nobody's account either
+/// ([`TurnStanding::files_on_sender_after_reads`]).
 pub(crate) async fn spawn_turn_extraction(turn: ExtractedTurn<'_>) {
     if !turn.input.may_learn() {
         debug!("the turn's grant does not write fitness data: no fact is extracted");
@@ -106,8 +109,8 @@ pub(crate) async fn spawn_turn_extraction(turn: ExtractedTurn<'_>) {
         answered,
         plan_was_saved,
     } = turn;
-    if !standing.files_on_sender() {
-        debug!(seat = ?standing.seat, "the sender is not this turn's subject: nothing it says is extracted");
+    if !standing.files_on_sender_after_reads(&input.user_id) {
+        debug!(seat = ?standing.seat, "the turn is not about its sender: nothing it says is extracted");
         return;
     }
     // A turn drawn from data kept out of the agent's memory files nothing:

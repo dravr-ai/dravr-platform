@@ -23,12 +23,13 @@ use dravr_tronc::dates::{CivilDate, Timestamp, Weekday};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::groups::GroupRole;
-use pierre_core::models::ConversationSummary;
+use pierre_core::models::{ConversationSummary, TenantId};
 use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::SubjectThreads;
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::ChatRoutes;
+use pierre_middleware::mask_email;
 use pierre_seeders::coach_plan_thread::{
     run, SeedArgs, DRAFT_RACE, DRAFT_WORKOUT, GROUP_NAME, LIVE_RACE, LIVE_WORKOUT, QUESTION,
 };
@@ -413,6 +414,55 @@ async fn the_seeder_names_a_missing_athlete() {
     .await
     .expect_err("no such athlete");
     assert_eq!(error.code, ErrorCode::ConfigError, "{error}");
-    assert!(error.message.contains("nobody@plan-seed.test"), "{error}");
+    // Named masked, as every seeder message names an email.
+    assert!(
+        error.message.contains(&mask_email("nobody@plan-seed.test"))
+            && !error.message.contains("nobody@plan-seed.test"),
+        "{error}"
+    );
     assert!(accounts.coach_threads().await.is_empty());
+}
+
+/// A seeded group someone archived keeps its seeded id, so a rerun finds
+/// it: the run is refused with the reason and the remedy, never with the
+/// raw unique-key error of re-adding a released member, and writes nothing.
+#[tokio::test]
+async fn a_rerun_over_an_archived_group_is_refused_with_the_remedy() {
+    let accounts = Accounts::new().await;
+    let repos = accounts.repos();
+    run(args(), repos).await.unwrap();
+    let group = repos
+        .groups
+        .list_groups_coached_by(accounts.coach)
+        .await
+        .unwrap()[0]
+        .id;
+    let tenant = TenantId::parse_str(&accounts.athlete_tenant).unwrap();
+    assert!(
+        repos
+            .groups
+            .delete_group(&group.to_string(), tenant)
+            .await
+            .unwrap(),
+        "the group is deleted"
+    );
+    for _ in 0..2 {
+        let refused = run(args(), repos)
+            .await
+            .expect_err("an archived group is never refilled");
+        let said = format!("{refused} {refused:?}");
+        assert!(
+            said.contains("archived") && !said.contains("UNIQUE") && !said.contains(COACH),
+            "refused with the reason, the email masked: {said}"
+        );
+        assert!(
+            repos
+                .groups
+                .list_groups_coached_by(accounts.coach)
+                .await
+                .unwrap()
+                .is_empty(),
+            "the refused run reactivated nothing"
+        );
+    }
 }

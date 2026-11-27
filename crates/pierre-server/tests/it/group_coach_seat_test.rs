@@ -197,6 +197,11 @@ mod group_coach_seat_tests {
         members: &[Uuid],
     ) -> Uuid {
         let repos = &resources.common.repos;
+        // Attaching a human coach takes coach access, as every production
+        // attach does: the seat is the one coach rule's (carnet#1511 I7).
+        if let Some(coach) = coach {
+            repos.users.set_manages_roster(coach, true).await.unwrap();
+        }
         let agent = repos
             .agents
             .create_system_agent(

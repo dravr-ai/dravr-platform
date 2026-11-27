@@ -1081,7 +1081,6 @@ async fn a_compaction_summary_over_a_garmin_turn_carries_none_of_its_figures() {
             tenant_id: fx.tenant,
             conversation_id: &fx.conversation,
             source_ids: &source_ids,
-            source_members: &vec![None; source_ids.len()],
             source_consents: &source_consents,
             llm_messages: &mut llm_messages,
             summary_for_prompt: str::to_owned,

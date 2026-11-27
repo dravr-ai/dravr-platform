@@ -210,26 +210,29 @@ pub async fn persist_command_turn(
             warn!(error = %e, "command actions could not be encoded; persisting the reply without controls");
             None
         });
+    let consent_sources = ai_scope::derived_consent_sources();
+    let assistant_params = AddMessageParams {
+        tenant_id: request.conversation_tenant_id,
+        conversation_id,
+        user_id: &user_id,
+        role: "assistant",
+        content: &command.text,
+        token_count: None,
+        finish_reason: Some(COMMAND_FINISH_REASON),
+        prompt_tokens: None,
+        model: None,
+        content_blocks: content_blocks.as_deref(),
+        transport_policy: ai_scope::derived_policy(),
+        channel_type: Some(request.channel_type),
+        // A reply that read a group member — `/plan <athlete>` to their
+        // coach — carries the read beside the row, so it goes with their
+        // account (carnet#1174, carnet#1511 call 19).
+        about_user_id: None,
+        turn_attempted_write: None,
+        ai_consent_sources: &consent_sources,
+    };
     let assistant_message = chat
-        .add_message(&AddMessageParams {
-            tenant_id: request.conversation_tenant_id,
-            conversation_id,
-            user_id: &user_id,
-            role: "assistant",
-            content: &command.text,
-            token_count: None,
-            finish_reason: Some(COMMAND_FINISH_REASON),
-            prompt_tokens: None,
-            model: None,
-            content_blocks: content_blocks.as_deref(),
-            transport_policy: ai_scope::derived_policy(),
-            channel_type: Some(request.channel_type),
-            // A reply that read one group member — `/plan <athlete>` to their
-            // coach — names them, so it goes with their account (carnet#1174).
-            about_user_id: ai_scope::derived_member(),
-            turn_attempted_write: None,
-            ai_consent_sources: &ai_scope::derived_consent_sources(),
-        })
+        .add_message_about(&assistant_params, &super::persistence::turn_reads())
         .await?;
 
     if !chat

@@ -21,7 +21,7 @@ use embacle::types::{
 };
 use pierre_chat_pipeline::recorders::ChatRepoToolMessageRecorder;
 use pierre_chat_pipeline::TurnOrigin;
-use pierre_core::models::{MessageRecord, TenantId};
+use pierre_core::models::{CarriedRead, MessageRecord, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_llm::{
     ChatProvider, EmbacleProvider, HeadlessEventStream, HeadlessToolResponse, HeadlessTurnProvider,
@@ -235,6 +235,19 @@ impl Thread {
         seed_user(&self.resources.agent.database).await.0
     }
 
+    /// Every read the thread's rows carry, by key.
+    async fn carried(&self) -> BTreeSet<String> {
+        self.resources
+            .common
+            .repos
+            .chat
+            .list_thread_read_keys(&self.conversation_id, &self.user_id, self.tenant_id)
+            .await
+            .unwrap()
+            .into_iter()
+            .collect()
+    }
+
     async fn rows(&self) -> Vec<MessageRecord> {
         self.resources
             .common
@@ -350,16 +363,18 @@ async fn calls_reported_without_a_result_write_no_round() {
     );
 }
 
-/// The loopback calls mark the turn's own provenance, so the round is about
-/// the one group member the turn read, and a turn that read two keeps no
-/// round, as on every other path (carnet#1174).
+/// The loopback calls mark the turn's own provenance, so the round carries
+/// every member read the turn made, each as it was made, one member or
+/// several, in the one carrier: the link rows, never `about_user_id`
+/// (carnet#1174, carnet#1511 call 19).
 #[tokio::test]
-async fn the_round_names_the_member_the_turn_read() {
+async fn the_round_carries_every_read_the_turn_made() {
     let one = Thread::new().await;
     let two = Thread::new().await;
     // A row names its member by foreign key, so each member is a real account.
     let alice = one.member().await;
     let (alice_two, bruno) = (two.member().await, two.member().await);
+    let group = Uuid::new_v4();
     let round = || {
         reply(
             ANSWER,
@@ -368,31 +383,39 @@ async fn the_round_names_the_member_the_turn_read() {
     };
 
     ai_scope::tracking(Provenance::new(), async {
-        ai_scope::note_member_read(alice);
+        ai_scope::note_member_read(CarriedRead::peer(alice, Some(group)));
         one.finish(round(), ScriptedRuntime::new(None)).await;
     })
     .await;
     ai_scope::tracking(Provenance::new(), async {
-        ai_scope::note_member_read(alice_two);
-        ai_scope::note_member_read(bruno);
+        ai_scope::note_member_read(CarriedRead::peer(alice_two, Some(group)));
+        ai_scope::note_member_read(CarriedRead::coach(bruno, group, alice_two).wellness());
         two.finish(round(), ScriptedRuntime::new(None)).await;
     })
     .await;
 
-    let about: BTreeSet<Option<Uuid>> = one
-        .rows()
-        .await
-        .into_iter()
-        .map(|row| row.about_user_id)
-        .collect();
+    for thread in [&one, &two] {
+        assert!(
+            thread
+                .rows()
+                .await
+                .iter()
+                .all(|row| row.about_user_id.is_none()),
+            "bug: a new row names no member in about_user_id"
+        );
+    }
     assert_eq!(
-        about,
-        BTreeSet::from([Some(alice)]),
-        "the round's row names the one member the turn read"
+        one.carried().await,
+        BTreeSet::from([CarriedRead::peer(alice, Some(group)).key()]),
+        "the round's row carries the one read the turn made"
     );
-    assert!(
-        two.rows().await.is_empty(),
-        "a round about two members cannot name both, so it is not kept"
+    assert_eq!(
+        two.carried().await,
+        BTreeSet::from([
+            CarriedRead::peer(alice_two, Some(group)).key(),
+            CarriedRead::coach(bruno, group, alice_two).wellness().key(),
+        ]),
+        "a round about two members is kept, carrying both reads as they were made"
     );
 }
 

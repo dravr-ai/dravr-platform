@@ -46,15 +46,15 @@ use std::fmt;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use dravr_tronc::dates::Timestamp;
-
+use dravr_barrage::Tier;
 use pierre_core::errors::AppResult;
+use pierre_core::models::carried_read::{TIER_T2, TIER_T3};
 use pierre_core::models::groups::CoachingGroup;
-use pierre_core::models::{ConversationRecord, TenantId};
+use pierre_core::models::{CarriedRead, ConversationRecord, TenantId};
 use pierre_core::transport::Transport;
-use pierre_database::repositories::{CoachReadClass, NewCoachDataRead};
+use pierre_database::repositories::CoachReadClass;
 use pierre_database::RepositoryRegistry;
-use pierre_mcp_schema::PropertySchema;
+use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_providers::ai_scope;
 use pierre_services::athlete_display_name::fetch_user_display_name;
 use pierre_services::coach_roster::{roster_access, RosterAccess, NO_COACH_ACCESS};
@@ -71,10 +71,16 @@ use uuid::Uuid;
 use crate::coach_seat::TurnSeat;
 use crate::implementations::training_plan_authorship::load_conversation;
 use crate::protocol::types::UniversalResponse;
+use crate::registry::ToolRegistry;
 use crate::runtime::ToolRuntime;
+use crate::security::{Audience, RuntimeTool};
 
+mod coach_read_log;
+mod named;
 mod peer_read;
 mod wellness;
+
+pub use coach_read_log::{record_coach_read, record_daily_coach_read};
 
 pub use peer_read::{record_daily_peer_read, record_peer_read};
 #[cfg(feature = "tools-data")]
@@ -85,7 +91,11 @@ pub(crate) use wellness::{
 pub(crate) use wellness::{readable_anchors, readable_physiology, wellness_readable};
 #[cfg(feature = "tools-analytics")]
 pub(crate) use wellness::{record_analytics_wellness_read, wellness_refusal, WellnessInput};
-#[cfg(any(feature = "tools-analytics", feature = "tools-config"))]
+#[cfg(any(
+    feature = "tools-analytics",
+    feature = "tools-config",
+    feature = "tools-data"
+))]
 pub(crate) use wellness::{record_wellness_read, wellness_withheld};
 pub(crate) use wellness::{wellness_class_refusal, WellnessWithheld};
 pub use wellness::{wellness_data, WELLNESS_GRANT_WHERE};
@@ -96,6 +106,76 @@ pub use wellness::{wellness_data, WELLNESS_GRANT_WHERE};
 /// defaults to that athlete; a training or wellness read is listed with it
 /// over MCP and A2A only ([`athlete_property`]).
 pub(crate) const ATHLETE_ARGUMENT: &str = "athlete";
+
+/// The registry category of the group tools, which read the caller's group
+/// members.
+const GROUPS_CATEGORY: &str = "groups";
+
+/// Whether a call to the tool `name` may read anyone's data but its caller's.
+///
+/// Derived from what each tool already declares (carnet#1511 design A9),
+/// never a list: a training or wellness read, which takes
+/// [`ATHLETE_ARGUMENT`] over MCP and A2A; a tool declaring that argument
+/// itself (a plan or calendar tool); a group tool; a coach tool
+/// ([`Audience::Coach`](crate::security::Audience::Coach)); or a tool this
+/// build no longer registers, whose reach cannot be known.
+///
+/// What a record that names no reader decides by: a legacy A2A tool task is
+/// exported as its caller's own only when its tool reads no one else.
+#[must_use]
+pub fn may_read_others(registry: &ToolRegistry, name: &str) -> bool {
+    let Some(tool) = registry.get(name) else {
+        return true;
+    };
+    registry
+        .data_class(name)
+        .is_some_and(DataClass::reads_a_coached_athlete)
+        || tool.definition().input_schema["properties"]
+            .get(ATHLETE_ARGUMENT)
+            .is_some()
+        || registry.tools_in_category(GROUPS_CATEGORY).contains(&name)
+        || tool.audience() == Audience::Coach
+}
+
+/// Whether `tool` declares [`ATHLETE_ARGUMENT`] at all. A tool that does
+/// not is never refused for naming an athlete: its schema refuses the
+/// unknown argument as an invalid parameter instead.
+#[must_use]
+pub(crate) fn declares_athlete_argument(tool: &dyn RuntimeTool) -> bool {
+    tool.definition().input_schema["properties"]
+        .get(ATHLETE_ARGUMENT)
+        .is_some()
+}
+
+/// Whether `tool` cannot be called without [`ATHLETE_ARGUMENT`]: its
+/// declaration requires it, so a caller who is not offered the argument is
+/// not offered the tool (`tool_access::withheld`).
+#[must_use]
+pub(crate) fn requires_athlete_argument(tool: &dyn RuntimeTool) -> bool {
+    tool.definition().input_schema["required"]
+        .as_array()
+        .is_some_and(|required| required.iter().any(|name| name == ATHLETE_ARGUMENT))
+}
+
+/// Take [`ATHLETE_ARGUMENT`] out of `schema`, from its `properties` and its
+/// `required` together, answering whether the tool still works without it.
+///
+/// The one strip every listing that withholds the argument applies, so no
+/// declaration requires a name it does not declare. A tool that required
+/// the argument cannot work without it: every call would be refused, so the
+/// listing drops it instead of offering it bare (`false`).
+#[must_use]
+pub(crate) fn strip_athlete_argument(schema: &mut JsonSchema) -> bool {
+    if let Some(properties) = &mut schema.properties {
+        properties.remove(ATHLETE_ARGUMENT);
+    }
+    let Some(required) = &mut schema.required else {
+        return true;
+    };
+    let before = required.len();
+    required.retain(|name| name != ATHLETE_ARGUMENT);
+    required.len() == before
+}
 
 /// `error_code` of every refusal a read-subject resolution answers with.
 pub(crate) const READ_SUBJECT_ERROR_CODE: &str = "read_subject_refused";
@@ -146,6 +226,36 @@ impl DataClass {
     #[must_use]
     pub(crate) const fn reads_a_coached_athlete(self) -> bool {
         matches!(self, Self::Training | Self::Wellness)
+    }
+
+    /// The coach's read of `athlete` in `group` through a tool of this class
+    /// reaching `tiers`, as a stored row carries it (carnet#1511 call 19):
+    /// `None` for a class that reads no one. A training read of anything but
+    /// the athlete's activities (`activities_only` false: their physiology,
+    /// their profile) is of their training beyond activities, which no peer
+    /// sharing covers (call 23).
+    #[must_use]
+    pub(crate) fn coach_read(
+        self,
+        athlete: Uuid,
+        group: Uuid,
+        coach: Uuid,
+        tiers: &[Tier],
+        activities_only: bool,
+    ) -> Option<CarriedRead> {
+        let read = match self {
+            Self::Training if activities_only => CarriedRead::coach(athlete, group, coach),
+            Self::Training => CarriedRead::coach(athlete, group, coach).beyond_activities(),
+            Self::Wellness => CarriedRead::coach(athlete, group, coach).wellness(),
+            Self::NoSubject => return None,
+        };
+        Some(tiers.iter().fold(read, |read, tier| {
+            read.reaching(match tier {
+                Tier::T2 => TIER_T2,
+                Tier::T3 => TIER_T3,
+                Tier::T0 | Tier::T1 => "",
+            })
+        }))
     }
 
     /// What the athlete's record says a coach's read of this class read:
@@ -225,6 +335,27 @@ impl ReadSubject {
         }
     }
 
+    /// The coach's read of the athlete this call makes, reaching `tiers` and
+    /// reading their activities alone or not (`activities_only`, call 23),
+    /// as a stored row carries it (carnet#1511 call 19), with the flag a
+    /// training read sets once it reads their wellness under their grant.
+    #[must_use]
+    pub(crate) fn carried_read(
+        &self,
+        tiers: &[Tier],
+        activities_only: bool,
+    ) -> Option<(CarriedRead, Arc<AtomicBool>)> {
+        self.class
+            .coach_read(
+                self.access.athlete_user_id,
+                self.access.group.id,
+                self.requester,
+                tiers,
+                activities_only,
+            )
+            .map(|read| (read, Arc::clone(&self.wellness_recorded)))
+    }
+
     /// The athlete whose data the call reads.
     #[must_use]
     pub(crate) const fn athlete(&self) -> Uuid {
@@ -253,10 +384,17 @@ pub(crate) struct ReadSubjectRequest<'request> {
     pub class: DataClass,
     /// The originating conversation, for a call from a chat turn.
     pub conversation_id: Option<&'request str>,
+    /// The tenant the conversation's row lives under, when the turn says (a
+    /// shared room's row lives under the bot tenant).
+    pub conversation_tenant: Option<TenantId>,
+    /// Whether the turn is a direct message, when the turn says: a row with
+    /// no group is private only then (`call_room::CallRoom`).
+    pub direct_message: Option<bool>,
     /// The `athlete` argument, as the call sent it.
     pub athlete: Option<&'request str>,
-    /// Whether the call arrived over an external transport whose caller
-    /// writes its own reply: an MCP client or an A2A agent.
+    /// Whether the call arrived over an external transport: from an MCP
+    /// client or an A2A agent, which writes its own reply, or from a chat
+    /// turn served over an API key or the A2A text turn (carnet#1511, Q16).
     pub named_externally: bool,
     /// The tool asking, for the refusal's wording.
     pub tool_name: &'request str,
@@ -270,6 +408,8 @@ impl fmt::Debug for ReadSubjectRequest<'_> {
             .field("seat", &self.seat)
             .field("class", &self.class)
             .field("conversation_id", &self.conversation_id)
+            .field("conversation_tenant", &self.conversation_tenant)
+            .field("direct_message", &self.direct_message)
             .field("athlete", &self.athlete)
             .field("named_externally", &self.named_externally)
             .field("tool_name", &self.tool_name)
@@ -299,14 +439,18 @@ pub(crate) async fn resolve_read_subject(
         .athlete
         .map(str::trim)
         .filter(|name| !name.is_empty());
-    if athlete.is_some() && !request.named_externally {
+    // A name is refused wherever the turn already says whose data it reads:
+    // in Dravr's own app, and in a coach's thread about one athlete, served
+    // there or outside it, where the thread's athlete is read and a name for
+    // anyone else would be silently ignored (carnet#1387, carnet#1511 Q16).
+    if athlete.is_some() && (!request.named_externally || request.seat == TurnSeat::AthleteThread) {
         return Ok(Err(athlete_argument_refusal(request.tool_name)));
     }
     let resolved = if request.seat == TurnSeat::AthleteThread {
         thread_subject(&request).await?
     } else {
         match athlete {
-            Some(name) => named_subject(&request, name).await?,
+            Some(name) => named::named_subject(&request, name).await?,
             None => Ok(None),
         }
     };
@@ -399,106 +543,6 @@ pub(crate) async fn coached_read(
     Ok(Ok(access))
 }
 
-/// Record on the athlete's own record that `coach` read their data of `class`
-/// through `tool`, now (carnet#1445).
-///
-/// One row per read, as their coach in `access`'s group, under the athlete's
-/// home tenant, which the athlete lists and which is purged after its
-/// retention.
-///
-/// `tool` is the tool read through, or for a read made outside a tool call
-/// its [`CoachReadSurface`](pierre_database::repositories::CoachReadSurface)
-/// label. The transport the call declared is recorded beside it, so the
-/// athlete's record says when a read was served to the coach's outside
-/// assistant (EFVP 9.4b). So is the admin whose support session made the
-/// read while acting as the coach ([`SUPPORT_SESSION`](crate::context::SUPPORT_SESSION)), so the athlete's
-/// record says it was support's read, not their coach's.
-///
-/// Every coach read of a coached athlete records here once the gates have let
-/// it through and before its data is read: the dispatch chokepoint for a
-/// call that resolved its subject itself (never for the nested calls it
-/// makes); each `groups` tool for the member it reads; the plan scope for
-/// every plan tool acting for a coached athlete
-/// ([`crate::implementations::plan_scope`]), and its wellness when
-/// `get_training_plan` reads the plan's state; a coach's plan read outside a
-/// tool call (`coached_plan_read_access`: the plan view and `/plan`); the
-/// coach's REST roster; the athlete block of the coach's thread, once per
-/// class per turn; and a training tool's read of the athlete's wellness
-/// under their grant (`record_wellness_read`). The group views built from
-/// every member's training record once a day instead
-/// ([`record_daily_coach_read`]). A refused read records nothing. A record
-/// that cannot be written fails the read: no read goes unrecorded.
-///
-/// # Errors
-///
-/// Returns the repository error from the insert.
-pub async fn record_coach_read(
-    repos: &RepositoryRegistry,
-    access: &CoachedAthleteAccess,
-    coach: Uuid,
-    tool: &str,
-    class: CoachReadClass,
-) -> AppResult<()> {
-    repos
-        .coach_data_reads
-        .record_coach_read(&new_coach_read(access, coach, tool, class))
-        .await
-}
-
-/// [`record_coach_read`] at most once a UTC day per athlete, coach, group,
-/// source and class.
-///
-/// For the group views a coach opens on every turn or page load — the room's
-/// member cards, the group's stats, report and health flags, the coach's
-/// weekly digest (carnet#1445).
-///
-/// `true` when the row was written, `false` when that day's row already was:
-/// a repeat is no failure, and the read goes ahead either way. A read in a
-/// support session is recorded each time instead: folded into the coach's
-/// own row of the day, the athlete would never see that support read them.
-///
-/// # Errors
-///
-/// Returns the repository error from the insert: the read is refused rather
-/// than left unrecorded.
-pub async fn record_daily_coach_read(
-    repos: &RepositoryRegistry,
-    access: &CoachedAthleteAccess,
-    coach: Uuid,
-    tool: &str,
-    class: CoachReadClass,
-) -> AppResult<bool> {
-    let read = new_coach_read(access, coach, tool, class);
-    if read.impersonator.is_some() {
-        repos.coach_data_reads.record_coach_read(&read).await?;
-        return Ok(true);
-    }
-    repos.coach_data_reads.record_daily_coach_read(&read).await
-}
-
-/// The row recording `coach`'s read of `access`'s athlete now, with the
-/// transport the call declared and the admin of the support session it runs
-/// in, if any.
-fn new_coach_read<'read>(
-    access: &CoachedAthleteAccess,
-    coach: Uuid,
-    tool: &'read str,
-    class: CoachReadClass,
-) -> NewCoachDataRead<'read> {
-    let (transport, impersonator) = peer_read::served_now();
-    NewCoachDataRead {
-        tenant: access.tenant,
-        athlete: access.athlete_user_id,
-        coach,
-        group: access.group.id,
-        tool,
-        class,
-        read_at: Timestamp::now(),
-        transport,
-        impersonator,
-    }
-}
-
 /// The subject of a call made in a coach's thread about one athlete: that
 /// athlete, re-checked against the coaching gates, or a refusal when the
 /// thread names no one the caller coaches.
@@ -537,52 +581,6 @@ async fn thread_subject(
         Err(refused) => Ok(Err(refused.response(request.tool_name, |gate| {
             thread_unreached(gate, GateObject::Training)
         }))),
-    }
-}
-
-/// The subject an external caller named with `athlete=`: the one coached
-/// member the name matches, once the coaching gates let the caller read them.
-async fn named_subject(
-    request: &ReadSubjectRequest<'_>,
-    name: &str,
-) -> AppResult<Result<Option<ReadSubject>, UniversalResponse>> {
-    const YOURSELF: &str = "omit `athlete` to read your own data.";
-    let repos = request.resources.repos();
-    // Named only over MCP or A2A: the caller is an outside assistant, never
-    // told of a member who does not share with the coach.
-    let audience = MatchAudience::OutsideAssistant;
-    let no_match = || MemberMiss::NoSharingMatch.message(name, YOURSELF);
-    let Some(requester_tenant) = request.requester_tenant else {
-        return Ok(Err(refusal("no_match", no_match())));
-    };
-    let found = match match_coached_member(repos, request.requester, name, None, audience).await? {
-        Ok(found) => found,
-        Err(miss) => return Ok(Err(refusal(miss.reason(), miss.message(name, YOURSELF)))),
-    };
-    // Gates 2 to 4, by id. The match prefers a group where the athlete shares
-    // with the coach, so a consent refusal names the most permissive row; a
-    // membership that changed since the match reads as no match.
-    match coached_read(
-        repos,
-        request.requester,
-        found.user_id,
-        found.group.id,
-        request.class,
-    )
-    .await?
-    {
-        Ok(access) => Ok(Ok(Some(ReadSubject::new(
-            request,
-            requester_tenant,
-            access,
-            SubjectSource::ExternalArgument,
-        )))),
-        // Sharing turned off since the match: said as no match, so the
-        // member is not named to the assistant.
-        Err(CoachedReadRefusal::Coaching(CoachedAthleteRefusal::CoachSharingRevoked {
-            ..
-        })) => Ok(Err(refusal("no_match", no_match()))),
-        Err(refused) => Ok(Err(refused.response(request.tool_name, |_| no_match()))),
     }
 }
 

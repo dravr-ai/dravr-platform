@@ -59,6 +59,7 @@ use uuid::Uuid;
 
 use helpers::notify_capture::{capture_notify, named, only};
 use pierre_database::repositories::WellnessWriteMode;
+use pierre_tool_runtime::tool_access::CallerRole;
 
 /// The instruction every post here answers. Never stored.
 const INSTRUCTION: &str = "Tell the athlete what their recovery says about this week.";
@@ -432,6 +433,7 @@ async fn an_athletes_tool_round_is_written_as_it_lands_stamped_with_what_it_read
         mentioned_agent: None,
         steps_after: None,
         grant: OAuthScope::self_grant(),
+        role: CallerRole::default(),
     };
     let profile = SurfaceProfile::resolve(&SurfaceRequest {
         surface: SurfaceId::Web,

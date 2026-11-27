@@ -105,6 +105,7 @@ where
         created_at: column(row, "created_at")?,
         transport_policy: transport_policy_column(row)?,
         about_user_id,
+        audience_recorded: column(row, "audience_recorded")?,
         ai_consent_sources: consent_sources_column_of(row)?,
     })
 }

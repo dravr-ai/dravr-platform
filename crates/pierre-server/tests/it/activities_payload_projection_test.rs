@@ -552,7 +552,7 @@ async fn the_loopback_seam_passes_unrecognised_payloads_through() {
         &resources,
         user_id,
         tenant,
-        "list_fitness_configs",
+        "get_connection_status",
         json!({}),
     )
     .await;
@@ -562,7 +562,7 @@ async fn the_loopback_seam_passes_unrecognised_payloads_through() {
     );
 
     let outcome = loopback_surface(&resources, user_id, tenant)
-        .call("list_fitness_configs", &json!({}))
+        .call("get_connection_status", &json!({}))
         .await;
     assert!(!outcome.is_error, "the call succeeded: {}", outcome.text);
     // Two dispatches stamp two instants; everything else must be identical.
@@ -643,6 +643,13 @@ async fn the_api_loop_answers_a_toon_request_in_json_with_its_ids() {
     }];
     let outcome = execute_function_calls(
         &loopback_executor(&resources),
+        &pierre_llm::Tool {
+            function_declarations: vec![pierre_llm::FunctionDeclaration::new(
+                "get_activities".to_owned(),
+                String::new(),
+                None,
+            )],
+        },
         &calls,
         &user_id.to_string(),
         tenant,

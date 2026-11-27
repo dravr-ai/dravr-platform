@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use serde_json::Value;
 use sqlx::Row;
@@ -12,7 +13,8 @@ use uuid::Uuid;
 
 use super::PostgresDatabase;
 use crate::repositories::user_export::{
-    UserExportPage, UserExportRepository, UserExportTable, USER_EXPORT_KEY_ALIAS_SQL,
+    UserExportPage, UserExportRepository, UserExportTable, MEMBER_HISTORY_SQL,
+    USER_EXPORT_KEY_ALIAS_SQL,
 };
 
 #[async_trait]
@@ -48,5 +50,14 @@ impl UserExportRepository for PostgresDatabase {
             .map(|row| row.try_get::<Value, _>("row").map_err(decode_error))
             .collect::<AppResult<_>>()?;
         Ok(UserExportPage { rows, last_key })
+    }
+
+    async fn has_member_history(&self, user_id: Uuid, at: Timestamp) -> AppResult<bool> {
+        sqlx::query_scalar::<_, bool>(MEMBER_HISTORY_SQL)
+            .bind(user_id)
+            .bind(at)
+            .fetch_one(self.pool())
+            .await
+            .map_err(|e| AppError::database(format!("Failed to read a member history: {e}")))
     }
 }

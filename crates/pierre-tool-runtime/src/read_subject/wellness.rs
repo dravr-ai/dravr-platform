@@ -45,7 +45,11 @@ use pierre_database::RepositoryRegistry;
 use pierre_services::stored_health::Anchors;
 
 use super::{record_coach_read, refusal, ReadSubject};
-#[cfg(any(feature = "tools-analytics", feature = "tools-config"))]
+#[cfg(any(
+    feature = "tools-analytics",
+    feature = "tools-config",
+    feature = "tools-data"
+))]
 use crate::context::scoped_read_subject;
 use crate::protocol::types::UniversalResponse;
 #[cfg(feature = "tools-analytics")]
@@ -224,7 +228,11 @@ impl ReadSubject {
 ///
 /// Returns the repository error from the insert: the read is refused rather
 /// than left unrecorded.
-#[cfg(any(feature = "tools-analytics", feature = "tools-config"))]
+#[cfg(any(
+    feature = "tools-analytics",
+    feature = "tools-config",
+    feature = "tools-data"
+))]
 pub(crate) async fn record_wellness_read(repos: &RepositoryRegistry) -> AppResult<()> {
     match scoped_read_subject() {
         Some(subject) => subject.record_wellness_read(repos).await,
@@ -271,7 +279,11 @@ pub(crate) fn wellness_class_refusal(
 /// `None` when it may read it: always on a caller's own read
 /// ([`scoped_read_subject`] is `None`), and on a coach's read as
 /// [`ReadSubject::wellness_withheld`] decides.
-#[cfg(any(feature = "tools-analytics", feature = "tools-config"))]
+#[cfg(any(
+    feature = "tools-analytics",
+    feature = "tools-config",
+    feature = "tools-data"
+))]
 #[must_use]
 pub(crate) fn wellness_withheld() -> Option<WellnessWithheld> {
     scoped_read_subject().and_then(|subject| subject.wellness_withheld())

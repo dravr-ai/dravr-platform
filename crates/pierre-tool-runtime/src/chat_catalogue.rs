@@ -51,21 +51,26 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use pierre_config::environment::ServerConfig;
-use pierre_core::models::{EffectiveTool, TenantId};
+use pierre_core::models::{ConversationRecord, EffectiveTool, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::tokens::estimate_context_tokens;
 use pierre_core::transport::Transport;
+use pierre_database::RepositoryRegistry;
 use pierre_llm::{FunctionDeclaration, Tool};
 use pierre_mcp_schema::{JsonSchema, ToolSchema};
+use pierre_services::coach_roster::coaches_group;
 use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::Sha256;
 use tracing::warn;
 use uuid::Uuid;
 
-use crate::coach_seat::TurnSeat;
+use crate::coach_seat::{self, TurnSeat};
 use crate::deployment_tools;
+use crate::implementations::call_room::CallRoom;
+use crate::read_subject::strip_athlete_argument;
 use crate::registry::ToolRegistry;
+use crate::security::RoomReach;
 use crate::tool_access::{self, Caller, CallerRole};
 use crate::tool_selection::ToolSelectionService;
 use dravr_tronc::mcp::canonical::to_canonical_value;
@@ -301,60 +306,213 @@ impl SwitchedOff {
     }
 }
 
+/// Who reads what a chat turn writes, as the room gates see it: the one
+/// classifier `call_room` asks (carnet#1422), and whether the caller coaches
+/// the room's group.
+///
+/// A turn's listing offers a tool, and the `athlete` argument, only where a
+/// call would be taken, so it reads the room the call would be decided in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnReaders {
+    /// The caller alone: no conversation, or one confirmed private to them.
+    CallerAlone,
+    /// The room of a group the caller coaches.
+    CoachedRoom,
+    /// The room of a group the caller does not coach.
+    GroupRoom,
+    /// Others may, unconfirmed: a conversation not confirmed private nor a
+    /// group's room, such as a messaging group chat whose binding failed.
+    Others,
+}
+
+impl TurnReaders {
+    /// Who reads a turn `caller` sends on `conversation`, the row the turn
+    /// read for them, when the turn is a direct message or not.
+    pub async fn of_turn(
+        repos: &RepositoryRegistry,
+        conversation: &ConversationRecord,
+        direct_message: bool,
+        caller: Uuid,
+    ) -> Self {
+        let room = CallRoom::of_conversation(repos, conversation, direct_message).await;
+        Self::of_room(repos, &room, caller).await
+    }
+
+    /// Who reads a call `caller` makes in `room`. The room is the caller's
+    /// coached room by the one coach rule
+    /// ([`pierre_services::coach_roster::coaches_group`]), so a coach whose coach access was
+    /// taken back reads it as any member does, as the coach tools' gates do.
+    /// A group whose coach cannot be read is taken for one the caller does
+    /// not coach.
+    pub(crate) async fn of_room(repos: &RepositoryRegistry, room: &CallRoom, caller: Uuid) -> Self {
+        match room {
+            CallRoom::Private => Self::CallerAlone,
+            CallRoom::Unresolved => Self::Others,
+            CallRoom::Group(group) => match coaches_group(repos, caller, group).await {
+                Ok(true) => Self::CoachedRoom,
+                Ok(false) => Self::GroupRoom,
+                Err(e) => {
+                    warn!(error = %e, "chat tools: the room's coach could not be read; reading it as a room the caller does not coach");
+                    Self::GroupRoom
+                }
+            },
+        }
+    }
+}
+
+impl RoomReach {
+    /// Whether a call made where `readers` read it is taken.
+    const fn admits(self, readers: TurnReaders) -> bool {
+        match self {
+            Self::Anywhere => true,
+            Self::PrivateOrGroupRoom => !matches!(readers, TurnReaders::Others),
+            Self::PrivateOrCoachedRoom => {
+                matches!(readers, TurnReaders::CallerAlone | TurnReaders::CoachedRoom)
+            }
+            Self::PrivateOnly => matches!(readers, TurnReaders::CallerAlone),
+        }
+    }
+}
+
+/// Who one turn's tools are offered to, and where: what the listing decides
+/// by beside the registry, the seat and the switched-off set.
+#[derive(Debug, Clone, Copy)]
+pub struct OfferedTo<'grant> {
+    /// The transport the turn is served over (`None` is external, as at
+    /// dispatch).
+    pub transport: Option<Transport>,
+    /// The grant the turn runs under.
+    pub grant: &'grant [OAuthScope],
+    /// The caller's role, read once for the turn.
+    pub role: CallerRole,
+    /// Who reads what the turn writes.
+    pub readers: TurnReaders,
+    /// What the turn read of members other than the caller
+    /// ([`coach_seat::MemberReads`]): a write that can only act on the caller
+    /// is then withheld beyond the room's view, and a write that files a
+    /// fact or a prompt after any member read.
+    pub member_reads: coach_seat::MemberReads,
+}
+
 /// The chat-callable tools one turn offers, in registry order.
 ///
 /// Less those `seat` withholds, those switched off for the caller, those the
-/// one access predicate withholds over `transport` under `grant`
+/// one access predicate withholds over `to.transport` under `to.grant`
 /// ([`tool_access::withheld`]; `None` is external, as at dispatch), and those
 /// the deployment can only fail ([`deployment_tools::answers_with`]: a
 /// food-database tool with no USDA key), the same predicates the MCP and A2A
 /// listings read.
 ///
-/// A chat turn is decided for a caller with no role: on Dravr's own surfaces
-/// the role changes nothing a chat turn offers (chat never offers an admin
-/// tool, and the coach tools' own gates decide there), and a turn served over
-/// an API key or the A2A text turn offers neither the coach tools nor the
-/// tools kept in the app, as the dispatch of such a turn's agent was built
-/// to expect. The coach and admin lists are the MCP and A2A tool listings'.
+/// A chat turn is decided for `to.role`, the caller's role the turn service read
+/// once for the turn ([`CallerRole::resolve`]), through the one access check
+/// `/mcp`, the A2A card and dispatch read (carnet#1511, plan site 5). On
+/// Dravr's own surfaces the role changes nothing a chat turn offers: chat
+/// never offers an admin tool, and the coach tools' own gates decide there.
+/// On a turn served over an API key or the A2A text turn, a human coach is
+/// offered the coach tools, which show only the members who allowed the
+/// coach's assistant, and an admin is offered the tools kept in the app only
+/// when the grant holds `admin`. The turn's executor is bound to the same
+/// role, so its calls are refused exactly as this set leaves them out.
+///
+/// The `athlete` argument follows the `/mcp` rule on such a turn
+/// ([`tool_access::retain_offered`], carnet#1511 Q16): a human coach is
+/// offered it on the reads, and every other caller on no tool. In Dravr's
+/// own app, and in a coach's thread about one athlete wherever it is served,
+/// no chat turn is offered it on a training or wellness read
+/// ([`ToolRegistry::chat_callable_schemas`]): the thread names its athlete.
+/// A plan tool keeps the `athlete` it declares itself there (the plan reads,
+/// and in the app the plan writes and `propose_athlete_link`), offered to
+/// a coach alone; dispatch takes a name there only
+/// when it is the thread's own athlete
+/// (`plan_scope::resolve_subject_scope`) and refuses any other.
+/// Nor is a turn whose `to.readers` are not the caller alone: a name is taken
+/// only where the caller alone reads the reply, so in a group's room, or a
+/// conversation not confirmed private, every name would be refused.
+///
+/// A turn on the subject's own seat that read another member's data wider
+/// than its room's own view, by a tool or by replaying rows about them
+/// (`to.member_reads`), is offered no write that could only act on the
+/// caller's own account, and one that read any other member at all, the
+/// room's view included, no write that stores free text a later prompt
+/// reads ([`WriteKind::FreeText`](crate::tool_data::WriteKind::FreeText),
+/// carnet#1511 call 16); the
+/// coach's seats already withhold those writes, and a coach's thread about
+/// one athlete writes the athlete's plan with `athlete` left out ([`coach_seat::after_member_read_refusal`],
+/// carnet#1422). A write that may name someone else is offered with `athlete`
+/// required instead, since dispatch takes it then only naming them
+/// ([`coach_seat::offer_after_member_read`]). The declarations are built once
+/// the history is loaded, so a replayed read is known then; a read a tool
+/// makes later in the turn narrows every later model call of the turn
+/// ([`UniversalExecutor::offered_now`](crate::protocol::UniversalExecutor::offered_now)).
 ///
 /// The one set a turn's declarations, its names index and its loopback listing
 /// are built from, so the three cannot disagree, and none offers a tool the
-/// executor would refuse the turn. No input moves within a conversation turn
-/// to turn, so the set stays byte-stable and the provider's cached prefix
-/// survives (carnet#1256).
+/// executor would refuse the turn when it starts. The index and the loopback
+/// are listed once, from the reads the topic carries then; a read a tool
+/// makes later in the turn refuses a write at dispatch, saying why, on those
+/// tiers alone (carnet#1511 call 25, one of the two recorded exceptions to
+/// I7; the grant taint of call 34 is the other). No input moves from turn
+/// to turn but a member read, which holds until the topic's next divider, so
+/// the set stays byte-stable and the provider's cached prefix survives
+/// (carnet#1256).
 #[must_use]
 pub fn offered_schemas(
     registry: &ToolRegistry,
     seat: TurnSeat,
     switched_off: &SwitchedOff,
-    transport: Option<Transport>,
-    grant: &[OAuthScope],
+    to: OfferedTo<'_>,
     deployment: &ServerConfig,
 ) -> Vec<ToolSchema> {
-    registry
-        .chat_callable_schemas()
+    let OfferedTo {
+        transport,
+        grant,
+        role,
+        readers,
+        member_reads,
+    } = to;
+    let caller = Caller {
+        role,
+        grant,
+        transport,
+        support_session: false,
+        // A chat turn runs under the account's own grant, never a detailed
+        // consent grant's ceiling.
+        ceiling: None,
+    };
+    // In a coach's thread about one athlete the thread names the athlete, so
+    // no seat-holder is offered the argument on a training or wellness read
+    // there, outside the app either; a plan tool keeps its own `athlete`,
+    // which dispatch takes only naming the thread's athlete. Nowhere others
+    // read the reply is it offered at all, where every room gate refuses a
+    // name, a plan tool's own `athlete` included.
+    let private = readers == TurnReaders::CallerAlone;
+    let chat_callable = if transport.is_some_and(Transport::is_first_party)
+        || seat == TurnSeat::AthleteThread
+        || !private
+    {
+        registry.chat_callable_schemas()
+    } else {
+        registry.chat_callable_schemas_naming_athletes()
+    };
+    let mut schemas: Vec<ToolSchema> = chat_callable
         .into_iter()
         .filter(|schema| {
             !switched_off.contains(&schema.name)
                 && !seat.withholds(registry, &schema.name)
+                && registry.room_reach(&schema.name).admits(readers)
                 && deployment_tools::answers_with(registry, &schema.name, deployment)
-                && registry.get(&schema.name).is_none_or(|tool| {
-                    tool_access::withheld(
-                        registry,
-                        &schema.name,
-                        tool.as_ref(),
-                        &Caller {
-                            role: CallerRole::default(),
-                            grant,
-                            transport,
-                            support_session: false,
-                            ceiling: None,
-                        },
-                    )
-                    .is_none()
-                })
         })
-        .collect()
+        .collect();
+    if !private {
+        schemas.retain_mut(|schema| strip_athlete_argument(&mut schema.input_schema));
+    }
+    tool_access::retain_offered(registry, &mut schemas, &caller);
+    if seat.sender_is_subject() {
+        schemas.retain_mut(|schema| {
+            coach_seat::offer_after_member_read(registry, schema, member_reads)
+        });
+    }
+    schemas
 }
 
 /// One tool's share of a catalogue
@@ -817,8 +975,13 @@ mod tests {
             &registry,
             TurnSeat::Subject,
             &SwitchedOff::default(),
-            Some(transport),
-            &OAuthScope::self_grant(),
+            OfferedTo {
+                transport: Some(transport),
+                grant: &OAuthScope::self_grant(),
+                role: CallerRole::default(),
+                readers: TurnReaders::CallerAlone,
+                member_reads: coach_seat::MemberReads::default(),
+            },
             &deployment,
         )
         .into_iter()

@@ -14,6 +14,7 @@ use serde_json::Value;
 
 use super::messaging_proactive::ProactiveNotice;
 pub use super::messaging_reactions::ReactionFeedbackTarget;
+pub use super::messaging_session_chat::SessionChat;
 
 /// The statements the one `MessagingRepository` body runs, written once for both
 /// backends; the link-state and reaction statements live beside this module.
@@ -434,6 +435,32 @@ pub trait MessagingRepository: Send + Sync {
         tenant_id: TenantId,
         pierre_conversation_id: &str,
     ) -> AppResult<Option<Value>>;
+
+    /// One session by its id, within the tenant it is filed under: what a
+    /// message row's `session_id` names. `None` when that tenant holds no
+    /// such session.
+    async fn get_session(&self, tenant_id: TenantId, session_id: &str) -> AppResult<Option<Value>>;
+
+    /// The chat record of every session writing into a conversation.
+    ///
+    /// Within one tenant, one [`SessionChat`] per session writing into
+    /// `pierre_conversation_id`: none when no messaging chat writes into it.
+    async fn session_chats(
+        &self,
+        tenant_id: TenantId,
+        pierre_conversation_id: &str,
+    ) -> AppResult<Vec<SessionChat>>;
+
+    /// Record whether `session_id`'s chat is a direct message, for the
+    /// session under `tenant_id` alone.
+    ///
+    /// As the channel reported it on the turn being served.
+    async fn record_session_chat(
+        &self,
+        tenant_id: TenantId,
+        session_id: &str,
+        is_direct_message: bool,
+    ) -> AppResult<()>;
 
     /// Update the last message timestamp on a session
     async fn touch_session(&self, session_id: &str) -> AppResult<()>;

@@ -52,6 +52,9 @@ pub(crate) mod messaging_eval;
 #[cfg(feature = "client-messaging")]
 pub(crate) mod messaging_webhooks;
 pub(crate) mod notify_capture;
+/// A group's room transcript read as one viewer, under the one read rule.
+#[allow(dead_code)]
+pub(crate) mod room_reads;
 /// A real adapter with only its outbound sends captured, for tests that
 /// drive the webhook route and must not depend on reaching a channel's API.
 /// It lives in `common`, which builds every test context on it.

@@ -44,6 +44,7 @@ use pierre_mcp_server::mcp::resources::tool_surface::HostedToolBridge;
 use pierre_tool_runtime::chat_catalogue::SwitchedOff;
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::tool_access::CallerRole;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -70,6 +71,7 @@ async fn a_spent_tool_budget_fires_its_own_catalogued_event() {
     let surface = bridge.turn_surface(ToolSessionTurn {
         user_id: &user_id.to_string(),
         tenant_id: tenant,
+        conversation_tenant_id: tenant,
         conversation_id: "conv-under-test",
         turn_id: ConversationTurnId(Uuid::new_v4()),
         turn_agent_id: None,
@@ -77,6 +79,7 @@ async fn a_spent_tool_budget_fires_its_own_catalogued_event() {
         seat: TurnSeat::Subject,
         switched_off: &SwitchedOff::default(),
         grant: &OAuthScope::self_grant(),
+        role: CallerRole::default(),
     });
 
     // Installed after the fixtures, before the code under test: the capture is

@@ -1,4 +1,4 @@
-// ABOUTME: The speaker-labeled ambient transcript a group turn's prompt carries, read consent-gated
+// ABOUTME: The speaker-labeled ambient transcript a group turn's prompt carries: only what every member may read
 // ABOUTME: Bounded in lines and characters so a busy room costs a fixed number of prompt tokens
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,10 +7,14 @@
 use pierre_chat_pipeline::stages::platform_markers::defang_athlete_text;
 use pierre_chat_pipeline::turn::AmbientContext;
 use pierre_core::transport::TransportPolicy;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
-use pierre_core::models::TranscriptSpeaker;
+use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::{CarriedRead, TenantId, TranscriptSpeaker};
 use pierre_core::narration::scrub_replayed_narration;
+use pierre_database::repositories::TranscriptReadable;
+use pierre_database::RepositoryRegistry;
+use pierre_services::member_reads;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -29,12 +33,30 @@ const CORRECTION_LABEL: &str = "Coach (correcting Dravr)";
 /// How the agent's own lines are labelled in the block.
 const AGENT_LABEL: &str = "Dravr";
 
+/// How many of the newest entries the sender may read are weighed for the
+/// block: the room's view keeps fewer, then the block keeps
+/// [`AMBIENT_TRANSCRIPT_MAX_LINES`].
+const AMBIENT_TRANSCRIPT_READ: i64 = 100;
+
 /// Build the speaker-labeled ambient transcript for a group turn.
 ///
 /// Reads the group's shared room transcript (`group_transcript_entries`) —
 /// the same surface-neutral read model web and mobile members read — through
 /// the consent-gated visibility query, with the requesting member as the
 /// viewer: an unconsented peer's content never enters this member's prompt.
+/// The reply is posted where everyone in the chat reads it, so of those
+/// entries the block keeps only the ones every member of the group may read,
+/// the sender's own words aside, as a reply posted there may carry
+/// ([`GroupTranscriptEntry::room_reads`], carnet#1511 design call 8): never
+/// the coach's view of a member who shares with the coach alone, nor an
+/// agent reply drawn on one. What an entry carries was fixed when it was
+/// written (design call 11), so a coach replaced or detached since widens
+/// nothing. The authors the kept entries quote, the coach and the member an
+/// agent reply answered included, and every read those entries carried go
+/// with the block, so the turn reads them as it reads their cards
+/// (carnet#1511 call 19).
+///
+/// [`GroupTranscriptEntry::room_reads`]: pierre_core::models::groups::GroupTranscriptEntry::room_reads
 /// Member rows are labeled with the sender's quoted display name, assistant
 /// rows "Dravr" (see [`render_line`]). The triggering message is not yet in the transcript (the turn
 /// pipeline fans it out at persistence), so nothing is excluded here.
@@ -57,16 +79,48 @@ pub(super) async fn build_group_ambient_context(
         .ok()??;
     let group_id = conversation.group_id?;
 
-    let limit = i64::try_from(AMBIENT_TRANSCRIPT_MAX_LINES).unwrap_or(25);
-    let entries = match dispatch
-        .resources
-        .common
-        .repos
-        .groups
-        .list_transcript_visible_to(&group_id, dispatch.auth_result.user_id, limit)
-        .await
-    {
-        Ok(entries) => entries,
+    let sender = dispatch.auth_result.user_id;
+    let repos = &dispatch.resources.common.repos;
+    let loaded = async {
+        let group = Uuid::parse_str(&group_id)
+            .map_err(|e| AppError::internal(format!("ambient group id: {e}")))?;
+        let tenant = TenantId::parse_str(&conversation.tenant_id)
+            .map_err(|e| AppError::internal(format!("ambient conversation tenant: {e}")))?;
+        let Some(record) = repos.groups.get_group(&group_id, tenant).await? else {
+            return Ok(None);
+        };
+        // What the sender may read, and what the whole room may: each decided
+        // by the one rule over the room's reads (carnet#1511 call 19).
+        let viewer =
+            member_reads::readable_room_keys(repos, member_reads::Reader::Person(sender), &[group])
+                .await?;
+        let room = member_reads::readable_room_keys(
+            repos,
+            member_reads::Reader::Room {
+                group,
+                peer_switch: record.is_active && record.peer_data_sharing,
+                sender,
+            },
+            &[group],
+        )
+        .await?;
+        let entries = repos
+            .groups
+            .list_transcript_visible_to(
+                &group_id,
+                sender,
+                AMBIENT_TRANSCRIPT_READ,
+                TranscriptReadable {
+                    viewer: &viewer,
+                    room: &room,
+                },
+            )
+            .await?;
+        AppResult::Ok(Some((group, entries)))
+    };
+    let (group, entries) = match loaded.await {
+        Ok(Some(loaded)) => loaded,
+        Ok(None) => return None,
         Err(e) => {
             warn!(error = %e, "ambient transcript load failed; dispatching without it");
             return None;
@@ -77,10 +131,15 @@ pub(super) async fn build_group_ambient_context(
     // per-line length.
     let mut lines: Vec<String> = Vec::new();
     let mut label_cache: HashMap<String, String> = HashMap::new();
+    let mut quoted: BTreeSet<CarriedRead> = BTreeSet::new();
+    let mut kept: Vec<Uuid> = Vec::new();
     // The block is as strict as the entries it quotes (carnet#769).
     let mut transport_policy = TransportPolicy::AnyTransport;
     for entry in &entries {
-        if entry.content.is_empty() {
+        if lines.len() == AMBIENT_TRANSCRIPT_MAX_LINES {
+            break;
+        }
+        if entry.content.is_empty() || !entry.room_reads {
             continue;
         }
         // An agent line re-enters every member's prompt from here, and the
@@ -106,11 +165,28 @@ pub(super) async fn build_group_ambient_context(
             continue;
         };
         lines.push(line);
+        // The author's words are quoted, the coach's and an agent reply's
+        // included: the coach's are words spoken to the room, a member's (and
+        // the reply attributed to them) are read through the room's peer view
+        // (carnet#1511 calls 12, as narrowed, and 19).
+        if entry.author_user_id != sender {
+            quoted.insert(author_read(
+                entry.author_user_id,
+                entry.author_coached,
+                group,
+            ));
+        }
+        kept.push(entry.id);
         transport_policy = transport_policy.strictest(entry.transport_policy);
     }
     if lines.is_empty() {
         return None;
     }
+    // Every read a quoted entry carried is read again by the turn that quotes
+    // it, as it was made: a stamp names every member a row drew on, so the
+    // reply carries them and a later withdrawal hides it (call 19). When they
+    // cannot be listed the block is left out rather than quoted unstamped.
+    quoted.extend(entry_reads(repos, &kept, sender).await?);
     lines.reverse();
 
     let text = format!(
@@ -124,7 +200,41 @@ pub(super) async fn build_group_ambient_context(
     Some(AmbientContext {
         text,
         transport_policy,
+        members: quoted,
     })
+}
+
+/// The read of an entry's author the turn that quotes it makes: the coach's
+/// words spoken to the room, or a member's read through its peer view.
+fn author_read(author: Uuid, coached: bool, group: Uuid) -> CarriedRead {
+    if coached {
+        CarriedRead::room_words(author, group)
+    } else {
+        CarriedRead::peer(author, Some(group))
+    }
+}
+
+/// The reads the entries `kept` carried, beyond `sender`'s own; `None` when
+/// they cannot be listed, so the block is left out rather than quoted
+/// unstamped.
+async fn entry_reads(
+    repos: &RepositoryRegistry,
+    kept: &[Uuid],
+    sender: Uuid,
+) -> Option<Vec<CarriedRead>> {
+    match repos.groups.list_transcript_entry_reads(kept).await {
+        Ok(reads) => Some(
+            reads
+                .iter()
+                .filter_map(|(_, key)| CarriedRead::from_key(key))
+                .filter(|read| read.member != sender)
+                .collect(),
+        ),
+        Err(e) => {
+            warn!(error = %e, "ambient transcript reads failed; dispatching without it");
+            None
+        }
+    }
 }
 
 /// Render one transcript entry as one line of the block; `None` when blank.

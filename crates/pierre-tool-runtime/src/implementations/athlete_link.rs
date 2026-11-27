@@ -32,7 +32,7 @@
 //! on it: no roster name, email or athlete id.
 
 use crate::annotations::{annotations, Effect, Reach};
-use crate::tool_data::ToolData;
+use crate::tool_data::{ToolData, WriteKind};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -505,8 +505,8 @@ impl McpTool<dyn ToolRuntime> for ProposeAthleteLinkTool {
 // own surfaces list and run it, and externally only an admin whose grant holds
 // `admin` (`crate::first_party_tools`, `crate::tool_access`).
 crate::declare_security!(
-    ProposeAthleteLinkTool => empty; first_party_only,
-    reads: ToolData::own(&[]),
+    ProposeAthleteLinkTool => empty; first_party_only; private,
+    reads: ToolData::own(&[]).writes(WriteKind::Structured),
 );
 
 #[cfg(test)]

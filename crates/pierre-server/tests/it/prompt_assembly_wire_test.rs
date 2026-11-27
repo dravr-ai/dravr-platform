@@ -58,6 +58,8 @@ use pierre_core::models::{
 use pierre_core::prompt_fingerprint::{extract_canary_marker, inject_canary_marker};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_tool_runtime::chat_catalogue;
+use pierre_tool_runtime::coach_seat::{MemberReads, TurnSeat};
+use pierre_tool_runtime::tool_access::CallerRole;
 
 /// A question the model answers itself: no data fetch, so the platform never
 /// answers in its place.
@@ -742,11 +744,25 @@ async fn the_guardrails_are_read_from_the_registry_on_every_turn() {
 async fn the_tool_index_names_exactly_what_the_chat_surface_serves() {
     let fx = setup("wire-tool-index@test.com").await;
     let registry = &fx.ctx.tool_registry;
-    let callable: Vec<String> = registry
-        .chat_callable_schemas()
-        .into_iter()
-        .map(|schema| schema.name)
-        .collect();
+    // What this caller's web turn is offered: the chat-callable set as the
+    // one catalogue narrows it for an athlete with no role (a tool that
+    // needs an athlete to name is not theirs, carnet#1511).
+    let callable: Vec<String> = chat_catalogue::offered_schemas(
+        registry,
+        TurnSeat::Subject,
+        &chat_catalogue::SwitchedOff::default(),
+        chat_catalogue::OfferedTo {
+            transport: Some(Transport::WebApp),
+            grant: &OAuthScope::self_grant(),
+            role: CallerRole::default(),
+            readers: chat_catalogue::TurnReaders::CallerAlone,
+            member_reads: MemberReads::default(),
+        },
+        &fx.ctx.config,
+    )
+    .into_iter()
+    .map(|schema| schema.name)
+    .collect();
     let visible_only: Vec<String> = registry
         .athlete_audience_schemas()
         .into_iter()

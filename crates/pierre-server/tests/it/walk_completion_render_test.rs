@@ -66,6 +66,7 @@ use pierre_database::repositories::{
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
+use pierre_tool_runtime::tool_access::CallerRole;
 use std::collections::BTreeMap;
 
 const LOCALE: &str = "en";
@@ -959,6 +960,7 @@ impl Athlete {
             mentioned_agent: None,
             steps_after: None,
             grant: OAuthScope::self_grant(),
+            role: CallerRole::default(),
         };
         let profile = SurfaceProfile::resolve(&SurfaceRequest {
             surface: SurfaceId::Web,

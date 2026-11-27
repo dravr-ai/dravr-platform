@@ -67,8 +67,8 @@ use pierre_core::models::{
 };
 use pierre_llm::{
     ChatProvider, ChatRequest, ChatResponse, ChatStream, CopilotHeadlessConfig,
-    CopilotHeadlessRunner, FunctionResponse, HeadlessStreamEvent, HeadlessToolResponse,
-    LlmCapabilities, LlmProvider, ObservedToolCall, StreamChunk, Tool,
+    CopilotHeadlessRunner, FunctionDeclaration, FunctionResponse, HeadlessStreamEvent,
+    HeadlessToolResponse, LlmCapabilities, LlmProvider, ObservedToolCall, StreamChunk, Tool,
 };
 use pierre_mcp_server::context::ServerContext;
 use pierre_middleware::provider_link_token::{
@@ -82,6 +82,7 @@ use pierre_tool_runtime::headless_stream::forward_headless_stream;
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest};
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::tool_access::CallerRole;
 use pierre_tool_runtime::tool_execution::finalize_headless_turn;
 use pierre_tool_runtime::tool_loop_io::{ToolLoopParams, ToolLoopResult};
 use pierre_tool_runtime::tool_results::render_tool_payload_for_prompt;
@@ -145,6 +146,7 @@ fn turn_input(user_id: Uuid, tenant: TenantId) -> TurnInput {
         mentioned_agent: None,
         steps_after: None,
         grant: OAuthScope::self_grant(),
+        role: CallerRole::default(),
     }
 }
 
@@ -1139,8 +1141,19 @@ async fn finish_headless_turn_with(
     // the turn to the text loop; the ACP runner below is the one that served it.
     let provider = ChatProvider::Custom(provider);
     let runner = CopilotHeadlessRunner::with_config(CopilotHeadlessConfig::default());
+    // The turn offers the tools a reply's block calls: a turn runs only a
+    // tool it offered (carnet#1511 design call 13).
     let tools = Tool {
-        function_declarations: Vec::new(),
+        function_declarations: ["get_connection_status", "get_activities"]
+            .into_iter()
+            .map(|name| {
+                FunctionDeclaration::new(
+                    name.to_owned(),
+                    String::new(),
+                    Some(json!({ "type": "object", "properties": {} })),
+                )
+            })
+            .collect(),
     };
     let request = ChatRequest::new(Vec::new());
     let (reply, stream_sink, prose_delivered) = match streamed {

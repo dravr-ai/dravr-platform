@@ -33,6 +33,7 @@ use pierre_llm::{
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::{FactKind, FactSource, MemoryScope, PredicateCode};
+use pierre_tool_runtime::tool_access::CallerRole;
 use uuid::Uuid;
 
 use crate::common::{create_test_server_resources_with_chat_provider, create_test_user};
@@ -214,6 +215,7 @@ async fn a_room_turn_carries_the_north_star_stamped_in_the_athletes_own_workspac
             mentioned_agent: None,
             steps_after: None,
             grant: OAuthScope::self_grant(),
+            role: CallerRole::default(),
         },
         &profile,
         &PipelineHooks::none(),

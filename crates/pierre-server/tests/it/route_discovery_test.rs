@@ -36,6 +36,7 @@ use pierre_tool_runtime::implementations::compose_route::ComposeRouteTool;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest};
 use pierre_tool_runtime::route_store::{self, StoredRoute};
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::tool_access::CallerRole;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -1128,6 +1129,7 @@ async fn test_a_composed_route_is_drawn_from_the_ids_a_chat_turn_carries() {
         mentioned_agent: None,
         steps_after: None,
         grant: OAuthScope::self_grant(),
+        role: CallerRole::default(),
     };
     let block = json!({
         "type": "route",

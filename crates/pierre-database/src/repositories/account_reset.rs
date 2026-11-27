@@ -150,7 +150,8 @@ macro_rules! account_reset_tables {
         ///   every rating it left, in its threads or in someone else's. A human
         ///   coach's thread *about* the athlete (`subject_user_id`) and the
         ///   rows of other people's threads that are about the athlete
-        ///   (`about_user_id`) are the coach's record and stay; so do a group
+        ///   (`about_user_id`, `chat_message_members`) are the coach's record
+        ///   and stay; so do a group
         ///   room's per-member rows of other members. The account's
         ///   participation in someone else's shared thread goes with it, like
         ///   its group memberships.
@@ -210,6 +211,7 @@ account_reset_tables!(
     "delegated_connections" where "CAST(member_user_id AS TEXT) = $1 OR CAST(coach_user_id AS TEXT) = $1",
     "provider_terms_consents",
     "strava_seat_reclaim_warnings",
+    "grant_member_reads",
     "oauth_notifications",
     "oauth2_clients" where "client_id IN (SELECT c.client_id FROM a2a_clients c WHERE CAST(c.user_id AS TEXT) = $1)",
     "a2a_tasks" where "session_token = 'user:' || $1 OR session_token IN (SELECT c.client_id FROM a2a_clients c WHERE CAST(c.user_id AS TEXT) = $1)",
@@ -233,12 +235,14 @@ account_reset_tables!(
     "chat_message_feedback" where "CAST(user_id AS TEXT) = $1 OR conversation_id IN (SELECT c.id FROM chat_conversations c WHERE CAST(c.user_id AS TEXT) = $1 AND NOT EXISTS (SELECT 1 FROM conversation_participants p WHERE p.conversation_id = c.id AND CAST(p.user_id AS TEXT) <> $1))",
     "claim_verdicts" where "CAST(user_id AS TEXT) = $1 OR conversation_id IN (SELECT c.id FROM chat_conversations c WHERE CAST(c.user_id AS TEXT) = $1 AND NOT EXISTS (SELECT 1 FROM conversation_participants p WHERE p.conversation_id = c.id AND CAST(p.user_id AS TEXT) <> $1))",
     "compaction_blocks" where "conversation_id IN (SELECT c.id FROM chat_conversations c WHERE CAST(c.user_id AS TEXT) = $1 AND NOT EXISTS (SELECT 1 FROM conversation_participants p WHERE p.conversation_id = c.id AND CAST(p.user_id AS TEXT) <> $1))",
+    "chat_message_members" where "message_id IN (SELECT m.id FROM chat_messages m JOIN chat_conversations c ON c.id = m.conversation_id WHERE CAST(c.user_id AS TEXT) = $1 AND NOT EXISTS (SELECT 1 FROM conversation_participants p WHERE p.conversation_id = c.id AND CAST(p.user_id AS TEXT) <> $1))",
     "chat_messages" where "conversation_id IN (SELECT c.id FROM chat_conversations c WHERE CAST(c.user_id AS TEXT) = $1 AND NOT EXISTS (SELECT 1 FROM conversation_participants p WHERE p.conversation_id = c.id AND CAST(p.user_id AS TEXT) <> $1))",
     "conversation_participants" where "(CAST(user_id AS TEXT) = $1 AND conversation_id NOT IN (SELECT c.id FROM chat_conversations c WHERE CAST(c.user_id AS TEXT) = $1 AND EXISTS (SELECT 1 FROM conversation_participants p WHERE p.conversation_id = c.id AND CAST(p.user_id AS TEXT) <> $1))) OR conversation_id IN (SELECT c.id FROM chat_conversations c WHERE CAST(c.user_id AS TEXT) = $1 AND NOT EXISTS (SELECT 1 FROM conversation_participants p WHERE p.conversation_id = c.id AND CAST(p.user_id AS TEXT) <> $1))",
     "chat_conversations" where "CAST(user_id AS TEXT) = $1 AND NOT EXISTS (SELECT 1 FROM conversation_participants p WHERE p.conversation_id = chat_conversations.id AND CAST(p.user_id AS TEXT) <> $1)",
     "coach_reply_reviews" where "CAST(athlete_user_id AS TEXT) = $1 OR CAST(coach_user_id AS TEXT) = $1",
     "coach_attention_dismissals" where "CAST(athlete_user_id AS TEXT) = $1 OR CAST(coach_user_id AS TEXT) = $1",
     "group_chat_connect_codes" where "CAST(created_by AS TEXT) = $1",
+    "group_transcript_entry_members" where "entry_id IN (SELECT e.id FROM group_transcript_entries e WHERE CAST(e.author_user_id AS TEXT) = $1)",
     "group_transcript_entries" where "CAST(author_user_id AS TEXT) = $1",
     "coaching_groups" where "CAST(owner_id AS TEXT) = $1 AND is_active = FALSE AND NOT EXISTS (SELECT 1 FROM chat_conversations c WHERE c.group_id = coaching_groups.id OR c.subject_group_id = coaching_groups.id) AND NOT EXISTS (SELECT 1 FROM coaching_group_members m WHERE m.group_id = coaching_groups.id AND CAST(m.user_id AS TEXT) <> $1)",
     "coach_access_requests",

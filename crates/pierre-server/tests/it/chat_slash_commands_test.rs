@@ -38,6 +38,7 @@ use pierre_core::models::{ConnectionType, TenantId};
 use pierre_core::models::{OnboardingState, Tenant, User, UserStatus};
 use pierre_core::transport::TransportPolicy;
 use pierre_core::usage_log;
+use pierre_database::repositories::MemberReplay;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::{
     ChatMessageAction, ChatRoutes, ConversationListResponse, ConversationResponse,
@@ -1606,7 +1607,7 @@ async fn slash_command_turn_is_persisted_to_history_and_kept_out_of_the_prompt()
         &user_id.to_string(),
         tenant_id,
         50,
-        &[],
+        MemberReplay::about_nobody(),
     )
     .await
     .unwrap();

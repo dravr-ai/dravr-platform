@@ -26,6 +26,7 @@ use async_trait::async_trait;
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
 use axum::Router;
+use dravr_tronc::dates::Timestamp;
 use futures_util::stream;
 use pierre_a2a::coaching::CoachingTurns;
 use pierre_a2a::ClientRegistrationRequest;
@@ -503,8 +504,11 @@ async fn a_read_only_grant_is_offered_no_write_and_refused_one_it_names() {
     );
     let tool_round = requests.get(1).expect("the tool round's follow-up call");
     assert!(
-        tool_round.conversation.contains("fitness:write"),
-        "the executor must refuse the write naming the missing scope: {}",
+        tool_round
+            .conversation
+            .contains("Tool 'set_goal' not found. Available tools"),
+        "a write the turn did not offer is refused as not offered (carnet#1511 design call \
+         13): {}",
         tool_round.conversation
     );
 
@@ -666,8 +670,9 @@ async fn the_coach_family_stays_off_a_text_turn() {
     assert!(
         requests[1]
             .conversation
-            .contains("is for a human coach who leads an active group"),
-        "a text turn is decided for no role (carnet#1511): the executor refuses the coach tool: {}",
+            .contains("Tool 'get_roster_overview' not found. Available tools"),
+        "a text turn offers no coach tool, and refuses one called anyway as not offered \
+         (carnet#1511 design call 13): {}",
         requests[1].conversation
     );
 }
@@ -1050,6 +1055,62 @@ async fn a_failed_turn_fails_its_task_saying_nothing_of_why_and_closes_the_quest
         Some("assistant"),
         "the question must not stand open on the athlete's thread"
     );
+}
+
+/// The export decides a text turn's task by the rows stored at or before
+/// its last update (carnet#1511 design call 10): every row the turn stores,
+/// on a reply and on a failure alike, is stored by then, as the export reads
+/// both instants.
+#[tokio::test]
+async fn a_text_turns_rows_are_stored_before_its_task_last_updates() {
+    let broken: Arc<dyn LlmProvider> = Arc::new(BrokenModel);
+    for model in [None, Some(broken)] {
+        let (resources, app) = match model {
+            None => {
+                let fx = fixture().await;
+                (fx.resources, fx.app)
+            }
+            Some(model) => {
+                let resources = server_over(model).await;
+                let coaching = Arc::new(PipelineCoachingTurns::new(resources.clone()));
+                let app = router(&resources, &coaching);
+                (resources, app)
+            }
+        };
+        let rider = athlete_with_relay(&resources).await;
+        let authorization = grant(&resources, &rider, READ_ONLY);
+        let sent = rpc(&app, &authorization, "SendMessage", text_message(QUESTION)).await;
+        let context = sent["result"]["task"]["contextId"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{sent}"))
+            .to_owned();
+        let task = exported_rows(&resources, &rider, "a2a_tasks")
+            .await
+            .into_iter()
+            .find(|task| task["context_id"] == context.as_str())
+            .expect("the export holds the turn's task");
+        let ended = Timestamp::parse_from_rfc3339(task["updated_at"].as_str().unwrap())
+            .unwrap_or_else(|e| panic!("the task's last update parses: {task} {e}"));
+        let rows = resources
+            .common
+            .repos
+            .chat
+            .get_messages(&context, &rider.user_id.to_string(), rider.tenant)
+            .await
+            .unwrap();
+        assert!(rows.len() >= 2, "the question and its answer are stored");
+        for row in rows {
+            let stored = Timestamp::parse_from_rfc3339(&row.created_at)
+                .unwrap_or_else(|e| panic!("a row's instant parses: {} {e}", row.created_at));
+            assert!(
+                stored <= ended,
+                "{} stored at {} after its task's last update {ended:?} ({})",
+                row.role,
+                row.created_at,
+                sent["result"]["task"]["status"]["state"]
+            );
+        }
+    }
 }
 
 // ============================================================================

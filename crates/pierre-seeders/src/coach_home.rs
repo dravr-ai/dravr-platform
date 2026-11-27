@@ -338,6 +338,7 @@ async fn coach_account(repos: &RepositoryRegistry, email: &str) -> AppResult<Acc
                 password_hash: &hash_password(COACH_PASSWORD)?,
                 tier: "professional",
                 status: "active",
+                tenant_slug: None,
             },
         )
         .await?;
@@ -359,7 +360,7 @@ const RETURNING_COACH_STEPS: [(&str, &str); 5] = [
 
 /// Make the coach a returning one, so a sign-in lands on Coach Home rather
 /// than on the onboarding a new account meets.
-async fn returning_coach(repos: &RepositoryRegistry, coach: &Account) -> AppResult<()> {
+pub(crate) async fn returning_coach(repos: &RepositoryRegistry, coach: &Account) -> AppResult<()> {
     repos.users.set_coaches_others(coach.id, true).await?;
     let (user, tenant) = (coach.id.to_string(), coach.tenant.to_string());
     for (step, status) in RETURNING_COACH_STEPS {
@@ -388,6 +389,7 @@ async fn athlete_account(
                 password_hash,
                 tier: "professional",
                 status: "active",
+                tenant_slug: None,
             },
         )
         .await?;
@@ -707,6 +709,7 @@ impl Seeded<'_> {
                 source_conversation_id: Some(&conversation.id),
                 source_message_id: Some(&message.id),
                 transport_policy: TransportPolicy::AnyTransport,
+                carried: &[],
             })
             .await?;
         repos

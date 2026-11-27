@@ -194,9 +194,23 @@ async fn a_scope_refusal_on_the_chat_path_is_a_failed_tool_result_naming_the_sco
         args: json!({"goal_type": "distance", "target_value": 100.0}),
     }];
 
-    let outcome = execute_function_calls(&executor, &calls, &user_id.to_string(), tenant, None)
-        .await
-        .expect("dispatch returns an outcome even when a tool is refused");
+    let offered = pierre_llm::Tool {
+        function_declarations: vec![pierre_llm::FunctionDeclaration::new(
+            "set_goal".to_owned(),
+            String::new(),
+            None,
+        )],
+    };
+    let outcome = execute_function_calls(
+        &executor,
+        &offered,
+        &calls,
+        &user_id.to_string(),
+        tenant,
+        None,
+    )
+    .await
+    .expect("dispatch returns an outcome even when a tool is refused");
 
     assert_eq!(outcome.responses.len(), 1, "the model is owed one response");
     assert_eq!(

@@ -14,6 +14,7 @@
 //! is swapped, the terms are not. Each test reads through the real executor,
 //! as Dravr's own web surface, unless it says otherwise.
 
+use crate::coach_athlete_reads_test::fixture_on;
 use crate::common;
 use crate::common::create_test_user_with_plan;
 
@@ -35,7 +36,7 @@ use pierre_core::models::{
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
-use pierre_database::repositories::PersonalBest;
+use pierre_database::repositories::{CoachReadClass, PersonalBest};
 use pierre_mcp_server::context::ServerContext;
 use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
@@ -268,6 +269,44 @@ struct AthleteFixture {
 }
 
 async fn athlete(mode: Mode) -> AthleteFixture {
+    let (resources, counters) = context_server(mode).await;
+    let email = format!("context-{}@example.com", Uuid::new_v4());
+    let (user_id, _, tenant) =
+        create_test_user_with_plan(&resources.agent.database, &email, "starter")
+            .await
+            .unwrap();
+    connect_session(&resources, user_id, tenant).await;
+    AthleteFixture {
+        resources,
+        user_id,
+        tenant,
+        counters,
+    }
+}
+
+/// `user_id`'s signed-in Strava session, which the stand-in answers.
+async fn connect_session(resources: &ServerContext, user_id: Uuid, tenant: TenantId) {
+    let token = UserOAuthToken::new(
+        user_id,
+        tenant.to_string(),
+        SCIOTTE.to_owned(),
+        "session".to_owned(),
+        None,
+        Some(Timestamp::now() + Elapsed::hours(6)),
+        None,
+    );
+    resources
+        .agent
+        .database
+        .repositories()
+        .oauth_tokens
+        .upsert_token(&token)
+        .await
+        .unwrap();
+}
+
+/// A server whose Strava and Intervals.icu answer through the stand-in.
+async fn context_server(mode: Mode) -> (Arc<ServerContext>, Arc<Counters>) {
     // The server's own Intervals.icu app signs the suites that connect it.
     let base = common::create_test_server_resources_with_config(
         common::test_server_config_with_app(INTERVALS_ICU, "test-client", "test-secret"),
@@ -300,35 +339,7 @@ async fn athlete(mode: Mode) -> AthleteFixture {
     let registry = registry.with_request_limiter(Arc::new(limiter));
     let mut context = (*base).clone();
     context.fitness.provider_registry = Arc::new(registry);
-    let resources = Arc::new(context);
-    let email = format!("context-{}@example.com", Uuid::new_v4());
-    let (user_id, _, tenant) =
-        create_test_user_with_plan(&resources.agent.database, &email, "starter")
-            .await
-            .unwrap();
-    let token = UserOAuthToken::new(
-        user_id,
-        tenant.to_string(),
-        SCIOTTE.to_owned(),
-        "session".to_owned(),
-        None,
-        Some(Timestamp::now() + Elapsed::hours(6)),
-        None,
-    );
-    resources
-        .agent
-        .database
-        .repositories()
-        .oauth_tokens
-        .upsert_token(&token)
-        .await
-        .unwrap();
-    AthleteFixture {
-        resources,
-        user_id,
-        tenant,
-        counters,
-    }
+    (Arc::new(context), counters)
 }
 
 async fn call(athlete: &AthleteFixture, tool: &str, parameters: Value) -> UniversalResponse {
@@ -828,4 +839,64 @@ async fn an_external_caller_asking_another_provider_never_receives_bests_from_st
         .as_array()
         .map_or(0, Vec::len);
     assert_eq!(own_bests, 2, "a first-party read keeps every best: {own}");
+}
+
+/// Body weight is wellness (carnet#1387): a coach's profile read of their
+/// athlete carries the provider's weight only under the athlete's wellness
+/// grant, and puts it on the athlete's record as a wellness read when it
+/// does, on the live read and the cached one alike. The rest of the
+/// provider's block is training and stays.
+#[tokio::test]
+async fn a_coachs_profile_read_carries_the_providers_weight_only_under_the_wellness_grant() {
+    let (res, _) = context_server(Mode::Reports).await;
+    let f = fixture_on(res).await;
+    connect_session(&f.res, f.athlete.id, f.athlete.tenant).await;
+    let wellness_reads = || async {
+        f.recorded_from("get_athlete")
+            .await
+            .into_iter()
+            .filter(|read| read.class == CoachReadClass::Wellness)
+            .count()
+    };
+
+    // Without the grant, the live read and then the cached one.
+    for read in ["live", "cached"] {
+        let body = payload(
+            &f.in_thread("get_athlete", json!({ "provider": "strava" }))
+                .await,
+        );
+        let context = block(&body, "provider_context")
+            .unwrap_or_else(|| panic!("{read}: no provider_context in {body}"));
+        assert!(
+            context.get("weight_kg").is_none(),
+            "bug: {read}: the coach reads the athlete's weight without their wellness grant: {context}"
+        );
+        assert_eq!(
+            context["personal_records"][0]["label"], "5K",
+            "{read}: the provider's records are training and stay: {context}"
+        );
+    }
+    assert_eq!(
+        wellness_reads().await,
+        0,
+        "bug: a read that showed no wellness is recorded as one"
+    );
+
+    // Under the grant, the weight, recorded as a wellness read.
+    f.share_wellness(true).await;
+    let body = payload(
+        &f.in_thread("get_athlete", json!({ "provider": "strava" }))
+            .await,
+    );
+    let context =
+        block(&body, "provider_context").unwrap_or_else(|| panic!("no provider_context in {body}"));
+    assert_eq!(
+        context["weight_kg"], 71.4,
+        "under the grant the provider's weight is shown: {context}"
+    );
+    assert_eq!(
+        wellness_reads().await,
+        1,
+        "bug: the coach's read of the athlete's weight is not on their record as wellness"
+    );
 }

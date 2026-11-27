@@ -60,7 +60,7 @@ use uuid::Uuid;
 use super::calendar::{
     calendar_provider, calendar_target, holds_only_through_a_link, CalendarConnections, PassedOver,
 };
-use super::call_room::CallRoom;
+use super::call_room;
 use super::plan_scope::{external_write_refusal, resolve_plan_scope, PlanScopeRequest, PlanWriter};
 use super::training_plan_authorship::load_conversation;
 use crate::context::ToolExecutionContext;
@@ -157,23 +157,23 @@ pub(super) async fn room_refusal(
         &context.user_id.to_string(),
     )
     .await?;
-    Ok(room_refusal_in(context, conversation.as_ref(), act))
+    Ok(room_refusal_in(context, conversation.as_ref(), act).await)
 }
 
 /// [`room_refusal`] for a call whose conversation, read under the caller's
 /// own tenant, is `conversation`.
 ///
-/// Anything [`CallRoom::of`] does not call private is refused: a group's
+/// Anything [`call_room::of`] does not call private is refused: a group's
 /// room; a conversation the caller's own tenant cannot resolve, which is a
 /// shared room's row under the bot tenant; and a chat with no group on a turn
 /// not marked a direct message, which may be a messaging group chat whose
 /// binding failed (carnet#1422).
-pub(super) fn room_refusal_in(
+pub(super) async fn room_refusal_in(
     context: &ToolExecutionContext,
     conversation: Option<&ConversationRecord>,
     act: &str,
 ) -> Option<ToolResult> {
-    (!CallRoom::of(context, conversation).is_private()).then(|| {
+    (!call_room::of(context, conversation).await.is_private()).then(|| {
         refusal(
             "group_room",
             &format!(
@@ -249,7 +249,9 @@ pub(super) async fn resolve_calendar_scope(
             context,
             conversation.as_ref(),
             "Write an athlete's calendar",
-        ) {
+        )
+        .await
+        {
             return Ok(Err(refused));
         }
     }

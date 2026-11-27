@@ -224,6 +224,7 @@ fn with_attribution(reply: String, line: &str) -> String {
 mod tests {
     use std::collections::BTreeSet;
 
+    use pierre_core::models::CarriedRead;
     use pierre_providers::ai_scope::{self, Provenance};
     use pierre_tool_runtime::coach_seat::TurnSeat;
     use uuid::Uuid;
@@ -344,7 +345,7 @@ mod tests {
             .await;
             ai_scope::reading_about(subject, async {
                 if read_subject {
-                    ai_scope::note_member_read(subject);
+                    ai_scope::note_member_read(CarriedRead::peer(subject, None));
                 }
                 ai_scope::note_attribution(subject_attribution);
             })
@@ -407,7 +408,7 @@ mod tests {
         let (coach, member) = (Uuid::new_v4(), Uuid::new_v4());
         let owed = ai_scope::tracking(Provenance::new(), async {
             ai_scope::reading_about(member, async {
-                ai_scope::note_member_read(member);
+                ai_scope::note_member_read(CarriedRead::peer(member, None));
                 ai_scope::note_attribution(Some("Garmin"));
             })
             .await;
@@ -426,7 +427,7 @@ mod tests {
         let sender = Uuid::new_v4();
         for seat in [TurnSeat::Subject, TurnSeat::Coach, TurnSeat::AthleteThread] {
             let owed = ai_scope::tracking(Provenance::new(), async {
-                ai_scope::note_member_read(Uuid::new_v4());
+                ai_scope::note_member_read(CarriedRead::peer(Uuid::new_v4(), None));
                 ai_scope::note_attribution(Some("Garmin"));
                 owed_attributions(seat, Some(sender), &BTreeSet::new())
             })

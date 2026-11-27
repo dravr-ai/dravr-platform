@@ -16,11 +16,14 @@
 //! staleness as a provider problem (the 2026-08-13 inverted-recovery-verdict
 //! incident).
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Activity, RefreshConfig, TenantId};
 use pierre_runtime_context::DataContext;
+use tokio::task::JoinHandle;
 use tokio::time::timeout;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
@@ -28,7 +31,7 @@ use uuid::Uuid;
 use crate::activity_fetch::{connection_grant_beside_session, CACHED_ACTIVITY_LOOKBACK_DAYS};
 use crate::group_fitness::fetch_and_merge_all_providers;
 use crate::protocol::AuthService;
-use crate::revalidation::{revalidation_timeout, RevalidationRegistry};
+use crate::revalidation::{revalidation_timeout, RevalidationGuard, RevalidationRegistry};
 use crate::runtime::ToolRuntime;
 use pierre_providers::ai_scope;
 use pierre_providers::deduplication::{DedupConfig, GarminSessions};
@@ -168,7 +171,22 @@ pub(crate) async fn fetch_member_activities(
 /// refresh task's own return value is never served — a refresh whose providers
 /// all failed must not replace real cached rows with nothing. `cached` is the
 /// pre-refresh row set, served as the fallback when the re-read itself errors.
-async fn refresh_stale_cache(
+fn refresh_stale_cache<'a>(
+    runtime: &'a Arc<dyn ToolRuntime>,
+    providers: &'a [String],
+    user_id: Uuid,
+    tenant_id: TenantId,
+    now: Timestamp,
+    cached: Vec<Activity>,
+) -> Pin<Box<dyn Future<Output = (Vec<Activity>, bool)> + Send + 'a>> {
+    Box::pin(refresh_stale_cache_inner(
+        runtime, providers, user_id, tenant_id, now, cached,
+    ))
+}
+
+/// [`refresh_stale_cache`]'s body, boxed for the reason
+/// [`fetch_and_persist_live_inner`] is.
+async fn refresh_stale_cache_inner(
     runtime: &Arc<dyn ToolRuntime>,
     providers: &[String],
     user_id: Uuid,
@@ -216,7 +234,22 @@ async fn refresh_stale_cache(
 /// (write-through happens inside [`fetch_and_merge_all_providers`]).
 ///
 /// Used on a cold cache and by the revalidation task.
-async fn fetch_and_persist_live(
+fn fetch_and_persist_live<'a>(
+    runtime: &'a Arc<dyn ToolRuntime>,
+    providers: &'a [String],
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> Pin<Box<dyn Future<Output = GarminSessions> + Send + 'a>> {
+    Box::pin(fetch_and_persist_live_inner(
+        runtime, providers, user_id, tenant_id,
+    ))
+}
+
+/// [`fetch_and_persist_live`]'s body, which its callers await boxed: a
+/// debug build lays a future out on the stack of the frame that builds it,
+/// and the snapshot that asks for a member's activities would keep that slot
+/// under every provider read (see [`spawn_revalidation`]).
+async fn fetch_and_persist_live_inner(
     runtime: &Arc<dyn ToolRuntime>,
     providers: &[String],
     user_id: Uuid,
@@ -259,6 +292,46 @@ async fn activity_cache_is_stale(
     false
 }
 
+/// Spawn the refresh [`revalidate_within_budget`] waits on, holding
+/// `guard` until it ends.
+///
+/// Built in this plain function: a debug build lays the task's future out on
+/// the stack of the frame that builds it before the task takes it, and the
+/// awaiting caller would keep that slot under every poll of the turn that
+/// asked for the snapshot. A coach's roster of several members over the
+/// API-key route overflowed the 2 MB test thread with it.
+fn spawn_revalidation(
+    runtime: Arc<dyn ToolRuntime>,
+    providers: Vec<String>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    guard: RevalidationGuard,
+) -> JoinHandle<()> {
+    tokio::spawn(keep_scope(async move {
+        // Hold the slot for the whole refresh; dropping `guard` frees it.
+        let _guard = guard;
+        info!(user_id = %user_id, "Activity cache: revalidation started");
+        let bound = revalidation_timeout(&runtime.config().timeouts);
+        match timeout(
+            bound,
+            fetch_and_persist_live(&runtime, &providers, user_id, tenant_id),
+        )
+        .await
+        {
+            Ok(refreshed) => info!(
+                user_id = %user_id,
+                refreshed = refreshed.sessions.len(),
+                "Activity cache: revalidation complete"
+            ),
+            Err(_elapsed) => warn!(
+                user_id = %user_id,
+                timeout_secs = bound.as_secs(),
+                "Activity cache: revalidation timed out; releasing slot"
+            ),
+        }
+    }))
+}
+
 /// Re-fetch and persist a member's activities, waiting up to the same bounded
 /// budget the self path spends on a blocking refresh
 /// ([`RefreshConfig::wait_for_refresh_timeout`]) so the very turn that found
@@ -287,30 +360,7 @@ async fn revalidate_within_budget(
         return false;
     };
 
-    let runtime = Arc::clone(runtime);
-    let task = tokio::spawn(keep_scope(async move {
-        // Hold the slot for the whole refresh; dropping `guard` frees it.
-        let _guard = guard;
-        info!(user_id = %user_id, "Activity cache: revalidation started");
-        let bound = revalidation_timeout(&runtime.config().timeouts);
-        match timeout(
-            bound,
-            fetch_and_persist_live(&runtime, &providers, user_id, tenant_id),
-        )
-        .await
-        {
-            Ok(refreshed) => info!(
-                user_id = %user_id,
-                refreshed = refreshed.sessions.len(),
-                "Activity cache: revalidation complete"
-            ),
-            Err(_elapsed) => warn!(
-                user_id = %user_id,
-                timeout_secs = bound.as_secs(),
-                "Activity cache: revalidation timed out; releasing slot"
-            ),
-        }
-    }));
+    let task = spawn_revalidation(Arc::clone(runtime), providers, user_id, tenant_id, guard);
 
     let budget = RefreshConfig::default().wait_for_refresh_timeout();
     match timeout(budget, task).await {

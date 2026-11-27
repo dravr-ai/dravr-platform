@@ -9,6 +9,7 @@
 
 use crate::common;
 use pierre_database::repositories::SubjectThreads;
+use pierre_middleware::mask_email;
 
 use common::{create_test_server_resources, create_test_user_with_plan};
 use pierre_core::errors::ErrorCode;
@@ -179,5 +180,9 @@ async fn the_seeder_names_a_missing_athlete() {
         .await
         .expect_err("no such athlete");
     assert_eq!(error.code, ErrorCode::ConfigError, "{error}");
-    assert!(error.message.contains(ATHLETE), "{error}");
+    // Named masked, as every seeder message names an email.
+    assert!(
+        error.message.contains(&mask_email(ATHLETE)) && !error.message.contains(ATHLETE),
+        "{error}"
+    );
 }

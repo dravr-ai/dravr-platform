@@ -39,7 +39,7 @@
 //! nothing the second time (`already_saved`), and nothing in the library is
 //! replaced or deleted.
 
-use crate::tool_data::ToolData;
+use crate::tool_data::{ToolData, WriteKind};
 use dravr_barrage::Stream;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -688,8 +688,11 @@ pub fn create_workout_library_tools() -> Vec<Box<dyn RuntimeTool>> {
 }
 
 // A save adds a workout to the caller's library and replaces or deletes
-// nothing there, so it is undone in the library by deleting it.
+// nothing there, so it is undone in the library by deleting it. It files
+// the model's free-text folder name there, so it is a free-text write
+// (carnet#1511 call 16).
 crate::declare_security!(
     SaveWorkoutToLibraryTool => empty,
-    reads: ToolData::own(&[Stream::Workout]),
+    reads: ToolData::own(&[Stream::Workout])
+        .writes(WriteKind::FreeText),
 );

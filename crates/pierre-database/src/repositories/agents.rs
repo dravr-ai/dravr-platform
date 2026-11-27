@@ -21,6 +21,7 @@ use pierre_core::models::groups::{
 
 use super::coach_assistant::CoachAssistantRepository;
 use super::group_chat_connect::GroupChatConnectRepository;
+use super::group_transcript::TranscriptReadable;
 
 use pierre_core::models::AgentRuntimeContext;
 use pierre_core::models::TenantId;
@@ -36,6 +37,20 @@ pub trait AgentsRepository: Send + Sync {
         tenant_id: TenantId,
         request: &CreateAgentRequest,
     ) -> AppResult<Agent>;
+    /// Create the agent [`Self::create`] creates under `agent_id`, unless an
+    /// agent already holds that id: `true` when this call created it.
+    ///
+    /// For a writer that derives the id from what the agent is for, so two
+    /// runs racing to create it end on one agent, and a run that failed
+    /// after creating it finds it again. Either way the owner holds the
+    /// agent on their team.
+    async fn create_if_absent(
+        &self,
+        agent_id: Uuid,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        request: &CreateAgentRequest,
+    ) -> AppResult<bool>;
     /// Get agent by ID
     async fn get_by_id(
         &self,
@@ -341,6 +356,18 @@ pub trait CoachingGroupRepository:
         group: &CoachingGroup,
     ) -> AppResult<CoachingGroup>;
 
+    /// Create `group` under its own id unless a group already holds that id:
+    /// `true` when this call created it.
+    ///
+    /// For a writer that derives the id from what the group is for, so two
+    /// runs racing to create it end on one group, and the one that loses
+    /// reads the winner's.
+    async fn create_group_if_absent(
+        &self,
+        tenant_id: TenantId,
+        group: &CoachingGroup,
+    ) -> AppResult<bool>;
+
     /// Get a group by ID.
     ///
     /// The id alone finds the row; the `tenant_id` argument filters nothing.
@@ -401,6 +428,11 @@ pub trait CoachingGroupRepository:
     /// Empty for a user who coaches no group.
     async fn list_athletes_coached_by(&self, coach_user_id: Uuid) -> AppResult<Vec<Uuid>>;
 
+    /// Every group `user_id` coaches, owns, or is a live member of, active or
+    /// archived, across tenants: what an archive keeps, which switching the
+    /// group back on hands back.
+    async fn list_groups_held_by(&self, user_id: Uuid) -> AppResult<Vec<Uuid>>;
+
     /// List every active group owned by a tenant.
     ///
     /// Used by the weekly-digest scheduler to enumerate the groups eligible
@@ -429,6 +461,17 @@ pub trait CoachingGroupRepository:
         &self,
         group_id: &str,
         coach_user_id: Option<Uuid>,
+        tenant_id: TenantId,
+    ) -> AppResult<bool>;
+
+    /// Attach `coach_user_id` as the human coach of an active group under
+    /// its tenant, only while the group has no coach. Returns whether it was
+    /// attached: `false` when the group is archived, in another tenant, or a
+    /// coach was attached first (never overwritten).
+    async fn attach_coach_to_coachless_group(
+        &self,
+        group_id: &str,
+        coach_user_id: Uuid,
         tenant_id: TenantId,
     ) -> AppResult<bool>;
 
@@ -634,16 +677,14 @@ pub trait CoachingGroupRepository:
 
     /// Read the newest transcript entries the viewer may see, newest first.
     ///
-    /// Consent-gated like the group-member fetch: another member's
-    /// content is visible to a peer only when the group's `peer_data_sharing`
-    /// kill-switch is on AND that member's own `peer_sharing_consent` is on,
-    /// and to the group's human coach when that member's
-    /// `coach_sharing_consent` is on (and, either way, they have not left).
-    /// The group's human coach speaks to the room: their own words reach every
-    /// viewer, and the agent's reply to them reaches a viewer only when every
-    /// other member of the group when it was written shares with their peers.
-    /// The viewer's own entries — including the
-    /// agent replies attributed to them — are always visible to them.
+    /// Every entry is decided by the one transcript rule over its own record
+    /// (`transcript_entry_visible`, carnet#1511 call 11): an entry with no
+    /// record reaches its author alone; a recorded one reaches the viewer when
+    /// its author's words do (the viewer wrote it, the coach seated then
+    /// spoke it, or `readable` holds the author's peer or coach-view key) and
+    /// every read it carries is in `readable` — the viewer's own data, and,
+    /// for its author, a peer read, aside (call 20). `readable.room` decides
+    /// each returned entry's `room_reads`.
     /// No tenant filter — membership is cross-tenant, same as `list_members`;
     /// callers gate access by verifying the viewer's membership first.
     /// `limit` is clamped to `1..=500`.
@@ -652,6 +693,7 @@ pub trait CoachingGroupRepository:
         group_id: &str,
         viewer_user_id: Uuid,
         limit: i64,
+        readable: TranscriptReadable<'_>,
     ) -> AppResult<Vec<GroupTranscriptEntry>>;
 
     /// Read one page of the room as the viewer reads it, newest first.
@@ -672,6 +714,7 @@ pub trait CoachingGroupRepository:
         viewer_user_id: Uuid,
         before: Option<Uuid>,
         limit: i64,
+        readable: &[String],
     ) -> AppResult<Vec<RoomTranscriptEntry>>;
 
     /// Read one entry of the room as the viewer reads it, by id, written
@@ -693,7 +736,24 @@ pub trait CoachingGroupRepository:
         viewer_user_id: Uuid,
         entry_id: Uuid,
         tenants: [TenantId; 2],
+        readable: &[String],
     ) -> AppResult<Option<RoomTranscriptEntry>>;
+
+    /// Every read the entries of `group_id` carry or their authors' words are
+    /// read through, by key ([`CarriedRead::key`]): the reads a viewer's
+    /// readable keys are decided over by the one rule
+    /// (`pierre_services::member_reads`, carnet#1511 call 19), before any
+    /// read of the room. No tenant filter, as for the room's reads.
+    ///
+    /// [`CarriedRead::key`]: pierre_core::models::CarriedRead::key
+    async fn list_group_read_keys(&self, group_id: &str) -> AppResult<Vec<String>>;
+
+    /// Every read the entries `entry_ids` carry, by key, one per entry and
+    /// member: what quoting one of them into a turn reads (call 19).
+    async fn list_transcript_entry_reads(
+        &self,
+        entry_ids: &[Uuid],
+    ) -> AppResult<Vec<(Uuid, String)>>;
 
     // -- Weekly digest deliveries --
 
@@ -837,18 +897,8 @@ pub(crate) const AGENT_ASSIGNED_IN_TENANT_SQL: &str = r"
     WHERE ca.agent_id = $1 AND ca.user_id = $2 AND c.tenant_id = $3 AND ca.is_member = TRUE
 ";
 
-/// Create a user's agent.
-pub(crate) const INSERT_AGENT_SQL: &str = r"
-    INSERT INTO agents (
-        id, user_id, tenant_id, title, description, system_prompt,
-        category, tags, sample_prompts, token_count,
-        created_at, updated_at, is_system, visibility, prerequisites,
-        forked_from, max_tool_iterations, temperature, startup_query, data_requirements,
-        purpose, when_to_use, instructions, example_inputs, example_outputs, success_criteria,
-        content_hash
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, FALSE, $12, NULL, NULL, $13, NULL,
-              $14, $15, $16, $17, $18, $19, $20, $21, $22)
-";
+mod insert_sql;
+pub(crate) use insert_sql::{INSERT_AGENT_IF_ABSENT_SQL, INSERT_AGENT_SQL};
 
 /// An agent the user owns in the tenant, a system agent, or one assigned to them.
 pub(crate) const GET_AGENT_SQL: &str = concat!(
@@ -1007,66 +1057,11 @@ pub(crate) const GET_ACTIVE_AGENT_SQL: &str = concat!(
     WHERE tu.user_id = $1 AND tu.tenant_id = $2"
 );
 
-/// Create a system agent.
-pub(crate) const INSERT_SYSTEM_AGENT_SQL: &str = r"
-    INSERT INTO agents (
-        id, user_id, tenant_id, title, description, system_prompt,
-        category, tags, sample_prompts, token_count,
-        created_at, updated_at, is_system, visibility, prerequisites,
-        forked_from, max_tool_iterations, temperature, startup_query, data_requirements
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, TRUE, $12,
-              NULL, NULL, NULL, NULL, NULL, NULL)
-";
-
-/// A tenant's system agents, newest first.
-pub(crate) const LIST_SYSTEM_AGENTS_SQL: &str = concat!(
-    "SELECT ",
-    agent_columns!(""),
-    " FROM agents WHERE tenant_id = $1 AND is_system = TRUE ORDER BY created_at DESC"
-);
-
-/// Each agent's uses summed over the members of tenant `$1`, or over every
-/// user when it binds `NULL`. Grouped on the member rather than on the agent's
-/// tenant: system agents sit in the seed tenant while every tenant's members
-/// use them.
-pub(crate) const AGENT_USE_TOTALS_SQL: &str = r"
-    SELECT ca.agent_id AS agent_id, CAST(SUM(ca.use_count) AS BIGINT) AS uses
-    FROM agent_assignments ca
-    WHERE $1 IS NULL
-       OR EXISTS (SELECT 1 FROM tenant_users tu
-                  WHERE tu.user_id = ca.user_id AND tu.tenant_id = $1)
-    GROUP BY ca.agent_id
-";
-
-/// Every system agent, newest first, whatever tenant holds the row.
-///
-/// The documented catalogue-wide exception to tenant scoping: system agents
-/// are pinned to the seed tenant but exposed to every tenant through the
-/// catalogue (`AGENT_REACHABLE_SQL`), so a brand-new tenant, which holds no
-/// agent rows of its own, still has a catalogue to pick a default from.
-pub(crate) const LIST_CATALOGUE_SYSTEM_AGENTS_SQL: &str = concat!(
-    "SELECT ",
-    agent_columns!(""),
-    " FROM agents WHERE is_system = TRUE ORDER BY created_at DESC"
-);
-
-/// One system agent of the tenant.
-pub(crate) const GET_SYSTEM_AGENT_SQL: &str = concat!(
-    "SELECT ",
-    agent_columns!(""),
-    " FROM agents WHERE id = $1 AND tenant_id = $2 AND is_system = TRUE"
-);
-
-/// Update a system agent's content.
-pub(crate) const UPDATE_SYSTEM_AGENT_SQL: &str = r"
-    UPDATE agents SET title = $1, description = $2, system_prompt = $3,
-        category = $4, tags = $5, sample_prompts = $6, token_count = $7, updated_at = $8
-    WHERE id = $9 AND tenant_id = $10 AND is_system = TRUE
-";
-
-/// Delete a system agent.
-pub(crate) const DELETE_SYSTEM_AGENT_SQL: &str =
-    "DELETE FROM agents WHERE id = $1 AND tenant_id = $2 AND is_system = TRUE";
+mod system_agent_sql;
+pub(crate) use system_agent_sql::{
+    AGENT_USE_TOTALS_SQL, DELETE_SYSTEM_AGENT_SQL, GET_SYSTEM_AGENT_SQL, INSERT_SYSTEM_AGENT_SQL,
+    LIST_CATALOGUE_SYSTEM_AGENTS_SQL, LIST_SYSTEM_AGENTS_SQL, UPDATE_SYSTEM_AGENT_SQL,
+};
 
 /// A user's own row on an agent: membership, favourite flag, use count and last use.
 pub(crate) const USER_PREFERENCES_SQL: &str = r"

@@ -34,7 +34,6 @@ use dravr_tronc::dates::CivilDate;
 use pierre_core::errors::AppResult;
 use pierre_database::repositories::PlanChangeKind;
 use pierre_memory::training_plans::PlannedDay;
-use pierre_providers::ai_scope;
 use pierre_services::coach_plan_draft::coach_plan_view;
 use tracing::info;
 
@@ -99,7 +98,7 @@ pub async fn revert_draft_date(
     let repos = runtime.repos();
     let target = &thread.target;
     let write = async {
-        ai_scope::note_member_read(target.athlete());
+        super::day_edits::note_coach_read(thread);
         let view = coach_plan_view(repos, target).await?;
         let Some(draft) = view.draft else {
             return Ok(DraftDayOutcome::Unchanged);

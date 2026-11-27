@@ -297,7 +297,7 @@ pub mod calendar;
 /// `set_preferred_calendar` — the calendar Dravr's plan and workout pushes go to (carnet#1393).
 pub mod calendar_preference;
 /// Who reads a tool call's reply: the one room classifier (carnet#1422).
-mod call_room;
+pub(crate) mod call_room;
 /// Whose calendar the calendar-write tools write: the caller's own, or a coached athlete's.
 mod coach_scope;
 /// A coach's "build from family" editor: the thread's family catalogue, a

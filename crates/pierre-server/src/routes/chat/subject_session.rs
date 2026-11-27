@@ -131,6 +131,7 @@ async fn editor_thread(
     let access = &thread.access;
     Ok(EditorThread {
         target: CoachDraftTarget::new(access.tenant, access.athlete_user_id, auth.user_id),
+        group: access.group.id,
         writer: PlanWriter {
             agent_id: thread.conversation.agent_id.clone(),
             tenant: get_tenant_id(auth, resources).await?,

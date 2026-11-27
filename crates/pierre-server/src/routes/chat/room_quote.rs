@@ -39,6 +39,7 @@ use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
 use pierre_services::coached_athlete::{coached_athlete_access, CoachedAthleteRefusal};
+use pierre_services::member_reads;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -96,6 +97,12 @@ pub(super) async fn verify_room_quote(
         .map_err(|e| AppError::internal(format!("Invalid group tenant: {e}")))?;
     // The athlete's room words are written under the group's tenant, by its
     // bound chat's session, or under her own, by her in-app room thread.
+    let readable = member_reads::readable_room_keys(
+        repos,
+        member_reads::Reader::Person(caller),
+        &[subject.group_id],
+    )
+    .await?;
     let entry = repos
         .groups
         .get_room_transcript_entry_for(
@@ -103,6 +110,7 @@ pub(super) async fn verify_room_quote(
             caller,
             entry_id,
             [group_tenant, access.tenant],
+            &readable,
         )
         .await?
         .ok_or_else(not_found)?;

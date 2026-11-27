@@ -116,7 +116,8 @@ pub(crate) const MARK_CHANNEL_CONFIG_PLATFORM_SCOPE_SQL: &str = r"
 macro_rules! session_columns {
     () => {
         "id, user_id, tenant_id, channel_type, channel_user_id, \
-         channel_conversation_id, pierre_conversation_id, last_message_at, created_at"
+         channel_conversation_id, pierre_conversation_id, last_message_at, created_at, \
+         is_direct_message"
     };
 }
 
@@ -145,6 +146,13 @@ pub(crate) const SESSION_BY_CONVERSATION_SQL: &str = concat!(
     "SELECT ",
     session_columns!(),
     " FROM messaging_sessions WHERE tenant_id = $1 AND pierre_conversation_id = $2 LIMIT 1"
+);
+
+/// One session by its id, within one tenant.
+pub(crate) const SESSION_BY_ID_SQL: &str = concat!(
+    "SELECT ",
+    session_columns!(),
+    " FROM messaging_sessions WHERE tenant_id = $1 AND id = $2"
 );
 
 /// Stamp a session's last message instant.

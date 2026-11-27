@@ -63,8 +63,8 @@ fn spawn_turn_advice_capture(
         standing,
         ..
     } = *inputs;
-    if !standing.seat.sender_is_subject() {
-        debug!(seat = ?standing.seat, "the sender is not this turn's subject: no advice it gives is captured");
+    if !standing.seat.sender_is_subject() || !standing.files_on_sender_after_reads(&input.user_id) {
+        debug!(seat = ?standing.seat, "the turn is not about its sender: no advice it gives is captured");
         return;
     }
     if !input.may_learn() {

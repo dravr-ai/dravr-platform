@@ -35,15 +35,12 @@ use super::memory::{append_plan_block, inject_training_plan, PlanShown};
 use super::prompt_builder::{
     build_llm_messages_with_blocks, build_provider_context, render_tool_index, TOOL_BOUNDARY,
 };
-#[cfg(feature = "tools-groups")]
-use super::prompt_builder::{card_scope, resolve_group_context};
 use super::subject_athlete::{self, SubjectTurn};
 use super::subject_context::{inject_subject_context, SubjectContextInputs};
 use super::turn_clock::{format_current_date, with_freshness};
 use super::viz_blocks;
-#[cfg(feature = "tools-groups")]
-use pierre_groups::service::MemberCards;
 
+mod member_cards;
 mod placeholders;
 mod stable_head;
 mod startup_query;
@@ -461,8 +458,12 @@ pub(crate) struct PromptTurn<'a> {
     /// once with the history it trims; `None` for every other conversation.
     pub subject_turn: Option<SubjectTurn>,
     /// The group members whose rows the turn may replay (carnet#1174): a
-    /// compaction summary about any other member is withheld, as its rows are.
+    /// legacy compaction summary about any other member is withheld, as its
+    /// rows are.
     pub readable_about: &'a [Uuid],
+    /// Whether only summaries written with their record replay: a room, or a
+    /// thread others read, replays no legacy summary (carnet#1511 call 17).
+    pub recorded_only: bool,
 }
 
 /// Assemble the hardened system prompt and flatten history into an
@@ -518,6 +519,7 @@ pub(crate) async fn assemble_prompt_and_messages(
         onboarding,
         subject_turn,
         readable_about,
+        recorded_only,
     } = turn;
     // Stage 7a: Build the base prompt in two layers — platform contract, then
     // persona.
@@ -572,7 +574,9 @@ pub(crate) async fn assemble_prompt_and_messages(
     // group's.
     let TurnStanding {
         seat,
+        tools: tool_seat,
         coach: coach_seat,
+        readers,
         ..
     } = standing;
 
@@ -588,6 +592,36 @@ pub(crate) async fn assemble_prompt_and_messages(
     // (7d–7f.1) or plan (7f.2): the coach's own training does not belong in a
     // group's turn or in an athlete's workspace.
     let sender_is_subject = seat.sender_is_subject();
+
+    // Stage 7c, read here and appended below: the member data the platform
+    // puts into the prompt counts as a member read (carnet#1511), which the
+    // tool index has to know of before it is built.
+    let user_uuid = parse_uuid(&input.user_id).unwrap_or_default();
+    // The messaging group chat's recent room words (appended at 7f.4), read
+    // here with the cards so the members they quote count as read before the
+    // index. A block quoting room entries derived from first-party-only data
+    // is withheld from an external turn, and stamps a first-party one
+    // (carnet#769). A guided walk on the sender carries none of the room.
+    let ambient = input
+        .ambient_context
+        .as_ref()
+        .filter(|_| !standing.walks_the_sender())
+        .filter(|ambient| ai_scope::admit_derived(ambient.transport_policy));
+    let members = member_cards::carry(member_cards::CardReader {
+        sender: user_uuid,
+        ambient,
+        subject_turn: subject_turn.as_ref(),
+        #[cfg(feature = "tools-groups")]
+        room: member_cards::RoomReader {
+            ctx,
+            input,
+            conv,
+            sender_is_subject,
+            coach_seat: coach_seat.is_some(),
+            walks_the_sender: standing.walks_the_sender(),
+        },
+    })
+    .await?;
 
     // Stage 7a.2: State that the tool set is closed. The tools themselves are
     // advertised once, by the provider layer — embacle renders the full schemas
@@ -619,12 +653,24 @@ pub(crate) async fn assemble_prompt_and_messages(
     // name rather than guess its parameters (carnet#406). It names what
     // `offered_schemas` offers, as the declarations and loopback do: nothing
     // the seat withholds (carnet#742, carnet#1070) or an admin switched off.
+    // It is rendered once, like the loopback listing it names on that path,
+    // from the reads the topic carries when the turn starts, its replayed
+    // history included; a read made later in the turn is enforced at
+    // dispatch, whose refusal names why (carnet#1511 call 25).
     let tool_names: Vec<String> = chat_catalogue::offered_schemas(
         &ctx.tool_registry,
-        seat,
+        tool_seat,
         switched_off,
-        ai_scope::declared_transport(),
-        &input.grant,
+        chat_catalogue::OfferedTo {
+            transport: ai_scope::declared_transport(),
+            grant: &input.grant,
+            role: input.role,
+            readers,
+            // A write that could only act on the sender is withheld once the
+            // turn read another member beyond the room's view, its replayed
+            // history included; one that files a fact, after any member.
+            member_reads: super::group_subject::member_reads(&input.user_id),
+        },
         &ctx.config,
     )
     .into_iter()
@@ -647,7 +693,6 @@ pub(crate) async fn assemble_prompt_and_messages(
 
     // Stage 7b: Append connected-provider context so the LLM never asks the
     // user to connect providers that are already connected.
-    let user_uuid = parse_uuid(&input.user_id).unwrap_or_default();
     let provider_context = if sender_is_subject {
         build_provider_context(&ctx.data, user_uuid, input.tool_tenant_id).await
     } else {
@@ -665,54 +710,8 @@ pub(crate) async fn assemble_prompt_and_messages(
     // Stage 7c: Inject group coaching context — only when the conversation is
     // explicitly group-scoped. Personal 1:1 chats never inherit group context
     // from the user's membership.
-    #[cfg(feature = "tools-groups")]
-    let (base_prompt, group_roster, mut cards_carried) = {
-        // The group context always shows the requester their own card, which
-        // for the coach would present the coach's training as the group's: on
-        // the coach's seat it is never read.
-        let (resolved_group_id, snapshots) = resolve_group_context(
-            ctx,
-            conv.group_id.as_deref(),
-            input.tool_tenant_id,
-            user_uuid,
-            (!sender_is_subject).then_some(user_uuid),
-        )
-        .await?;
-        // A coach's message about one athlete carries that athlete's card
-        // alone (carnet#1464). The roster stays whole for peer grounding and
-        // the reply checks, which match names against it.
-        let shown = coach_seat
-            .is_some()
-            .then(|| card_scope(&input.content, &snapshots, user_uuid))
-            .flatten();
-        let injected = ctx
-            .group_service
-            .inject_group_context(
-                &base_prompt,
-                "",
-                user_uuid,
-                input.tool_tenant_id,
-                resolved_group_id.as_deref(),
-                MemberCards {
-                    snapshots: &snapshots,
-                    shown: shown.as_ref(),
-                },
-            )
-            .await;
-        match injected {
-            Ok(injected) => (injected.prompt, snapshots, injected.cards_carried),
-            Err(_) => (base_prompt, snapshots, BTreeSet::new()),
-        }
-    };
-    #[cfg(not(feature = "tools-groups"))]
-    let (group_roster, mut cards_carried): (Vec<MemberFitnessSnapshot>, BTreeSet<Uuid>) =
-        (Vec::new(), BTreeSet::new());
-    // A coach's thread about one athlete carries her roster line, the same
-    // snapshot a room card is built from (`subject_athlete::block`): her data
-    // reaches the model whether or not a tool reads her.
-    if let Some(SubjectTurn::Granted(granted)) = subject_turn.as_ref() {
-        cards_carried.insert(granted.athlete());
-    }
+    let base_prompt = format!("{base_prompt}{}", members.block);
+    let (group_roster, cards_carried) = (members.roster, members.carried);
 
     // Stage 7c.1: Tell the agent it is talking to the group's coach, and how
     // many athletes have joined.
@@ -831,17 +830,10 @@ pub(crate) async fn assemble_prompt_and_messages(
     };
 
     // Stage 7f.4: Append the group ambient transcript supplied by the
-    // messaging ingress. Group chat history is per member, so without this
-    // block the agent never sees what OTHER members said — the transcript
-    // is the only cross-member view of the room's discussion.
-    // A block quoting room entries derived from first-party-only data is
-    // withheld from an external turn, and stamps a first-party one
-    // (carnet#769).
-    let base_prompt = match input
-        .ambient_context
-        .as_ref()
-        .filter(|ambient| ai_scope::admit_derived(ambient.transport_policy))
-    {
+    // messaging ingress, as admitted at 7c. Group chat history is per member,
+    // so without this block the agent never sees what OTHER members said —
+    // the transcript is the only cross-member view of the room's discussion.
+    let base_prompt = match ambient {
         Some(ambient) => format!("{base_prompt}\n\n{}", ambient.text),
         None => base_prompt,
     };
@@ -1066,6 +1058,12 @@ pub(crate) async fn assemble_prompt_and_messages(
                     .about_user_id
                     .is_none_or(|member| readable_about.contains(&member))
             });
+            // A room, or a thread others read, replays no summary written
+            // before records existed, as it replays none of those rows
+            // (carnet#1511 call 17).
+            if recorded_only {
+                blocks.retain(|block| block.audience_recorded);
+            }
             blocks
         }
         Err(e) => {

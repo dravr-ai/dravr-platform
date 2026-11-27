@@ -427,6 +427,13 @@ mod messaging_welcome {
             &owner,
         )
         .await;
+        // The draft is confirmed only from the thread it was drafted in: a
+        // first command opens the owner's room thread, the draft names it.
+        room.send_room_slash(&owner, "/help").await;
+        let drafted_in = room
+            .conversation_id(&owner)
+            .await
+            .expect("the command opened the owner's room thread");
         let token = Uuid::new_v4().simple().to_string();
         e2e.resources
             .common
@@ -444,6 +451,7 @@ mod messaging_welcome {
                         "system_prompt": "You coach hill repeats.",
                         "category": "training",
                         "tags": [],
+                        "conversation_id": drafted_in,
                     }),
                     deny_reason: "awaiting_confirmation".to_owned(),
                 },

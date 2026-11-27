@@ -297,7 +297,12 @@ async fn head_call(
     );
 
     let call_start = Instant::now();
-    let tools = Some(vec![params.tools.clone()]);
+    // What the turn offers now: its declarations, narrowed by a member read
+    // a tool made since they were built.
+    let tools = Some(vec![params
+        .executor
+        .offered_now(params.tools, params.user_id)
+        .into_owned()]);
     // Streamed only where the loop streams text: a sink alone means the surface
     // reads frames, which tool progress uses on every provider. The stream is
     // drained inside the observation, so the served tier and the latency both

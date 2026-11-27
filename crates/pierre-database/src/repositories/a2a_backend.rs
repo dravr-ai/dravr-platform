@@ -509,6 +509,34 @@ macro_rules! impl_a2a_repository {
                 Ok(())
             }
 
+            async fn record_task_members(&self, task_id: &str, members: &str) -> AppResult<()> {
+                sqlx::query(RECORD_TASK_MEMBERS_SQL)
+                    .bind(task_id)
+                    .bind(members)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to record an A2A task's members: {e}"))
+                    })?;
+                Ok(())
+            }
+
+            async fn get_task_members(&self, task_id: &str) -> AppResult<Option<String>> {
+                let row = sqlx::query(GET_TASK_MEMBERS_SQL)
+                    .bind(task_id)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read an A2A task's members: {e}"))
+                    })?;
+                row.map(|row| row.try_get::<Option<String>, _>("about_members"))
+                    .transpose()
+                    .map(Option::flatten)
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to decode an A2A task's members: {e}"))
+                    })
+            }
+
             async fn create_push_config(&self, config: &A2APushNotificationConfig) -> AppResult<()> {
                 sqlx::query(UPSERT_PUSH_CONFIG_SQL)
                     .bind(&config.config_id)

@@ -43,8 +43,10 @@ use embacle_tool_host::{ToolHost, ToolHostConfig, ToolOutcome, ToolSession, Tool
 use pierre_chat_pipeline::stages::prompt_assembly::IDENTITY_ANCHOR;
 use pierre_chat_pipeline::{McpBridgeProvider, ToolSessionTurn};
 use pierre_core::models::TenantId;
-use pierre_tool_runtime::chat_catalogue::{self, SwitchedOff};
-use pierre_tool_runtime::coach_seat::TurnSeat;
+use pierre_mcp_schema::ToolSchema;
+use pierre_tool_runtime::chat_catalogue::{self, SwitchedOff, TurnReaders};
+use pierre_tool_runtime::coach_seat::{MemberReads, TurnSeat};
+use pierre_tool_runtime::function_dispatch;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::tool_execution;
@@ -52,6 +54,7 @@ use pierre_tool_runtime::tool_loop_io::PLATFORM_MCP_SERVER_NAME;
 use pierre_tool_runtime::tool_results;
 use serde_json::Value;
 use tracing::{info, warn};
+use uuid::Uuid;
 
 use crate::mcp::tool_handlers;
 
@@ -140,6 +143,50 @@ impl fmt::Debug for TurnToolSurface {
 }
 
 impl TurnToolSurface {
+    /// The turn's offered set (`chat_catalogue::offered_schemas`) under
+    /// `member_reads`: what `tools/list` answers under the reads the topic
+    /// carries when the agent lists, and, under none, the set a call's name
+    /// is checked against before it runs (carnet#1511 design calls 13, 25).
+    async fn offered(&self, member_reads: MemberReads) -> Vec<ToolSchema> {
+        // The room the executor's calls are decided in, read as dispatch
+        // reads it, so a name is offered only where a call would take it. A
+        // caller whose id does not parse is read as a conversation others
+        // read, so only the tools taken anywhere are offered.
+        let readers = match Uuid::parse_str(&self.user_id) {
+            Ok(caller) => {
+                self.executor
+                    .turn_readers(caller, Some(self.tenant_id.as_uuid()))
+                    .await
+            }
+            Err(_) => TurnReaders::Others,
+        };
+        chat_catalogue::offered_schemas(
+            &self.tool_registry,
+            self.seat,
+            &self.switched_off,
+            chat_catalogue::OfferedTo {
+                // The executor's transport, not the task-local: this listing
+                // runs on embacle's host task, where the turn's declaration is
+                // gone.
+                transport: self.executor.served_transport(),
+                grant: self.executor.granted_scopes(),
+                role: self.executor.turn_role(),
+                readers,
+                member_reads,
+            },
+            self.executor.resources.config(),
+        )
+    }
+
+    /// What the turn this surface serves read of members other than its
+    /// caller, from the provenance its executor carries: every read for a
+    /// caller whose id does not parse.
+    fn member_reads(&self) -> MemberReads {
+        Uuid::parse_str(&self.user_id).map_or(MemberReads::every_read(), |caller| {
+            self.executor.member_reads(caller)
+        })
+    }
+
     /// Build the surface for one turn, bounded to `budget` tool calls.
     #[must_use]
     pub const fn new(
@@ -179,27 +226,24 @@ impl ToolSurface for TurnToolSurface {
     /// not one is running, so the agent's cached prefix survives the walk
     /// starting and ending (carnet#1256). `save_training_plan` refuses the
     /// mid-walk save itself.
+    ///
+    /// The agent lists once and is never told the list changed, so the set
+    /// is the one the reads the topic carries when it lists allow, its
+    /// replayed history included (carnet#1511 call 25). A read a tool makes
+    /// later in the turn refuses a write at dispatch, which says why.
     async fn list_tools(&self) -> Vec<McpToolDefinition> {
-        chat_catalogue::offered_schemas(
-            &self.tool_registry,
-            self.seat,
-            &self.switched_off,
-            // The executor's transport, not the task-local: this listing runs
-            // on embacle's host task, where the turn's declaration is gone.
-            self.executor.served_transport(),
-            self.executor.granted_scopes(),
-            self.executor.resources.config(),
-        )
-        .into_iter()
-        .map(|s| McpToolDefinition {
-            name: s.name,
-            description: s.description,
-            // Key order is part of the prompt prefix the ACP agent caches;
-            // the properties are a `HashMap`, so sort them like every
-            // other surface does.
-            input_schema: to_canonical_value(&s.input_schema),
-        })
-        .collect()
+        self.offered(self.member_reads())
+            .await
+            .into_iter()
+            .map(|s| McpToolDefinition {
+                name: s.name,
+                description: s.description,
+                // Key order is part of the prompt prefix the ACP agent caches;
+                // the properties are a `HashMap`, so sort them like every
+                // other surface does.
+                input_schema: to_canonical_value(&s.input_schema),
+            })
+            .collect()
     }
 
     /// Run one tool for the agent, or refuse and say why.
@@ -248,6 +292,31 @@ impl ToolSurface for TurnToolSurface {
                  plainly which data you could not gather.",
                 self.budget
             ));
+        }
+
+        // Only a name the turn offers runs, the check the in-process loop
+        // makes (`function_dispatch::not_offered`). A write the turn's member
+        // reads refuse passes this check and reaches dispatch, whose refusal
+        // names the read that took it away: the agent listed once, before a
+        // read made mid-turn, and would otherwise read only "not found"
+        // (carnet#1511 call 25).
+        let offered = self.offered(MemberReads::default()).await;
+        if !offered.iter().any(|schema| schema.name == tool_name) {
+            warn!(
+                target: "notify",
+                event = "messaging.tool_call_refused",
+                tenant_id = %self.tenant_id,
+                channel = NATIVE_PROTOCOL,
+                tool_name = tool_name,
+                reason = "not_offered",
+                "the agent called a tool this turn did not offer; refusing it"
+            );
+            let refusal = function_dispatch::not_offered(tool_name, offered.len());
+            return ToolOutcome::refused(
+                refusal
+                    .error
+                    .unwrap_or_else(|| format!("'{tool_name}' is not offered here")),
+            );
         }
 
         let request = UniversalRequest {
@@ -449,7 +518,13 @@ impl HostedToolBridge {
         let executor = Arc::new(
             UniversalToolExecutor::new(self.tool_runtime.clone())
                 .with_scopes(turn.grant.to_vec())
+                // The role the turn's catalogue was built for, so the
+                // listing below and every loopback call read one value.
+                .with_turn_role(turn.role)
                 .with_conversation_id(turn.conversation_id.to_owned())
+                // The room is read under the tenant the row is filed under,
+                // as the declarations and the names index read it.
+                .with_conversation_tenant(turn.conversation_tenant_id.as_uuid())
                 .with_turn_token(turn.turn_id.0.to_string())
                 // The agent the turn answers as, bound for the reason the
                 // turn token is: no tool-body task-local to inherit it from.

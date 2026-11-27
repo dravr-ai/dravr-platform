@@ -15,13 +15,13 @@
 
 use std::collections::HashMap;
 
+use pierre_core::errors::AppResult;
 use pierre_database::database::MessageRecord;
 use pierre_llm::stage::LlmStage;
 use pierre_llm::{ChatMessage, ChatProvider};
 use pierre_services::conversation_compaction::{
     CompactionContext, CompactionOutcome, ConversationCompactor,
 };
-use uuid::Uuid;
 
 use crate::recorders::turn_call_recorder;
 use crate::stages::prompt_builder::replayable_summary;
@@ -40,28 +40,7 @@ pub async fn apply_tier1_compaction(
     source_ids: &[Option<String>],
     llm_messages: &mut Vec<ChatMessage>,
 ) {
-    // The member each emitted row is about, beside its id (carnet#1174).
-    let members: HashMap<&str, Uuid> = history
-        .iter()
-        .filter_map(|row| row.about_user_id.map(|member| (row.id.as_str(), member)))
-        .collect();
-    let source_members: Vec<Option<Uuid>> = source_ids
-        .iter()
-        .map(|id| id.as_deref().and_then(|id| members.get(id).copied()))
-        .collect();
-    // The consent keys each emitted row names, beside its id (carnet#1157).
-    let consents: HashMap<&str, &[String]> = history
-        .iter()
-        .map(|row| (row.id.as_str(), row.ai_consent_sources.as_slice()))
-        .collect();
-    let source_consents: Vec<Vec<String>> = source_ids
-        .iter()
-        .map(|id| {
-            id.as_deref()
-                .and_then(|id| consents.get(id))
-                .map_or_else(Vec::new, |sources| sources.to_vec())
-        })
-        .collect();
+    let source_consents = consents_by_row(history, source_ids);
     // Read the active compaction tunables from the harness config registry
     // so admin updates via `PUT /admin/settings/harness` apply on the next
     // turn without a server restart.
@@ -76,12 +55,16 @@ pub async fn apply_tier1_compaction(
         tenant_id: input.conversation_tenant_id,
         conversation_id: &input.conversation_id,
         source_ids,
-        source_members: &source_members,
         source_consents: &source_consents,
         llm_messages,
         summary_for_prompt: replayable_summary,
     };
-    match compactor.compact_if_needed(compaction).await {
+    log_outcome(compactor.compact_if_needed(compaction).await);
+}
+
+/// Log what the compactor did; a failure is logged and the turn continues.
+fn log_outcome(result: AppResult<CompactionOutcome>) {
+    match result {
         Ok(outcome) => {
             if !matches!(outcome, CompactionOutcome::NoOp { .. }) {
                 tracing::debug!(?outcome, "compaction applied before dispatch");
@@ -91,4 +74,21 @@ pub async fn apply_tier1_compaction(
             tracing::warn!(error = %e, "compaction failed; continuing with uncompacted prompt");
         }
     }
+}
+
+/// The consent keys each emitted row names, aligned with `source_ids`
+/// (carnet#1157).
+fn consents_by_row(history: &[MessageRecord], source_ids: &[Option<String>]) -> Vec<Vec<String>> {
+    let consents: HashMap<&str, &[String]> = history
+        .iter()
+        .map(|row| (row.id.as_str(), row.ai_consent_sources.as_slice()))
+        .collect();
+    source_ids
+        .iter()
+        .map(|id| {
+            id.as_deref()
+                .and_then(|id| consents.get(id))
+                .map_or_else(Vec::new, |sources| sources.to_vec())
+        })
+        .collect()
 }

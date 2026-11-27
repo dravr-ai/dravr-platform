@@ -27,7 +27,7 @@
 //! withholds stored ones — see `pierre_services::plan_fueling`.
 
 use crate::annotations::{annotations, Effect, Reach};
-use crate::tool_data::ToolData;
+use crate::tool_data::{ToolData, WriteKind};
 use dravr_barrage::Stream;
 use pierre_providers::ai_scope;
 use std::collections::HashMap;
@@ -980,14 +980,20 @@ pub fn create_training_plan_tools() -> Vec<Box<dyn RuntimeTool>> {
     ]
 }
 
-crate::declare_security!(GetTrainingPlanTool => empty, reads: ToolData::own(&[Stream::Workout]));
+// It serves the athlete's plan, which only the coach way reads (carnet#1511
+// call 23).
+crate::declare_security!(
+    GetTrainingPlanTool => empty,
+    reads: ToolData::own(&[Stream::Workout]).with_beyond_activities(),
+);
 // The athlete's own save deletes on the provider the entries the plan dropped
 // (carnet#1492), so it spends the per-turn destructive budget as a push does:
 // the cap keeps a save loop off the calendar. A refused save refunds it, and in
 // a chat turn every save gives it back: the turn's end pushes at most once (carnet#1702).
 crate::declare_security!(
     SaveTrainingPlanTool => IRREVERSIBLE,
-    reads: ToolData::own(&[Stream::Workout]),
+    reads: ToolData::own(&[Stream::Workout])
+        .writes(WriteKind::FreeText),
 );
 
 #[cfg(test)]

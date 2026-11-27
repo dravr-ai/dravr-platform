@@ -36,7 +36,9 @@ use pierre_contremaitre::messaging_strings::{
     KEY_PLATFORM_POST_MORNING_BRIEF_UNREADABLE,
 };
 use pierre_core::errors::AppError;
-use pierre_core::models::{BriefSettings, LeftOut, PostPurpose, Routine, RoutineKind, TenantId};
+use pierre_core::models::{
+    BriefSettings, CarriedRead, LeftOut, PostPurpose, Routine, RoutineKind, TenantId,
+};
 use pierre_core::transport::Transport;
 use pierre_database::repositories::{CoachReadSurface, ListedItem};
 use pierre_providers::ai_scope::{self, Provenance};
@@ -456,8 +458,19 @@ async fn read_findings(
     let read = async {
         let roster = reader.read(resources, &groups, RosterWindow::ALL).await?;
         let findings = brief_findings(&roster.athletes, &roster.refused, &routine.brief);
+        // Each listed athlete is read through the coach's view of them, their
+        // plan and season with their training (carnet#1511 calls 19, 23).
         for finding in &findings.items {
-            ai_scope::note_member_read(finding.athlete);
+            let group = roster
+                .athletes
+                .iter()
+                .find(|row| row.user_id == finding.athlete)
+                .and_then(|row| row.groups.iter().find_map(|g| Uuid::parse_str(&g.id).ok()));
+            let read = group.map_or_else(
+                || CarriedRead::peer(finding.athlete, None),
+                |group| CarriedRead::coach(finding.athlete, group, coach),
+            );
+            ai_scope::note_member_read(read.beyond_activities());
         }
         Ok::<_, AppError>(findings)
     };

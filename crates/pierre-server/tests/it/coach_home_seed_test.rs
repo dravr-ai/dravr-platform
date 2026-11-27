@@ -19,9 +19,11 @@ mod coach_home_seed_tests {
     use std::sync::Arc;
 
     use dravr_tronc::dates::{Elapsed, Timestamp};
+    use pierre_core::models::groups::GroupMember;
     use pierre_core::models::{Activity, TenantId};
+    use pierre_database::backends::factory::DatabaseBackend;
     use pierre_mcp_server::mcp::resources::ServerContext;
-    use pierre_seeders::coach_home::{run, SeedArgs};
+    use pierre_seeders::coach_home::{run, SeedArgs, GROUP_NAMES};
     use pierre_services::barrage_keys::memory_records;
     use pierre_services::barrage_live_store::live_store;
     use pierre_services::live_activities::LiveActivityStore;
@@ -274,5 +276,87 @@ mod coach_home_seed_tests {
                 "a returning coach has answered {step}: {steps:?}"
             );
         }
+    }
+
+    /// A group the seeder made, now coached by another account, is refused
+    /// on a rerun before any member is added: they would share their
+    /// training with that account (carnet#1511 design call 9).
+    #[tokio::test]
+    async fn a_seeded_group_now_coached_by_another_account_is_refused_not_filled() {
+        const DELETE: &str =
+            "DELETE FROM coaching_group_members WHERE group_id = $1 AND user_id = $2";
+        let res = create_test_server_resources().await.unwrap();
+        let repos = &res.common.repos;
+        let live = store(&res);
+        run(args(), repos, live.as_ref()).await.unwrap();
+        let coach = repos.users.get_by_email_required(COACH).await.unwrap();
+        let taken = repos
+            .groups
+            .list_groups_coached_by(coach.id)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|group| group.name == GROUP_NAMES[0])
+            .expect("the first seeded group");
+        let group_id = taken.id.to_string();
+        let tenant = TenantId::parse_str(&taken.tenant_id).unwrap();
+        let other = person(&res, "other-coach@home-seed.test", "Other Coach").await;
+        assert!(
+            repos
+                .groups
+                .set_group_coach_user(&group_id, Some(other.id), tenant)
+                .await
+                .unwrap(),
+            "the group's coach seat moves to the other coach"
+        );
+        let live_members = |members: Vec<GroupMember>| {
+            members
+                .into_iter()
+                .filter(|m| m.left_at.is_none())
+                .map(|m| m.user_id)
+                .collect::<BTreeSet<Uuid>>()
+        };
+        let before = live_members(repos.groups.list_members(&group_id).await.unwrap());
+        // A member whose row is gone, whom the rerun would add back under the
+        // other coach if it filled the group.
+        let gone = *before.iter().next().expect("a member");
+        match res.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => {
+                sqlx::query(DELETE)
+                    .bind(group_id.as_str())
+                    .bind(gone.to_string())
+                    .execute(db.pool())
+                    .await
+                    .unwrap();
+            }
+            #[cfg(feature = "postgresql")]
+            DatabaseBackend::PostgreSQL(db) => {
+                sqlx::query(DELETE)
+                    .bind(taken.id)
+                    .bind(gone)
+                    .execute(db.pool())
+                    .await
+                    .unwrap();
+            }
+        }
+
+        let rerun = run(args(), repos, live.as_ref()).await;
+        let after = live_members(repos.groups.list_members(&group_id).await.unwrap());
+        assert!(
+            !after.contains(&gone),
+            "no member is added under the other coach: {after:?}"
+        );
+        let refused = rerun.expect_err("a group another account now coaches is refused");
+        assert!(
+            format!("{refused}").contains("coached by another account"),
+            "{refused}"
+        );
+        let group = repos
+            .groups
+            .get_group(&group_id, tenant)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(group.coach_user_id, Some(other.id), "the other coach stays");
     }
 }

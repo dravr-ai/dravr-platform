@@ -324,6 +324,7 @@ pub(crate) async fn agent_reply(
             source_conversation_id: Some(&conversation.id),
             source_message_id: Some(&message.id),
             transport_policy: TransportPolicy::AnyTransport,
+            carried: &[],
         })
         .await
         .unwrap();

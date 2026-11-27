@@ -48,6 +48,8 @@ use super::turn_guard::{
     new_correlation_id, run_bounded, run_guarded, TurnInterruption, TurnOutcome,
 };
 use super::{build_messaging_profile, outbound_retry, PendingDispatch};
+
+mod room_hold;
 use crate::services::conversation_turn_lock::{acquire_turn_lock, evict_idle_turn_lock};
 use crate::services::failed_turn_notice::{close_failed_turn, FailedTurn, TurnThread};
 use crate::services::turn_runner::turn_watchdog;
@@ -1005,6 +1007,13 @@ async fn serve_turn(
         return Served::Ended(TurnClose::Finished);
     }
 
+    // A group chat is read by everyone in it: a reply drawing on a member the
+    // room may not read stays in the app (carnet#1511 design call 6).
+    if room_hold::held_from_the_room(dispatch, messaging_agui, channel_config, &dispatch_result)
+        .await
+    {
+        return Served::Ended(TurnClose::Finished);
+    }
     let RenderedReply { prose, attachments } = rendered;
     deliver_reply(
         dispatch,

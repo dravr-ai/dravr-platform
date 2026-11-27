@@ -4782,62 +4782,6 @@
     }
   },
   {
-    "name": "propose_athlete_link",
-    "description": "Propose linking a member of a group you coach to their entry on your coaching platform roster (Intervals.icu, TrainingPeaks), so their workouts there read through your account; the roster entry is the one carrying their verified Dravr email. The member confirms in the Dravr app; nothing is read until they do. Use `get_provider_roster` to see who is `proposable`. Refused in a group's room, for a member who stopped sharing with you, and when the roster does not list their email.",
-    "inputSchema": {
-      "properties": {
-        "provider": {
-          "description": "Coaching platform to link on (`intervals_icu`, `trainingpeaks`); omit to use the one roster that lists the member.",
-          "type": "string"
-        }
-      },
-      "required": [],
-      "type": "object"
-    },
-    "outputSchema": {
-      "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "What `propose_athlete_link` answers with.",
-      "properties": {
-        "group": {
-          "description": "The group the link is made in.",
-          "type": "string"
-        },
-        "member": {
-          "description": "The member asked to confirm, by their Dravr display name.",
-          "type": "string"
-        },
-        "next_step": {
-          "description": "What happens next.",
-          "type": "string"
-        },
-        "provider": {
-          "description": "The coaching platform the link reads through, as `provider` names it.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "member",
-        "group",
-        "provider",
-        "next_step"
-      ],
-      "title": "ProposeAthleteLinkResult",
-      "type": "object"
-    },
-    "annotations": {
-      "title": "Propose athlete link",
-      "readOnlyHint": false,
-      "destructiveHint": false,
-      "idempotentHint": false,
-      "openWorldHint": false
-    },
-    "_meta": {
-      "ai.dravr.vault/tool": {
-        "def_hash": "sha256:9fb5ad14674b2ec108bcc6618ca934c7d0bc1be420b4a677802012f5d1734e52"
-      }
-    }
-  },
-  {
     "name": "remember_fact",
     "description": "Persist a structured durable fact about the user. Use it when the user explicitly confirms something the agent should remember next time.",
     "inputSchema": {

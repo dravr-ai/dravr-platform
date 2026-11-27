@@ -147,6 +147,14 @@ async fn whatsapp_dm(fx: &Fixture, last_inbound: Timestamp) -> String {
         &conversation,
     )
     .await;
+    // A direct message's session, as the ingress records it on every turn.
+    fx.resources
+        .common
+        .repos
+        .messaging
+        .record_session_chat(fx.tenant_id, &session, true)
+        .await
+        .unwrap();
     seed_channel_link(db, &user, fx.tenant_id, "whatsapp", "+15550001").await;
     backdate_session(db, &session, last_inbound).await;
     conversation

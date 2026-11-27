@@ -59,12 +59,12 @@ use std::{env, fs, slice};
 use crate::helpers::tool_def_hash::without_def_hashes;
 use dravr_tronc::mcp::protocol::JsonRpcRequest;
 use dravr_tronc::mcp::server::McpServer;
-use dravr_tronc::mcp::tool::ToolContext;
+use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::mcp::host_seams::build_mcp_server;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_tool_runtime::runtime::ToolRuntime;
-use pierre_tool_runtime::security::ToolReach;
+use pierre_tool_runtime::security::{RuntimeTool, ToolReach};
 use serde_json::{json, Value};
 
 const WRITE_ENV: &str = "MCP_SURFACE_FIXTURE_WRITE";
@@ -74,6 +74,16 @@ fn fixture_path(name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures/mcp_surface")
         .join(format!("{name}.json"))
+}
+
+/// Whether `tool` writes and cannot be called without naming an athlete: no
+/// external caller names one on a write, so it is listed to none
+/// (carnet#1511, carnet#1533).
+fn writes_naming_an_athlete(tool: &dyn RuntimeTool) -> bool {
+    tool.capabilities().contains(ToolCapabilities::WRITES_DATA)
+        && tool.definition().input_schema["required"]
+            .as_array()
+            .is_some_and(|required| required.iter().any(|name| name == "athlete"))
 }
 
 /// Compare `actual` with the committed fixture, or write it when regenerating.
@@ -401,15 +411,16 @@ fn assert_admin_list(
         .tool_names()
         .into_iter()
         .filter(|name| {
-            registry
-                .get(name)
-                .is_some_and(|tool| tool.reach() != ToolReach::AppOnly)
+            registry.get(name).is_some_and(|tool| {
+                tool.reach() != ToolReach::AppOnly && !writes_naming_an_athlete(tool.as_ref())
+            })
         })
         .collect();
     every.sort_unstable();
     assert_eq!(
         names, every,
-        "an admin with Admin access is listed every tool not kept to Dravr's own app"
+        "an admin with Admin access is listed every tool not kept to Dravr's own app, but \
+         one that cannot write without the athlete no one names over this interface"
     );
     assert!(
         coach_by_name.keys().all(|name| names.contains(name)),

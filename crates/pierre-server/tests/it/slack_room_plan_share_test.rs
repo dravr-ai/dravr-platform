@@ -41,6 +41,7 @@ mod slack_room {
     use crate::common::create_test_server_resources;
     use crate::helpers::axum_test::AxumTestRequest;
     use crate::helpers::offline_channel::OfflineSendAdapters;
+    use crate::helpers::room_reads;
     use axum::http::StatusCode;
     use dravr_canot::channel::MessagingChannel;
     use dravr_canot::channels::slack::{ephemeral_payload, SlackChannel};
@@ -686,14 +687,14 @@ mod slack_room {
                 .any(|message| format!("{:?}", message.content).contains(PLAN_SESSION)),
             "no part of the plan may be sent where the room reads it: {room_sends:?}"
         );
-        let entries = room
-            .resources
-            .common
-            .repos
-            .groups
-            .list_transcript_visible_to(&room.group_id.to_string(), room.sharer, 10)
-            .await
-            .unwrap();
+        let entries = room_reads::visible_to(
+            &room.resources.common.repos,
+            &room.group_id.to_string(),
+            room.sharer,
+            10,
+        )
+        .await
+        .unwrap();
         assert!(
             entries.is_empty(),
             "a privately answered command never reaches the room transcript: {entries:?}"
@@ -858,14 +859,14 @@ mod slack_room {
         // the agent answer, both attributed to the sharer — and the PEER can
         // read both (group sharing on, sharer consenting).
         for viewer in [room.sharer, room.peer] {
-            let entries = room
-                .resources
-                .common
-                .repos
-                .groups
-                .list_transcript_visible_to(&room.group_id.to_string(), viewer, 10)
-                .await
-                .unwrap();
+            let entries = room_reads::visible_to(
+                &room.resources.common.repos,
+                &room.group_id.to_string(),
+                viewer,
+                10,
+            )
+            .await
+            .unwrap();
             assert_eq!(
                 entries.len(),
                 2,

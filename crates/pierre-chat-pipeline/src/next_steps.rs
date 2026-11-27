@@ -39,6 +39,7 @@ use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::ConversationRecord;
 use pierre_database::repositories::UseCaseExposure;
 use pierre_database::RepositoryRegistry;
+use pierre_providers::ai_scope;
 use pierre_services::athlete_state::AthleteState;
 use pierre_services::use_case_rank::worded;
 use serde_json::Value;
@@ -490,7 +491,11 @@ pub(crate) async fn handed_over(
 /// The model's quick replies `model` (carnet#1486) lead whatever the turn
 /// offers, an ordinary coaching turn included — but never in a room, while a
 /// guided walk owns the thread (its next question is the athlete's next
-/// move), or on a reply other people read.
+/// move), on a reply other people read, or on a reply drawn from another
+/// member's data (the turn's provenance carries a read of anyone but the
+/// sender: a tool's, a card's, a replayed row's). The model writes those
+/// words from the reply, and a tap stores them as the sender's own, which
+/// no rule withholds (carnet#1511 call 21: dropped, not stamped).
 pub(crate) async fn for_reply(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
@@ -499,7 +504,11 @@ pub(crate) async fn for_reply(
     plan_was_saved: bool,
     model: Vec<String>,
 ) -> NextSteps {
-    let model = if !input.is_direct_message || conv.group_id.is_some() || guided_walk_owns(conv) {
+    let model = if !input.is_direct_message
+        || conv.group_id.is_some()
+        || guided_walk_owns(conv)
+        || drew_on_another_member(&input.user_id)
+    {
         Vec::new()
     } else {
         model
@@ -507,6 +516,19 @@ pub(crate) async fn for_reply(
     catalogue_steps(ctx, input, profile, conv, plan_was_saved)
         .await
         .with_model_first(model)
+}
+
+/// Whether the running turn drew on the data of anyone but `sender`: a read
+/// its provenance carries of another member. Outside a tracked turn nothing
+/// was read.
+fn drew_on_another_member(sender: &str) -> bool {
+    let sender = parse_uuid(sender).ok();
+    ai_scope::current_provenance().is_some_and(|provenance| {
+        provenance
+            .carried_reads()
+            .iter()
+            .any(|read| Some(read.member) != sender)
+    })
 }
 
 /// The catalogue's steps the reply to `input` offers ([`for_reply`]).

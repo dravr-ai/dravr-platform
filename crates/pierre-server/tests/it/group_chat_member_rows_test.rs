@@ -14,7 +14,7 @@
 //!   athlete's rows stay;
 //! - the history load filters in its statement, so its `LIMIT` counts only
 //!   the rows the turn may replay;
-//! - a compaction block covers rows of at most one athlete and names them;
+//! - a compaction block covers rows carrying reads and is read by theirs;
 //! - the athlete's account deletion takes every such row with it.
 //!
 //! The pipeline tests drive real turns through `pierre_chat_pipeline::run`
@@ -25,7 +25,7 @@
 #![allow(missing_docs)]
 
 use pierre_core::permissions::scopes::OAuthScope;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration as StdDuration;
@@ -36,9 +36,9 @@ use pierre_chat_pipeline::recorders::ChatRepoToolMessageRecorder;
 use pierre_chat_pipeline::TurnOrigin;
 use pierre_core::config::CompactionConfig;
 use pierre_core::errors::AppError;
-use pierre_core::models::{AddMessageParams, MessageRecord, TenantId};
+use pierre_core::models::{AddMessageParams, CarriedRead, MessageRecord, TenantId};
 use pierre_core::transport::{Transport, TransportPolicy};
-use pierre_database::repositories::InsertCompactionBlockParams;
+use pierre_database::repositories::{InsertCompactionBlockParams, MemberReplay};
 use pierre_database::RepositoryRegistry;
 use pierre_llm::{
     ChatMessage, ChatProvider, ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider,
@@ -77,6 +77,7 @@ mod turns {
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_providers::ai_scope::{self, Provenance};
     use pierre_test_support::delegation::{create_group_agent, grant_coach_access};
+    use pierre_tool_runtime::tool_access::CallerRole;
     use serde_json::{json, Value};
 
     use crate::common::{
@@ -444,6 +445,8 @@ mod turns {
                 mentioned_agent: None,
                 steps_after: None,
                 grant: OAuthScope::self_grant(),
+                // The role the web route resolves for the coach's turn.
+                role: CallerRole::resolve(self.repos(), self.coach.id).await,
             };
             ai_scope::serve_over(
                 Transport::WebApp,
@@ -497,6 +500,36 @@ mod turns {
             self.tool_results(2).await;
         }
 
+        /// The one member each of `conversation`'s rows carries a read of,
+        /// by row id: `None` for a row carrying none or several
+        /// (carnet#1511 call 19: the link rows are the one carrier).
+        async fn sole_reads(&self, conversation: &str) -> HashMap<String, Option<Uuid>> {
+            let mut members: HashMap<String, BTreeSet<Uuid>> = HashMap::new();
+            for read in self
+                .repos()
+                .chat
+                .list_member_reads(conversation, &self.coach.id.to_string(), self.coach.tenant)
+                .await
+                .unwrap()
+            {
+                if let Some(carried) = CarriedRead::from_key(&read.key) {
+                    members
+                        .entry(read.message_id)
+                        .or_default()
+                        .insert(carried.member);
+                }
+            }
+            members
+                .into_iter()
+                .map(|(row, members)| {
+                    let sole = (members.len() == 1)
+                        .then(|| members.into_iter().next())
+                        .flatten();
+                    (row, sole)
+                })
+                .collect()
+        }
+
         /// The id of the coach's row that says `content`.
         async fn question_id(&self, content: &str) -> String {
             self.rows()
@@ -518,10 +551,16 @@ mod turns {
         fx.read_both().await;
 
         let rows = fx.rows().await;
+        let sole = fx.sole_reads(&fx.room).await;
         let about = |role: &str| -> Vec<(Option<Uuid>, bool)> {
             rows.iter()
                 .filter(|row| row.role == role)
-                .map(|row| (row.about_user_id, row.content.contains(ALICE_RACE)))
+                .map(|row| {
+                    (
+                        sole.get(&row.id).copied().flatten(),
+                        row.content.contains(ALICE_RACE),
+                    )
+                })
                 .collect()
         };
         assert_eq!(
@@ -534,9 +573,28 @@ mod turns {
                 .into_iter()
                 .map(|(member, _)| member)
                 .collect::<Vec<_>>(),
-            vec![Some(fx.alice.id), Some(fx.bruno.id)],
-            "a reply drawn from one athlete's status names them"
+            vec![None, None],
+            "each reply was drawn from a prompt carrying both athletes' cards, so \
+             neither stamp names one of them alone (carnet#1511 design call 4)"
         );
+        let reads = fx
+            .repos()
+            .chat
+            .list_member_reads(&fx.room, &fx.coach.id.to_string(), fx.coach.tenant)
+            .await
+            .unwrap();
+        for reply in rows.iter().filter(|row| row.role == "assistant") {
+            assert_eq!(
+                reads
+                    .iter()
+                    .filter(|read| read.message_id == reply.id)
+                    .filter_map(|read| CarriedRead::from_key(&read.key).map(|read| read.member))
+                    .collect::<BTreeSet<_>>(),
+                BTreeSet::from([fx.alice.id, fx.bruno.id]),
+                "a reply drawn from both cards, and the second one's reads, is about \
+                 both athletes (carnet#1422, carnet#1511)"
+            );
+        }
         assert!(
             rows.iter()
                 .filter(|row| row.role == "user")
@@ -546,10 +604,11 @@ mod turns {
         assert_eq!(
             fx.repos()
                 .chat
-                .list_message_subjects(&fx.room, &fx.coach.id.to_string(), fx.coach.tenant)
+                .list_member_reads(&fx.room, &fx.coach.id.to_string(), fx.coach.tenant)
                 .await
                 .unwrap()
                 .into_iter()
+                .filter_map(|read| CarriedRead::from_key(&read.key).map(|read| read.member))
                 .collect::<BTreeSet<_>>(),
             BTreeSet::from([fx.alice.id, fx.bruno.id]),
             "the room's rows are about the two athletes the coach read"
@@ -560,6 +619,10 @@ mod turns {
     // Withdrawal
     // ════════════════════════════════════════════════════════════════════════
 
+    /// Bruno, read after Alice, withdraws: his rows go, and Alice's, which
+    /// came before any read of him, stay. Alice withdrawing instead would
+    /// take Bruno's rows too: the turn that read him replayed her status, so
+    /// what it wrote may restate her (carnet#1422).
     #[tokio::test]
     async fn a_revoked_athlete_is_not_replayed_while_a_sharing_one_is() {
         let fx = Fixture::new().await;
@@ -568,24 +631,47 @@ mod turns {
         assert!(
             fx.repos()
                 .groups
-                .update_coach_sharing_consent(&fx.group.id.to_string(), fx.alice.id, false)
+                .update_coach_sharing_consent(&fx.group.id.to_string(), fx.bruno.id, false)
                 .await
                 .unwrap(),
-            "premise: Alice's membership takes the revocation"
+            "premise: Bruno's membership takes the revocation"
         );
         let later = fx.turn(LATER).await;
 
         assert!(
-            !later.contains(ALICE_RACE),
-            "Alice stopped sharing: her earlier status must not reach the model: {later}"
+            !later.contains(BRUNO_RACE),
+            "Bruno stopped sharing: his earlier status must not reach the model: {later}"
         );
         assert!(
-            later.contains(BRUNO_RACE),
-            "Bruno still shares: his earlier status stays: {later}"
+            later.contains(ALICE_RACE),
+            "Alice still shares: her status, read before any of Bruno's, stays: {later}"
         );
         assert!(
             later.contains(ASK_ONE),
             "the coach's own question stays in the thread: {later}"
+        );
+
+        assert!(
+            fx.repos()
+                .groups
+                .update_coach_sharing_consent(&fx.group.id.to_string(), fx.bruno.id, true)
+                .await
+                .unwrap(),
+            "Bruno's coach-sharing consent is granted"
+        );
+        assert!(
+            fx.repos()
+                .groups
+                .update_coach_sharing_consent(&fx.group.id.to_string(), fx.alice.id, false)
+                .await
+                .unwrap(),
+            "Alice's coach-sharing consent is withdrawn"
+        );
+        let restated = fx.turn(LATER).await;
+        assert!(
+            !restated.contains(ALICE_RACE) && !restated.contains(BRUNO_RACE),
+            "Alice withdrew: nothing from her first read on reaches the model, the turn \
+             that replayed her included: {restated}"
         );
     }
 
@@ -597,20 +683,20 @@ mod turns {
         assert!(
             fx.repos()
                 .groups
-                .remove_member(&fx.group.id.to_string(), fx.alice.id)
+                .remove_member(&fx.group.id.to_string(), fx.bruno.id)
                 .await
                 .unwrap(),
-            "premise: Alice leaves the group"
+            "premise: Bruno leaves the group"
         );
         let later = fx.turn(LATER).await;
 
         assert!(
-            !later.contains(ALICE_RACE),
-            "Alice left the group: her earlier status must not reach the model: {later}"
+            !later.contains(BRUNO_RACE),
+            "Bruno left the group: his earlier status must not reach the model: {later}"
         );
         assert!(
-            later.contains(BRUNO_RACE),
-            "Bruno still shares: his earlier status stays: {later}"
+            later.contains(ALICE_RACE),
+            "Alice stayed: her status, read before any of Bruno's, stays: {later}"
         );
     }
 
@@ -687,20 +773,21 @@ mod turns {
         assert!(
             fx.repos()
                 .groups
-                .update_coach_sharing_consent(&fx.group.id.to_string(), fx.alice.id, false)
+                .update_coach_sharing_consent(&fx.group.id.to_string(), fx.bruno.id, false)
                 .await
                 .unwrap(),
-            "premise: Alice's membership takes the revocation"
+            "premise: Bruno's membership takes the revocation"
         );
         let later = fx.turn(LATER).await;
 
         assert!(
-            !later.contains(ALICE_SUMMARY),
-            "a summary of Alice's rows goes where her rows go: {later}"
+            !later.contains(BRUNO_SUMMARY),
+            "a summary of Bruno's rows goes where his rows go: {later}"
         );
         assert!(
-            later.contains(BRUNO_SUMMARY),
-            "a summary of Bruno's rows stays while he shares: {later}"
+            later.contains(ALICE_SUMMARY),
+            "a summary of Alice's rows, read before any of Bruno's, stays while she shares: \
+             {later}"
         );
     }
 
@@ -754,9 +841,13 @@ mod turns {
             reply.content
         );
         assert_eq!(
-            reply.about_user_id,
+            fx.sole_reads(&dm).await.get(&reply.id).copied().flatten(),
             Some(fx.alice.id),
-            "the reply goes with Alice's account"
+            "the reply carries the read of Alice, so it goes with her account"
+        );
+        assert!(
+            rows.iter().all(|row| row.about_user_id.is_none()),
+            "bug: a new row names no member in about_user_id"
         );
         assert!(
             rows.iter()
@@ -843,7 +934,7 @@ async fn a_limit_counts_only_rows_about_readable_athletes() {
             tenant,
             2,
             TransportPolicy::FirstPartyOnly,
-            &[],
+            MemberReplay::about_nobody(),
         )
         .await
         .unwrap();
@@ -861,7 +952,10 @@ async fn a_limit_counts_only_rows_about_readable_athletes() {
             tenant,
             2,
             TransportPolicy::FirstPartyOnly,
-            &[alice],
+            MemberReplay {
+                readable_about: &[alice],
+                ..MemberReplay::about_nobody()
+            },
         )
         .await
         .unwrap();
@@ -888,11 +982,14 @@ async fn a_limit_counts_only_rows_about_readable_athletes() {
     assert_eq!(
         repos
             .chat
-            .list_message_subjects(&room.id, &coach, tenant)
+            .list_member_reads(&room.id, &coach, tenant)
             .await
-            .unwrap(),
-        vec![alice],
-        "the room's rows are about Alice alone"
+            .unwrap()
+            .into_iter()
+            .filter_map(|read| CarriedRead::legacy_about_member(&read.key))
+            .collect::<BTreeSet<_>>(),
+        BTreeSet::from([alice]),
+        "the room's rows, written with a legacy stamp, are about Alice alone"
     );
 }
 
@@ -920,12 +1017,13 @@ async fn readable_rows_name_alice(
 /// A platform-composed turn holds its rounds and writes them on
 /// `persist_held`, so what the recorder kept can be read back at once.
 #[tokio::test]
-async fn a_round_that_read_two_athletes_is_not_kept_and_one_that_read_one_is_stamped() {
+async fn every_round_is_kept_with_every_read_it_made_in_the_link_rows() {
     let db = create_test_db().await;
     let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (coach, tenant) = seed_user(&db).await;
     let (alice, _) = seed_user(&db).await;
     let (bruno, _) = seed_user(&db).await;
+    let (coach_id, group) = (coach, Uuid::new_v4());
     let coach = coach.to_string();
     let room = repos
         .chat
@@ -942,12 +1040,15 @@ async fn a_round_that_read_two_athletes_is_not_kept_and_one_that_read_one_is_sta
     recorder.record(ToolRoundRecord {
         assistant_text: "Comparing both.".to_owned(),
         tool_result_text: "[Tool Result for get_roster_overview]: both athletes".to_owned(),
-        members_read: BTreeSet::from([alice, bruno]),
+        members_read: BTreeSet::from([
+            CarriedRead::coach(alice, group, coach_id),
+            CarriedRead::coach(bruno, group, coach_id),
+        ]),
     });
     recorder.record(ToolRoundRecord {
         assistant_text: "Reading Alice.".to_owned(),
         tool_result_text: "[Tool Result for get_group_member_plan_status]: Alice".to_owned(),
-        members_read: BTreeSet::from([alice]),
+        members_read: BTreeSet::from([CarriedRead::coach(alice, group, coach_id)]),
     });
     recorder.persist_held().await;
 
@@ -956,21 +1057,44 @@ async fn a_round_that_read_two_athletes_is_not_kept_and_one_that_read_one_is_sta
         .get_messages(&room.id, &coach, tenant)
         .await
         .unwrap();
-    let kept: Vec<(&str, &str, Option<Uuid>)> = rows
+    let reads = repos
+        .chat
+        .list_member_reads(&room.id, &coach, tenant)
+        .await
+        .unwrap();
+    let carried = |row: &MessageRecord| -> BTreeSet<String> {
+        reads
+            .iter()
+            .filter(|read| read.message_id == row.id)
+            .map(|read| read.key.clone())
+            .collect()
+    };
+    let both = BTreeSet::from([
+        CarriedRead::coach(alice, group, coach_id).key(),
+        CarriedRead::coach(bruno, group, coach_id).key(),
+    ]);
+    let alice_only = BTreeSet::from([CarriedRead::coach(alice, group, coach_id).key()]);
+    let kept: Vec<(&str, BTreeSet<String>)> = rows
         .iter()
-        .map(|row| (row.role.as_str(), row.content.as_str(), row.about_user_id))
+        .map(|row| (row.content.as_str(), carried(row)))
         .collect();
     assert_eq!(
         kept,
         vec![
-            ("tool_call", "Reading Alice.", Some(alice)),
+            ("Comparing both.", both.clone()),
+            ("[Tool Result for get_roster_overview]: both athletes", both),
+            ("Reading Alice.", alice_only.clone()),
             (
-                "tool_result",
                 "[Tool Result for get_group_member_plan_status]: Alice",
-                Some(alice)
+                alice_only
             ),
         ],
-        "a round about two athletes cannot name both, so it is not kept"
+        "a round about two athletes is kept, carrying both reads as they were made, in the \
+         one carrier (carnet#1511 call 19)"
+    );
+    assert!(
+        rows.iter().all(|row| row.about_user_id.is_none()),
+        "bug: a new row names no member in about_user_id"
     );
 }
 
@@ -1029,49 +1153,52 @@ impl LlmProvider for StubSummarizer {
     }
 }
 
-/// The oldest turns read Alice, then Bruno: the block stops before Bruno's
-/// row, summarizes none of it, and names Alice.
+/// carnet#1511 design A18 (round-12 still-works SW1): a row carrying a
+/// member read is covered like any other. In a coach's thread about one
+/// athlete every reply carries the athlete's read, and refusing such rows
+/// left no run to summarize, so the thread slid its oldest turns away with
+/// no summary once over the cap (registre#198). The block is read by its
+/// covered rows' reads, which stay recorded on those rows: the replay
+/// splices it only over rows it replays, and the export withholds it with
+/// any row it covers.
 #[tokio::test]
-async fn a_compaction_block_covers_one_athlete_and_names_them() {
+async fn a_thread_whose_every_reply_carries_a_read_still_compacts() {
     let db = create_test_db().await;
     let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (coach, tenant) = seed_user(&db).await;
-    let (alice, _) = seed_user(&db).await;
-    let (bruno, _) = seed_user(&db).await;
     let room = repos
         .chat
-        .create_conversation(&coach.to_string(), tenant, "Room", MODEL, None, None)
+        .create_conversation(&coach.to_string(), tenant, "Alice", MODEL, None, None)
         .await
         .unwrap();
-    let rows: [(&str, &str, Option<Uuid>); 8] = [
-        ("u1", "how is athlete one?", None),
-        ("r1", "Alice's status: 5:10/km", Some(alice)),
-        ("a1", "Alice is on track.", Some(alice)),
-        ("u2", "and athlete two?", None),
-        ("r2", "Bruno's status: hill block", Some(bruno)),
-        ("a2", "Bruno is on track.", Some(bruno)),
-        ("u3", "anything else?", None),
-        ("a3", "Nothing else.", None),
+    let rows = [
+        ("u1", "how is she?"),
+        ("a1", "Alice's status: 5:10/km, on track."),
+        ("u2", "and her long run?"),
+        ("a2", "Alice ran 24 km on Sunday."),
+        ("u3", "anything else?"),
+        ("a3", "Alice slept well."),
+        ("u4", "thanks"),
+        ("a4", "Alice is welcome."),
+        ("u5", "bye"),
     ];
     let mut llm_messages = vec![ChatMessage::system("system prompt")];
     let mut source_ids = vec![None];
-    let mut source_members = vec![None];
-    for (id, content, member) in rows {
+    for (id, content) in rows {
         llm_messages.push(if id.starts_with('a') {
             ChatMessage::assistant(content)
         } else {
             ChatMessage::user(content)
         });
         source_ids.push(Some(id.to_owned()));
-        source_members.push(member);
     }
     let summarizer = Arc::new(StubSummarizer::default());
     let provider = ChatProvider::Custom(summarizer.clone());
     let config = CompactionConfig {
         max_messages: 4,
+        summarize_oldest_n: 4,
         ..CompactionConfig::default()
     };
-
     let outcome = ConversationCompactor::new(config)
         .compact_if_needed(CompactionContext {
             repo: repos.memory.as_ref(),
@@ -1081,48 +1208,28 @@ async fn a_compaction_block_covers_one_athlete_and_names_them() {
             tenant_id: tenant,
             conversation_id: &room.id,
             source_ids: &source_ids,
-            source_members: &source_members,
-            source_consents: &vec![Vec::new(); source_members.len()],
+            source_consents: &vec![Vec::new(); source_ids.len()],
             llm_messages: &mut llm_messages,
             summary_for_prompt: str::to_owned,
         })
         .await
         .unwrap();
-
     let CompactionOutcome::Summarized { block, .. } = outcome else {
-        panic!("the over-cap thread is summarized: {outcome:?}");
+        panic!("bug: a thread whose every reply carries a read is not summarized: {outcome:?}");
     };
     assert_eq!(
-        (
-            block.first_message_id.as_str(),
-            block.last_message_id.as_str()
-        ),
-        ("u1", "u2"),
-        "the block stops before the first row about a second athlete"
+        block.first_message_id, "u1",
+        "the block opens on the oldest turn"
     );
-    assert_eq!(
-        block.about_user_id,
-        Some(alice),
-        "and names the one it covers"
+    assert_ne!(
+        block.last_message_id, "u1",
+        "bug: the block stopped at the first reply carrying a read"
     );
+    assert_eq!(block.about_user_id, None, "a block names no member itself");
     let asked = summarizer.asked.lock().unwrap().join("\n");
     assert!(
         asked.contains("5:10/km"),
-        "Alice's rows were summarized: {asked}"
-    );
-    assert!(
-        !asked.contains("hill block"),
-        "nothing of Bruno reaches a block about Alice: {asked}"
-    );
-    let stored = repos
-        .memory
-        .list_compaction_blocks(&room.id, tenant)
-        .await
-        .unwrap();
-    assert_eq!(
-        stored.iter().map(|b| b.about_user_id).collect::<Vec<_>>(),
-        vec![Some(alice)],
-        "the stored block names Alice"
+        "the covered replies are summarized: {asked}"
     );
 }
 

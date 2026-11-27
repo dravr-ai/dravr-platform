@@ -25,6 +25,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use super::grant_receipts::{CONSENT_RECORDS_AFTER, CONSENT_RECORDS_TABLE};
+use super::transcripts::RowWithholding;
 use super::{ChunkSink, ExportSummary, Writer};
 
 /// The platform table barrage's sections come just before: the projection
@@ -35,6 +36,8 @@ pub(super) const BARRAGE_BEFORE: &str = "cached_activities";
 pub(super) struct ExportSources<'src> {
     /// The platform's tables.
     pub(super) repository: &'src dyn UserExportRepository,
+    /// What of the platform's rows the exporter's own screen withholds.
+    pub(super) withholding: &'src dyn RowWithholding,
     /// Barrage's records and erasures: the context's one record store.
     pub(super) records: &'src dyn ActivityRecordStore,
     /// The athlete's consent grant receipts, projected as consent records.
@@ -233,6 +236,7 @@ mod tests {
     use super::super::tests::{
         collector, document, sources, Collector, FakeRepository, NoReceipts, ROOMY,
     };
+    use super::super::transcripts::tests::WithholdsNothing;
     use super::super::{write_export, ExportLimits};
     use super::*;
 
@@ -333,6 +337,7 @@ mod tests {
         write_export(
             ExportSources {
                 repository: &repository,
+                withholding: &WithholdsNothing,
                 records: &records,
                 grant_events: &NoReceipts,
                 tenants: &[tenant],
@@ -390,6 +395,7 @@ mod tests {
         let summary = write_export(
             ExportSources {
                 repository: &repository,
+                withholding: &WithholdsNothing,
                 records: &records,
                 grant_events: &NoReceipts,
                 tenants: &[tenant],
@@ -466,6 +472,7 @@ mod tests {
         write_export(
             ExportSources {
                 repository: &repository,
+                withholding: &WithholdsNothing,
                 records: &records,
                 grant_events: &NoReceipts,
                 tenants: &[tenant],

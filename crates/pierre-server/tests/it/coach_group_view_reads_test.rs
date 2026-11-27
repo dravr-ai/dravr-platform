@@ -99,6 +99,7 @@ impl Fixture {
             self.coach.tenant,
             self.coach.id,
             Some(self.coach.id),
+            false,
         )
         .await
         .unwrap();
@@ -271,6 +272,7 @@ async fn a_member_reads_the_group_views_of_their_peers_with_nothing_recorded() {
         f.coach.tenant,
         f.athlete.id,
         None,
+        false,
     )
     .await
     .unwrap();

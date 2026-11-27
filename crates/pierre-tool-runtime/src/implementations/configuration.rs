@@ -16,7 +16,7 @@
 
 use crate::annotations::{annotations, Effect, Reach};
 use crate::read_subject::DataClass;
-use crate::tool_data::ToolData;
+use crate::tool_data::{ToolData, WriteKind};
 use dravr_barrage::Stream;
 use pierre_providers::ai_scope;
 use std::collections::{BTreeMap, HashMap};
@@ -1131,7 +1131,8 @@ crate::declare_security!(
 );
 crate::declare_security!(
     UpdateUserConfigurationTool => empty,
-    reads: ToolData::own(&[Stream::Fitness, Stream::Profile]),
+    reads: ToolData::own(&[Stream::Fitness, Stream::Profile])
+        .writes(WriteKind::Structured),
 );
 crate::declare_security!(
     ValidateConfigurationTool => empty; first_party_only,

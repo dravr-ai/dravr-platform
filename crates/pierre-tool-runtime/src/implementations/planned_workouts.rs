@@ -366,7 +366,7 @@ async fn coach_read(
 ) -> AppResult<Result<(CalendarReader, Vec<String>), ToolResult>> {
     let repos = context.resources.repos();
     if let Some(refused) =
-        room_refusal_in(context, conversation, "Read an athlete's planned calendar")
+        room_refusal_in(context, conversation, "Read an athlete's planned calendar").await
     {
         return Ok(Err(refused));
     }

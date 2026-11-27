@@ -57,8 +57,10 @@ const READ_TOOL: &str = "get_connection_status";
 /// nothing, which is the point: an attempted write counts whether it landed.
 const WRITE_TOOL: &str = "save_training_plan";
 
-/// Declares `IRREVERSIBLE`; a destructive budget of zero refuses it at the gate.
-const DESTRUCTIVE_TOOL: &str = "forget_playbook";
+/// Declares `IRREVERSIBLE`; a destructive budget of zero refuses it at the
+/// gate. A chat turn offers it, so the call reaches the gate: a tool the turn
+/// does not offer is refused before it (carnet#1511 design call 13).
+const DESTRUCTIVE_TOOL: &str = "disconnect_provider";
 
 /// What the scripted model answers once it has nothing left to call.
 const ANSWER: &str = "Bien noté, on continue comme prévu pour cette semaine.";

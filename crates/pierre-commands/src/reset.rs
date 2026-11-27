@@ -79,6 +79,26 @@ impl CommandHandler for ResetHandler {
         // Carrying the old title forward left the list with rows an athlete
         // could not tell apart.
         let in_app = matches!(ctx.channel_type.as_str(), "web" | "mobile");
+        // A thread a messaging chat writes into is forged on that chat's
+        // channel through a reset typed anywhere, the app included: the fresh
+        // row is the chat's next thread, and a row stamped "web" reads as the
+        // athlete's own in-app thread, the kind Home adopts as personal
+        // (carnet#1422). A session lookup that fails keeps the old row's.
+        let channel_type = match repos
+            .messaging
+            .get_session_by_pierre_conversation_id(ctx.conversation_tenant_id, previous_id)
+            .await
+        {
+            Ok(Some(session)) => session["channel_type"]
+                .as_str()
+                .unwrap_or(&previous.channel_type)
+                .to_owned(),
+            Ok(None) => ctx.channel_type.clone(),
+            Err(e) => {
+                warn!(error = %e, "Reset command: the thread's messaging session could not be read");
+                previous.channel_type.clone()
+            }
+        };
         let timezone = repos
             .users
             .get_global(ctx.user_id)
@@ -125,7 +145,7 @@ impl CommandHandler for ResetHandler {
                 // they train with.
                 agent: ForgeAgent::Explicit(previous.agent_id.as_deref()),
                 group_id: previous.group_id.as_deref(),
-                channel_type: &ctx.channel_type,
+                channel_type: &channel_type,
                 selection_source: if in_app {
                     AgentSelectionSource::ChatConversation
                 } else {

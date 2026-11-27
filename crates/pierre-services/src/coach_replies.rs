@@ -51,6 +51,7 @@ use uuid::Uuid;
 
 use crate::chat_verdicts::{verdict_row, ChatVerdictRow};
 use crate::coach_roster::{gather_members, RosterAthleteStatus};
+use crate::member_reads;
 
 /// Replies on one page when the caller names no size.
 const DEFAULT_PAGE_SIZE: i64 = 20;
@@ -214,6 +215,7 @@ pub async fn list_replies(
         .limit
         .unwrap_or(DEFAULT_PAGE_SIZE)
         .clamp(1, MAX_PAGE_SIZE);
+    let readable = coach_readable_keys(repos, coach_user_id).await?;
     let replies = repos
         .coach_reply_reviews
         .list_coach_replies(
@@ -224,6 +226,7 @@ pub async fn list_replies(
                 before: query.before,
                 limit,
             },
+            &readable,
         )
         .await?;
 
@@ -401,11 +404,31 @@ async fn reviewable_reply(
     coach_user_id: Uuid,
     entry_id: Uuid,
 ) -> AppResult<CoachReply> {
+    let readable = coach_readable_keys(repos, coach_user_id).await?;
     repos
         .coach_reply_reviews
-        .get_coach_reply(coach_user_id, entry_id)
+        .get_coach_reply(coach_user_id, entry_id, &readable)
         .await?
         .ok_or_else(|| AppError::not_found("Reply"))
+}
+
+/// The reads of the rooms the coach coaches now that the coach may read: what
+/// the one transcript rule decides each reply they review by (carnet#1511
+/// A2 and call 19).
+async fn coach_readable_keys(
+    repos: &RepositoryRegistry,
+    coach_user_id: Uuid,
+) -> AppResult<Vec<String>> {
+    let groups: Vec<Uuid> = repos
+        .groups
+        .list_groups_coached_by(coach_user_id)
+        .await?
+        .into_iter()
+        .filter(|group| group.is_active)
+        .map(|group| group.id)
+        .collect();
+    member_reads::readable_room_keys(repos, member_reads::Reader::Person(coach_user_id), &groups)
+        .await
 }
 
 /// The groups the caller coaches and their live athletes, by name, gathered

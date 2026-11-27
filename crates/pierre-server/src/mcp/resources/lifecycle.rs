@@ -486,8 +486,11 @@ impl ServerContext {
         // without a redeploy.
         let tool_registry = {
             let mut registry = Self::create_tool_registry();
+            // In the `data` category, which chat offers: a chat turn runs
+            // only a tool it offered (carnet#1511 design call 13), so a stub
+            // a turn must reach is offered like a real read.
             for tool in options.extra_tools {
-                registry.register(tool);
+                registry.register_with_category(tool, "data");
             }
             registry.set_tool_descriptions(Arc::clone(&contremaitre_tool_desc_registry));
             Self::report_tool_catalogue_size(&registry, &config.llm_chain);

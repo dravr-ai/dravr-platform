@@ -1,5 +1,5 @@
 // ABOUTME: Whether a group member's data may be read by another person now: the group's coach by the coaching gates, a peer by peer consent
-// ABOUTME: The rule a turn's history replays a stamped row under (carnet#1174), and the peer rule the group tools gate a peer's read on
+// ABOUTME: The one rule every reader of a stored row's carried reads asks (carnet#1511 call 19), and the peer rule group tools gate on
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -19,17 +19,59 @@
 //!   on, and only while the group's `peer_data_sharing` switch is on
 //!   ([`peer_read_allowed`]).
 //!
-//! [`readable_members`] asks the rule of a set of members by id, for the turn
-//! that replays rows stamped with them (`about_user_id`, carnet#1174): a
-//! member who withdrew their consent, left the group, or deleted their
-//! account is no longer replayed into a prompt.
+//! ## A stored row's reads: the one rule
+//!
+//! Every row the platform stores from a turn records each member read it
+//! drew on as a [`CarriedRead`] (carnet#1511 call 19), and every reader of a
+//! stored row — the transcript, the room page and its single entry, the
+//! ambient block, the coach's review page, the conversation list's preview,
+//! the replay into a turn, the export — asks [`readable_keys`] which of the
+//! reads it holds the reader may read now, by key. The statements then only
+//! test a link row's key against that answer. The rule:
+//!
+//! - **The member's own data** is theirs to read.
+//! - **Another participant's words in the same thread**, or the coach's words
+//!   to a room, are read by whoever reads that thread or room.
+//! - **Through the room's peer view** ([`ReadWay::Peer`], and any read of a
+//!   member's activities below T2, which is all their peer sharing covers:
+//!   their plan and physiology are read the coach way alone, call 23): the
+//!   reader holds a place in the read's group — a live member, or its coach
+//!   now — and the member shares with that group now ([`peer_read_allowed`]).
+//!   A later joiner and a replacement coach read room history this way
+//!   (call 18).
+//! - **Through a coach's view** ([`ReadWay::Coach`]): the reader is the coach
+//!   who read it, still passing [`coached_athlete_access`] for the member in
+//!   that group (coach access, the attachment, a live membership, coach
+//!   consent, one home tenant: design Z4), and the member's consent for what
+//!   was read: `wellness_read` for wellness; that and a standing
+//!   `sensitive_t2_read` and their AI consent to T2 records for T2; their AI
+//!   consent to T3 records for T3. A coach read stays the coach's unless the
+//!   member's peer sharing covers it (call 19), and a coach who left the seat
+//!   or lost access no longer reads through it (call 11).
+//!
+//! A row written before carried reads existed names one member in its
+//! `about_user_id`, read by the per-member rule ([`readable_members`]); nothing in it
+//! is reinterpreted (call 17).
+//!
+//! A reply posted where the whole room reads it ([`Reader::Room`]) may carry
+//! only what every member reads: a member's data their peer sharing covers,
+//! shared with that room now.
 
+use std::collections::{BTreeSet, HashMap};
+
+use dravr_tronc::dates::Timestamp;
+use pierre_core::constants::oauth_providers::{SENSITIVE_T2, SENSITIVE_T3};
 use pierre_core::errors::AppResult;
+use pierre_core::models::carried_read::{
+    CLASS_BEYOND_ACTIVITIES, CLASS_TRAINING, CLASS_WELLNESS, TIER_T2, TIER_T3,
+};
 use pierre_core::models::groups::GroupMember;
+use pierre_core::models::{CarriedRead, ReadWay};
 use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
 
-use crate::coached_athlete::coached_athlete_access;
+use crate::coached_athlete::{coached_athlete_access, CoachedAthleteAccess};
+use crate::provider_notice;
 
 /// The standing a reader holds in the group whose member they read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,6 +144,10 @@ async fn reader_groups(
 
 /// Of `members`, those `reader` may read now through a group they share.
 ///
+/// The per-member rule, which decides the one member a row written before carried
+/// reads existed names in its `about_user_id` (carnet#1511 call 17), and
+/// nothing else.
+///
 /// The group is `within` alone when given (the conversation's own group),
 /// else any group they belong to or coach. A member no such group lets them
 /// read — who withdrew their consent, left, or no longer has an account, or
@@ -148,6 +194,350 @@ pub async fn readable_members(
         }
     }
     Ok(readable)
+}
+
+/// The read the per-member rule ([`readable_members`]) lets `reader` make of `member`.
+///
+/// `member` is the one member a row written before carried reads existed
+/// names: read through the coach's view in a group they coach the member in, else
+/// through the peer view of a group they share. `None` when no group lets
+/// them. What a turn that replays such a row reads (carnet#1511 calls 17 and
+/// 19), so the reply drawn from it carries a read its reader may read again.
+///
+/// # Errors
+///
+/// Returns the repository error from the group or membership lookups.
+pub async fn legacy_read(
+    repos: &RepositoryRegistry,
+    reader: Uuid,
+    member: Uuid,
+) -> AppResult<Option<CarriedRead>> {
+    if member == reader {
+        return Ok(Some(CarriedRead::peer(member, None)));
+    }
+    // The coach's view first: a reader who coaches the member in one group
+    // and shares another with them reads the row as their coach.
+    let (coached, shared): (Vec<ReaderGroup>, Vec<ReaderGroup>) =
+        reader_groups(repos, reader, None)
+            .await?
+            .into_iter()
+            .partition(|group| matches!(group.reader, GroupReader::Coach));
+    let groups = coached.into_iter().chain(shared);
+    for group in groups {
+        let read = match group.reader {
+            GroupReader::Coach => coached_athlete_access(repos, reader, member, group.id)
+                .await?
+                .is_ok()
+                .then(|| CarriedRead::coach(member, group.id, reader)),
+            GroupReader::Peer => repos
+                .groups
+                .get_member(&group.id.to_string(), member)
+                .await?
+                .is_some_and(|membership| peer_read_allowed(group.peer_data_sharing, &membership))
+                .then(|| CarriedRead::peer(member, Some(group.id))),
+        };
+        if read.is_some() {
+            return Ok(read);
+        }
+    }
+    Ok(None)
+}
+
+/// Who reads a stored row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reader {
+    /// One person, on their own screen, in their export, or as a turn's
+    /// sender replaying their own thread.
+    Person(Uuid),
+    /// Every member of group `group` at once, `sender` aside: a reply posted
+    /// into a chat the whole room reads (carnet#1511 design calls 6 and 8).
+    Room {
+        /// The room's group.
+        group: Uuid,
+        /// Whether the group's peer switch is on, read with the group: off,
+        /// the room reads no member's data.
+        peer_switch: bool,
+        /// The sender, whose own data the room's reply may carry.
+        sender: Uuid,
+    },
+}
+
+/// Of `keys`, those `reader` may read now.
+///
+/// The keys are the reads stored rows carry, as [`CarriedRead::key`] writes
+/// them, and the `about` keys of rows written before. This is the one rule
+/// every reader of a stored row asks (module doc,
+/// carnet#1511 call 19). A key that names no read is readable by no one.
+///
+/// # Errors
+///
+/// Returns the repository error from a group, membership, coaching-gate or
+/// consent lookup: the caller then serves nothing rather than everything.
+pub async fn readable_keys(
+    repos: &RepositoryRegistry,
+    reader: Reader,
+    keys: &[String],
+) -> AppResult<Vec<String>> {
+    let mut decider = KeyDecider::new(repos, reader);
+    let mut readable = Vec::with_capacity(keys.len());
+    for key in keys {
+        if decider.readable(key).await? {
+            readable.push(key.clone());
+        }
+    }
+    Ok(readable)
+}
+
+/// Whether `reader` may read `read` now, under [`readable_keys`]'s rule.
+///
+/// # Errors
+///
+/// As [`readable_keys`].
+pub(crate) async fn read_readable(
+    repos: &RepositoryRegistry,
+    reader: Reader,
+    read: &CarriedRead,
+) -> AppResult<bool> {
+    KeyDecider::new(repos, reader).read(read).await
+}
+
+/// The reads of the rooms of `groups` that `reader` may read now.
+///
+/// Every read their transcript entries carry or their authors' words are read through
+/// ([`CoachingGroupRepository::list_group_read_keys`]), decided by the one
+/// rule ([`readable_keys`]). What every read of a room's transcript binds
+/// (carnet#1511 call 19).
+///
+/// [`CoachingGroupRepository::list_group_read_keys`]: pierre_database::repositories::CoachingGroupRepository::list_group_read_keys
+///
+/// # Errors
+///
+/// As [`readable_keys`], and the repository error listing a room's reads.
+pub async fn readable_room_keys(
+    repos: &RepositoryRegistry,
+    reader: Reader,
+    groups: &[Uuid],
+) -> AppResult<Vec<String>> {
+    let mut keys: Vec<String> = Vec::new();
+    for group in groups {
+        for key in repos
+            .groups
+            .list_group_read_keys(&group.to_string())
+            .await?
+        {
+            if !keys.contains(&key) {
+                keys.push(key);
+            }
+        }
+    }
+    readable_keys(repos, reader, &keys).await
+}
+
+/// [`readable_keys`]'s rule, with every group, membership and consent it
+/// reads looked up once.
+struct KeyDecider<'repos> {
+    repos: &'repos RepositoryRegistry,
+    reader: Reader,
+    /// The groups the person reader holds a place in, with the group's peer
+    /// switch: loaded on first use.
+    places: Option<HashMap<Uuid, bool>>,
+    /// Live memberships looked up, by group and member.
+    memberships: HashMap<(Uuid, Uuid), Option<GroupMember>>,
+    /// Coaching-gate answers, by group and member.
+    coached: HashMap<(Uuid, Uuid), Option<CoachedAthleteAccess>>,
+    /// Members' AI consents to sensitive records, by member, each read in
+    /// their home tenant.
+    withheld: HashMap<Uuid, BTreeSet<String>>,
+}
+
+impl<'repos> KeyDecider<'repos> {
+    fn new(repos: &'repos RepositoryRegistry, reader: Reader) -> Self {
+        Self {
+            repos,
+            reader,
+            places: None,
+            memberships: HashMap::new(),
+            coached: HashMap::new(),
+            withheld: HashMap::new(),
+        }
+    }
+
+    async fn readable(&mut self, key: &str) -> AppResult<bool> {
+        if let Some(member) = CarriedRead::legacy_about_member(key) {
+            return self.legacy(member).await;
+        }
+        match CarriedRead::from_key(key) {
+            Some(read) => self.read(&read).await,
+            None => Ok(false),
+        }
+    }
+
+    /// A legacy row's `about` member, by the per-member rule.
+    async fn legacy(&mut self, member: Uuid) -> AppResult<bool> {
+        match self.reader {
+            Reader::Person(reader) => Ok(member == reader
+                || !readable_members(self.repos, reader, None, &[member])
+                    .await?
+                    .is_empty()),
+            Reader::Room { group, sender, .. } => {
+                Ok(member == sender || self.shares_with(group, member).await?)
+            }
+        }
+    }
+
+    async fn read(&mut self, read: &CarriedRead) -> AppResult<bool> {
+        match self.reader {
+            Reader::Person(reader) => self.person_reads(reader, read).await,
+            Reader::Room { group, sender, .. } => {
+                if read.member == sender {
+                    return Ok(true);
+                }
+                // The whole room reads words spoken to it, and of a member's
+                // data only what their peer sharing covers, shared with this
+                // room now.
+                if read.way == ReadWay::Thread {
+                    return Ok(read.group == Some(group));
+                }
+                Ok(read.peer_view_covers() && self.shares_with(group, read.member).await?)
+            }
+        }
+    }
+
+    async fn person_reads(&mut self, reader: Uuid, read: &CarriedRead) -> AppResult<bool> {
+        if read.member == reader || read.way == ReadWay::Thread {
+            return Ok(true);
+        }
+        let Some(group) = read.group else {
+            return Ok(false);
+        };
+        if read.peer_view_covers()
+            && self.holds_place(reader, group).await?
+            && self.shares_with(group, read.member).await?
+        {
+            return Ok(true);
+        }
+        if !read.way.through_coach_view() || read.coach != Some(reader) {
+            return Ok(false);
+        }
+        let Some(access) = self.coached(reader, read.member, group).await? else {
+            return Ok(false);
+        };
+        let consents = &access.consents;
+        let class_read = match read.class.as_str() {
+            CLASS_TRAINING | CLASS_BEYOND_ACTIVITIES => true,
+            CLASS_WELLNESS => consents.wellness_read,
+            _ => false,
+        };
+        if !class_read {
+            return Ok(false);
+        }
+        match read.tier.as_deref() {
+            None => Ok(true),
+            Some(TIER_T2) => Ok(consents.wellness_read
+                && consents.sensitive_t2_standing(Timestamp::now())
+                && !self.ai_withheld(&access).await.contains(SENSITIVE_T2)),
+            Some(TIER_T3) => Ok(!self.ai_withheld(&access).await.contains(SENSITIVE_T3)),
+            Some(_) => Ok(false),
+        }
+    }
+
+    /// Whether the person reader holds a place in `group` now: a live member,
+    /// or its human coach.
+    async fn holds_place(&mut self, reader: Uuid, group: Uuid) -> AppResult<bool> {
+        if self.places.is_none() {
+            self.places = Some(repos_places(self.repos, reader).await?);
+        }
+        Ok(self
+            .places
+            .as_ref()
+            .is_some_and(|places| places.contains_key(&group)))
+    }
+
+    /// Whether `member` shares with `group`'s room now: live, peer consent
+    /// on, the group's peer switch on.
+    async fn shares_with(&mut self, group: Uuid, member: Uuid) -> AppResult<bool> {
+        let switch = match self.reader {
+            Reader::Room {
+                group: room,
+                peer_switch,
+                ..
+            } if room == group => peer_switch,
+            Reader::Person(reader) => {
+                // A person reads through a group they hold a place in, whose
+                // switch that lookup carried.
+                if !self.holds_place(reader, group).await? {
+                    return Ok(false);
+                }
+                self.places
+                    .as_ref()
+                    .and_then(|places| places.get(&group).copied())
+                    .unwrap_or(false)
+            }
+            Reader::Room { .. } => false,
+        };
+        if !switch {
+            return Ok(false);
+        }
+        Ok(self
+            .membership(group, member)
+            .await?
+            .is_some_and(|membership| peer_read_allowed(true, &membership)))
+    }
+
+    async fn membership(&mut self, group: Uuid, member: Uuid) -> AppResult<Option<GroupMember>> {
+        if let Some(found) = self.memberships.get(&(group, member)) {
+            return Ok(found.clone());
+        }
+        let found = self
+            .repos
+            .groups
+            .get_member(&group.to_string(), member)
+            .await?;
+        self.memberships.insert((group, member), found.clone());
+        Ok(found)
+    }
+
+    async fn coached(
+        &mut self,
+        coach: Uuid,
+        member: Uuid,
+        group: Uuid,
+    ) -> AppResult<Option<CoachedAthleteAccess>> {
+        if let Some(found) = self.coached.get(&(group, member)) {
+            return Ok(found.clone());
+        }
+        let found = coached_athlete_access(self.repos, coach, member, group)
+            .await?
+            .ok();
+        self.coached.insert((group, member), found.clone());
+        Ok(found)
+    }
+
+    /// The member's AI consents withheld, in their home tenant: what a coach's
+    /// read of a T2 or T3 record was served under.
+    async fn ai_withheld(&mut self, access: &CoachedAthleteAccess) -> BTreeSet<String> {
+        if let Some(found) = self.withheld.get(&access.athlete_user_id) {
+            return found.clone();
+        }
+        let found = provider_notice::ai_consent_withheld(
+            self.repos,
+            access.tenant.as_uuid(),
+            access.athlete_user_id,
+        )
+        .await;
+        self.withheld.insert(access.athlete_user_id, found.clone());
+        found
+    }
+}
+
+/// The groups `reader` holds a place in now, each with its peer switch:
+/// every active group they belong to, and every active group they coach.
+async fn repos_places(repos: &RepositoryRegistry, reader: Uuid) -> AppResult<HashMap<Uuid, bool>> {
+    Ok(reader_groups(repos, reader, None)
+        .await?
+        .into_iter()
+        .map(|group| (group.id, group.peer_data_sharing))
+        .collect())
 }
 
 #[cfg(test)]

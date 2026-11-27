@@ -96,9 +96,10 @@ impl PreBodyCall {
 /// into the scope enclosing the call, so a chat round collecting its own
 /// calls' members ([`ai_scope::reading_members`]) still sees them.
 pub(super) async fn reading_members<F: Future>(body: F) -> (F::Output, BTreeSet<Uuid>) {
-    let (output, members) = ai_scope::reading_members(body).await;
-    for member in &members {
-        ai_scope::note_member_read(*member);
+    let (output, reads) = ai_scope::reading_members(body).await;
+    let members = reads.iter().map(|read| read.member).collect();
+    for read in reads {
+        ai_scope::note_round_read(read);
     }
     (output, members)
 }
@@ -114,9 +115,9 @@ fn read_subject(call: &OutsideCall<'_>) -> Option<Uuid> {
     if call.subject_resolved {
         return Some(call.parties.reader);
     }
-    match (ai_scope::sole(&call.members_read), call.members_read.len()) {
-        (Some(member), _) => Some(member),
-        (None, 0) if !call.read_another_person => Some(call.parties.reader),
+    match call.members_read.len() {
+        1 => call.members_read.first().copied(),
+        0 if !call.read_another_person => Some(call.parties.reader),
         _ => None,
     }
 }
@@ -154,8 +155,13 @@ impl UniversalExecutor {
     /// is the call the client made rather than one its tool dispatched.
     ///
     /// Fire-and-forget: a failed write is logged and never fails the call
-    /// whose answer the client is owed.
+    /// whose answer the client is owed. The grant's member-read taint is
+    /// recorded first (carnet#1511 call 30).
     pub(super) async fn record_outside_call(&self, call: OutsideCall<'_>) {
+        // A grant that read another member has its free-text writes wait
+        // (carnet#1511 call 30).
+        self.note_grant_member_reads(call.parties.requester, &call.members_read)
+            .await;
         // The door the call came in by: `/mcp` relabels the REST layer's
         // `api_key` declaration of an API key's or MCP token's request
         // (`Transport::narrowed_by`), so an MCP client's call reads as one.

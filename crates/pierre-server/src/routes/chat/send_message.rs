@@ -27,6 +27,7 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use dravr_tronc::dates::Timestamp;
 use pierre_core::models::{ConversationTurnId, RoomQuote, COMMAND_FINISH_REASON};
+use pierre_services::call_room::CallRoom;
 use pierre_services::locale::resolve_user_locale;
 use serde_json::Value;
 use tokio::sync::mpsc;
@@ -237,6 +238,17 @@ pub(super) async fn send_message(
         .ok_or_else(conversation_not_found)?;
     refuse_unshared_subject(&resources, &auth, &conversation).await?;
 
+    // Whether the turn is a direct message is a fact of the thread, not of
+    // the surface, and the one room classifier decides it (carnet#1422): a
+    // thread bound to a coaching group is a group thread whichever surface
+    // it is read on; one a group chat's messaging session writes into is a
+    // room though it carries no group, what is written into it being
+    // replayed to the chat; one a DM's session writes into stays a direct
+    // message. A thread whose sessions cannot be read is served as a room.
+    let is_direct_message = CallRoom::of_conversation(&resources.common.repos, &conversation, true)
+        .await
+        .is_private();
+
     // A quoted room message is verified before anything is written: a quote
     // the coach may not carry refuses the whole send (carnet#1249).
     let quote = match request.quote_entry_id.as_deref() {
@@ -284,6 +296,7 @@ pub(super) async fn send_message(
     let egress = TurnEgress {
         resources: Arc::clone(&resources),
         conversation,
+        is_direct_message,
         user_id: auth.user_id,
         tenant_id,
         turn_id,
@@ -347,6 +360,9 @@ struct TurnEgress {
     resources: Arc<ServerContext>,
     /// The conversation as it stood when the request arrived.
     conversation: ConversationRecord,
+    /// Whether only the athlete reads what is written into the conversation
+    /// ([`CallRoom::of_conversation`]).
+    is_direct_message: bool,
     user_id: Uuid,
     tenant_id: TenantId,
     turn_id: ConversationTurnId,
@@ -405,8 +421,9 @@ impl TurnEgress {
             // A thread bound to a coaching group is a group thread, whichever
             // surface it is read on: `/agent add` binds the group's agent there
             // and `/group …` acts on that group. Unbound, the athlete is alone
-            // with the agent.
-            is_direct_message: self.conversation.group_id.is_none(),
+            // with the agent unless a group chat writes into the thread
+            // (`CallRoom::of_conversation`).
+            is_direct_message: self.is_direct_message,
             // A solo thread is exactly that. The group commands resolve no
             // group here and are refused, instead of being aimed at whichever
             // group the athlete touched last — the messaging DM's answer, where

@@ -11,8 +11,12 @@
 //! are two steps on purpose — an empty conversation is refused before any
 //! provider is resolved, so the refusal costs nothing and needs no LLM.
 //!
-//! The transcript is read through the [`ChatRepository`] the rest of chat
-//! uses, on either database engine. Only what the athlete and the agent
+//! The transcript is read by the durable rule
+//! ([`transcript_reading::read_own_rows`], carnet#1511 A20), on either
+//! database engine: an agent's system prompt outlives the thread and can be
+//! bound to a group's room, so it reads only the caller's own words in their
+//! own conversation, quoting no member, even one the caller may read now,
+//! and no other participant (carnet#1070, carnet#1422). Only what the athlete and the agent
 //! actually said reaches the prompt: tool rows, slash-command turns and the
 //! replies the platform withheld or could not stand behind are skipped by
 //! their stamp, the same rule the coaching prompt applies on replay.
@@ -29,11 +33,14 @@ use pierre_core::models::{
     MessageRecord, TenantId, STOPPED_TURN_FINISH_REASON, UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON,
     WITHHELD_REPLY_FINISH_REASON,
 };
-use pierre_database::repositories::{AgentsRepository, ChatRepository};
+use pierre_database::repositories::AgentsRepository;
+use pierre_database::RepositoryRegistry;
 use pierre_llm::{ChatMessage, ChatProvider, ChatRequest, LlmProvider};
 use pierre_runtime_context::{AdminConfigLookup, ConfigLookupScope};
 use serde::Deserialize;
 use uuid::Uuid;
+
+use crate::transcript_reading;
 
 /// Turns read when the caller sets no bound: the last ten carry the athlete's
 /// current concern without dragging the whole thread into the prompt.
@@ -128,8 +135,13 @@ fn is_coaching_turn(row: &MessageRecord) -> bool {
 /// Read the turns a proposal would be drafted from.
 ///
 /// Reads the conversation under the caller's identity, so a conversation
-/// they cannot open is "not found" rather than someone else's transcript.
-/// `Ok(None)` is the honest answer for a conversation with nothing to draft
+/// they cannot open is "not found" rather than someone else's transcript,
+/// and only the rows the durable rule admits
+/// ([`transcript_reading::read_own_rows`]): the agent the proposal becomes
+/// keeps its system prompt after the thread, and binding it to a group's
+/// room would hand every member what the caller read about one of them
+/// (carnet#1070, carnet#1422). So the draft reads no member, and the proposal
+/// the command stores is about no one. `Ok(None)` is the honest answer for a conversation with nothing to draft
 /// from — the model is never asked to invent an agent out of silence.
 ///
 /// # Errors
@@ -137,17 +149,19 @@ fn is_coaching_turn(row: &MessageRecord) -> bool {
 /// Returns not-found when the conversation is not the caller's, and the
 /// repository error when it cannot be read.
 pub async fn conversation_excerpt(
-    chat: &dyn ChatRepository,
+    repos: &RepositoryRegistry,
     request: &ExcerptRequest<'_>,
 ) -> AppResult<Option<ConversationExcerpt>> {
     let user_id = request.user_id.to_string();
-    chat.get_conversation(request.conversation_id, &user_id, request.tenant_id)
+    let conversation = repos
+        .chat
+        .get_conversation(request.conversation_id, &user_id, request.tenant_id)
         .await?
         .ok_or_else(|| AppError::not_found("Conversation"))?;
 
-    let mut messages = chat
-        .get_messages(request.conversation_id, &user_id, request.tenant_id)
-        .await?;
+    let mut messages =
+        transcript_reading::read_own_rows(repos, &conversation, request.user_id, request.tenant_id)
+            .await?;
     // A row derived from first-party-only data is withheld from an external
     // caller; the excerpt quotes the rest (carnet#769).
     ai_scope::retain_admitted(&mut messages, |m| m.transport_policy);

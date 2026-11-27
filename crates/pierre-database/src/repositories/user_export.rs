@@ -36,6 +36,15 @@
 //!
 //! # Excluded, and why
 //!
+//! - **What the athlete's own screen withholds**: of `chat_messages` and
+//!   `compaction_blocks`, a row about a group member the athlete may no
+//!   longer read, every platform row after it in its topic, and a summary
+//!   covering one (carnet#1422, carnet#1511). Of `messaging_messages`, an
+//!   outbound row copying such a reply, or naming no reply at all; of
+//!   `a2a_tasks`, a task about such a member, or one that cannot be decided
+//!   (carnet#1511 design call 7). The route leaves them out row by row
+//!   (`pierre_routes_auth::data_export`), by the rule the transcript route
+//!   serves (`pierre_services::transcript_reading`).
 //! - **Credentials**: password hash, OAuth access and refresh tokens, API-key
 //!   and MCP-token hashes, session and refresh tokens, authorization codes,
 //!   one-time codes, verification and reset tokens, push tokens, bring-your-own
@@ -69,6 +78,7 @@
 //! a binary column that is not withheld, fails the build.
 
 use async_trait::async_trait;
+use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::AppResult;
 
 use super::tenants::member_tenant_ids_sql;
@@ -119,6 +129,27 @@ pub struct UserExportPage {
     pub last_key: Option<String>,
 }
 
+/// Whether the person `$1` ever had a member's data within reach by `$2`
+/// (carnet#1511 design §6.3): a group membership joined by then, left or
+/// not; a group they coach; coach access held or once granted; a granted
+/// coach-access request; a coach read or a reply review made as coach; or a
+/// place in a conversation someone else owns. Each one is a way another
+/// member's data could have reached them; none of these rows is ever deleted
+/// by the repositories but with the account or by its reset, which the
+/// design states as the residual.
+pub(crate) const MEMBER_HISTORY_SQL: &str = "SELECT \
+    EXISTS (SELECT 1 FROM coaching_group_members gm WHERE gm.user_id = $1 AND gm.joined_at <= $2) \
+    OR EXISTS (SELECT 1 FROM coaching_groups g WHERE g.coach_user_id = $1) \
+    OR EXISTS (SELECT 1 FROM users u WHERE u.id = $1 \
+               AND (u.manages_roster = TRUE OR u.manages_roster_granted_at IS NOT NULL)) \
+    OR EXISTS (SELECT 1 FROM coach_access_requests r WHERE r.user_id = $1 AND r.status = 'granted') \
+    OR EXISTS (SELECT 1 FROM coach_data_reads d WHERE d.coach_user_id = $1) \
+    OR EXISTS (SELECT 1 FROM coach_reply_reviews v WHERE v.coach_user_id = $1) \
+    OR EXISTS (SELECT 1 FROM conversation_participants p \
+               JOIN chat_conversations c ON c.id = p.conversation_id \
+               WHERE p.user_id = $1 AND p.role = 'member' AND c.user_id <> $1) \
+    AS member_history";
+
 /// Read an athlete's rows one page at a time.
 ///
 /// A page is read and serialized, then dropped before the next is read, so the
@@ -135,6 +166,13 @@ pub trait UserExportRepository: Send + Sync {
         user_id: Uuid,
         after: &str,
     ) -> AppResult<UserExportPage>;
+
+    /// Whether `user_id` ever had another member's data within reach by
+    /// `at` (a membership joined by then, a group coached, coach access, a
+    /// coach read or review, a place in another's conversation): what the
+    /// export's legacy rule asks
+    /// before keeping a row it cannot attribute (carnet#1511 design §6.2).
+    async fn has_member_history(&self, user_id: Uuid, at: Timestamp) -> AppResult<bool>;
 }
 
 /// `$1`, the athlete's id, written so it compares to a column of `$kind`
@@ -508,6 +546,17 @@ user_export_tables_sql!(
 /// the reason. A table with such a column is in this list or in
 /// [`USER_EXPORT_TABLES`]; the catalog test fails otherwise.
 pub const USER_EXPORT_EXCLUDED_TABLES: &[(&str, &str)] = &[
+    (
+        "group_transcript_entry_members",
+        "an index of the group members a room entry drew on, read by the transcript rule: the \
+         entries themselves are exported to their author",
+    ),
+    (
+        "chat_message_members",
+        "an index of the group members a chat row is about, read by the replay: the rows \
+         themselves are exported with their conversations, and a member named in a coach's \
+         thread is the coach's record",
+    ),
     // Credentials.
     (
         "user_oauth_tokens",
@@ -596,6 +645,10 @@ pub const USER_EXPORT_EXCLUDED_TABLES: &[(&str, &str)] = &[
     (
         "strava_seat_reclaim_warnings",
         "operational: seat-reclaim bookkeeping",
+    ),
+    (
+        "grant_member_reads",
+        "operational: when a connection last read another member, timing its writes",
     ),
     (
         "user_feature_overrides",

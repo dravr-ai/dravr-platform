@@ -17,6 +17,7 @@ use db_fixtures::{create_test_db, seed_user};
 
 use pierre_core::models::TenantId;
 use pierre_database::backends::{factory::Database, CreateSessionParams};
+use pierre_database::repositories::SessionChat;
 use uuid::Uuid;
 
 /// Create a real `chat_conversations` row and return its id.
@@ -137,4 +138,56 @@ async fn test_get_session_by_pierre_conversation_id_unknown_returns_none() {
         .await
         .unwrap();
     assert!(session.is_none(), "unknown conversation id should miss");
+}
+
+/// The chat record of a session is written only under the tenant the
+/// session lives under (carnet#1422): a stamp naming another tenant leaves
+/// it as it was, as every read of the sessions is scoped the same way.
+#[tokio::test]
+async fn a_session_chat_is_recorded_only_under_its_own_tenant() {
+    let db = create_test_db().await;
+    let (user_uuid, tenant_id) = seed_user(&db).await;
+    let user_id = user_uuid.to_string();
+    let session_id = Uuid::new_v4().to_string();
+    let conversation_id = seed_conversation(&db, &user_id, tenant_id).await;
+    let messaging = &db.repositories().messaging;
+    messaging
+        .create_session(&CreateSessionParams {
+            id: &session_id,
+            user_id: &user_id,
+            tenant_id,
+            channel_type: "telegram",
+            channel_user_id: "tg_user_901",
+            channel_conversation_id: Some("-100901"),
+            pierre_conversation_id: Some(&conversation_id),
+        })
+        .await
+        .unwrap();
+
+    let elsewhere = TenantId::from_uuid(Uuid::new_v4());
+    messaging
+        .record_session_chat(elsewhere, &session_id, true)
+        .await
+        .unwrap();
+    assert_eq!(
+        messaging
+            .session_chats(tenant_id, &conversation_id)
+            .await
+            .unwrap(),
+        vec![SessionChat::Unrecorded],
+        "another tenant's stamp does not reach the session"
+    );
+
+    messaging
+        .record_session_chat(tenant_id, &session_id, false)
+        .await
+        .unwrap();
+    assert_eq!(
+        messaging
+            .session_chats(tenant_id, &conversation_id)
+            .await
+            .unwrap(),
+        vec![SessionChat::Room],
+        "the session's own tenant records its chat"
+    );
 }

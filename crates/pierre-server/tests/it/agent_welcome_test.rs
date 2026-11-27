@@ -757,9 +757,7 @@ async fn a_room_is_welcomed_once_per_agent() {
     let first = welcomed.message.id.clone();
     assert!(posted[1].is_none(), "the room has already met the agent");
     assert!(introduced(&resources, &group, &agent, tenant).await);
-    let transcript = repos
-        .groups
-        .list_transcript_visible_to(&group, hana.user_id, 10)
+    let transcript = helpers::room_reads::visible_to(repos, &group, hana.user_id, 10)
         .await
         .unwrap();
     let entry = transcript

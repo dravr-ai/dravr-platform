@@ -27,12 +27,16 @@
 //! athlete there, and its own data reaches its turns as usual.
 
 use pierre_core::models::groups::GroupRole;
-use pierre_core::models::{OnboardingState, TenantId};
+use pierre_core::models::{ConversationSubject, OnboardingState, TenantId};
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::ConversationRecord;
 use pierre_database::RepositoryRegistry;
+use pierre_providers::ai_scope;
+use pierre_services::coach_roster::coaches_group;
+use pierre_services::coached_athlete::coached_athlete_access;
 use pierre_services::intake::athlete_steps_waived;
-use pierre_tool_runtime::coach_seat::TurnSeat;
+use pierre_tool_runtime::chat_catalogue::TurnReaders;
+use pierre_tool_runtime::coach_seat::{self, TurnSeat};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -44,9 +48,19 @@ pub(crate) struct TurnStanding {
     /// Whose data the turn runs against: the sender's own only on
     /// [`TurnSeat::Subject`].
     pub seat: TurnSeat,
+    /// The seat the turn's tools are offered and dispatched on: [`Self::seat`],
+    /// save in a coach's thread about an athlete whose coach access or
+    /// consent is gone at turn start, where it is the coach's private seat
+    /// (carnet#1511 call 30). The prompt still carries nothing of the coach's
+    /// own context or of the athlete there, only why the thread is refused.
+    pub tools: TurnSeat,
     /// The sender's seat as the coach of the conversation's group, when they
     /// hold it — what prompt assembly tells the agent about the room.
     pub coach: Option<CoachSeat>,
+    /// Who reads what the turn writes: the room a call naming an athlete is
+    /// decided in, which the turn's tool offer reads so it offers no
+    /// `athlete` a call would be refused.
+    pub readers: TurnReaders,
     /// The conversation carries a live guided walk whose own state names the
     /// sender as its subject: a walk they started on themselves.
     walk_bound_to_sender: bool,
@@ -66,11 +80,49 @@ impl TurnStanding {
     #[must_use]
     pub(crate) const fn files_on_sender(self) -> bool {
         match self.seat {
-            TurnSeat::Subject => true,
+            TurnSeat::Subject | TurnSeat::UnreachedThread => true,
             TurnSeat::Coach => self.walk_bound_to_sender,
             TurnSeat::AthleteThread => false,
         }
     }
+
+    /// Whether the turn answers a guided walk bound to its sender: an
+    /// interview about the sender alone, which reads no other member's card
+    /// (carnet#1511 design call 4).
+    #[must_use]
+    pub(crate) const fn walks_the_sender(self) -> bool {
+        self.walk_bound_to_sender
+    }
+
+    /// Whether what the turn said may be filed on its sender, once it ran.
+    ///
+    /// [`Self::files_on_sender`], and never on a turn that read another
+    /// member's data: a coach's read naming an athlete (`athlete=`), a
+    /// group member's activities, a quoted room message. That turn is about
+    /// the member, exactly as every turn in a coach's athlete thread is
+    /// (carnet#1070): filed on the sender, "her FTP is 250" would become the
+    /// sender's own fact, rendered into every later turn that reads their
+    /// dossier, a room's included (carnet#1422). Read from the turn's own
+    /// provenance, which every member read marks, and so does a history that
+    /// replays a member's rows: a follow-up restating an earlier read is
+    /// about that member too.
+    ///
+    /// A member read the room may already read counts too: room-visible data
+    /// relaxes only own-account writes, never fact extraction (carnet#1511
+    /// call 12, narrowed by JF 7106050048).
+    #[must_use]
+    pub(crate) fn files_on_sender_after_reads(self, sender: &str) -> bool {
+        self.files_on_sender() && !member_reads(sender).any
+    }
+}
+
+/// What the running turn read of members other than `sender`
+/// ([`coach_seat::MemberReads`]). A sender whose id does not parse is taken
+/// to have read one, so nothing is filed or written on them.
+pub(crate) fn member_reads(sender: &str) -> coach_seat::MemberReads {
+    Uuid::parse_str(sender).map_or(coach_seat::MemberReads::every_read(), |sender| {
+        coach_seat::MemberReads::of(ai_scope::current_provenance().as_ref(), sender)
+    })
 }
 
 /// The turn's standing in `conv`: the coach's seat of its group, a coach's
@@ -86,18 +138,62 @@ pub(crate) async fn turn_standing(
     input: &TurnInput,
 ) -> TurnStanding {
     let coach = coach_seat(repos, conv, input.conversation_tenant_id, &input.user_id).await;
-    let seat = match (coach, conv.subject()) {
-        (Some(_), _) => TurnSeat::Coach,
-        (None, Some(_)) => TurnSeat::AthleteThread,
-        (None, None) => TurnSeat::Subject,
+    let (seat, tools) = match (coach, conv.subject()) {
+        (Some(_), _) => (TurnSeat::Coach, TurnSeat::Coach),
+        (None, Some(subject)) => {
+            let acts_for_athlete = coaches_thread_athlete(repos, subject, &input.user_id).await;
+            (
+                TurnSeat::AthleteThread,
+                if acts_for_athlete {
+                    TurnSeat::AthleteThread
+                } else {
+                    TurnSeat::UnreachedThread
+                },
+            )
+        }
+        (None, None) => (TurnSeat::Subject, TurnSeat::Subject),
     };
     let walk_bound_to_sender = OnboardingState::from_column(conv.onboarding_state.as_deref())
         .and_then(|walk| walk.subject_user_id)
         .is_some_and(|subject| subject == input.user_id);
     TurnStanding {
         seat,
+        tools,
         coach,
+        readers: match parse_uuid(&input.user_id) {
+            Ok(sender) => TurnReaders::of_turn(repos, conv, input.is_direct_message, sender).await,
+            Err(_) => TurnReaders::Others,
+        },
         walk_bound_to_sender,
+    }
+}
+
+/// Whether `sender` may act for the athlete of the thread `subject` names
+/// on this turn: they hold live coach access to them and the athlete still
+/// shares with the group's coach ([`coached_athlete_access`]).
+///
+/// Without both, the turn's tools run on the coach's private seat, not the
+/// athlete's (carnet#1511 call 30, [`TurnSeat::UnreachedThread`]): no tool
+/// bound to the thread's athlete is offered, since every call would refuse, and the subject-thread stage still tells the coach why. A sender
+/// whose id does not parse, or gates that cannot be read, act for no one.
+async fn coaches_thread_athlete(
+    repos: &RepositoryRegistry,
+    subject: ConversationSubject,
+    sender: &str,
+) -> bool {
+    let Ok(sender) = parse_uuid(sender) else {
+        return false;
+    };
+    match coached_athlete_access(repos, sender, subject.athlete_user_id, subject.group_id).await {
+        Ok(access) => access.is_ok(),
+        Err(e) => {
+            warn!(
+                athlete = %subject.athlete_user_id,
+                error = %e,
+                "coach gates for an athlete thread could not be read; holding the coach's private seat"
+            );
+            false
+        }
     }
 }
 
@@ -139,9 +235,11 @@ impl CoachSeat {
 
 /// Whether `user_id` holds the coach's seat of `conv`'s group.
 ///
-/// The seat is the group's recorded human coach, or its owner when the owner is
-/// a coach: one holding `manages_roster`, or one who said at onboarding that
-/// they coach and do not train. A plain athlete who created a group with
+/// The seat is the group's recorded human coach while they hold coach access
+/// (the one coach rule, [`coaches_group`]: a coach whose access was taken
+/// back is a member here), or its owner when the owner is a coach: one
+/// holding `manages_roster`, or one who said at onboarding that they coach
+/// and do not train. A plain athlete who created a group with
 /// friends owns it too, and stays its subject.
 ///
 /// Every lookup failure degrades to `None` — the sender stays the subject,
@@ -176,12 +274,28 @@ async fn coach_seat(
     };
 
     if group.coach_user_id == Some(sender) {
-        return Some(seat);
+        return holds_coach_access(repos, sender, group_id)
+            .await
+            .then_some(seat);
     }
     let owns = members
         .iter()
         .any(|m| m.user_id == sender && m.role == GroupRole::Owner);
     (owns && is_coach(repos, sender, user_id).await).then_some(seat)
+}
+
+/// Whether the group's recorded coach `sender` still coaches it by the one
+/// coach rule, as the coach tools' gates and the listing's room class read
+/// it: a coach whose coach access was taken back reads the room as any
+/// member does, never from the coach's seat. A failed lookup answers `false`.
+async fn holds_coach_access(repos: &RepositoryRegistry, sender: Uuid, group_id: &str) -> bool {
+    match coaches_group(repos, sender, group_id).await {
+        Ok(holds) => holds,
+        Err(e) => {
+            warn!(group_id, error = %e, "coach access lookup failed; sender stays the turn's subject");
+            false
+        }
+    }
 }
 
 /// Whether the account coaches: the admin grant, or the coach-only answer
@@ -222,7 +336,9 @@ mod tests {
     fn standing(seat: TurnSeat, walk_bound_to_sender: bool) -> TurnStanding {
         TurnStanding {
             seat,
+            tools: seat,
             coach: None,
+            readers: TurnReaders::CallerAlone,
             walk_bound_to_sender,
         }
     }
