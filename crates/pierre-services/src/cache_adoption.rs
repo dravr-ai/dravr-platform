@@ -59,9 +59,10 @@ impl CacheKeyKind {
                 | SourceKey::CorosArchive
                 | SourceKey::WhoopArchive,
             ) => Self::Archive,
-            // A consent grant's log entries name it; no record is kept
-            // under it, so no cache row is one.
-            Ok(SourceKey::OAuthGrant) | Err(_) => Self::Unknown,
+            // A consent grant's log entries name it, and an outside client's
+            // proposals are kept apart from activities: no cache row is
+            // either.
+            Ok(SourceKey::OAuthGrant | SourceKey::AgentWrite) | Err(_) => Self::Unknown,
         }
     }
 }
@@ -332,6 +333,11 @@ mod tests {
             CacheKeyKind::of("oauth_grant"),
             CacheKeyKind::Unknown,
             "bug: a consent grant's log source is read as an archive and skipped"
+        );
+        assert_eq!(
+            CacheKeyKind::of("agent_write"),
+            CacheKeyKind::Unknown,
+            "bug: an agent's proposals are read as activities to adopt"
         );
     }
 

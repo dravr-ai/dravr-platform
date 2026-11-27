@@ -284,6 +284,9 @@ fn live_source(provider: &str) -> AppResult<LiveSource> {
         SourceKey::OAuthGrant => Err(AppError::invalid_input(format!(
             "{provider} is not an activity source: it names a consent grant's log entries"
         ))),
+        SourceKey::AgentWrite => Err(AppError::invalid_input(format!(
+            "{provider} is not an activity source: it names an outside client's proposals"
+        ))),
     }
 }
 
@@ -1144,6 +1147,13 @@ mod tests {
         assert!(
             grant.to_string().contains("not an activity source"),
             "bug: a consent grant's log source is not refused as a non-activity source: {grant}"
+        );
+        let proposals = live_source("agent_write").map(|_| ()).unwrap_err();
+        assert!(
+            proposals
+                .to_string()
+                .contains("an outside client's proposals"),
+            "bug: an agent's proposals are not refused as a non-activity source: {proposals}"
         );
     }
 

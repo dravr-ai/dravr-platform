@@ -106,9 +106,10 @@ source = "git-tag"
 # the tag barrage's manifest names. barrage also pins dravr-equilibre, whose diamond is owned by
 # dravr-enforme below; a barrage release has to pin the same equilibre tag as the
 # enforme the platform pins, or the duplicate gate refuses the bump.
-# Owl slice 4b (carnet#1544) pins barrage's unreleased feature/owl-finish-barrage
-# by rev (feature/owl-4b-presets with carnet#1550's re-key, merged with v0.35.2);
-# the pin returns to git-tag when JF releases barrage at consolidation.
+# Owl slice 4c (carnet#1544) pins barrage's unreleased worktree-owl-4c by rev
+# (feature/owl-finish-barrage, which carries slice 4b's presets, carnet#1550's
+# re-key and v0.35.2, plus slice 4c's agent writes); the pin returns to git-tag
+# when JF releases barrage at consolidation.
 [dravr-barrage]
 repo       = "dravr-barrage"
 source     = "git-rev"

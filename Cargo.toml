@@ -34,10 +34,11 @@ dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.1
 # Activity history: kept originals, archive imports and the one FIT decoder.
 # Its dravr-cageux pin is a companion of this one (see its satellites.toml
 # stanza): the two move in one commit or Cargo.lock holds two.
-# carnet#1544/#1550: pinned to a rev of barrage's unreleased feature/owl-finish-barrage
-# (feature/owl-4b-presets, which carries feature/owl-rekey-apple-main's re-key,
-# merged with v0.35.2) until consolidation swaps it to the next barrage tag.
-dravr-barrage = { git = "https://github.com/dravr-ai/dravr-barrage.git", rev = "8cd089daca43f2c7b5ed511aa2fc490a6ed89538", default-features = false }
+# carnet#1544/#1550: pinned to a rev of barrage's unreleased worktree-owl-4c
+# (feature/owl-finish-barrage, which carries the owl presets, the re-key and
+# v0.35.2, plus slice 4c's agent writes) until consolidation swaps it to the
+# next barrage tag.
+dravr-barrage = { git = "https://github.com/dravr-ai/dravr-barrage.git", rev = "59bb0a47d8b854aa0d9799fcc8c67ed8cd835fd6", default-features = false }
 
 # Notification transport.
 dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", tag = "v0.12.0" }

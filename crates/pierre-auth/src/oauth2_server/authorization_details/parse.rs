@@ -712,6 +712,30 @@ mod tests {
         assert_eq!(requested.from, None, "bug: a window nobody asked for");
     }
 
+    /// The summary streams barrage holds for agent writes have no reader
+    /// yet: a question cannot pick one, though owl's T0–T2 rule would allow it.
+    #[test]
+    fn a_one_off_question_cannot_pick_a_stream_only_agents_write() {
+        for name in [
+            "vitals.summary",
+            "reports.summary",
+            "medications.summary",
+            "conditions.summary",
+            "allergies.summary",
+            "immunizations.summary",
+            "procedures.summary",
+        ] {
+            assert!(
+                Stream::from_name(name).is_some(),
+                "bug: barrage does not name {name}"
+            );
+            assert_refused(
+                &json!([one_off(&json!({"streams": [{"name": name}]}))]),
+                "summary streams of tiers T0 to T2",
+            );
+        }
+    }
+
     #[test]
     fn a_one_off_question_must_name_streams_among_its_own() {
         let none = access(&json!({"selection_preset": "one_off_question"}));
