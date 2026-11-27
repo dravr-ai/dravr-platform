@@ -805,6 +805,7 @@ mod room_turn_facts_tenant_test;
 mod room_walk_e2e_test;
 mod roster_overview_tool_test;
 mod route_discovery_test;
+mod route_search_alert_test;
 mod routes_a2a_http_test;
 mod routes_admin_test;
 mod routes_api_keys_http_test;

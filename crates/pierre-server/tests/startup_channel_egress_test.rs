@@ -1780,12 +1780,14 @@ const SANCTIONED_CALLS: [OnlyIn; 18] = [
                   configuration",
     },
     // Route discovery, on the Overpass origin a configuration names: the
-    // tool hands it the context's, and the one offline suite a refused one.
+    // tool hands it the context's, and the two offline suites a refused one
+    // (the ranking tests, and the alert's log line pinned on a failed walk).
     OnlyIn {
         calls: &[concat!("RouteDiscoveryService::", "new")],
         sanctioned: &[
             ("pierre-tool-runtime/src/implementations/routes.rs", 1),
             ("pierre-server/tests/it/route_discovery_test.rs", 1),
+            ("pierre-server/tests/it/route_search_alert_test.rs", 1),
         ],
         instead: "`discover_routes`, which asks the Overpass origin the context's deployment \
                   configuration names",

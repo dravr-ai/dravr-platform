@@ -1,23 +1,34 @@
 // ABOUTME: Overpass API client for route discovery: the public instances, per-attempt timeouts,
-// ABOUTME: sequential failover with cooldowns, and a bounded, caller-readable failure
+// ABOUTME: hedged failover with cooldowns, and a bounded, caller-readable failure
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use pierre_core::constants::project::user_agent;
-use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use futures_util::stream::{FuturesUnordered, StreamExt};
+use pierre_core::errors::AppResult;
 use pierre_core::http_client::api_client as shared_client;
 use pierre_core::http_client::SharedHttpClient;
-use reqwest::header::USER_AGENT;
-use reqwest::{StatusCode, Url};
+use reqwest::Url;
 use std::collections::HashMap;
-use std::fmt;
 use std::sync::{LazyLock, RwLock};
 use std::time::{Duration, Instant};
+use tokio::select;
 use tokio::time::sleep;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
-/// Public Overpass instances, tried in order until one answers.
+mod attempt;
+mod hedge;
+mod unavailable;
+
+use attempt::{walk_outcomes, AttemptFailure};
+use hedge::{OVERPASS_CALM_HEDGE_DELAY, OVERPASS_HEDGE_DELAY};
+
+use unavailable::{
+    held_unavailable, hold_unavailable, WalkCause, OVERPASS_UNAVAILABLE_HOLD,
+    ROUTE_SEARCH_HELD_EVENT, ROUTE_SEARCH_UNAVAILABLE_EVENT,
+};
+
+/// Public Overpass instances, asked in order until one answers.
 ///
 /// One entry per independent backend. Each is a keyless, worldwide instance
 /// from the OSM wiki's public-instance table whose published policy admits
@@ -52,34 +63,28 @@ const INTERPRETER_PATH: &str = "/api/interpreter";
 /// so a smaller figure is admitted sooner on a loaded server, and it frees
 /// the slot once the client has given up anyway. Three-clause queries answer
 /// in 2-10s on a healthy instance (see the query-construction notes); the
-/// server is told to stop just before the client's attempt ends.
+/// last instance a walk asks still has this long and its queue wait before
+/// the walk's budget ends.
 pub(super) const OVERPASS_SERVER_TIMEOUT_SECS: u64 = 4;
 
-/// How long one request to one instance may take, end to end.
+/// Wall-clock budget for the whole walk over every instance.
 ///
-/// The server's `[timeout:N]` caps only the query's run time. A loaded
-/// instance first holds the request in its queue, and that wait counts here.
-/// Short on purpose (carnet#1665): on 2026-11-19 every public instance hung,
-/// and 38 s attempts (carnet#1121) cost the turn 78 s and its forecast. A
-/// saturated day now gets fewer Overpass answers, and the athlete's own loops
-/// answer instead. Shorter than the walk's budget, so a hung first instance
-/// leaves the next one an attempt.
+/// A hard ceiling: each attempt's timeout is what remains of it, so a tool
+/// call fails within this budget whatever the instances do, and the agent can
+/// tell the athlete instead of leaving the turn hanging. On 2026-11-19 every
+/// public instance hung, and 38 s attempts (carnet#1121) cost the turn 78 s
+/// and its forecast.
+///
+/// A few seconds (carnet#1665): the route search must leave the turn the
+/// time to read the forecast and sunset of the session it plans. Every
+/// instance asked runs until this budget ends, so the last one hedged in
+/// still has most of it; an instance that timed out, or was asked before the
+/// one that answered and was still silent, is cooled down, so the next call
+/// asks another one first.
 ///
 /// The per-request timeout set in `attempt` replaces, for this request, the
 /// shared client's timeout configured at startup (`API_CLIENT_TIMEOUT_SECS`):
 /// reqwest reads a request's own timeout before the client's.
-const OVERPASS_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// Wall-clock budget for the whole walk over every instance.
-///
-/// A hard ceiling: each attempt's timeout is clipped to what remains, so a
-/// tool call fails within this budget whatever the instances do, and the
-/// agent can tell the athlete instead of leaving the turn hanging.
-///
-/// A few seconds (carnet#1665): the route search must leave the turn the
-/// time to read the forecast and sunset of the session it plans. The first
-/// instance gets a whole attempt and the next what remains; an instance that
-/// timed out is cooled down, so the next call starts with another one.
 const OVERPASS_TOTAL_BUDGET: Duration = Duration::from_secs(8);
 
 /// Pause before the one retry an instance gets after a gateway error.
@@ -106,83 +111,26 @@ static ENDPOINT_COOLDOWNS: LazyLock<RwLock<HashMap<String, Instant>>> =
 /// The time limits a walk over the Overpass instances runs under.
 #[derive(Debug, Clone, Copy)]
 struct OverpassTiming {
-    attempt_timeout: Duration,
+    hedge_delay: Duration,
+    calm_hedge_delay: Duration,
     total_budget: Duration,
     retry_pause: Duration,
     cooldown: Duration,
+    unavailable_hold: Duration,
 }
 
 impl OverpassTiming {
     const PRODUCTION: Self = Self {
-        attempt_timeout: OVERPASS_ATTEMPT_TIMEOUT,
+        hedge_delay: OVERPASS_HEDGE_DELAY,
+        calm_hedge_delay: OVERPASS_CALM_HEDGE_DELAY,
         total_budget: OVERPASS_TOTAL_BUDGET,
         retry_pause: OVERPASS_RETRY_PAUSE,
         cooldown: OVERPASS_COOLDOWN,
+        unavailable_hold: OVERPASS_UNAVAILABLE_HOLD,
     };
 }
 
-/// Why one request to one Overpass instance produced no usable answer.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum AttemptFailure {
-    /// 502/503/504: the instance is up and its dispatcher is saturated.
-    /// Overpass answers this within seconds, so it earns one retry.
-    Busy(StatusCode),
-    /// 429: the instance asks us to back off.
-    RateLimited(StatusCode),
-    /// Any other unsuccessful status.
-    Rejected(StatusCode),
-    /// No complete answer within the attempt's timeout.
-    TimedOut(Duration),
-    /// The connection failed or broke off.
-    Network(String),
-    /// A 200 whose body is not an Overpass JSON response — free instances
-    /// answer an overload with an HTML error page.
-    Unparseable(String),
-}
-
-impl AttemptFailure {
-    /// Short label for the structured log field.
-    const fn kind(&self) -> &'static str {
-        match self {
-            Self::Busy(_) => "busy",
-            Self::RateLimited(_) => "rate_limited",
-            Self::Rejected(_) => "rejected",
-            Self::TimedOut(_) => "timeout",
-            Self::Network(_) => "network",
-            Self::Unparseable(_) => "unparseable",
-        }
-    }
-
-    /// Whether the instance gets a second attempt in the same walk.
-    const fn earns_retry(&self) -> bool {
-        matches!(self, Self::Busy(_))
-    }
-
-    /// Whether the instance moves to the back of the order for a while: it
-    /// cost a full timeout, is unreachable, or asked us to back off.
-    const fn cools_down(&self) -> bool {
-        matches!(
-            self,
-            Self::RateLimited(_) | Self::TimedOut(_) | Self::Network(_)
-        )
-    }
-}
-
-impl fmt::Display for AttemptFailure {
-    /// The reason as the agent reads it: no HTML, no URL, no stack.
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Busy(status) => write!(f, "busy (HTTP {})", status.as_u16()),
-            Self::RateLimited(status) => write!(f, "rate limited (HTTP {})", status.as_u16()),
-            Self::Rejected(status) => write!(f, "refused (HTTP {})", status.as_u16()),
-            Self::TimedOut(after) => write!(f, "no answer within {}s", after.as_secs()),
-            Self::Network(_) => f.write_str("connection failed"),
-            Self::Unparseable(_) => f.write_str("unreadable response"),
-        }
-    }
-}
-
-/// The host an endpoint URL names, for logs and the caller-facing error.
+/// The host an endpoint URL names, for the logs.
 fn endpoint_host(endpoint: &str) -> String {
     Url::parse(endpoint)
         .ok()
@@ -190,7 +138,7 @@ fn endpoint_host(endpoint: &str) -> String {
         .unwrap_or_else(|| endpoint.to_owned())
 }
 
-/// Endpoints in the order to try them: those out of cooldown first, then
+/// Endpoints in the order to ask them: those out of cooldown first, then
 /// those still cooling, each group in configured order. A cooling instance
 /// is demoted, never dropped — when every instance is cooling, all are
 /// still tried.
@@ -221,34 +169,6 @@ fn end_cooldown(endpoint: &str) {
     }
 }
 
-/// The error a caller sees when no instance answered: every attempt's
-/// reason, the instances never reached, and what the agent should do.
-fn all_endpoints_failed(
-    failures: &[(String, AttemptFailure)],
-    untried: &[String],
-    budget: Duration,
-) -> AppError {
-    let mut reasons: Vec<String> = failures
-        .iter()
-        .map(|(host, failure)| format!("{host}: {failure}"))
-        .collect();
-    reasons.extend(
-        untried
-            .iter()
-            .map(|host| format!("{host}: not tried, time budget spent")),
-    );
-    AppError::new(
-        ErrorCode::ExternalServiceUnavailable,
-        format!(
-            "Route search is temporarily unavailable: no public OpenStreetMap (Overpass) \
-             server returned routes within {}s ({}). Retry in a few minutes; do not suggest \
-             routes from memory.",
-            budget.as_secs(),
-            reasons.join("; ")
-        ),
-    )
-}
-
 /// Milliseconds since `since`, for a structured log field.
 fn elapsed_ms(since: Instant) -> u64 {
     u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX)
@@ -271,11 +191,18 @@ impl EndpointWalk {
             untried: Vec::new(),
         }
     }
+}
 
-    /// What is left of the budget.
-    fn remaining(&self) -> Duration {
-        self.budget.saturating_sub(self.started.elapsed())
-    }
+/// What one instance's turn in a walk came to.
+struct Lane<T> {
+    /// The instance's place in the walk's order.
+    index: usize,
+    /// The parsed answer, when it gave one.
+    answer: Option<T>,
+    /// Each failed attempt, with its host.
+    failures: Vec<(String, AttemptFailure)>,
+    /// Its host, when the budget was spent before it was asked.
+    untried: Option<String>,
 }
 
 /// The instances a client at `origin` walks: see [`OverpassClient::at`].
@@ -318,75 +245,153 @@ impl OverpassClient {
 
     /// Walk the instances until one answers with a body `parse` accepts.
     ///
-    /// Sequential, never parallel: the main instance's policy forbids
-    /// parallel requests, and racing every volunteer server on each tool
-    /// call would multiply the load that makes them fail. Each instance gets
-    /// one attempt, plus one retry after a gateway error. Every attempt's
-    /// timeout is clipped to the remaining budget, so the walk ends within
-    /// [`OverpassTiming::total_budget`] whatever the instances do. Each
-    /// failure is logged as a structured warning as it happens. A body
+    /// Hedged: the next instance is asked when the ones in flight have been
+    /// silent for the hedge ([`OverpassTiming::hedge_delay`] after a recent
+    /// failure, [`OverpassTiming::calm_hedge_delay`] otherwise), or at once
+    /// when one fails,
+    /// and the first accepted answer ends the walk, dropping the requests
+    /// still open. An instance never has two requests in flight (the main
+    /// instance's policy forbids parallel requests), and on a healthy day
+    /// the first answers before the hedge, so it is the only one asked.
+    /// Each instance gets one attempt, plus one retry after a gateway error.
+    /// Every attempt's timeout is what remains of the budget, so the walk
+    /// ends within [`OverpassTiming::total_budget`] whatever the instances
+    /// do. Each failure is logged as a structured warning as it happens. A body
     /// `parse` rejects — an HTML error page served with a 200 — counts as a
-    /// failure and the walk moves on.
+    /// failure and the walk moves on, as does a 200 whose `remark` says the
+    /// server stopped the query: its elements are partial, so never parsed.
     ///
     /// # Errors
     ///
-    /// [`ErrorCode::ExternalServiceUnavailable`] when no instance answers
-    /// within the budget, naming each instance and why it failed.
+    /// [`pierre_core::errors::ErrorCode::ExternalServiceUnavailable`] when no instance answers
+    /// within the budget, worded for the athlete: overloaded when every
+    /// instance said it was saturated, a plain failure otherwise. Each
+    /// instance and why it failed are in the warning logged with it. For
+    /// [`OverpassTiming::unavailable_hold`] after such a walk that asked every
+    /// instance, the same instances are not asked again and the same error
+    /// answers at once.
     pub(super) async fn fetch<T: Send>(
         &self,
         query: &str,
         parse: impl Fn(&str) -> AppResult<T> + Sync,
     ) -> AppResult<T> {
+        if let Some(cause) = held_unavailable(&self.endpoints, Instant::now()) {
+            info!(
+                event = ROUTE_SEARCH_HELD_EVENT,
+                cause = cause.label(),
+                "Route search still unavailable: the last walk found no instance answering moments ago"
+            );
+            return Err(cause.error());
+        }
         let mut walk = EndpointWalk::new(self.timing.total_budget);
-        let order: Vec<String> = {
+        let (order, hedge_delay) = {
             let cooldowns = ENDPOINT_COOLDOWNS
                 .read()
                 .map_or_default(|guard| guard.clone());
-            attempt_order(&self.endpoints, &cooldowns, walk.started)
+            let order: Vec<String> = attempt_order(&self.endpoints, &cooldowns, walk.started)
                 .into_iter()
                 .map(str::to_owned)
-                .collect()
+                .collect();
+            (order, self.hedge_delay(&cooldowns, walk.started))
         };
 
-        for endpoint in &order {
-            if let Some(parsed) = self.walk_endpoint(&mut walk, endpoint, query, &parse).await {
-                return Ok(parsed);
+        let deadline = walk.started + walk.budget;
+        // Each instance's turn, not yet started: a future runs only once the
+        // walk moves it into `lanes`.
+        let mut queued = order
+            .iter()
+            .enumerate()
+            .map(|(index, endpoint)| self.walk_endpoint(index, endpoint, query, &parse, deadline));
+        let mut finished = vec![false; order.len()];
+        let mut lanes = FuturesUnordered::new();
+        lanes.extend(queued.next());
+        loop {
+            select! {
+                // An answer ready at the same moment as the hedge wins: the
+                // hedge would otherwise ask one more instance for nothing.
+                biased;
+                done = lanes.next() => {
+                    let Some(lane) = done else { break };
+                    finished[lane.index] = true;
+                    if let Some(parsed) = lane.answer {
+                        // An instance asked earlier and still silent is as
+                        // slow as one that timed out: the next call asks the
+                        // one that answered first.
+                        for (index, endpoint) in order.iter().enumerate().take(lane.index) {
+                            if !finished[index] {
+                                start_cooldown(endpoint, self.timing.cooldown);
+                            }
+                        }
+                        return Ok(parsed);
+                    }
+                    walk.failures.extend(lane.failures);
+                    walk.untried.extend(lane.untried);
+                    lanes.extend(queued.next());
+                }
+                () = sleep(hedge_delay), if queued.len() > 0 => {
+                    lanes.extend(queued.next());
+                }
             }
         }
 
+        // The one line a log-based metric counts (route_search_monitoring.tf
+        // filters on its `event`); the per-host detail stays here.
+        let cause = WalkCause::of(&walk.failures);
         warn!(
+            event = ROUTE_SEARCH_UNAVAILABLE_EVENT,
+            cause = cause.label(),
             elapsed_ms = elapsed_ms(walk.started),
+            budget_ms = u64::try_from(walk.budget.as_millis()).unwrap_or(u64::MAX),
             attempts = walk.failures.len(),
             untried = walk.untried.len(),
-            "Every Overpass instance failed; route discovery unavailable"
+            outcomes = %walk_outcomes(&walk.failures, &walk.untried),
+            "Route search unavailable: no public Overpass instance answered"
         );
-        Err(all_endpoints_failed(
-            &walk.failures,
-            &walk.untried,
-            self.timing.total_budget,
-        ))
+        // Held only when every instance was asked: one the budget never
+        // reached is out of cooldown, so the next walk asks it first and a
+        // retry is not a repeat to the instances that just failed.
+        if walk.untried.is_empty() {
+            hold_unavailable(&self.endpoints, cause, self.timing.unavailable_hold);
+        }
+        Err(cause.error())
+    }
+
+    /// The hedge this walk runs under: see [`hedge::delay`].
+    fn hedge_delay(&self, cooldowns: &HashMap<String, Instant>, now: Instant) -> Duration {
+        let troubled = hedge::troubled(&self.endpoints, cooldowns, now, self.timing.cooldown);
+        hedge::delay(
+            troubled,
+            self.timing.hedge_delay,
+            self.timing.calm_hedge_delay,
+        )
     }
 
     /// Up to two attempts at one instance — the second only after a gateway
-    /// error — each clipped to what remains of the walk's budget. Every
-    /// failure is logged as it happens and recorded on `walk`.
+    /// error — each lasting at most until `deadline`. Every failure is logged
+    /// as it happens and recorded on the lane.
     async fn walk_endpoint<T: Send>(
         &self,
-        walk: &mut EndpointWalk,
+        index: usize,
         endpoint: &str,
         query: &str,
         parse: &(impl Fn(&str) -> AppResult<T> + Sync),
-    ) -> Option<T> {
+        deadline: Instant,
+    ) -> Lane<T> {
         let host = endpoint_host(endpoint);
+        let mut lane = Lane {
+            index,
+            answer: None,
+            failures: Vec::new(),
+            untried: None,
+        };
         for attempt in 1..=MAX_ATTEMPTS_PER_ENDPOINT {
-            let remaining = walk.remaining();
-            if remaining.is_zero() {
+            let timeout = deadline.saturating_duration_since(Instant::now());
+            if timeout.is_zero() {
                 if attempt == 1 {
-                    walk.untried.push(host);
+                    lane.untried = Some(host);
                 }
-                return None;
+                return lane;
             }
-            let timeout = remaining.min(self.timing.attempt_timeout);
             let attempt_started = Instant::now();
             let outcome = self
                 .attempt(endpoint, query, timeout)
@@ -403,7 +408,8 @@ impl OverpassClient {
                         elapsed_ms = elapsed_ms(attempt_started),
                         "Overpass instance answered"
                     );
-                    return Some(parsed);
+                    lane.answer = Some(parsed);
+                    return lane;
                 }
                 Err(failure) => failure,
             };
@@ -418,65 +424,24 @@ impl OverpassClient {
             if failure.cools_down() {
                 start_cooldown(endpoint, self.timing.cooldown);
             }
-            let retry = failure.earns_retry() && walk.remaining() > self.timing.retry_pause;
-            walk.failures.push((host.clone(), failure));
+            let retry = failure.earns_retry()
+                && deadline.saturating_duration_since(Instant::now()) > self.timing.retry_pause;
+            lane.failures.push((host.clone(), failure));
             if !retry {
-                return None;
+                return lane;
             }
             sleep(self.timing.retry_pause).await;
         }
-        None
-    }
-
-    /// One request to one instance, returning its raw body.
-    async fn attempt(
-        &self,
-        endpoint: &str,
-        query: &str,
-        timeout: Duration,
-    ) -> Result<String, AttemptFailure> {
-        debug!(endpoint, ?timeout, "Querying Overpass instance");
-
-        let response = self
-            .client
-            .post(endpoint)
-            .header(USER_AGENT, user_agent())
-            .timeout(timeout)
-            .form(&[("data", query)])
-            .send()
-            .await
-            .map_err(|e| {
-                if e.is_timeout() {
-                    AttemptFailure::TimedOut(timeout)
-                } else {
-                    AttemptFailure::Network(e.to_string())
-                }
-            })?;
-
-        let status = response.status();
-        if !status.is_success() {
-            return Err(match status {
-                StatusCode::TOO_MANY_REQUESTS => AttemptFailure::RateLimited(status),
-                StatusCode::BAD_GATEWAY
-                | StatusCode::SERVICE_UNAVAILABLE
-                | StatusCode::GATEWAY_TIMEOUT => AttemptFailure::Busy(status),
-                _ => AttemptFailure::Rejected(status),
-            });
-        }
-
-        response.text().await.map_err(|e| {
-            if e.is_timeout() {
-                AttemptFailure::TimedOut(timeout)
-            } else {
-                AttemptFailure::Network(e.to_string())
-            }
-        })
+        lane
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::attempt::cut_short_remark;
+    use super::unavailable::{ROUTE_SEARCH_FAILED, ROUTE_SEARCH_OVERLOADED};
     use super::*;
+    use pierre_core::errors::{AppError, ErrorCode};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -493,6 +458,8 @@ mod tests {
         Respond(u16, &'static str),
         /// Hold the connection open without answering.
         Hang,
+        /// Answer this status and body after this many milliseconds.
+        After(u64, u16, &'static str),
     }
 
     /// A local HTTP server playing one Overpass instance. `script` is the
@@ -526,19 +493,25 @@ mod tests {
     async fn serve(mut socket: TcpStream, reply: Reply) {
         read_request(&mut socket).await;
         match reply {
-            Reply::Respond(status, body) => {
-                let response = format!(
-                    "HTTP/1.1 {status} Stub\r\ncontent-type: application/json\r\n\
-                     content-length: {}\r\nconnection: close\r\n\r\n{body}",
-                    body.len()
-                );
-                // The stub has nobody to report a write failure to; each test
-                // asserts on what the client received.
-                if socket.write_all(response.as_bytes()).await.is_ok() {
-                    drop(socket.shutdown().await);
-                }
-            }
+            Reply::Respond(status, body) => respond(socket, status, body).await,
             Reply::Hang => sleep(Duration::from_secs(30)).await,
+            Reply::After(millis, status, body) => {
+                sleep(Duration::from_millis(millis)).await;
+                respond(socket, status, body).await;
+            }
+        }
+    }
+
+    async fn respond(mut socket: TcpStream, status: u16, body: &str) {
+        let response = format!(
+            "HTTP/1.1 {status} Stub\r\ncontent-type: application/json\r\n\
+             content-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        // The stub has nobody to report a write failure to; each test
+        // asserts on what the client received.
+        if socket.write_all(response.as_bytes()).await.is_ok() {
+            drop(socket.shutdown().await);
         }
     }
 
@@ -583,10 +556,12 @@ mod tests {
 
     /// Timing scaled down so a hung instance costs milliseconds.
     const FAST: OverpassTiming = OverpassTiming {
-        attempt_timeout: Duration::from_millis(400),
+        hedge_delay: Duration::from_millis(200),
+        calm_hedge_delay: Duration::from_millis(200),
         total_budget: Duration::from_secs(5),
         retry_pause: Duration::from_millis(10),
         cooldown: Duration::from_secs(300),
+        unavailable_hold: Duration::from_secs(300),
     };
 
     /// Elements in the first answer the walk accepts. The parser stands in
@@ -646,18 +621,15 @@ mod tests {
     }
 
     #[test]
-    fn production_attempts_leave_the_next_instance_a_turn() {
-        // The server is told to stop before the client gives up, and one
-        // attempt is shorter than the walk, so a hung first instance never
-        // spends the whole budget (carnet#1665 reversed carnet#1121's two
-        // full attempts: the walk is now bounded by a few seconds).
+    fn production_timing_leaves_the_last_instance_a_full_query() {
+        // Hung instances ahead of it hedge the last one in one delay apart,
+        // and it still has the server's whole query time before the walk's
+        // budget ends (carnet#1665 bounds the walk to a few seconds).
+        let hedges = u32::try_from(OVERPASS_ENDPOINTS.len() - 1).unwrap();
+        let last_window = OVERPASS_TOTAL_BUDGET.saturating_sub(OVERPASS_HEDGE_DELAY * hedges);
         assert!(
-            Duration::from_secs(OVERPASS_SERVER_TIMEOUT_SECS) < OVERPASS_ATTEMPT_TIMEOUT,
-            "bug: the server must be told to stop before the client gives up"
-        );
-        assert!(
-            OVERPASS_ATTEMPT_TIMEOUT + OVERPASS_RETRY_PAUSE < OVERPASS_TOTAL_BUDGET,
-            "bug: one attempt must leave the next instance part of the budget"
+            Duration::from_secs(OVERPASS_SERVER_TIMEOUT_SECS) < last_window,
+            "bug: the last instance asked must have the server's query time: {last_window:?}"
         );
     }
 
@@ -733,7 +705,7 @@ mod tests {
         let started = Instant::now();
         fetch(&service).await.unwrap();
         assert!(
-            started.elapsed() < FAST.attempt_timeout * 3,
+            started.elapsed() < FAST.hedge_delay * 3,
             "the hung instance held the walk for {:?}",
             started.elapsed()
         );
@@ -750,11 +722,15 @@ mod tests {
         let busy = StubInstance::start(vec![Reply::Respond(504, "<html>busy</html>")]).await;
         let hung = StubInstance::start(vec![Reply::Hang]).await;
         let unreached = StubInstance::start(vec![Reply::Respond(200, VALID_BODY)]).await;
+        // A hedge longer than the budget: the third instance is reached only
+        // once the second has spent it.
         let timing = OverpassTiming {
-            attempt_timeout: Duration::from_millis(300),
+            hedge_delay: Duration::from_secs(1),
+            calm_hedge_delay: Duration::from_secs(1),
             total_budget: Duration::from_millis(300),
             retry_pause: Duration::from_millis(10),
             cooldown: Duration::from_secs(300),
+            unavailable_hold: Duration::from_secs(300),
         };
 
         let started = Instant::now();
@@ -766,7 +742,7 @@ mod tests {
         assert_eq!(err.code, ErrorCode::ExternalServiceUnavailable);
         // The budget itself is pinned by `unreached` never being asked and by
         // the error naming it as not tried. This bound catches the walk that
-        // ignores its attempt timeout and waits on the hung instance forever;
+        // ignores its budget and waits on the hung instance forever;
         // a 250 ms margin also caught a loaded CI runner's scheduling jitter
         // (main, 3202e3d3d), so the margin is wide enough for a busy runner
         // and still far short of a hang.
@@ -781,17 +757,206 @@ mod tests {
             "no attempt starts once the budget is spent"
         );
         let message = err.to_string();
-        assert!(message.contains("busy (HTTP 504)"), "{message}");
-        assert!(message.contains("no answer within"), "{message}");
-        assert!(
-            message.contains("not tried, time budget spent"),
-            "{message}"
-        );
         assert!(
             message.contains("do not suggest routes from memory"),
             "{message}"
         );
         assert!(!message.contains("<html>"), "raw HTML leaked: {message}");
+        assert_athlete_facing(&message);
+        assert_eq!(
+            err.message, ROUTE_SEARCH_OVERLOADED,
+            "bug: busy and hung instances are the overloaded message"
+        );
+    }
+
+    /// What the athlete, and the model relaying it, may read when the route
+    /// search is unavailable: plain words about the public service, never a
+    /// host, a status code or a timing (carnet#1705).
+    fn assert_athlete_facing(message: &str) {
+        for technical in ["127.0.0.1", "HTTP", "within", "not tried", "s)", "Overpass"] {
+            assert!(
+                !message.contains(technical),
+                "bug: the athlete-facing message names {technical:?}: {message}"
+            );
+        }
+        assert!(
+            message.contains("OpenStreetMap"),
+            "bug: the message says what is down: {message}"
+        );
+        assert!(
+            message.contains("again later"),
+            "bug: the message says trying again later may work: {message}"
+        );
+    }
+
+    #[test]
+    fn both_unavailable_messages_are_athlete_facing() {
+        assert_athlete_facing(ROUTE_SEARCH_OVERLOADED);
+        assert_athlete_facing(ROUTE_SEARCH_FAILED);
+    }
+
+    // A 400 is our query refused: the athlete is not told the public service
+    // is overloaded.
+    #[tokio::test]
+    async fn a_refused_query_is_not_told_as_an_overload() {
+        let refusing = StubInstance::start(vec![Reply::Respond(400, "bad query")]).await;
+
+        let err = fetch(&service(&[&refusing], FAST))
+            .await
+            .expect_err("bug: a refused query lists no route");
+
+        assert_eq!(err.code, ErrorCode::ExternalServiceUnavailable);
+        assert_eq!(
+            err.message, ROUTE_SEARCH_FAILED,
+            "bug: a refused query is the plain failure, not an overload"
+        );
+        assert_eq!(refusing.hits(), 1, "bug: a 400 is never retried");
+    }
+
+    // An agent retrying within seconds gets the same answer without the
+    // saturated instances being asked again.
+    #[tokio::test]
+    async fn a_failed_walk_answers_the_next_search_without_asking_again() {
+        let busy = StubInstance::start(vec![Reply::Respond(504, "too busy")]).await;
+        let client = service(&[&busy], FAST);
+
+        let first = fetch(&client)
+            .await
+            .expect_err("bug: a busy instance answers");
+        assert_eq!(busy.hits(), 2, "a gateway error earns exactly one retry");
+        let second = fetch(&client)
+            .await
+            .expect_err("bug: the held failure answers the retry");
+
+        assert_eq!(
+            busy.hits(),
+            2,
+            "bug: a search within the hold asked the instance again"
+        );
+        assert_eq!(
+            second.message, first.message,
+            "bug: the held answer is the walk's own"
+        );
+        assert_eq!(second.code, ErrorCode::ExternalServiceUnavailable);
+    }
+
+    #[tokio::test]
+    async fn the_instances_are_asked_again_once_the_hold_ends() {
+        let recovering = StubInstance::start(vec![
+            Reply::Respond(504, "too busy"),
+            Reply::Respond(504, "too busy"),
+            Reply::Respond(200, VALID_BODY),
+        ])
+        .await;
+        let timing = OverpassTiming {
+            unavailable_hold: Duration::from_millis(50),
+            ..FAST
+        };
+        let client = service(&[&recovering], timing);
+
+        fetch(&client)
+            .await
+            .expect_err("bug: both attempts were busy");
+        sleep(Duration::from_millis(100)).await;
+        let elements = fetch(&client)
+            .await
+            .expect("bug: a recovered instance answers once the hold ends");
+
+        assert_eq!(elements, 1);
+        assert_eq!(recovering.hits(), 3, "bug: the hold outlived its length");
+    }
+
+    // A calm walk can spend its budget on hung instances before reaching the
+    // one answering (2026-11-27); holding it would keep the retry from it.
+    #[tokio::test]
+    async fn a_walk_that_left_an_instance_untried_is_not_held() {
+        let hung = StubInstance::start(vec![Reply::Hang]).await;
+        let answering = StubInstance::start(vec![Reply::Respond(200, VALID_BODY)]).await;
+        // A hedge longer than the budget: the first walk never asks the second.
+        let timing = OverpassTiming {
+            hedge_delay: Duration::from_secs(1),
+            calm_hedge_delay: Duration::from_secs(1),
+            total_budget: Duration::from_millis(300),
+            ..FAST
+        };
+        let client = service(&[&hung, &answering], timing);
+
+        fetch(&client)
+            .await
+            .expect_err("bug: the hung instance spent the budget");
+        let elements = fetch(&client)
+            .await
+            .expect("bug: the retry was held although an instance was never asked");
+
+        assert_eq!(elements, 1, "bug: the untried instance's answer is used");
+        assert_eq!(
+            (hung.hits(), answering.hits()),
+            (1, 1),
+            "bug: the retry asks the untried instance first, the hung one is cooling"
+        );
+    }
+
+    #[test]
+    fn only_a_runtime_error_remark_cuts_an_answer_short() {
+        assert!(cut_short_remark(TIMED_OUT_BODY).is_some());
+        assert!(cut_short_remark(OUT_OF_MEMORY_BODY).is_some());
+        assert_eq!(cut_short_remark(VALID_BODY), None);
+        assert_eq!(
+            cut_short_remark(r#"{"elements":[],"remark":"runtime remark: Timeout is 4"}"#),
+            None,
+            "bug: an informational remark is not a stopped query"
+        );
+        assert_eq!(cut_short_remark("<html>remark</html>"), None);
+    }
+
+    /// An Overpass answer the server cut short: a 200 whose elements are the
+    /// part it found before its `[timeout:N]` ran out.
+    const TIMED_OUT_BODY: &str = r#"{"version":0.6,"elements":[{"type":"way","id":1}],"remark":"runtime error: Query timed out in \"query\" at line 1 after 4 seconds."}"#;
+
+    /// An Overpass answer the server cut short when its memory ran out.
+    const OUT_OF_MEMORY_BODY: &str = r#"{"version":0.6,"elements":[],"remark":"runtime error: Query run out of memory using about 2048 MB of RAM."}"#;
+
+    /// A complete answer with two elements, told apart from a partial one.
+    const TWO_ELEMENTS_BODY: &str = r#"{"elements":[{"type":"way","id":1},{"type":"way","id":2}]}"#;
+
+    // An instance whose query ran out of time answers 200 with what it found
+    // so far and a runtime-error remark. That partial list is the instance's
+    // failure, never the area's routes: the walk asks the next instance.
+    #[tokio::test]
+    async fn a_partial_answer_the_server_cut_short_falls_through_to_the_next_instance() {
+        let cut_short = StubInstance::start(vec![Reply::Respond(200, TIMED_OUT_BODY)]).await;
+        let healthy = StubInstance::start(vec![Reply::Respond(200, TWO_ELEMENTS_BODY)]).await;
+
+        let elements = fetch(&service(&[&cut_short, &healthy], FAST))
+            .await
+            .expect("bug: the complete second answer is used");
+
+        assert_eq!(
+            elements, 2,
+            "bug: the partial answer of a timed-out query was used"
+        );
+        assert_eq!(cut_short.hits(), 1, "bug: a cut-short query is not retried");
+        assert_eq!(healthy.hits(), 1);
+    }
+
+    // Every instance cutting its query short is the route search being
+    // unavailable, never an empty area.
+    #[tokio::test]
+    async fn every_instance_cutting_its_query_short_is_the_unavailable_error() {
+        let timed_out = StubInstance::start(vec![Reply::Respond(200, TIMED_OUT_BODY)]).await;
+        let out_of_memory =
+            StubInstance::start(vec![Reply::Respond(200, OUT_OF_MEMORY_BODY)]).await;
+
+        let err = fetch(&service(&[&timed_out, &out_of_memory], FAST))
+            .await
+            .expect_err("bug: answers cut short by the server are not routes");
+
+        assert_eq!(
+            err.code,
+            ErrorCode::ExternalServiceUnavailable,
+            "bug: cut-short answers are the unavailable path, not no routes"
+        );
+        assert_athlete_facing(&err.to_string());
     }
 
     /// The bound carnet#1665 sets on the whole Overpass phase of one
@@ -854,9 +1019,160 @@ mod tests {
             elapsed < FAIL_FAST_CEILING,
             "bug: the walk took {elapsed:?}"
         );
+        assert_athlete_facing(&err.to_string());
+    }
+
+    // 2026-11-27: overpass-api.de and overpass.private.coffee hung while
+    // maps.mail.ru answered in 5-7 s. The walk gave each instance 5 s in
+    // turn, so the instance that answered was never asked. Once a failure
+    // has been seen (the first walk of an outage on a calm process), the
+    // walk hedges at 1 s, and the slow third instance is asked at about 2 s
+    // and its answer used.
+    #[tokio::test]
+    async fn a_slow_third_instance_answers_while_the_first_two_hang() {
+        let first = StubInstance::start(vec![Reply::Hang]).await;
+        let second = StubInstance::start(vec![Reply::Hang]).await;
+        let slow = StubInstance::start(vec![Reply::After(5_000, 200, VALID_BODY)]).await;
+        let failed = StubInstance::start(vec![Reply::Hang]).await;
+        start_cooldown(&failed.endpoint, OVERPASS_COOLDOWN);
+
+        let (outcome, elapsed) = production_walk(&[&first, &second, &slow, &failed]).await;
+
+        let elements = outcome
+            .unwrap_or_else(|| panic!("bug: the walk overran {FAIL_FAST_CEILING:?}"))
+            .expect("bug: the slow third instance answered within the budget");
+        assert_eq!(elements, 1, "bug: the slow instance's answer is used");
         assert!(
-            err.to_string().contains("no answer within"),
-            "bug: the error names the timeout: {err}"
+            elapsed < OVERPASS_TOTAL_BUDGET,
+            "bug: the walk outlasted its budget: {elapsed:?}"
         );
+        assert_eq!(
+            (first.hits(), second.hits(), slow.hits(), failed.hits()),
+            (1, 1, 1, 1),
+            "bug: each instance is asked once, the cooling one last"
+        );
+    }
+
+    // A hedge, not a race: an instance answering within the hedge delay is
+    // the only one asked.
+    #[tokio::test]
+    async fn a_prompt_first_answer_asks_no_other_instance() {
+        let prompt = StubInstance::start(vec![Reply::After(50, 200, VALID_BODY)]).await;
+        let spare = StubInstance::start(vec![Reply::Respond(200, VALID_BODY)]).await;
+
+        fetch(&service(&[&prompt, &spare], FAST)).await.unwrap();
+
+        assert_eq!(prompt.hits(), 1);
+        assert_eq!(spare.hits(), 0, "bug: a prompt answer still hedged");
+    }
+
+    // A failure, unlike silence, asks the next instance at once: with a hedge
+    // as long as the budget, the walk would otherwise wait it out.
+    #[tokio::test]
+    async fn a_failure_asks_the_next_instance_without_waiting_for_the_hedge() {
+        let refused = StubInstance::start(vec![Reply::Respond(400, "bad query")]).await;
+        let healthy = StubInstance::start(vec![Reply::Respond(200, VALID_BODY)]).await;
+        let timing = OverpassTiming {
+            hedge_delay: Duration::from_secs(5),
+            calm_hedge_delay: Duration::from_secs(5),
+            ..FAST
+        };
+
+        let started = Instant::now();
+        let elements = fetch(&service(&[&refused, &healthy], timing))
+            .await
+            .expect("bug: the instance after a refusal answers");
+        let elapsed = started.elapsed();
+
+        assert_eq!(elements, 1, "bug: the healthy instance's answer is used");
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "bug: a failed instance waited out the hedge: {elapsed:?}"
+        );
+        assert_eq!(
+            (refused.hits(), healthy.hits()),
+            (1, 1),
+            "bug: each instance is asked once"
+        );
+    }
+
+    // The first complete answer wins, not the first instance asked: a hedged
+    // instance answering while the first is still silent is the one used,
+    // and the silent first one is cooled down for the next call.
+    #[tokio::test]
+    async fn the_first_complete_answer_wins_and_the_silent_loser_cools_down() {
+        let slow = StubInstance::start(vec![Reply::After(1_500, 200, TWO_ELEMENTS_BODY)]).await;
+        let quick = StubInstance::start(vec![Reply::Respond(200, VALID_BODY)]).await;
+        let service = service(&[&slow, &quick], FAST);
+
+        let elements = fetch(&service)
+            .await
+            .expect("bug: the hedged answer is used");
+        assert_eq!(
+            elements, 1,
+            "bug: the walk waited for the first instance instead of the first answer"
+        );
+        assert_eq!(
+            (slow.hits(), quick.hits()),
+            (1, 1),
+            "bug: each instance is asked once"
+        );
+
+        fetch(&service).await.expect("bug: the second call answers");
+        assert_eq!(
+            (slow.hits(), quick.hits()),
+            (1, 2),
+            "bug: the instance still silent when another answered was asked first again"
+        );
+    }
+
+    // A calm day: no instance failed lately, so the main instance gets the
+    // calm hedge to answer alone and the mirrors are not asked.
+    #[tokio::test]
+    async fn a_calm_walk_lets_the_first_instance_answer_alone() {
+        let main = StubInstance::start(vec![Reply::After(400, 200, VALID_BODY)]).await;
+        let mirror = StubInstance::start(vec![Reply::Respond(200, VALID_BODY)]).await;
+        let timing = OverpassTiming {
+            hedge_delay: Duration::from_millis(100),
+            calm_hedge_delay: Duration::from_secs(2),
+            ..FAST
+        };
+
+        fetch(&service(&[&main, &mirror], timing)).await.unwrap();
+
+        assert_eq!(
+            (main.hits(), mirror.hits()),
+            (1, 0),
+            "bug: a calm walk asked a mirror while the main instance was answering"
+        );
+    }
+
+    // Once an instance of the client has failed, the walk hedges at the
+    // short delay: the mirror is asked while the main instance is silent.
+    #[tokio::test]
+    async fn after_a_failure_the_walk_hedges_sooner() {
+        let main = StubInstance::start(vec![Reply::After(1_500, 200, TWO_ELEMENTS_BODY)]).await;
+        let mirror = StubInstance::start(vec![Reply::Respond(200, VALID_BODY)]).await;
+        let failed = StubInstance::start(vec![Reply::Hang]).await;
+        let timing = OverpassTiming {
+            hedge_delay: Duration::from_millis(100),
+            calm_hedge_delay: Duration::from_secs(4),
+            ..FAST
+        };
+        // A failure of the client's third instance moments ago.
+        start_cooldown(&failed.endpoint, timing.cooldown);
+
+        let started = Instant::now();
+        let elements = fetch(&service(&[&main, &mirror, &failed], timing))
+            .await
+            .unwrap();
+        let elapsed = started.elapsed();
+
+        assert_eq!(elements, 1, "bug: the mirror's answer is used");
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "bug: a walk after a failure waited out the calm hedge: {elapsed:?}"
+        );
+        assert_eq!(failed.hits(), 0, "bug: the cooling instance was asked");
     }
 }

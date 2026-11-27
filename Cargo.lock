@@ -4265,6 +4265,7 @@ dependencies = [
  "dravr-cageux",
  "dravr-meteo",
  "dravr-tronc",
+ "futures-util",
  "hex",
  "pierre-core",
  "pierre-database",

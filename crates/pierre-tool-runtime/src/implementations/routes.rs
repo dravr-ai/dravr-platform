@@ -431,9 +431,10 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
                 own_loops::search(state, &tenant, user_id, &search).await
             };
             let (walk, loops) = future::join(walk, loops).await;
-            let (routes, osm_unavailable) = own_loops::settle_walk(walk, !loops.is_empty())?;
-
+            // The loops the store refuses are dropped first: whether any loop
+            // answers instead of the walk is whether one is listed.
             let mut listed = own_loops::entries(state, tenant_id, user_id, &sport, loops).await;
+            let (routes, osm_unavailable) = own_loops::settle_walk(walk, !listed.is_empty())?;
             let own_count = listed.len();
             let drawable = store_drawable_routes(state.cache(), tenant_id, user_id, &routes).await;
             listed.extend(

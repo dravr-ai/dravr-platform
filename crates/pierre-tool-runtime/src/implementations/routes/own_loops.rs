@@ -39,6 +39,14 @@ pub(super) const OWN_LOOPS_SOURCE: &str = "your_rides";
 /// athlete's device recorded.
 const RECORDED_DISTANCE: &str = "recorded";
 
+/// What goes after the walk's reason when the athlete's own loops answer
+/// instead: the list is theirs alone, so it is not every route around.
+const ONLY_OWN_LOOPS: &str = "The routes listed are only the athlete's own loops.";
+
+/// What goes after the walk's reason when no loop of the athlete's answers
+/// either: the empty list is the search being down, not an empty area.
+const NO_OWN_LOOP_EITHER: &str = "none of the athlete's own loops could be listed here either.";
+
 /// What a model reads when the walk failed and no loop of the athlete's
 /// answers instead: the session can still be planned, and its weather read.
 const PLAN_WITHOUT_A_ROUTE: &str = "Plan the session without a named route, and still read its \
@@ -92,6 +100,9 @@ pub(super) async fn search(
 /// The OpenStreetMap routes to list, and the reason the walk failed when it
 /// did and the athlete's own loops answer instead.
 ///
+/// The walk's reason is worded for the athlete, and this adds what the list
+/// still holds. The per-instance detail is in the walk's own log line.
+///
 /// # Errors
 ///
 /// The walk's error when no own loop answers, with what to do next added; any
@@ -104,11 +115,17 @@ pub(super) fn settle_walk(
         Ok(routes) => Ok((routes, None)),
         Err(error) if error.code == ErrorCode::ExternalServiceUnavailable => {
             if loops_found {
-                Ok((Vec::new(), Some(error.message)))
+                Ok((
+                    Vec::new(),
+                    Some(format!("{} {ONLY_OWN_LOOPS}", error.message)),
+                ))
             } else {
                 Err(AppError::new(
                     error.code,
-                    format!("{} {PLAN_WITHOUT_A_ROUTE}", error.message),
+                    format!(
+                        "{} For now, {NO_OWN_LOOP_EITHER} {PLAN_WITHOUT_A_ROUTE}",
+                        error.message
+                    ),
                 ))
             }
         }
@@ -203,9 +220,9 @@ mod tests {
     fn walk_failed() -> AppError {
         AppError::new(
             ErrorCode::ExternalServiceUnavailable,
-            "Route search is temporarily unavailable: no public OpenStreetMap (Overpass) server \
-             returned routes within 8s (overpass-api.de: no answer within 5s). Retry in a few \
-             minutes; do not suggest routes from memory.",
+            "The public OpenStreetMap route search is overloaded and not answering right now, so \
+             no map route could be listed. Trying again later may work; do not suggest routes \
+             from memory.",
         )
     }
 
@@ -219,10 +236,14 @@ mod tests {
             routes.is_empty(),
             "bug: a failed walk lists no OpenStreetMap route"
         );
-        assert_eq!(
-            unavailable.as_deref(),
-            Some(walk_failed().message.as_str()),
-            "bug: the walk's reason goes with the loops"
+        let reason = unavailable.expect("bug: the walk's reason goes with the loops");
+        assert!(
+            reason.starts_with(walk_failed().message.as_str()),
+            "bug: the walk's reason goes with the loops: {reason}"
+        );
+        assert!(
+            reason.contains("only the athlete's own loops"),
+            "bug: the reason says the list holds only the athlete's own loops: {reason}"
         );
     }
 
@@ -239,6 +260,11 @@ mod tests {
             error.message.contains("do not suggest routes from memory")
                 && error.message.contains("get_weather_forecast"),
             "bug: the error keeps the walk's reason and asks for the forecast: {}",
+            error.message
+        );
+        assert!(
+            error.message.contains("none of the athlete's own loops"),
+            "bug: the error says no loop of the athlete's is listed either: {}",
             error.message
         );
     }

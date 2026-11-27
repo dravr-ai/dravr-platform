@@ -35,8 +35,11 @@ hex = "0.4"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 # Fresh ids for places no previous place passes its id to.
 uuid = { version = "1.29", features = ["v4"] }
-# Paces the one retry an Overpass instance gets after a gateway error.
-tokio = { version = "1.54", features = ["time"] }
+# Paces the one retry an Overpass instance gets after a gateway error, and
+# hedges the next instance while one is silent.
+tokio = { version = "1.54", features = ["macros", "time"] }
+# Holds the Overpass instances asked at once in one walk, first answer wins.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 tokio = { version = "1.54", features = ["macros", "rt", "net", "io-util", "time"] }
