@@ -379,7 +379,7 @@ fn outline<'a>(
     source_conversation_id: Option<&'a str>,
 ) -> PlanOutlineInput<'a> {
     PlanOutlineInput {
-        goal_race: race,
+        goal_race: Some(race),
         races: None,
         strategy,
         flavour: None,

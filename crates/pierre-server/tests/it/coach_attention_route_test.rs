@@ -514,7 +514,7 @@ mod coach_attention_route_tests {
                 author: PlanAuthor::none(),
                 goal_fact_id: None,
                 outline: Some(PlanOutlineInput {
-                    goal_race: &goal,
+                    goal_race: Some(&goal),
                     races: Some(&[]),
                     strategy: "base first",
                     phases: &phases,

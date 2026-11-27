@@ -195,7 +195,7 @@ async fn lay_season(
             goal_fact_id: None,
             replace_season: false,
             outline: Some(PlanOutlineInput {
-                goal_race: &race,
+                goal_race: Some(&race),
                 races: Some(&[]),
                 strategy: "long runs grow, then taper",
                 flavour: None,

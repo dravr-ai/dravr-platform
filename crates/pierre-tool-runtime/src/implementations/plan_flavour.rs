@@ -657,8 +657,9 @@ impl RecommendPlanFlavourTool {
             // external caller (carnet#769).
             .filter(|plan| ai_scope::admit_derived(plan.transport_policy));
         let goal = plan.as_ref().and_then(|p| {
-            let ec = event_class_from_discipline(&p.goal_race.discipline)?;
-            let date = parse_plan_date(&p.goal_race.date)?;
+            let race = p.goal_race.as_ref()?;
+            let ec = event_class_from_discipline(&race.discipline)?;
+            let date = parse_plan_date(&race.date)?;
             Some((ec, date))
         });
 

@@ -162,7 +162,7 @@ impl Accounts {
             .iter()
             .flat_map(|week| week.days.iter().map(|day| day.workout.clone()))
             .collect();
-        (plan.goal_race.name, sessions)
+        (plan.goal_race.unwrap().name, sessions)
     }
 }
 

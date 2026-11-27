@@ -175,7 +175,7 @@ async fn save_plan(resources: &Arc<ServerContext>, athlete: &Athlete) {
             goal_fact_id: None,
             replace_season: false,
             outline: Some(PlanOutlineInput {
-                goal_race: &goal,
+                goal_race: Some(&goal),
                 races: Some(&[]),
                 strategy: "rebuild volume then sharpen",
                 phases: &phases,

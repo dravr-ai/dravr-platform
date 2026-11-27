@@ -453,10 +453,10 @@ pub(super) struct SubjectPlanHistoryResponse {
 #[derive(Debug, Serialize)]
 pub(super) struct PlanChangeEventResponse {
     /// What kind of change: `day_edit`, `day_add`, `day_remove`,
-    /// `day_restore`, `date_revert`, `coach_call`, `agent_draft`, `publish`
-    /// or `discard`.
+    /// `day_restore`, `day_move`, `date_revert`, `coach_call`,
+    /// `agent_draft`, `publish` or `discard`.
     pub kind: &'static str,
-    /// Who made it: `coach` or `agent`.
+    /// Who made it: `coach`, `agent`, or `athlete` on their own plan.
     pub source: &'static str,
     /// The dates it touched, `YYYY-MM-DD`, ascending; empty for a change
     /// that names none (a discard, an outline re-laid alone).
@@ -642,6 +642,16 @@ pub(super) struct CoachCallRequest {
     pub on: bool,
     /// Session n as the card showed it.
     pub expect: SessionExpect,
+}
+
+/// `POST /api/me/plan/days/{date}/{n}/move` body: session n as the client
+/// last saw it, and the date it moves to (carnet#1841).
+#[derive(Debug, Deserialize)]
+pub(super) struct MoveSessionRequest {
+    /// Session n as the card showed it.
+    pub expect: SessionExpect,
+    /// The date it moves to, `YYYY-MM-DD`.
+    pub to_date: String,
 }
 
 /// `POST …/subject-plan/draft/days/{date}/sessions` body: exactly one of

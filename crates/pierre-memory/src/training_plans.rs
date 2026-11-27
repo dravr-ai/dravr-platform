@@ -649,8 +649,10 @@ pub struct TrainingPlan {
     /// living goal; this plan snapshots it. A superseded fact flags the plan
     /// stale on read.
     pub goal_fact_id: Option<String>,
-    /// Snapshot of the goal race taken at plan time.
-    pub goal_race: GoalRace,
+    /// Snapshot of the goal race taken at plan time; `None` for a season the
+    /// athlete started by adding a session, before any race was set
+    /// (carnet#1841). Stored as JSON `null`.
+    pub goal_race: Option<GoalRace>,
     /// The rest of the race calendar beside [`Self::goal_race`]. An entry
     /// at [`RacePriority::A`] is a second peak the season is laid on, with
     /// a transition between the two blocks; B and C entries are context.

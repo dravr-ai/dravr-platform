@@ -284,17 +284,28 @@ pub fn render_training_plan_block(
         });
     }
 
-    // Goal line with countdown when the race date parses.
-    let countdown = parse_plan_date(&plan.goal_race.date)
-        .map(|race| (race - today).num_days())
-        .map_or_else(String::new, |d| format!(" — {d} days out"));
-    let _ = writeln!(
-        out,
-        "Goal race: {} ({}) on {}{countdown}",
-        sanitize_prompt_field(&plan.goal_race.name, MAX_FIELD_LEN),
-        sanitize_prompt_field(&plan.goal_race.discipline, MAX_FIELD_LEN),
-        plan.goal_race.date
-    );
+    // Goal line with countdown when the race date parses; a season the
+    // athlete started by adding a session has no race yet (carnet#1841).
+    match plan.goal_race.as_ref() {
+        Some(race) => {
+            let countdown = parse_plan_date(&race.date)
+                .map(|day| (day - today).num_days())
+                .map_or_else(String::new, |d| format!(" — {d} days out"));
+            let _ = writeln!(
+                out,
+                "Goal race: {} ({}) on {}{countdown}",
+                sanitize_prompt_field(&race.name, MAX_FIELD_LEN),
+                sanitize_prompt_field(&race.discipline, MAX_FIELD_LEN),
+                race.date
+            );
+        }
+        None => {
+            let _ = writeln!(
+                out,
+                "Goal race: none yet — the athlete started this plan with no race."
+            );
+        }
+    }
     // Only races still ahead. The calendar now survives a re-save that says
     // nothing about it, which is what an athlete wants and also means a race
     // stays on the plan after it is run — presenting last spring's B races to

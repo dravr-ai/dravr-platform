@@ -396,7 +396,7 @@ pub(crate) async fn live_plan(
             goal_fact_id: None,
             replace_season: false,
             outline: Some(PlanOutlineInput {
-                goal_race: goal,
+                goal_race: Some(goal),
                 races: Some(races),
                 strategy: "the season's strategy",
                 phases,
@@ -459,7 +459,7 @@ pub(crate) async fn plan_with_days(
             goal_fact_id: None,
             replace_season: false,
             outline: Some(PlanOutlineInput {
-                goal_race: &goal,
+                goal_race: Some(&goal),
                 races: Some(&[]),
                 strategy: "the season's strategy",
                 phases: &phases,

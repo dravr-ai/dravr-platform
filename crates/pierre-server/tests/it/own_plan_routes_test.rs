@@ -1,5 +1,5 @@
 // ABOUTME: /api/me/plan — the athlete's own plan as their Plan tab reads it: live, their agent's proposals, what « Envoyer » would send
-// ABOUTME: Pins the read's shape, the move pairing, the pending send per key and its reasons, the families, the preview and the own history
+// ABOUTME: Pins the read, move pairing, pending send, families, preview, history, and the live day writes with the overlay rebase
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -21,6 +21,7 @@ use std::sync::Arc;
 use axum::http::StatusCode;
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
+use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers::INTERVALS_ICU;
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken, API_KEY_TOKEN_TYPE};
@@ -36,6 +37,8 @@ use pierre_mcp_server::routes::chat::ChatRoutes;
 use pierre_memory::training_plans::{GoalRace, PlannedDay, RacePriority};
 use pierre_services::coach_plan_draft::CoachDraftTarget;
 use pierre_services::plan_change_history::{record_plan_change, PlanChange};
+use pierre_tool_runtime::implementations::training_plans::GetTrainingPlanTool;
+use pierre_tool_runtime::runtime::ToolRuntime;
 use secrecy::SecretString;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -142,7 +145,7 @@ impl Fixture {
                 author: PlanAuthor::agent(AGENT),
                 goal_fact_id: None,
                 outline: Some(PlanOutlineInput {
-                    goal_race: &race,
+                    goal_race: Some(&race),
                     races: Some(&[]),
                     strategy: "build to the marathon",
                     flavour: None,
@@ -231,6 +234,112 @@ impl Fixture {
             .await
             .unwrap();
     }
+
+    /// A write on the athlete's own plan, answered with the plan after it.
+    async fn write(&self, request: AxumTestRequest) -> (StatusCode, Value) {
+        self.request(request).await
+    }
+
+    async fn add(&self, date: &str, body: Value) -> (StatusCode, Value) {
+        self.write(
+            AxumTestRequest::post(&format!("/api/me/plan/days/{date}/sessions?locale=en"))
+                .json(&body),
+        )
+        .await
+    }
+
+    async fn day_post(&self, date: &str, n: u32, action: &str, body: Value) -> (StatusCode, Value) {
+        self.write(
+            AxumTestRequest::post(&format!("/api/me/plan/days/{date}/{n}/{action}")).json(&body),
+        )
+        .await
+    }
+
+    async fn hand(&self, date: &str, n: u32, body: Value) -> (StatusCode, Value) {
+        self.write(
+            AxumTestRequest::put(&format!("/api/me/plan/days/{date}/{n}/session")).json(&body),
+        )
+        .await
+    }
+
+    /// `get_training_plan` as the athlete's agent calls it, outside a chat.
+    async fn agent_reads_the_plan(&self) -> Value {
+        let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&self.res);
+        let ctx = ToolContext::new()
+            .with_user(self.athlete.id.to_string())
+            .with_tenant(self.athlete.tenant.to_string())
+            .with_auth_method("jwt_bearer");
+        GetTrainingPlanTool
+            .execute(&runtime, &ctx, json!({}))
+            .await
+            .structured_content
+            .expect("the read carries structured content")
+    }
+
+    /// The athlete's live weeks, as stored.
+    async fn live_weeks(&self) -> Vec<pierre_memory::training_plans::PlanWeek> {
+        let tenant = self.athlete.tenant.to_string();
+        let user = self.athlete.id.to_string();
+        let repos = self.repos();
+        let plan = repos
+            .training_plans
+            .get_active_plan(&tenant, &user)
+            .await
+            .unwrap()
+            .unwrap();
+        repos
+            .training_plans
+            .list_plan_weeks(&tenant, &user, &plan.id, false)
+            .await
+            .unwrap()
+    }
+
+    async fn history_kinds(&self) -> Vec<(String, String)> {
+        let (status, body) = self
+            .request(AxumTestRequest::get("/api/me/plan/history"))
+            .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        body["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|event| {
+                (
+                    event["kind"].as_str().unwrap().to_owned(),
+                    event["source"].as_str().unwrap().to_owned(),
+                )
+            })
+            .collect()
+    }
+}
+
+/// The workouts the live plan card shows on `date`, in order.
+fn live_on(body: &Value, date: &str) -> Vec<String> {
+    on_card(&body["live"], date)
+}
+
+fn on_card(card: &Value, date: &str) -> Vec<String> {
+    card["weeks"]
+        .as_array()
+        .map(|weeks| {
+            weeks
+                .iter()
+                .flat_map(|week| week["days"].as_array().cloned().unwrap_or_default())
+                .filter(|day| day["date"] == date)
+                .map(|day| day["workout"].as_str().unwrap_or_default().to_owned())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn expect(workout: &str) -> Value {
+    json!({ "sport": "run", "workout": workout })
+}
+
+fn easy(workout: &str) -> Value {
+    json!({ "day": {
+        "rest": false, "sport": "run", "workout": workout, "duration_min": 40, "intensity": "Z2",
+    } })
 }
 
 fn dates(value: &Value) -> Vec<String> {
@@ -440,4 +549,257 @@ async fn the_families_and_a_preview_answer_on_the_athletes_own_plan() {
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}");
     assert_eq!(refused["details"]["reason"], "invalid_date", "{refused}");
+}
+
+#[tokio::test]
+async fn the_first_session_added_starts_a_season_with_no_race() {
+    let fx = Fixture::new().await;
+    let (status, body) = fx.add(&on(2), easy("Easy 40")).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(
+        body["live"]["goal_race"].is_null(),
+        "bug: a season the athlete starts with a session names no race: {body}"
+    );
+    assert_eq!(
+        live_on(&body, &on(2)),
+        ["Easy 40"],
+        "bug: the added session is on the live plan at once: {body}"
+    );
+    assert!(
+        body["draft"].is_null() && body["proposed_dates"] == json!([]),
+        "bug: the athlete's own add is live, never proposed: {body}"
+    );
+    let added = body["live"]["weeks"][0]["days"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|day| day["date"] == on(2))
+        .unwrap();
+    assert_eq!(
+        added["added"], true,
+        "bug: a session the athlete added is marked so, for Annuler: {body}"
+    );
+    assert_eq!(
+        fx.history_kinds().await,
+        [("day_add".to_owned(), "athlete".to_owned())],
+        "bug: the add is recorded as the athlete's own"
+    );
+
+    // A second add on another date of the same week lands in that week.
+    let (status, body) = fx.add(&on(4), easy("Long 90")).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(live_on(&body, &on(4)), ["Long 90"], "{body}");
+    assert_eq!(live_on(&body, &on(2)), ["Easy 40"], "{body}");
+
+    // Nothing is added before the athlete's today.
+    let yesterday = (Timestamp::now().utc_date() - Elapsed::days(2)).to_string();
+    let (status, refused) = fx.add(&yesterday, easy("Too late")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
+    assert_eq!(refused["details"]["reason"], "past_date", "{refused}");
+
+    // The season is stored with no race, the athlete's mark on the day they
+    // added; the agent's read of the plan carries none of the marks.
+    let weeks = fx.live_weeks().await;
+    assert!(
+        weeks[0].days.iter().any(|day| day.coach_added),
+        "fixture: the athlete's add is marked on the stored day"
+    );
+    let read = fx.agent_reads_the_plan().await;
+    assert!(
+        read["plan"]["goal_race"].is_null(),
+        "bug: the agent reads a season with no race as one: {read}"
+    );
+    let days: Vec<&Value> = read["weeks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|week| week["days"].as_array().unwrap())
+        .collect();
+    assert!(
+        !days.is_empty() && days.iter().all(|day| day.get("coach_added").is_none()),
+        "bug: the athlete's editor marks reached the agent's read: {read}"
+    );
+}
+
+#[tokio::test]
+async fn a_move_lands_live_in_one_write_and_each_refusal_writes_nothing() {
+    let fx = Fixture::new().await;
+    fx.lay_season(&live_week()).await;
+
+    let (status, body) = fx
+        .day_post(
+            &on(1),
+            0,
+            "move",
+            json!({ "expect": expect("Tempo 40"), "to_date": on(3) }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(live_on(&body, &on(1)).is_empty(), "{body}");
+    assert_eq!(
+        live_on(&body, &on(3)),
+        ["Tempo 40"],
+        "bug: the moved session is on its new date at once: {body}"
+    );
+    assert!(
+        body["proposed_dates"] == json!([]),
+        "bug: the athlete's own move is never proposed: {body}"
+    );
+
+    // Moving it again by its old position is a session that moved.
+    let (status, refused) = fx
+        .day_post(
+            &on(1),
+            0,
+            "move",
+            json!({ "expect": expect("Tempo 40"), "to_date": on(5) }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{refused}");
+    assert_eq!(refused["details"]["reason"], "session_moved", "{refused}");
+
+    let (status, refused) = fx
+        .day_post(
+            &on(3),
+            0,
+            "move",
+            json!({ "expect": expect("Tempo 40"), "to_date": on(3) }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
+    assert_eq!(refused["details"]["reason"], "same_date", "{refused}");
+
+    // Into next week, which the plan does not hold yet: the week is laid on
+    // the plan's grid, in the same write.
+    let (status, body) = fx
+        .day_post(
+            &on(3),
+            0,
+            "move",
+            json!({ "expect": expect("Tempo 40"), "to_date": on(8) }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let weeks = fx.live_weeks().await;
+    assert_eq!(
+        weeks
+            .iter()
+            .map(|week| week.week_start.clone())
+            .collect::<Vec<_>>(),
+        [on(0), on(7)],
+        "bug: the move laid next week on the plan's grid"
+    );
+    assert!(
+        weeks[1]
+            .days
+            .iter()
+            .any(|day| day.date == on(8) && day.workout == "Tempo 40"),
+        "bug: the session moved into the new week"
+    );
+    assert!(
+        fx.history_kinds()
+            .await
+            .iter()
+            .all(|(kind, source)| kind == "day_move" && source == "athlete"),
+        "bug: each move is recorded as the athlete's own"
+    );
+}
+
+#[tokio::test]
+async fn an_edit_restores_and_the_last_session_is_never_removed() {
+    let fx = Fixture::new().await;
+    fx.lay_season(&live_week()).await;
+
+    let (status, body) = fx
+        .hand(
+            &on(2),
+            0,
+            json!({ "expect": expect("Easy 45"), "day": {
+                "rest": false, "sport": "run", "workout": "Easy 30", "duration_min": 30,
+                "intensity": "Z1",
+            } }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(live_on(&body, &on(2)), ["Easy 30"], "{body}");
+
+    let (status, body) = fx
+        .day_post(&on(2), 0, "restore", json!({ "expect": expect("Easy 30") }))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        live_on(&body, &on(2)),
+        ["Easy 45"],
+        "bug: restore puts the session back as it stood before the athlete's edit: {body}"
+    );
+
+    let (status, refused) = fx
+        .day_post(&on(2), 0, "restore", json!({ "expect": expect("Easy 45") }))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
+    assert_eq!(
+        refused["details"]["reason"], "nothing_to_restore",
+        "{refused}"
+    );
+
+    let (status, refused) = fx
+        .day_post(&on(2), 0, "remove", json!({ "expect": expect("Easy 45") }))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
+    assert_eq!(refused["details"]["reason"], "last_session", "{refused}");
+}
+
+#[tokio::test]
+async fn an_own_edit_never_reads_as_a_proposal_and_wins_over_one() {
+    let fx = Fixture::new().await;
+    fx.lay_season(&live_week()).await;
+    // Unasked, the agent proposes hills on Wednesday.
+    fx.agent_proposes(&[
+        session(&on(1), "Tempo 40"),
+        session(&on(2), "Hills 45"),
+        session(&on(4), "Long 90"),
+    ])
+    .await;
+    assert_eq!(dates(&fx.plan().await["proposed_dates"]), [on(2)]);
+
+    // The athlete edits Friday, another date of that week.
+    let (status, body) = fx
+        .hand(
+            &on(4),
+            0,
+            json!({ "expect": expect("Long 90"), "day": {
+                "rest": false, "sport": "run", "workout": "Long 120", "duration_min": 120,
+                "intensity": "Z2",
+            } }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        dates(&body["proposed_dates"]),
+        [on(2)],
+        "bug: the athlete's own edit of Friday read as a proposal: {body}"
+    );
+    assert_eq!(
+        on_card(&body["draft"], &on(4)),
+        ["Long 120"],
+        "bug: the overlay's Friday is the athlete's edit, so Accepter could never undo it: {body}"
+    );
+
+    // The athlete edits Wednesday itself: their edit wins over the proposal.
+    let (status, body) = fx
+        .hand(
+            &on(2),
+            0,
+            json!({ "expect": expect("Easy 45"), "day": {
+                "rest": false, "sport": "run", "workout": "Easy 30", "duration_min": 30,
+                "intensity": "Z1",
+            } }),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["proposed_dates"],
+        json!([]),
+        "bug: a proposed date the athlete edited drops its proposal: {body}"
+    );
 }

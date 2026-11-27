@@ -505,6 +505,11 @@ async fn read_plan(
 
     let draft = draft_section(repos, scope, &active_weeks, &fueling).await?;
     let fueling_withheld = fueling.redact_weeks(&mut weeks);
+    // The athlete's own edits mark the days they changed on their live plan
+    // (carnet#1841); the marks are their editor's, never the agent's read.
+    for week in &mut weeks {
+        week.drop_coach_marks();
+    }
     // The athlete acts on a fortnight, and every week returned here is
     // replayed into each later call of the conversation. The audit trail
     // (`include_history`) and an explicit `all_weeks` keep the full set.
@@ -842,7 +847,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             // own transaction — the same place, and for the same reason, that
             // the replaced row's weeks are re-parented.
             let outline_input = outline.as_ref().map(|o| PlanOutlineInput {
-                goal_race: &o.goal_race,
+                goal_race: Some(&o.goal_race),
                 races: o.races.as_deref(),
                 strategy: &o.strategy,
                 flavour: flavour_selection.as_ref(),
@@ -954,7 +959,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                     ignored_arguments,
                     plan_id: bundle.plan.id.clone(),
                     athlete: scope.acting_for().map(str::to_owned),
-                    goal_race: race_summary(&bundle.plan.goal_race),
+                    goal_race: race_summary(bundle.plan.goal_race.as_ref()),
                     superseded_plan_id: bundle.superseded_plan_id.clone(),
                     goal_fact_id,
                     weeks_saved: week_ids.len(),

@@ -44,8 +44,9 @@ pub struct SaveTrainingPlanParams<'a> {
     pub author: PlanAuthor<'a>,
     /// Pillar `Goal` user-fact this plan serves, when linked.
     pub goal_fact_id: Option<&'a str>,
-    /// Snapshot of the goal race at plan time.
-    pub goal_race: &'a GoalRace,
+    /// Snapshot of the goal race at plan time; `None` for a season started
+    /// with no race (carnet#1841).
+    pub goal_race: Option<&'a GoalRace>,
     /// The rest of the race calendar, or `None` to keep the one the plan
     /// being superseded already carried.
     ///
@@ -77,8 +78,9 @@ pub struct SaveTrainingPlanParams<'a> {
 /// and weeks alike.
 #[derive(Debug)]
 pub struct PlanOutlineInput<'a> {
-    /// Snapshot of the goal race at plan time.
-    pub goal_race: &'a GoalRace,
+    /// Snapshot of the goal race at plan time; `None` for a season the
+    /// athlete started by adding a session (carnet#1841).
+    pub goal_race: Option<&'a GoalRace>,
     /// The rest of the race calendar, or `None` to keep the one the plan
     /// being superseded already carried.
     ///

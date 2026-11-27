@@ -32,7 +32,7 @@ pub(crate) fn epoch_to_datetime(epoch: i64, column: &str) -> AppResult<Timestamp
 /// Map a raw outline row to the domain type. Shared by both backends so JSON
 /// and enum parsing live in exactly one place.
 pub(crate) fn training_plan_from_row(row: TrainingPlanRow) -> AppResult<TrainingPlan> {
-    let goal_race: GoalRace = serde_json::from_str(&row.goal_race_json)
+    let goal_race: Option<GoalRace> = serde_json::from_str(&row.goal_race_json)
         .map_err(|e| AppError::database(format!("training plan goal_race_json: {e}")))?;
     let races: Vec<GoalRace> = serde_json::from_str(&row.races_json)
         .map_err(|e| AppError::database(format!("training plan races_json: {e}")))?;
@@ -145,7 +145,7 @@ pub(crate) struct PlanInsertValues {
 pub(crate) fn plan_insert_values(
     params: &SaveTrainingPlanParams<'_>,
 ) -> AppResult<PlanInsertValues> {
-    let goal_race_json = serde_json::to_string(params.goal_race)
+    let goal_race_json = serde_json::to_string(&params.goal_race)
         .map_err(|e| AppError::internal(format!("serialize goal race: {e}")))?;
     let races_json = params
         .races
@@ -220,8 +220,8 @@ pub(crate) struct BuiltPlan<'a> {
     pub author_agent_id: Option<&'a str>,
     /// Linked pillar Goal fact, if any.
     pub goal_fact_id: Option<&'a str>,
-    /// Goal-race snapshot.
-    pub goal_race: &'a GoalRace,
+    /// Goal-race snapshot; `None` for a season started with no race.
+    pub goal_race: Option<&'a GoalRace>,
     /// Secondary races.
     pub races: &'a [GoalRace],
     /// Strategy prose.
@@ -254,7 +254,7 @@ pub(crate) fn built_training_plan(b: BuiltPlan<'_>) -> AppResult<TrainingPlan> {
         user_id: b.user_id.to_owned(),
         author_agent_id: b.author_agent_id.map(str::to_owned),
         goal_fact_id: b.goal_fact_id.map(str::to_owned),
-        goal_race: b.goal_race.clone(),
+        goal_race: b.goal_race.cloned(),
         races: b.races.to_vec(),
         strategy: b.strategy.to_owned(),
         flavour: b.flavour.cloned(),

@@ -54,7 +54,8 @@ pub struct GetTrainingPlanResult {
     /// Present only when there is no plan: what to do instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
-    /// The weeks, day by day. Absent when there is no plan.
+    /// The weeks, day by day, no day carrying the athlete's own editor
+    /// marks (carnet#1841). Absent when there is no plan.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub weeks: Option<Vec<PlanWeek>>,
     /// How many stored weeks `weeks` leaves out: the ones already over and the
@@ -122,9 +123,13 @@ fn agent_weeks<S: Serializer>(weeks: &[PlanWeek], serializer: S) -> Result<S::Ok
     read.serialize(serializer)
 }
 
-/// The goal race as the save replies quote it back: name and date.
-pub(super) fn race_summary(race: &GoalRace) -> String {
-    format!("{} on {}", race.name, race.date)
+/// The goal race as a save reply quotes it back, or that the season has
+/// none yet (carnet#1841).
+pub(super) fn race_summary(race: Option<&GoalRace>) -> String {
+    race.map_or_else(
+        || "no goal race yet".to_owned(),
+        |race| format!("{} on {}", race.name, race.date),
+    )
 }
 
 /// Each written week as a save reply reports it.
@@ -793,12 +798,12 @@ mod tests {
             user_id: "user".to_owned(),
             author_agent_id: None,
             goal_fact_id: None,
-            goal_race: GoalRace {
+            goal_race: Some(GoalRace {
                 name: "Race".to_owned(),
                 date: "2027-05-16".to_owned(),
                 discipline: "trail".to_owned(),
                 priority: RacePriority::A,
-            },
+            }),
             races: Vec::new(),
             strategy: "the coach's draft".to_owned(),
             flavour: None,

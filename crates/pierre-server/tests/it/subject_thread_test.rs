@@ -233,7 +233,7 @@ impl Fixture {
                 goal_fact_id: None,
                 replace_season: false,
                 outline: Some(PlanOutlineInput {
-                    goal_race: &goal,
+                    goal_race: Some(&goal),
                     races: Some(&[]),
                     strategy: "steady base",
                     flavour: None,
@@ -908,7 +908,7 @@ async fn naming_anyone_else_in_a_subject_thread_is_refused() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(other.goal_race.name, "Other Race");
+    assert_eq!(other.goal_race.as_ref().unwrap().name, "Other Race");
 
     // The coach's own plan is never acted on here.
     let refused = fx

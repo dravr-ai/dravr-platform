@@ -474,7 +474,7 @@ async fn athlete_agent_lays_the_season(fx: &Fixture) -> String {
             goal_fact_id: None,
             replace_season: false,
             outline: Some(PlanOutlineInput {
-                goal_race: &race,
+                goal_race: Some(&race),
                 races: Some(&[]),
                 strategy: "the season the athlete's own agent laid",
                 flavour: None,
@@ -602,7 +602,7 @@ async fn the_coachs_week_reaches_the_athletes_season_only_once_published() {
         plan.author_agent_id.as_deref(),
         Some(fx.coach_agent.as_str())
     );
-    assert_eq!(plan.goal_race.name, "Harricana 80");
+    assert_eq!(plan.goal_race.as_ref().unwrap().name, "Harricana 80");
     let weeks = repos
         .training_plans
         .list_plan_weeks(
@@ -768,7 +768,7 @@ async fn the_coachs_outline_over_the_athletes_agents_season_is_refused_without_t
 
     let plan = athlete_season(&fx).await.expect("the season survives");
     assert_eq!(plan.id, season);
-    assert_eq!(plan.goal_race.name, "Athlete Season Race");
+    assert_eq!(plan.goal_race.as_ref().unwrap().name, "Athlete Season Race");
     assert!(
         fx.resources
             .common

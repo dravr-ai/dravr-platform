@@ -106,12 +106,17 @@ use crate::runtime::ToolRuntime;
 
 mod date_revert;
 mod day_edits;
+mod own_days;
 mod sessions;
 
 pub use date_revert::revert_draft_date;
 pub use day_edits::{
     add_draft_session, remove_draft_day, restore_draft_day, save_draft_coach_call,
     save_draft_hand_day, AddedSession, HandDay,
+};
+pub use own_days::{
+    add_own_session, move_own_session, remove_own_day, restore_own_day, save_own_day,
+    save_own_hand_day,
 };
 use sessions::{expected_index, placed, stamp_edit};
 pub use sessions::{SessionAt, SessionExpect};
@@ -457,6 +462,12 @@ pub enum DraftDayOutcome {
     /// The date already holds as many entries as a date holds. Nothing was
     /// written.
     DateFull,
+    /// The athlete's own add or move named a date before their today
+    /// (carnet#1841). Nothing was written.
+    PastDate,
+    /// The athlete's own move named the date the session is already on.
+    /// Nothing was written.
+    SameDate,
 }
 
 /// A build the catalogue cannot make, with the `details.reason` a client

@@ -44,7 +44,6 @@
 //! scoped to the athlete's own tenant by the coaching gate.
 
 use std::collections::{BTreeSet, HashMap};
-use std::iter;
 use std::sync::Arc;
 
 use axum::{
@@ -148,8 +147,9 @@ pub struct RosterPlan {
     pub week: Option<u32>,
     /// Weeks the season's phases span.
     pub weeks_total: u32,
-    /// The goal race.
-    pub goal_race: RosterRace,
+    /// The goal race; `null` for a season the athlete started with no race
+    /// yet (carnet#1841).
+    pub goal_race: Option<RosterRace>,
     /// The rest of the race calendar, in date order: a second A race is a
     /// second peak; B and C races are context.
     pub races: Vec<RosterRace>,
@@ -787,7 +787,9 @@ async fn plan_summary(
         plan_id: plan.id.clone(),
         updated_at: plan.updated_at,
         ends,
-        races: iter::once(&plan.goal_race)
+        races: plan
+            .goal_race
+            .iter()
             .chain(races.iter().copied())
             .filter_map(|race| {
                 Some(SeasonRace {
@@ -802,7 +804,7 @@ async fn plan_summary(
         phase,
         week,
         weeks_total,
-        goal_race: roster_race(&plan.goal_race),
+        goal_race: plan.goal_race.as_ref().map(roster_race),
         races: races.into_iter().map(roster_race).collect(),
         season_end: plan.season_end.clone(),
         ends: ends.map(|day| day.to_string()),
@@ -840,7 +842,8 @@ fn plan_ends(plan: &TrainingPlan) -> Option<CivilDate> {
         .iter()
         .filter_map(PlanPhase::end_exclusive)
         .chain(
-            iter::once(&plan.goal_race)
+            plan.goal_race
+                .iter()
                 .chain(&plan.races)
                 .filter_map(|race| after(&race.date)),
         )

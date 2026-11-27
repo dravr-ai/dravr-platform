@@ -1428,7 +1428,7 @@ async fn delete_of_a_coach_clears_their_plan_drafts_and_keeps_the_athletes_seaso
             author: PlanAuthor::agent("athlete-agent"),
             goal_fact_id: None,
             outline: Some(PlanOutlineInput {
-                goal_race: &race,
+                goal_race: Some(&race),
                 races: Some(&[]),
                 strategy: "the athlete's season",
                 flavour: None,

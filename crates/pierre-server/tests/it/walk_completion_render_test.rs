@@ -687,7 +687,7 @@ impl Athlete {
                 goal_fact_id: None,
                 replace_season: false,
                 outline: Some(PlanOutlineInput {
-                    goal_race: &race,
+                    goal_race: Some(&race),
                     races: Some(&[]),
                     strategy: "build, then sharpen",
                     flavour: None,

@@ -365,12 +365,12 @@ fn season_laid_by(author: Option<&str>) -> TrainingPlan {
         user_id: "u".to_owned(),
         author_agent_id: author.map(str::to_owned),
         goal_fact_id: None,
-        goal_race: GoalRace {
+        goal_race: Some(GoalRace {
             name: "Fall race".to_owned(),
             date: "2026-11-01".to_owned(),
             discipline: "run".to_owned(),
             priority: RacePriority::A,
-        },
+        }),
         races: Vec::new(),
         strategy: "base, then sharpen".to_owned(),
         flavour: None,

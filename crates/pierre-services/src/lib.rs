@@ -91,6 +91,9 @@ pub mod task_reading;
 /// A human coach's draft of an athlete's plan: the view, publish and discard (carnet#1069).
 pub mod coach_plan_draft;
 
+/// The athlete's own live plan written for them, their own overlay rebased over every write (carnet#1841).
+pub mod own_plan;
+
 /// The notices an athlete gets when their human coach publishes or pushes their plan (carnet#1069).
 pub mod coach_plan_notice;
 

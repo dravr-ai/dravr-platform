@@ -209,8 +209,6 @@ async fn plan_status(
         ));
     }
     let today = athlete_clock::athlete_today(repos, athlete).await;
-    let days_out =
-        training_plans::parse_plan_date(&plan.goal_race.date).map(|race| (race - today).num_days());
     let current_phase: Option<String> = plan
         .phases
         .iter()
@@ -223,10 +221,12 @@ async fn plan_status(
             member: name,
             group,
             published: true,
-            goal_race: Some(PlanGoalRace {
-                name: plan.goal_race.name,
-                date: plan.goal_race.date,
-                days_out,
+            // A season the member started with no race yet names none.
+            goal_race: plan.goal_race.map(|race| PlanGoalRace {
+                days_out: training_plans::parse_plan_date(&race.date)
+                    .map(|day| (day - today).num_days()),
+                name: race.name,
+                date: race.date,
             }),
             season_start: plan.season_start,
             season_end: plan.season_end,

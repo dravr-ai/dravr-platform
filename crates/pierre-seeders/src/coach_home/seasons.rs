@@ -21,7 +21,7 @@ pub(super) struct Season {
 impl Season {
     pub(super) fn outline(&self) -> PlanOutlineInput<'_> {
         PlanOutlineInput {
-            goal_race: &self.goal,
+            goal_race: Some(&self.goal),
             races: Some(&self.races),
             strategy: "Construire la base, puis l'intensité, puis affûter.",
             phases: &self.phases,

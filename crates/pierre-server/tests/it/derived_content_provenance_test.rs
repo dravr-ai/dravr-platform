@@ -517,7 +517,7 @@ async fn a_plan_is_as_strict_as_everything_saved_onto_it() {
                     goal_fact_id: None,
                     replace_season: false,
                     outline: outline.then_some(PlanOutlineInput {
-                        goal_race: &goal,
+                        goal_race: Some(&goal),
                         races: Some(&[]),
                         strategy: "build then sharpen",
                         phases: &[],

@@ -64,7 +64,7 @@ use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_database::repositories::{CoachReadClass, CoachReadSurface};
 use pierre_database::RepositoryRegistry;
-use pierre_memory::training_plans::{PlanWeek, TrainingPlan};
+use pierre_memory::training_plans::{GoalRace, PlanWeek, TrainingPlan};
 use pierre_providers::backend_resolver::brand_name;
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::coach_plan_draft::{coach_plan_view, CoachDraftTarget, CoachPlanView};
@@ -457,6 +457,15 @@ fn name(raw: &str) -> String {
     display_line(raw, ROSTER_NAME_MAX_CHARS)
 }
 
+/// What a season is aimed at, as the block says it: its race and date, or
+/// that the athlete started it with no race yet (carnet#1841).
+fn aimed_at(race: Option<&GoalRace>) -> String {
+    race.map_or_else(
+        || "no goal race yet".to_owned(),
+        |race| format!("aimed at {} on {}", name(&race.name), race.date),
+    )
+}
+
 /// The block for a granted turn. `wellness` is the linked wellness with the
 /// brand of the platform it came through; `readable` names the tools that
 /// read the athlete in this thread. The wellness ones are named only while
@@ -554,9 +563,8 @@ fn plan_section(out: &mut String, athlete: &str, view: Option<&CoachPlanView>) {
         Some(live) => {
             let _ = writeln!(
                 out,
-                "Live season: aimed at {} on {}, {} week(s) stored.",
-                name(&live.plan.goal_race.name),
-                live.plan.goal_race.date,
+                "Live season: {}, {} week(s) stored.",
+                aimed_at(live.plan.goal_race.as_ref()),
                 live.weeks.len()
             );
         }
@@ -579,10 +587,8 @@ fn plan_section(out: &mut String, athlete: &str, view: Option<&CoachPlanView>) {
     };
     let _ = writeln!(
         out,
-        "The coach's draft (unpublished): aimed at {} on {}; last saved {}; weeks drafted: \
-         {drafted}.",
-        name(&draft.plan.goal_race.name),
-        draft.plan.goal_race.date,
+        "The coach's draft (unpublished): {}; last saved {}; weeks drafted: {drafted}.",
+        aimed_at(draft.plan.goal_race.as_ref()),
         draft.state.updated_at.format_with(&UTC_MINUTE),
     );
     let state = &draft.state;

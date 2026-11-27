@@ -572,7 +572,7 @@ impl Fixture {
             skeleton_id: None,
         }];
         let outline = with_outline.then(|| PlanOutlineInput {
-            goal_race: &goal,
+            goal_race: Some(&goal),
             races: Some(&[]),
             strategy: "steady base, then sharpen",
             phases: &phases,

@@ -70,7 +70,9 @@ pub async fn tell_plan_published(
         target.athlete(),
         notice_tenant(target.tenant()),
         &coach_name,
-        &plan.goal_race.name,
+        plan.goal_race
+            .as_ref()
+            .map_or("", |race| race.name.as_str()),
         plan.transport_policy,
     );
     true

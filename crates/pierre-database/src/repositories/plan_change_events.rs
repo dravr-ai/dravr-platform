@@ -33,13 +33,16 @@ use uuid::Uuid;
 pub enum PlanChangeSource {
     /// The coach, from their own day editor or buttons.
     Coach,
-    /// The thread's agent, on the coach's word.
+    /// The thread's agent, on the coach's word; on the athlete's own plan,
+    /// their agent.
     Agent,
+    /// The athlete, from their own Plan tab (carnet#1841).
+    Athlete,
 }
 
 impl PlanChangeSource {
     /// Every source, for a caller that maps each to its words.
-    pub const ALL: [Self; 2] = [Self::Coach, Self::Agent];
+    pub const ALL: [Self; 3] = [Self::Coach, Self::Agent, Self::Athlete];
 
     /// The value the `source` column stores, and the wire carries.
     #[must_use]
@@ -47,6 +50,7 @@ impl PlanChangeSource {
         match self {
             Self::Coach => "coach",
             Self::Agent => "agent",
+            Self::Athlete => "athlete",
         }
     }
 
@@ -90,11 +94,13 @@ pub enum PlanChangeKind {
     Publish,
     /// The draft thrown away.
     Discard,
+    /// A session moved from one date to another (carnet#1841).
+    DayMove,
 }
 
 impl PlanChangeKind {
     /// Every kind, for a caller that maps each to its words.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::DayEdit,
         Self::DayAdd,
         Self::DayRemove,
@@ -104,6 +110,7 @@ impl PlanChangeKind {
         Self::AgentDraft,
         Self::Publish,
         Self::Discard,
+        Self::DayMove,
     ];
 
     /// The value the `kind` column stores, and the wire carries.
@@ -119,6 +126,7 @@ impl PlanChangeKind {
             Self::AgentDraft => "agent_draft",
             Self::Publish => "publish",
             Self::Discard => "discard",
+            Self::DayMove => "day_move",
         }
     }
 

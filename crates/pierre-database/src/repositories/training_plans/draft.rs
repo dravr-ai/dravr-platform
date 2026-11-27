@@ -586,7 +586,7 @@ macro_rules! impl_training_plan_draft_helpers {
                     user_id: owner.user_id,
                     author: PlanAuthor::from_agent(draft_plan.author_agent_id.as_deref()),
                     goal_fact_id: params.goal_fact_id.or(draft_plan.goal_fact_id.as_deref()),
-                    goal_race: &draft_plan.goal_race,
+                    goal_race: draft_plan.goal_race.as_ref(),
                     races: Some(&draft_plan.races),
                     strategy: &draft_plan.strategy,
                     flavour: draft_plan.flavour.as_ref(),

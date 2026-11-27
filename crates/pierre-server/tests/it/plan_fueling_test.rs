@@ -64,12 +64,12 @@ fn plan() -> TrainingPlan {
         user_id: "u".to_owned(),
         author_agent_id: None,
         goal_fact_id: None,
-        goal_race: GoalRace {
+        goal_race: Some(GoalRace {
             name: "Harricana".to_owned(),
             date: "2026-09-12".to_owned(),
             discipline: "trail".to_owned(),
             priority: RacePriority::A,
-        },
+        }),
         races: Vec::new(),
         strategy: "build then taper".to_owned(),
         flavour: None,

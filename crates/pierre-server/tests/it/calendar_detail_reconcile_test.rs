@@ -362,7 +362,7 @@ impl Fixture {
                 goal_fact_id: None,
                 replace_season: false,
                 outline: outline.then(|| PlanOutlineInput {
-                    goal_race: &goal,
+                    goal_race: Some(&goal),
                     races: Some(&[]),
                     strategy: "steady base",
                     phases: &phases,

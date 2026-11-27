@@ -151,7 +151,7 @@ fn plan_params<'a>(
         user_id: user,
         author: PlanAuthor::agent("endurance-coach"),
         goal_fact_id: Some("fact-goal-1"),
-        goal_race: race,
+        goal_race: Some(race),
         races: Some(&[]),
         strategy: "rest week done; rebuild volume, then race-specific tempo, taper into Aug 8",
         flavour: None,
@@ -238,9 +238,12 @@ async fn save_and_get_roundtrip_preserves_content() -> Result<()> {
         .await?
         .expect("active plan");
     assert_eq!(fetched.id, plan.id);
-    assert_eq!(fetched.goal_race.name, "Big Red");
-    assert_eq!(fetched.goal_race.date, "2026-08-08");
-    assert_eq!(fetched.goal_race.priority, RacePriority::A);
+    assert_eq!(fetched.goal_race.as_ref().unwrap().name, "Big Red");
+    assert_eq!(fetched.goal_race.as_ref().unwrap().date, "2026-08-08");
+    assert_eq!(
+        fetched.goal_race.as_ref().unwrap().priority,
+        RacePriority::A
+    );
     assert_eq!(fetched.phases.len(), 2);
     assert_eq!(fetched.phases[0].kind, PhaseKind::Build);
     assert_eq!(fetched.phases[1].kind, PhaseKind::Taper);
@@ -374,7 +377,7 @@ async fn outline_resave_supersedes_previous() -> Result<()> {
         .await?
         .expect("active plan");
     assert_eq!(active.id, second.id);
-    assert_eq!(active.goal_race.date, "2026-08-15");
+    assert_eq!(active.goal_race.as_ref().unwrap().date, "2026-08-15");
     Ok(())
 }
 
@@ -631,7 +634,7 @@ async fn a_plan_saved_under_one_agent_is_the_plan_every_read_returns() -> Result
         .expect("the athlete's season");
     assert_eq!(read.id, season.id);
     assert_eq!(read.author_agent_id.as_deref(), Some("endurance-coach"));
-    assert_eq!(read.goal_race.name, "Big Red");
+    assert_eq!(read.goal_race.as_ref().unwrap().name, "Big Red");
 
     // Weeks written by another agent, and by a call with no agent at all,
     // land on that same season rather than opening a plan of their own.
@@ -783,7 +786,7 @@ async fn an_outline_over_another_authors_season_is_refused_already_exists_and_ch
         .await?
         .expect("the season survives");
     assert_eq!(active.id, season.plan.id);
-    assert_eq!(active.goal_race.name, "Big Red");
+    assert_eq!(active.goal_race.as_ref().unwrap().name, "Big Red");
     assert_eq!(
         week_authors(plans, &tenant, &user, &season.plan.id).await?,
         vec![("2026-07-13".to_owned(), Some("endurance-coach".to_owned()))]
@@ -853,7 +856,7 @@ async fn replace_season_supersedes_another_authors_outline() -> Result<()> {
         .await?
         .expect("the re-laid season");
     assert_eq!(active.id, relaid.plan.id);
-    assert_eq!(active.goal_race.name, "Taper Race");
+    assert_eq!(active.goal_race.as_ref().unwrap().name, "Taper Race");
     assert_eq!(
         active.author_agent_id.as_deref(),
         Some("taper-builder-agent")
@@ -1073,7 +1076,7 @@ async fn a_weeks_only_save_waiting_on_an_outline_supersede_lands_on_the_new_outl
 
 fn outline_input<'a>(race: &'a GoalRace, phases: &'a [PlanPhase]) -> PlanOutlineInput<'a> {
     PlanOutlineInput {
-        goal_race: race,
+        goal_race: Some(race),
         races: Some(&[]),
         strategy: "rebuild volume, race-specific tempo, taper into Aug 8",
         flavour: None,
@@ -1115,7 +1118,7 @@ async fn bundle_saves_outline_and_weeks_in_one_call() -> Result<()> {
         .await?;
     assert_eq!(saved.weeks.len(), 1);
     assert!(saved.superseded_plan_id.is_none());
-    assert_eq!(saved.plan.goal_race.name, "Big Red");
+    assert_eq!(saved.plan.goal_race.as_ref().unwrap().name, "Big Red");
 
     // Both the outline and the week are durably present.
     let got = repos
@@ -1938,7 +1941,7 @@ async fn coach_drafts_outline(
             author: PlanAuthor::agent(COACH_AGENT),
             goal_fact_id: None,
             outline: Some(PlanOutlineInput {
-                goal_race: &race,
+                goal_race: Some(&race),
                 races: None,
                 strategy,
                 flavour: None,
@@ -2043,7 +2046,7 @@ async fn a_coach_draft_reaches_no_season_read_and_lists_only_for_its_coach() -> 
         !draft.outline_drafted,
         "a weeks-only draft copies the outline"
     );
-    assert_eq!(draft.plan.goal_race.name, "Big Red");
+    assert_eq!(draft.plan.goal_race.as_ref().unwrap().name, "Big Red");
     assert_eq!(draft.plan.strategy, season.strategy);
     assert_eq!(draft.plan.author_agent_id.as_deref(), Some(ATHLETE_AGENT));
     let drafted: Vec<(String, String, Option<String>)> = plans
@@ -2129,7 +2132,7 @@ async fn every_save_lands_on_one_draft_whose_outline_is_relaid_in_place() -> Res
 
     let draft = plans.get_draft_plan(world.owner()).await?.expect("draft");
     assert!(draft.outline_drafted, "the coach re-laid the outline");
-    assert_eq!(draft.plan.goal_race.name, "Coach Race");
+    assert_eq!(draft.plan.goal_race.as_ref().unwrap().name, "Coach Race");
     assert_eq!(draft.plan.strategy, "the coach's");
     assert_eq!(draft.plan.author_agent_id.as_deref(), Some(COACH_AGENT));
     assert_eq!(draft.base_plan_id.as_deref(), Some(world.season.as_str()));
@@ -2432,7 +2435,7 @@ async fn publishing_a_drafted_outline_relays_the_season_and_carries_its_weeks() 
     assert_eq!(live.id, published.plan.id);
     assert_ne!(live.id, world.season);
     assert_eq!(live.status, PlanStatus::Active);
-    assert_eq!(live.goal_race.name, "Coach Race");
+    assert_eq!(live.goal_race.as_ref().unwrap().name, "Coach Race");
     assert_eq!(live.strategy, "the coach's season");
     assert_eq!(live.author_agent_id.as_deref(), Some(COACH_AGENT));
     assert_eq!(live.supersedes_id.as_deref(), Some(world.season.as_str()));

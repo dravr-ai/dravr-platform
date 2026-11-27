@@ -272,17 +272,21 @@ fn render_header(
     today: CivilDate,
 ) -> String {
     let mut out = String::with_capacity(256);
-    let days_out = parse_plan_date(&plan.goal_race.date)
-        .map_or_else(String::new, |race| (race - today).num_days().to_string());
-    let _ = writeln!(
-        out,
-        "{}",
-        reg.render(
-            KEY_PLAN_GOAL_LINE,
-            locale,
-            &[&plan.goal_race.name, &plan.goal_race.date, &days_out],
-        )
-    );
+    // A season the athlete started with no race yet has no goal line
+    // (carnet#1841).
+    if let Some(race) = plan.goal_race.as_ref() {
+        let days_out = parse_plan_date(&race.date)
+            .map_or_else(String::new, |day| (day - today).num_days().to_string());
+        let _ = writeln!(
+            out,
+            "{}",
+            reg.render(
+                KEY_PLAN_GOAL_LINE,
+                locale,
+                &[&race.name, &race.date, &days_out],
+            )
+        );
+    }
     // The block containing today. When today sits in a gap the outline does not
     // phase, fall back to the block covering the first week actually being
     // shown: the header describes the plan the athlete is about to read, and

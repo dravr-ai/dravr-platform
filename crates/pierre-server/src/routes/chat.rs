@@ -15,6 +15,7 @@
 //! - [`chat::subject_plan`] — in that thread, the coach's draft of the athlete's plan: read, publish, discard, and the history of its changes
 //! - [`chat::subject_session`] — in that thread, a session of the draft: built from a workout family (families, preview, save), written by hand, put back, removed or added; a date put back to the live plan
 //! - [`chat::own_plan`] — the athlete's own plan, as their Plan tab reads it: the live plan, their agent's proposals over it, what « Envoyer » sends, the families, a session's preview and the history
+//! - [`chat::own_plan_days`] — the athlete's own day writes on their live plan: add, family build, hand edit, restore, remove and move of one session
 //! - [`chat::athlete_physiology`] — the same coach reads and sets the athlete's thresholds from Group info
 //! - [`chat::read_marker`] — the caller's read marker: mark read / mark unread
 //! - [`chat::starters`] — the use-case starters an empty thread offers
@@ -38,6 +39,7 @@ mod group_transcript;
 mod held_invite;
 mod messages;
 mod own_plan;
+mod own_plan_days;
 mod participants;
 mod personal;
 mod read_marker;
@@ -220,6 +222,34 @@ impl ChatRoutes {
                 post(own_plan::preview_own_session),
             )
             .route("/api/me/plan/history", get(own_plan::get_own_plan_history))
+            // The athlete's own day writes, live at once: one session of a
+            // date added, built from a family, written by hand, put back,
+            // removed or moved; the first add starts the season
+            // (carnet#1841)
+            .route(
+                "/api/me/plan/days/{date}/sessions",
+                post(own_plan_days::add_own_day_session),
+            )
+            .route(
+                "/api/me/plan/days/{date}/{position}",
+                put(own_plan_days::put_own_day_session),
+            )
+            .route(
+                "/api/me/plan/days/{date}/{position}/session",
+                put(own_plan_days::put_own_day_hand_session),
+            )
+            .route(
+                "/api/me/plan/days/{date}/{position}/restore",
+                post(own_plan_days::restore_own_day_session),
+            )
+            .route(
+                "/api/me/plan/days/{date}/{position}/remove",
+                post(own_plan_days::remove_own_day_session),
+            )
+            .route(
+                "/api/me/plan/days/{date}/{position}/move",
+                post(own_plan_days::move_own_day_session),
+            )
             // The use-case starters an empty thread offers, ranked from the
             // athlete's state (carnet#829)
             .route("/api/chat/starters", get(starters::list_starters))

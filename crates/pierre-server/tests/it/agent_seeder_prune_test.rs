@@ -234,7 +234,7 @@ async fn season_authored_by(
             goal_fact_id: None,
             replace_season: false,
             outline: Some(PlanOutlineInput {
-                goal_race: &race,
+                goal_race: Some(&race),
                 races: Some(&[]),
                 strategy: "Build, then taper.",
                 flavour: None,

@@ -171,7 +171,7 @@ pub(super) async fn save_into_draft(
             ignored_arguments: save.ignored_arguments,
             plan_id: draft.id.clone(),
             athlete: Some(athlete.to_owned()),
-            goal_race: race_summary(&draft.goal_race),
+            goal_race: race_summary(draft.goal_race.as_ref()),
             superseded_plan_id: None,
             goal_fact_id: draft.goal_fact_id.clone(),
             weeks_saved: weeks.len(),

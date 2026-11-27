@@ -1210,7 +1210,7 @@ async fn facts_and_the_plan_derived_from_the_relay_are_withheld_and_the_rest_ser
             goal_fact_id: None,
             replace_season: false,
             outline: Some(PlanOutlineInput {
-                goal_race: &goal,
+                goal_race: Some(&goal),
                 races: Some(&[]),
                 strategy: "built on the relay's rides",
                 phases: &[],

@@ -18,12 +18,12 @@ use pierre_test_support::numbers::mentions_number;
 #[test]
 fn a_phase_target_reads_8_3_hours_not_its_f64_widening() {
     let card = PlanCard {
-        goal_race: GoalRace {
+        goal_race: Some(GoalRace {
             name: "Gran Fondo".to_owned(),
             date: "2027-06-06".to_owned(),
             discipline: "cycling".to_owned(),
             priority: RacePriority::A,
-        },
+        }),
         races: vec![],
         season_start: None,
         season_end: None,

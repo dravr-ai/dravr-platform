@@ -49,10 +49,11 @@ use pierre_memory::training_plans::{self, PlanWeek, PlannedDay, TrainingPlan};
 use pierre_notifications::NotificationService;
 use pierre_providers::ai_scope;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::coach_plan_notice::tell_plan_published;
+use crate::own_plan::rebase_own_overlay;
 use crate::plan_change_history::{self, record_plan_change, PlanChange};
 use crate::plan_goal_fact::{converge_goal_fact, retire_superseded_goal_facts};
 
@@ -422,7 +423,17 @@ pub async fn coach_plan_view(
     repos: &RepositoryRegistry,
     target: &CoachDraftTarget,
 ) -> AppResult<CoachPlanView> {
-    let live = live_season(repos, target).await?;
+    let mut live = live_season(repos, target).await?;
+    // An athlete's own edits mark the days they changed on their live plan
+    // (carnet#1841); a coach reads the plan without them, and their own
+    // editor marks only their own edits.
+    if !target.is_own() {
+        if let Some(season) = live.as_mut() {
+            for week in &mut season.weeks {
+                week.drop_coach_marks();
+            }
+        }
+    }
     let draft = draft_over(
         repos,
         target,
@@ -596,18 +607,16 @@ pub async fn publish_coach_draft(
     // fact it links to, so the fact is written first, and the facts it
     // replaces are erased only once the plan is stored.
     let draft = &preview.draft;
-    let converged = if draft.outline_drafted && draft.plan.goal_fact_id.is_none() {
-        Some(
-            converge_goal_fact(
-                repos,
-                target.tenant(),
-                &target.athlete_id,
-                &draft.plan.goal_race,
-            )
-            .await?,
-        )
-    } else {
-        None
+    // A season with no race yet has no goal to converge.
+    let converged = match (
+        draft.outline_drafted,
+        &draft.plan.goal_fact_id,
+        &draft.plan.goal_race,
+    ) {
+        (true, None, Some(race)) => {
+            Some(converge_goal_fact(repos, target.tenant(), &target.athlete_id, race).await?)
+        }
+        _ => None,
     };
 
     let published = match repos
@@ -663,6 +672,25 @@ pub async fn publish_coach_draft(
         dates: &dates,
     };
     record_plan_change(repos, target, change).await;
+    // The athlete's own overlay is rebased over what the publish wrote, as
+    // every live write rebases it (carnet#1841). The publish has landed and
+    // the athlete was told, so a rebase that fails is logged, not answered.
+    if let Err(error) = rebase_own_overlay(
+        repos,
+        target.tenant(),
+        target.athlete(),
+        previous_weeks,
+        &published.weeks,
+        published.plan.transport_policy,
+    )
+    .await
+    {
+        warn!(
+            error = %error,
+            athlete_user_id = %target.athlete(),
+            "the athlete's own overlay was not rebased over a coach's publish"
+        );
+    }
 
     Ok(CoachDraftPublish::Published(Box::new(
         PublishedCoachDraft {

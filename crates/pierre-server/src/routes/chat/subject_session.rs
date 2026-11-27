@@ -228,12 +228,12 @@ async fn day_write(
 /// `refused` answered with `status`: a 422 when the request is well formed
 /// and names a real day and the plan has nothing to apply it to, a 409 when
 /// the session it names moved.
-fn answered(status: StatusCode, refused: AppError) -> Response {
+pub(super) fn answered(status: StatusCode, refused: AppError) -> Response {
     (status, Json(ErrorResponse::from(refused))).into_response()
 }
 
 /// A 422 naming `reason`.
-fn unprocessable(reason: &str, message: &str) -> Response {
+pub(super) fn unprocessable(reason: &str, message: &str) -> Response {
     answered(
         StatusCode::UNPROCESSABLE_ENTITY,
         refusal(ErrorCode::InvalidInput, reason, message),
@@ -300,6 +300,13 @@ async fn day_write_answer(
             return Ok(unprocessable(
                 "date_full",
                 &format!("{date} already holds {MAX_SESSIONS_PER_DATE} sessions"),
+            ));
+        }
+        // Only the athlete's own add and move refuse a date by when it is;
+        // the coach's draft writes never answer either.
+        DraftDayOutcome::PastDate | DraftDayOutcome::SameDate => {
+            return Err(AppError::internal(
+                "a coach's draft write answered an outcome only the athlete's own writes give",
             ));
         }
     }

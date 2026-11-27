@@ -131,14 +131,14 @@ pub enum AddedSession {
 
 /// What an edit makes of a week's days, or the outcome that leaves nothing
 /// written.
-type Edited = Result<Vec<PlannedDay>, DraftDayOutcome>;
+pub(super) type Edited = Result<Vec<PlannedDay>, DraftDayOutcome>;
 
 /// The rest-day session's name in the coach's words.
 ///
 /// # Errors
 ///
 /// An internal error when the server strings name none.
-fn rest_label(words: EditorWords<'_>) -> AppResult<String> {
+pub(super) fn rest_label(words: EditorWords<'_>) -> AppResult<String> {
     let label = words.strings.get(KEY_PLAN_REST, words.locale);
     if label.trim().is_empty() {
         return Err(AppError::internal(
@@ -159,7 +159,7 @@ fn rest_label(words: EditorWords<'_>) -> AppResult<String> {
 /// Invalid input with `details.reason` `unresolvable_target` for a step
 /// whose target the calendar does not read, else `invalid_session` for a day
 /// past the bounds the agent's plan save holds a day to, naming the session.
-fn hand_day(
+pub(super) fn hand_day(
     request: &HandDay,
     date: CivilDate,
     position: u32,
@@ -215,7 +215,7 @@ fn hand_day(
 /// # Errors
 ///
 /// The refusals of [`hand_day`] and [`placed`].
-fn hand_edited(
+pub(super) fn hand_edited(
     days: &[PlannedDay],
     date: CivilDate,
     at: &SessionAt,
@@ -240,7 +240,7 @@ fn hand_edited(
 ///
 /// The refusal of [`placed`] when the day put back would be a second rest
 /// entry on its date.
-fn restored(days: &[PlannedDay], date: &str, at: &SessionAt) -> AppResult<Edited> {
+pub(super) fn restored(days: &[PlannedDay], date: &str, at: &SessionAt) -> AppResult<Edited> {
     let index = match expected_index(days, date, at) {
         Ok(index) => index,
         Err(outcome) => return Ok(Err(outcome)),
@@ -259,7 +259,7 @@ fn restored(days: &[PlannedDay], date: &str, at: &SessionAt) -> AppResult<Edited
 
 /// `days` without the session `at` names on `date`; `LastSession` when it is
 /// the date's only entry.
-fn removed(days: &[PlannedDay], date: &str, at: &SessionAt) -> Edited {
+pub(super) fn removed(days: &[PlannedDay], date: &str, at: &SessionAt) -> Edited {
     let index = expected_index(days, date, at)?;
     if entries_on(days, date) <= 1 {
         return Err(DraftDayOutcome::LastSession);
@@ -269,7 +269,7 @@ fn removed(days: &[PlannedDay], date: &str, at: &SessionAt) -> Edited {
 
 /// The position a session added to `date` takes: after every entry the date
 /// holds, or `DateFull` when it holds as many as a date holds.
-fn next_position(days: &[PlannedDay], date: &str) -> Result<u32, DraftDayOutcome> {
+pub(super) fn next_position(days: &[PlannedDay], date: &str) -> Result<u32, DraftDayOutcome> {
     let held = entries_on(days, date);
     if held >= MAX_SESSIONS_PER_DATE {
         return Err(DraftDayOutcome::DateFull);
@@ -283,7 +283,7 @@ fn next_position(days: &[PlannedDay], date: &str) -> Result<u32, DraftDayOutcome
 /// # Errors
 ///
 /// The refusal of [`placed`] for a second rest entry on the date.
-fn added(days: &[PlannedDay], mut day: PlannedDay) -> AppResult<Vec<PlannedDay>> {
+pub(super) fn added(days: &[PlannedDay], mut day: PlannedDay) -> AppResult<Vec<PlannedDay>> {
     day.coach_added = true;
     day.coach_original = None;
     placed(days, None, day)

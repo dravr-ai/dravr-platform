@@ -85,8 +85,9 @@ pub fn turn_shows_the_plan(tools_called: &[String]) -> bool {
 /// The card, serialised as the `plan` of a `workout_plan` block.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PlanCard {
-    /// The race the season is aimed at.
-    pub goal_race: GoalRace,
+    /// The race the season is aimed at; `null` for a season the athlete
+    /// started with no race yet (carnet#1841).
+    pub goal_race: Option<GoalRace>,
     /// The other races on the calendar, in the order the outline stores
     /// them. The athlete named them, so the card shows them: a season is a
     /// calendar, not a single date.
@@ -597,12 +598,12 @@ mod tests {
 
     fn bare_card() -> PlanCard {
         PlanCard {
-            goal_race: GoalRace {
+            goal_race: Some(GoalRace {
                 name: "Parkrun PB".to_owned(),
                 date: "2027-05-16".to_owned(),
                 discipline: "run_5k".to_owned(),
                 priority: RacePriority::A,
-            },
+            }),
             races: Vec::new(),
             season_start: None,
             season_end: None,
