@@ -180,6 +180,53 @@ mod notification_event_locale_tests {
         assert_eq!(row["actions"][0]["title"], "Reply");
     }
 
+    /// A coach publishing onto an athlete's own plan that has no race yet
+    /// (carnet#1841) sends the notice that names none: never the sentence
+    /// with an empty slot where the race would be.
+    #[tokio::test]
+    async fn a_publish_for_a_plan_with_no_race_names_none() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (user, token) = create_test_tenant(&resources, "event_no_race@example.com")
+            .await
+            .unwrap();
+        let token = format!("Bearer {token}");
+        let tenant = tenant_of(&resources, user.id).await;
+        let service = Arc::new(notification_service(&resources));
+        let router = NotificationRoutes::routes(Arc::clone(&resources));
+
+        notification_triggers::trigger_coach_plan_published(
+            &service,
+            user.id,
+            tenant,
+            "Casey Coach",
+            None,
+            TransportPolicy::AnyTransport,
+        );
+        sleep(Duration::from_millis(300)).await;
+
+        let rows = feed(&router, &token).await;
+        let row = rows.first().expect("the feed returns the notice");
+        assert_eq!(row["title"], "Plan publié par Casey Coach");
+        assert_eq!(
+            row["body"],
+            "Casey Coach a publié ton plan d’entraînement. Tu le retrouves sur l’Accueil."
+        );
+
+        resources
+            .common
+            .repos
+            .users
+            .update_locale(user.id, "en")
+            .await
+            .unwrap();
+        let rows = feed(&router, &token).await;
+        let row = rows.first().expect("the feed returns the same notice");
+        assert_eq!(
+            row["body"],
+            "Casey Coach published your training plan. You'll find it on Home."
+        );
+    }
+
     /// A row written before the event vocabulary carries no parameters, so the
     /// feed shows the text it was stored with rather than an empty sentence.
     #[tokio::test]
@@ -253,7 +300,7 @@ mod notification_event_locale_tests {
             user.id,
             tenant,
             "Casey Coach",
-            "Big Red",
+            Some("Big Red"),
             TransportPolicy::AnyTransport,
         );
         notification_triggers::trigger_coach_plan_pushed(

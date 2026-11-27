@@ -22,6 +22,7 @@
 use dravr_tronc::dates::CivilDate;
 use pierre_contremaitre::messaging_strings::{
     envelope_anchor_label_key, MessagingStringsRegistry, KEY_COACH_ACCESS_DECLINED_REASON_BODY,
+    KEY_NOTIFICATION_COACH_PLAN_PUBLISHED_NO_RACE_BODY,
     KEY_GROUP_DIGEST_ALL_CLEAR, KEY_GROUP_DIGEST_CONCERNS_HEADER,
     KEY_GROUP_DIGEST_CONCERN_DEEP_FATIGUE, KEY_GROUP_DIGEST_CONCERN_HEAVY_BLOCK,
     KEY_GROUP_DIGEST_CONCERN_INACTIVE, KEY_GROUP_DIGEST_CONCERN_OVERTRAINING_RISK,
@@ -134,6 +135,7 @@ impl<'a> NotificationTextRenderer<'a> {
             NotificationEvent::GroupWeeklyDigest => self.group_digest_body(params),
             NotificationEvent::PersonalRecord => self.personal_record_body(params),
             NotificationEvent::CoachAccessDeclined => self.coach_access_declined_body(params),
+            NotificationEvent::CoachPlanPublished => self.coach_plan_published_body(params),
             NotificationEvent::CoachPhysiologySet => self.coach_physiology_set_body(params),
             NotificationEvent::DataAccessRequestDueSoon
             | NotificationEvent::DataAccessRequestOverdue => self.data_access_body(event, params),
@@ -211,6 +213,22 @@ impl<'a> NotificationTextRenderer<'a> {
             self.line(NotificationEvent::CoachAccessDeclined.body_key(), &[])
         } else {
             self.line(KEY_COACH_ACCESS_DECLINED_REASON_BODY, &[reason.trim()])
+        }
+    }
+
+    /// The published-plan body: the coach and the plan's race, or the coach
+    /// alone for a plan with no race yet (carnet#1841) — never a sentence with
+    /// an empty slot where the race would be.
+    fn coach_plan_published_body(&self, params: &Map<String, Value>) -> String {
+        let race = param_text(params.get("race_name"));
+        if race.trim().is_empty() {
+            self.line(
+                KEY_NOTIFICATION_COACH_PLAN_PUBLISHED_NO_RACE_BODY,
+                &[&param_text(params.get("coach_name"))],
+            )
+        } else {
+            let event = NotificationEvent::CoachPlanPublished;
+            self.render(event.body_key(), event.body_params(), params)
         }
     }
 

@@ -1845,6 +1845,11 @@ pub const KEY_NOTIFICATION_COACH_PLAN_PUBLISHED_TITLE: &str =
 /// `{1}` goal race name.
 pub const KEY_NOTIFICATION_COACH_PLAN_PUBLISHED_BODY: &str =
     "notifications.event.coach_plan_published.body";
+/// Key: who published it and where it is, for a plan with no race yet — an
+/// athlete's own plan starts at its first session (carnet#1841). `{0}` coach
+/// name.
+pub const KEY_NOTIFICATION_COACH_PLAN_PUBLISHED_NO_RACE_BODY: &str =
+    "notifications.event.coach_plan_published_no_race.body";
 /// Key: the plan's workouts are on the athlete's provider calendar. `{0}`
 /// coach name, `{1}` provider name.
 pub const KEY_NOTIFICATION_COACH_PLAN_PUSHED_TITLE: &str =

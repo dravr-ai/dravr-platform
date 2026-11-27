@@ -1068,7 +1068,7 @@ mod dispatch_tests {
             user_id,
             tenant_id,
             "Casey Coach",
-            "Big Red",
+            Some("Big Red"),
             TransportPolicy::AnyTransport,
         );
         notification_triggers::trigger_coach_plan_pushed(

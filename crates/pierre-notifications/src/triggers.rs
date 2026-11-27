@@ -594,7 +594,9 @@ fn coach_plan_dispatch(
 }
 
 /// Trigger notification telling an athlete their human coach published the
-/// coach's draft of their plan, built for the goal race `race_name`.
+/// coach's draft of their plan, built for the goal race `race_name`, or for
+/// none yet: an athlete's own plan starts with no race (carnet#1841), and the
+/// notice then leaves the race out rather than name an empty one.
 ///
 /// It opens Home, where the published plan is. P1: the plan the athlete
 /// trains on changed. `transport_policy` is the published plan's own
@@ -605,14 +607,18 @@ pub fn trigger_coach_plan_published(
     athlete_id: Uuid,
     tenant_id: TenantId,
     coach_name: &str,
-    race_name: &str,
+    race_name: Option<&str>,
     transport_policy: TransportPolicy,
 ) {
+    let params = race_name.map_or_else(
+        || json!({ "coach_name": coach_name }),
+        |race_name| json!({ "coach_name": coach_name, "race_name": race_name }),
+    );
     let dispatch = coach_plan_dispatch(
         athlete_id,
         tenant_id,
         NotificationEvent::CoachPlanPublished,
-        json!({ "coach_name": coach_name, "race_name": race_name }),
+        params,
         json!({ "screen": NotificationScreen::Activities.as_str() }),
         transport_policy,
     );
