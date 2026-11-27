@@ -18754,6 +18754,10 @@
                   "null"
                 ]
               },
+              "connected": {
+                "description": "Whether the athlete holds a connection to `provider` now. False when\nnone backs it: the block is then Dravr's record of past pushes, or a\nplaceholder for an athlete who never connected a calendar, and\nnothing is pushed there until one is connected. Never read `provider`\nas the athlete's active calendar while this is false.",
+                "type": "boolean"
+              },
               "entries": {
                 "description": "The live entries, always present — an empty list is a real answer and\ndropping the key would make \"nothing pushed\" indistinguishable from\n\"not asked\".",
                 "items": {
@@ -18794,6 +18798,7 @@
             },
             "required": [
               "provider",
+              "connected",
               "entries",
               "pending",
               "stale"
@@ -21809,7 +21814,7 @@
       },
       "_meta": {
         "ai.dravr.vault/tool": {
-          "def_hash": "sha256:71bdc640e5ce44f5785bb9056601b825ff07c5f9d4a8bd93a8fc62e37f6b56e9"
+          "def_hash": "sha256:f8994ea5b7bb70d4ae64f16f4eedbd62d4b1b90560d82467a83815ae2e9cc430"
         }
       }
     },
@@ -36776,7 +36781,7 @@
             "type": "integer"
           },
           "total_duration_seconds": {
-            "description": "How long it actually runs, seconds — poses are added while they fit,\nso this lands at or under the target rather than on it.",
+            "description": "How long it actually runs, seconds — poses are added while they fit,\nso this lands at or under the target; `guidance` says when it is short.",
             "format": "uint32",
             "minimum": 0,
             "type": "integer"
@@ -36803,7 +36808,7 @@
       },
       "_meta": {
         "ai.dravr.vault/tool": {
-          "def_hash": "sha256:4a4a929682b8a5c9c5c20f99cd11506aad8d8db8cd550a77ed5494d186bfa189"
+          "def_hash": "sha256:e0aca01799c4baed54523e650240554ce951b50d3a5a21bcd836154286aed329"
         }
       }
     },
@@ -36861,132 +36866,83 @@
           }
         },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "anyOf": [
-          {
-            "properties": {
-              "current_value": {
-                "description": "Where the athlete is now.",
-                "format": "double",
-                "type": "number"
-              },
-              "days_remaining": {
-                "description": "Days left in the timeframe.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "goal_id": {
-                "description": "The goal being tracked.",
-                "type": "string"
-              },
-              "goal_type": {
-                "description": "Its kind.",
-                "type": "string"
-              },
-              "on_track": {
-                "description": "Whether the current rate reaches the target inside the timeframe.",
-                "type": "boolean"
-              },
-              "progress_percentage": {
-                "description": "Percentage of the way there, capped at 100.",
-                "format": "double",
-                "type": "number"
-              },
-              "projected_completion_days": {
-                "description": "Projected days to completion at the current rate; absent when the rate\ndoes not support a projection.",
-                "format": "double",
-                "type": [
-                  "number",
-                  "null"
-                ]
-              },
-              "sport": {
-                "description": "The sport whose activities count; absent when every activity counts.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "summary": {
-                "$ref": "#/$defs/ProgressSummary",
-                "description": "The training the reading is drawn from."
-              },
-              "target_value": {
-                "description": "Where they are aiming.",
-                "format": "double",
-                "type": "number"
-              },
-              "timeframe": {
-                "description": "The window the goal was set over.",
-                "type": "string"
-              },
-              "unit": {
-                "description": "Unit both values are in.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "goal_id",
-              "goal_type",
-              "current_value",
-              "target_value",
-              "unit",
-              "progress_percentage",
-              "on_track",
-              "days_remaining",
-              "projected_completion_days",
-              "timeframe",
-              "sport",
-              "summary"
-            ],
-            "type": "object"
-          },
-          {
-            "properties": {
-              "connect_url": {
-                "type": "string"
-              },
-              "connected": {
-                "const": false
-              },
-              "message": {
-                "type": "string"
-              },
-              "providers": {
-                "items": {
-                  "properties": {
-                    "name": {
-                      "type": "string"
-                    },
-                    "note": {
-                      "type": "string"
-                    },
-                    "readable_here": {
-                      "type": "boolean"
-                    },
-                    "status": {
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "name",
-                    "status",
-                    "readable_here"
-                  ],
-                  "type": "object"
-                },
-                "type": "array"
-              }
-            },
-            "required": [
-              "connected",
-              "message",
-              "providers"
-            ],
-            "type": "object"
-          }
-        ],
         "description": "What `track_progress` answers with.",
+        "properties": {
+          "current_value": {
+            "description": "Where the athlete is now.",
+            "format": "double",
+            "type": "number"
+          },
+          "days_remaining": {
+            "description": "Days left in the timeframe.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "goal_id": {
+            "description": "The goal being tracked.",
+            "type": "string"
+          },
+          "goal_type": {
+            "description": "Its kind.",
+            "type": "string"
+          },
+          "on_track": {
+            "description": "Whether the current rate reaches the target inside the timeframe.",
+            "type": "boolean"
+          },
+          "progress_percentage": {
+            "description": "Percentage of the way there, capped at 100.",
+            "format": "double",
+            "type": "number"
+          },
+          "projected_completion_days": {
+            "description": "Projected days to completion at the current rate; absent when the rate\ndoes not support a projection.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "sport": {
+            "description": "The sport whose activities count; absent when every activity counts.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "summary": {
+            "$ref": "#/$defs/ProgressSummary",
+            "description": "The training the reading is drawn from."
+          },
+          "target_value": {
+            "description": "Where they are aiming.",
+            "format": "double",
+            "type": "number"
+          },
+          "timeframe": {
+            "description": "The window the goal was set over.",
+            "type": "string"
+          },
+          "unit": {
+            "description": "Unit both values are in.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "goal_id",
+          "goal_type",
+          "current_value",
+          "target_value",
+          "unit",
+          "progress_percentage",
+          "on_track",
+          "days_remaining",
+          "projected_completion_days",
+          "timeframe",
+          "sport",
+          "summary"
+        ],
         "title": "TrackProgressResult",
         "type": "object"
       },
@@ -37002,7 +36958,7 @@
       },
       "_meta": {
         "ai.dravr.vault/tool": {
-          "def_hash": "sha256:4bf9ed046a44304b8d5f963c07342aae228d84f1355d49a3bafe0d72590b322d"
+          "def_hash": "sha256:b95cd10e1c5b6d4d9909568174dfd226cdb4140397d060310bf6790c299e4577"
         }
       }
     },

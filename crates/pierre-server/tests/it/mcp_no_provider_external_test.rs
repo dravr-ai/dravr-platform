@@ -154,6 +154,7 @@ async fn an_mcp_caller_with_nothing_connected_gets_the_offered_providers_not_a_f
 
     // Each marks whether its data can be read here, from the registry's terms.
     let mut unreadable = 0;
+    let mut imported = 0;
     for entry in &offered {
         let name = entry["name"].as_str().unwrap();
         let first_party_only = registry
@@ -163,12 +164,21 @@ async fn an_mcp_caller_with_nothing_connected_gets_the_offered_providers_not_a_f
         assert_eq!(entry["status"], "disconnected", "{name}");
         if first_party_only {
             unreadable += 1;
-            assert!(
-                entry["note"]
-                    .as_str()
-                    .unwrap()
-                    .contains("only in the Dravr app"),
-                "{name}"
+            let note = entry["note"].as_str().unwrap();
+            assert!(note.contains("only in the Dravr app"), "{name}");
+            // An imported export of its history is served here, and the
+            // entry says so, so it agrees with what the imported archive's
+            // tools answer (2026-11-26 connector sweep).
+            let imports_served = registry
+                .transport_policy(&format!("{name}_archive"))
+                .is_some_and(|policy| !policy.is_first_party_only());
+            if imports_served {
+                imported += 1;
+            }
+            assert_eq!(
+                note.contains("imports into Dravr is readable here"),
+                imports_served,
+                "bug: {name}'s note must say whether its imported history is readable: {note}"
             );
         }
     }
@@ -176,6 +186,7 @@ async fn an_mcp_caller_with_nothing_connected_gets_the_offered_providers_not_a_f
         unreadable > 0,
         "the shipped providers include first-party-only ones"
     );
+    assert!(imported > 0, "Strava and Garmin exports are importable");
 
     // The generic text names no provider; the list is the data beside it.
     let message = structured["message"].as_str().unwrap().to_ascii_lowercase();
@@ -186,6 +197,31 @@ async fn an_mcp_caller_with_nothing_connected_gets_the_offered_providers_not_a_f
         );
     }
     assert!(message.contains("is the athlete's choice"), "{message}");
+}
+
+/// A goal id that names no goal is said to be not found, before anything
+/// about data sources: the goal is the call's subject (2026-11-26 connector
+/// sweep, where it read "Nothing is connected").
+#[tokio::test]
+async fn track_progress_on_an_unknown_goal_says_not_found_before_any_provider() {
+    let res = create_test_server_resources().await.unwrap();
+    let (user_id, tenant) = new_athlete(&res, "unknown-goal@no-provider.test").await;
+    let app = ProviderToolRouter::build_http_app(&res);
+    let grant = token_with_scopes(&res, user_id, &tenant, &["fitness:read", "profile:read"]);
+    let goal_id = Uuid::new_v4().to_string();
+
+    let answered = post_mcp(
+        &app,
+        &grant,
+        call("track_progress", &json!({ "goal_id": goal_id })),
+    )
+    .await;
+    let said = answered.to_string();
+    assert!(
+        said.contains(&format!("Goal {goal_id} not found")),
+        "bug: an unknown goal must be said not found: {answered}"
+    );
+    assert!(!said.contains("Nothing is connected"), "{answered}");
 }
 
 #[tokio::test]

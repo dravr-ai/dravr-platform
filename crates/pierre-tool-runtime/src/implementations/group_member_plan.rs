@@ -309,7 +309,8 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberPlanStatusTool {
                     return Ok(not_this_groups_coach());
                 }
                 RosterAccess::NotACoach
-                    if ctx.is_admin && coach_assistant::serving_coach_assistant() =>
+                    if coach_assistant::serving_coach_assistant()
+                        && coach_assistant::says_admin_no_group_note(ctx.is_admin) =>
                 {
                     return Ok(refusal(
                         "no_match",
@@ -323,7 +324,9 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberPlanStatusTool {
                 // In Dravr's own app and on Messaging an admin keeps the
                 // tool too, and is told they lead no group, as the roster
                 // tells them (carnet#1511 call 22).
-                RosterAccess::NotACoach if ctx.is_admin => {
+                RosterAccess::NotACoach
+                    if coach_assistant::says_admin_no_group_note(ctx.is_admin) =>
+                {
                     return Ok(refusal("no_match", coach_assistant::ADMIN_NO_GROUP_NOTE));
                 }
                 RosterAccess::NotACoach => {

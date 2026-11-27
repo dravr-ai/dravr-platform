@@ -24,7 +24,7 @@ use serde_json::Value;
 
 /// Upper bound on caller-supplied ingredient arrays for the USDA fan-outs.
 ///
-/// `validate_recipe` costs two API calls per ingredient,
+/// `validate_recipe` costs up to three API calls per ingredient,
 /// `analyze_meal_nutrition` one. Generous for a real recipe or meal while
 /// keeping the worst-case cold fan-out bounded by a constant instead of by
 /// whatever array length a caller sends.

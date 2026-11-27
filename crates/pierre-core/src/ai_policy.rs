@@ -366,6 +366,11 @@ pub struct Withheld {
     /// Items dropped because the call is external and their provider's terms
     /// keep them to Dravr's own surfaces.
     pub off_interface: usize,
+    /// Of [`Self::off_interface`], the sensitive records an external call is
+    /// refused whatever service holds them (a T2 record, or a tier above a
+    /// consent grant's ceiling): no source serves them over this interface,
+    /// so [`Self::interface_note`] names none for them.
+    pub off_interface_tier: usize,
     /// Sensitive records (owl tiers T2, T3) withheld from a model, a human
     /// coach or an outside client because the athlete keeps them from AI:
     /// each field nulled on a row, or each read refused, counted once. A reason of its own
@@ -396,6 +401,7 @@ impl Withheld {
         self.reduced += other.reduced;
         self.sources.extend(other.sources);
         self.off_interface += other.off_interface;
+        self.off_interface_tier += other.off_interface_tier;
         self.sensitive_reduced += other.sensitive_reduced;
         self.off_group_chat += other.off_group_chat;
     }
@@ -450,6 +456,17 @@ impl Withheld {
     #[must_use]
     pub fn interface_note(&self, lookup: &dyn ProviderTerms) -> Value {
         const UNAVAILABLE: &str = "Some of this athlete's data is not available over this interface. The athlete can see it in the Dravr app; do not guess its contents.";
+        const FROM_NO_SOURCE: &str = "Some of this athlete's data is not available over this interface, whichever service holds it. The athlete can see it in the Dravr app; do not guess its contents.";
+        // Only a drop under a provider's terms can be made up by a source
+        // that is served here; a sensitive record no source serves cannot.
+        if self.off_interface_tier >= self.off_interface {
+            return serde_json::json!({
+                "items_unavailable": self.off_interface,
+                "reason": "not_available_over_this_interface",
+                "available_sources": Vec::<&str>::new(),
+                "note": FROM_NO_SOURCE,
+            });
+        }
         let available = lookup.served_over_every_transport();
         let note = if available.is_empty() {
             UNAVAILABLE.to_owned()

@@ -11,6 +11,9 @@
 /// USDA FoodData Central API client for nutritional data
 pub mod usda_client;
 
+/// Per-100 g figures read from a USDA food, and the generic-entry pick
+pub mod usda_nutrients;
+
 /// Re-export commonly used types from USDA client
 pub use usda_client::{
     FoodDetails, FoodNutrient, FoodSearchPaginatedResponse, FoodSearchResult, UsdaClient,

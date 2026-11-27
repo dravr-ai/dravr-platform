@@ -234,7 +234,7 @@ enum Covered {
 async fn covered_groups(
     context: &ToolExecutionContext,
     arg_group: Option<&str>,
-    is_admin: bool,
+    admin_note: bool,
 ) -> AppResult<Result<Covered, ToolResult>> {
     let access = roster_access(context.resources.repos(), context.user_id).await?;
     // The room is asked before any role answers, an admin's included, so a
@@ -243,10 +243,10 @@ async fn covered_groups(
     let (mut groups, holds_coach_access) = match access {
         RosterAccess::Granted(groups) => (groups, true),
         RosterAccess::NoCoachAccess(groups) => (groups, false),
-        RosterAccess::NotACoach if is_admin && room.is_private() => {
+        RosterAccess::NotACoach if admin_note && room.is_private() => {
             return Ok(Ok(Covered::AdminWithoutGroup));
         }
-        RosterAccess::NotACoach if is_admin => (Vec::new(), true),
+        RosterAccess::NotACoach if admin_note => (Vec::new(), true),
         RosterAccess::NotACoach => {
             return Ok(Err(refusal(
                 "not_a_coach",
@@ -578,7 +578,8 @@ impl McpTool<dyn ToolRuntime> for GetRosterOverviewTool {
         args: Value,
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
-        tool_result_to_response(roster_overview(context, args, ctx.is_admin).await)
+        let admin_note = coach_assistant::says_admin_no_group_note(ctx.is_admin);
+        tool_result_to_response(roster_overview(context, args, admin_note).await)
     }
 }
 
@@ -589,7 +590,7 @@ impl McpTool<dyn ToolRuntime> for GetRosterOverviewTool {
 fn roster_overview(
     context: ToolExecutionContext,
     args: Value,
-    is_admin: bool,
+    admin_note: bool,
 ) -> Pin<Box<dyn Future<Output = AppResult<ToolResult>> + Send>> {
     Box::pin(async move {
         let arg_group = args
@@ -597,7 +598,7 @@ fn roster_overview(
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|s| !s.is_empty());
-        let groups = match covered_groups(&context, arg_group, is_admin).await? {
+        let groups = match covered_groups(&context, arg_group, admin_note).await? {
             Ok(Covered::Groups(groups)) => groups,
             Ok(Covered::AdminWithoutGroup) => {
                 return ok_typed(

@@ -719,8 +719,9 @@ async fn plant_goal_row(db: &Database, id: &str, user_id: Uuid, goal_data: &serd
         }
         #[cfg(feature = "postgresql")]
         DatabaseBackend::PostgreSQL(d) => {
+            // `goals.id` is a uuid on PostgreSQL, as deployed.
             sqlx::query(SQL)
-                .bind(id)
+                .bind(Uuid::parse_str(id).expect("a planted goal id is a uuid"))
                 .bind(user_id)
                 .bind(goal_data)
                 .bind(now)
@@ -761,7 +762,11 @@ async fn read_goal_row(db: &Database, id: &str) -> serde_json::Value {
         }
         #[cfg(feature = "postgresql")]
         DatabaseBackend::PostgreSQL(d) => {
-            let row = sqlx::query(SQL).bind(id).fetch_one(d.pool()).await.unwrap();
+            let row = sqlx::query(SQL)
+                .bind(Uuid::parse_str(id).expect("a planted goal id is a uuid"))
+                .fetch_one(d.pool())
+                .await
+                .unwrap();
             row.get("goal_data")
         }
     }

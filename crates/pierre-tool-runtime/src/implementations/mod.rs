@@ -359,6 +359,10 @@ pub mod workout_library;
 #[cfg(feature = "tools-mobility")]
 pub mod mobility;
 
+/// The sequence `suggest_yoga_sequence` fills, and its guidance.
+#[cfg(feature = "tools-mobility")]
+pub(crate) mod yoga_sequence;
+
 /// Nutrition and meal planning tools: `calculate_daily_nutrition`,
 /// `get_nutrient_timing`, `search_food`, etc. (`tools-nutrition` feature).
 #[cfg(feature = "tools-nutrition")]

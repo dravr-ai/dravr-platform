@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! `validate_recipe` costs two USDA calls per ingredient and
+//! `validate_recipe` costs up to three USDA calls per ingredient and
 //! `analyze_meal_nutrition` one, so both bound the caller's array by a
 //! constant. The check was copy-pasted beside each call site, with one copy
 //! carrying a `validate_recipe:` prefix the other lacked — a difference that

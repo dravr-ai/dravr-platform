@@ -259,17 +259,39 @@ pub async fn latest_sleep_data(
         .await?
         .into_iter()
         .next()
-        .ok_or_else(|| {
-            Box::new(failure(source.map_or_else(
-                || {
-                    format!(
-                        "No synced sleep for the last {days} day(s). Connect a sleep-tracking \
-                         source (WHOOP, Garmin, intervals.icu) or pass sleep_data manually."
-                    )
-                },
-                |source| format!("No sleep synced from {source} for the last {days} day(s)."),
-            )))
-        })
+        .ok_or_else(|| Box::new(no_synced_sleep(source, days, "sleep_data")))
+}
+
+/// The refusal a sleep tool answers when no night was synced recently.
+///
+/// No night in the last `days` days (from `source`, when one is named) is an
+/// ordinary failed result, never a parameter error, since the call itself was
+/// sound. `manual_field` is the argument that tool takes nights by hand through.
+#[must_use]
+pub(crate) fn no_synced_sleep(
+    source: Option<&str>,
+    days: u32,
+    manual_field: &str,
+) -> UniversalResponse {
+    failure(source.map_or_else(
+        || {
+            format!(
+                "No synced sleep for the last {days} day(s). Connect a sleep-tracking source \
+                 (WHOOP, Garmin, intervals.icu) or pass {manual_field} manually."
+            )
+        },
+        |source| format!("No sleep synced from {source} for the last {days} day(s)."),
+    ))
+}
+
+/// The refusal a trend answers when fewer synced nights than its window
+/// came back: how many there are, and how many it needs.
+#[must_use]
+pub fn too_few_synced_nights(nights: usize, days: u32, needed: usize) -> UniversalResponse {
+    failure(format!(
+        "Only {nights} night(s) of sleep synced in the last {days} day(s); a trend is read from at \
+         least {needed}."
+    ))
 }
 
 /// Merged recovery readings over the window, keyed by date, narrowed to

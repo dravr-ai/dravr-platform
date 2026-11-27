@@ -873,7 +873,8 @@ pub(crate) fn provider_auth_required_text(backend: &str) -> String {
 
 /// What an MCP client reads when a tool call fails before it produced a
 /// result. A failure the caller can act on (bad or missing parameters, an
-/// unknown tool, a refusal, a limit) keeps its message; anything else is the
+/// unknown tool, a refusal, a limit, an upstream service that is down) keeps
+/// its message; anything else is the
 /// server's own and its text (database, serialization, internal detail) stays
 /// in the log.
 fn client_failure_text(error: &ProtocolError) -> String {
@@ -886,6 +887,10 @@ fn client_failure_text(error: &ProtocolError) -> String {
         | ProtocolError::ToolNotFound { .. }
         | ProtocolError::PermissionDenied { .. }
         | ProtocolError::RateLimitExceeded { .. } => format!("Tool execution failed: {error}"),
+        // Built from a message written for the caller: an upstream service's
+        // refusal or a tool's own `tool_message`. Its text already reads
+        // "Tool execution failed: …".
+        ProtocolError::ExecutionFailed(_) => error.to_string(),
         _ => {
             warn!(error = %error, "tool call failed");
             "Tool execution failed".to_owned()
@@ -919,5 +924,30 @@ mod tests {
             let said = format!("{} {data}", error.message);
             assert!(!said.to_lowercase().contains("sciotte"), "{said}");
         }
+    }
+
+    #[test]
+    fn an_upstream_refusal_reaches_the_client_with_its_cause() {
+        let said = client_failure_text(&ProtocolError::ExecutionFailed(
+            "discover_routes: Route search is temporarily unavailable: retry in a few minutes."
+                .to_owned(),
+        ));
+        assert_eq!(
+            said,
+            "Tool execution failed: discover_routes: Route search is temporarily unavailable: \
+             retry in a few minutes.",
+            "bug: an upstream refusal reaches the client with its cause"
+        );
+    }
+
+    #[test]
+    fn a_server_fault_reaches_the_client_bare() {
+        let said = client_failure_text(&ProtocolError::InternalError(
+            "set_goal: column \"id\" is of type uuid".to_owned(),
+        ));
+        assert_eq!(
+            said, "Tool execution failed",
+            "bug: a server fault's detail stays in the log"
+        );
     }
 }

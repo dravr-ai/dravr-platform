@@ -868,8 +868,12 @@ impl McpTool<dyn ToolRuntime> for TrackProgressTool {
         )))
     }
 
+    // Not `REQUIRES_PROVIDER`: the dispatch gate would answer "nothing is
+    // connected" before the body could say the goal does not exist. The body
+    // reads the goal first, then refuses through the shared resolver when no
+    // source holds the athlete's activities.
     fn capabilities(&self) -> ToolCapabilities {
-        PROVIDER_READ
+        ToolCapabilities::REQUIRES_AUTH | ToolCapabilities::READS_DATA
     }
 
     async fn execute(
@@ -885,13 +889,10 @@ impl McpTool<dyn ToolRuntime> for TrackProgressTool {
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| AppError::invalid_input("goal_id is required"))?
                 .to_owned();
-
-            let provider_name = match resolve_provider_for_tool(&args, &context).await {
-                Ok(p) => p,
-                Err(result) => return Ok(result),
-            };
             let user_uuid = context.user_id;
 
+            // The goal is the call's subject: one that does not exist is said
+            // before anything about the athlete's data sources.
             let Some(details) = fetch_and_validate_goal(
                 context.resources.repos().profiles.as_ref(),
                 user_uuid,
@@ -902,6 +903,11 @@ impl McpTool<dyn ToolRuntime> for TrackProgressTool {
                 return Ok(ToolResult::error(json!({
                     "error": format!("Goal {goal_id} not found"),
                 })));
+            };
+
+            let provider_name = match resolve_provider_for_tool(&args, &context).await {
+                Ok(p) => p,
+                Err(result) => return Ok(result),
             };
 
             let days_remaining = calculate_days_remaining(details.created_at, &details.timeframe);

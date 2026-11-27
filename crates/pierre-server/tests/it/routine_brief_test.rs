@@ -95,6 +95,15 @@ async fn desk(tag: &str) -> Desk {
     Desk { fx, coach, group }
 }
 
+/// The outcomes of the routine wakes among `delivered`.
+fn routine_outcomes(delivered: Vec<(Wake, WakeOutcome)>) -> Vec<WakeOutcome> {
+    delivered
+        .into_iter()
+        .filter(|(wake, _)| matches!(wake, Wake::Routine { .. }))
+        .map(|(_, outcome)| outcome)
+        .collect()
+}
+
 impl Desk {
     fn res(&self) -> &Arc<ServerContext> {
         &self.fx.resources
@@ -138,17 +147,31 @@ impl Desk {
         athlete
     }
 
-    /// Reconcile now, then deliver the brief's wakes over the next day: one
-    /// slot, whatever the hour. Returns what the brief's deliveries did.
+    /// Reconcile now, then deliver the brief's next slot alone: the one still
+    /// open now, else the next to come. Returns what the brief's delivery did.
+    ///
+    /// A fixed window counted the wrong number of mornings at some hours: a
+    /// slot still inside its window is current, so an hour after 07:00 a
+    /// one-day window held today's late slot and tomorrow's. Delivering up
+    /// to the slot the engine scheduled holds exactly one, whatever the hour.
     async fn next_morning(&self) -> Vec<WakeOutcome> {
         let now = Timestamp::now();
-        self.fx
-            .run(now, now + Elapsed::hours(25))
+        let due_now = routine_outcomes(self.fx.run(now, now).await);
+        if !due_now.is_empty() {
+            return due_now;
+        }
+        let fire = self
+            .res()
+            .common
+            .repos
+            .routines
+            .builtin_routine(self.coach.tenant, self.coach.id, RoutineKind::MorningBrief)
             .await
-            .into_iter()
-            .filter(|(wake, _)| matches!(wake, Wake::Routine { .. }))
-            .map(|(_, outcome)| outcome)
-            .collect()
+            .unwrap()
+            .expect("bug: the engine gave the coach no brief")
+            .next_fire
+            .expect("bug: the brief has no next firing");
+        routine_outcomes(self.fx.run_to(fire).await)
     }
 
     fn router(&self) -> Router {

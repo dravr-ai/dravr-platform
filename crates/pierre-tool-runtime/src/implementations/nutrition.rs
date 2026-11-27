@@ -46,6 +46,7 @@ use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_config::nutrition_params::{athlete_protein_g_per_kg, PROTEIN_ATHLETE_G_PER_KG_KEY};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_external::usda_nutrients::Per100g;
 use pierre_external::{FoodSearchResult, UsdaClient};
 use pierre_mcp_schema::PropertySchema;
 use pierre_runtime_context::ConfigLookupScope;
@@ -945,10 +946,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeMealNutritionTool {
                 meal_items.push((fdc_id, amount_g));
             }
 
-            let mut total_calories = 0.0_f64;
-            let mut total_protein = 0.0_f64;
-            let mut total_carbs = 0.0_f64;
-            let mut total_fat = 0.0_f64;
+            let mut totals = Per100g::default();
             let mut food_details_list = Vec::new();
 
             for (fdc_id, grams) in meal_items {
@@ -961,25 +959,8 @@ impl McpTool<dyn ToolRuntime> for AnalyzeMealNutritionTool {
                     }
                 };
 
-                // USDA nutrient amounts are per 100 g
-                let multiplier = grams / 100.0;
-                for nutrient in &food.food_nutrients {
-                    match nutrient.nutrient_name.as_str() {
-                        "Energy" => {
-                            total_calories = nutrient.amount.mul_add(multiplier, total_calories);
-                        }
-                        "Protein" => {
-                            total_protein = nutrient.amount.mul_add(multiplier, total_protein);
-                        }
-                        "Carbohydrate, by difference" => {
-                            total_carbs = nutrient.amount.mul_add(multiplier, total_carbs);
-                        }
-                        "Total lipid (fat)" => {
-                            total_fat = nutrient.amount.mul_add(multiplier, total_fat);
-                        }
-                        _ => {}
-                    }
-                }
+                // USDA amounts are per 100 g; each figure is read once, by id.
+                totals = totals.plus(&Per100g::of(&food).for_grams(grams));
 
                 food_details_list.push(MealFoodEntry {
                     fdc_id,
@@ -991,10 +972,10 @@ impl McpTool<dyn ToolRuntime> for AnalyzeMealNutritionTool {
             ok_typed(
                 "analyze_meal_nutrition",
                 AnalyzeMealNutritionResult {
-                    total_calories: total_calories.round(),
-                    total_protein_g: total_protein.round(),
-                    total_carbs_g: total_carbs.round(),
-                    total_fat_g: total_fat.round(),
+                    total_calories: totals.energy_kcal.round(),
+                    total_protein_g: totals.protein_g.round(),
+                    total_carbs_g: totals.carbs_g.round(),
+                    total_fat_g: totals.fat_g.round(),
                     foods: food_details_list,
                 },
             )

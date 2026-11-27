@@ -618,6 +618,12 @@ pub struct SavedWeek {
 pub struct CalendarBlock {
     /// The calendar provider the entries were pushed to.
     pub provider: String,
+    /// Whether the athlete holds a connection to `provider` now. False when
+    /// none backs it: the block is then Dravr's record of past pushes, or a
+    /// placeholder for an athlete who never connected a calendar, and
+    /// nothing is pushed there until one is connected. Never read `provider`
+    /// as the athlete's active calendar while this is false.
+    pub connected: bool,
     /// The live entries, always present — an empty list is a real answer and
     /// dropping the key would make "nothing pushed" indistinguishable from
     /// "not asked".

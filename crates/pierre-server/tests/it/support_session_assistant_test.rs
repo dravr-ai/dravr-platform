@@ -501,6 +501,39 @@ mod support_session_assistant_tests {
         assert!(!text(&roster).contains("Bea Bright"), "{roster}");
     }
 
+    /// The no-group note names `admin_impersonate_start`, so it is said only
+    /// to a connection that tool is offered to: an admin whose grant holds
+    /// `admin`. An admin who connected with the ordinary scopes is answered
+    /// as anyone who coaches no group is (2026-11-26 connector sweep: the
+    /// note reached such a connection, which can call no admin tool).
+    #[tokio::test]
+    async fn the_support_session_note_is_said_only_where_its_tool_is_offered() {
+        let world = world().await;
+        let ordinary = world.oauth(&world.admin, &OAuthScope::delegable_as_str());
+        let admin = world.admin_grant().await.bearer;
+        let calls = [
+            ("get_roster_overview", json!({})),
+            ("get_group_member_activities", json!({ "member": "Bea" })),
+            ("get_group_member_plan_status", json!({ "member": "Bea" })),
+        ];
+        for (tool, arguments) in &calls {
+            let said = text(&world.call(&ordinary, tool, arguments.clone()).await);
+            assert!(
+                !said.contains(START_TOOL) && !said.contains("admin console"),
+                "bug: {tool} told a connection without `admin` how to act as a coach: {said}"
+            );
+            assert!(
+                said.contains("not the human coach") || said.contains("No member matching"),
+                "{tool} still says why nothing is shown: {said}"
+            );
+        }
+        let said = text(&world.call(&admin, "get_roster_overview", json!({})).await);
+        assert!(
+            said.contains(START_TOOL),
+            "the admin grant keeps the note: {said}"
+        );
+    }
+
     /// Without `admin` in the grant there is no support session: a
     /// connection granted the ordinary scopes is offered neither tool and is
     /// refused the start; a non-admin is refused it whatever the grant.

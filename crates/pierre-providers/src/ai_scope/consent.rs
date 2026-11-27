@@ -230,6 +230,7 @@ fn tally_refusal(refusal: TierRefusal) {
     record_withheld(match refusal {
         TierRefusal::External => Withheld {
             off_interface: 1,
+            off_interface_tier: 1,
             ..Withheld::default()
         },
         TierRefusal::Withheld => Withheld {
@@ -612,6 +613,32 @@ mod tests {
                 (2, 0),
                 "{transport:?}: {tally:?}"
             );
+            // No source serves a T2 record here, so the note names none: a
+            // list of what is served would tell the caller that connecting
+            // or importing one makes the records readable (2026-11-26
+            // connector sweep, get_health_records).
+            let note = tally.interface_note(&ServesImports);
+            assert_eq!(note["available_sources"], serde_json::json!([]), "{note}");
+            assert_eq!(note["items_unavailable"], 2, "{note}");
+            let said = note["note"].as_str().unwrap_or_default();
+            assert!(!said.contains("connect one of them"), "bug: {said}");
+        }
+    }
+
+    /// Terms under which imported archives are served over every transport.
+    struct ServesImports;
+
+    impl ProviderTerms for ServesImports {
+        fn ai_policy(&self, _provider: &str) -> Option<&'static SourcePolicy> {
+            None
+        }
+
+        fn transport_policy(&self, _provider: &str) -> Option<TransportPolicy> {
+            Some(TransportPolicy::AnyTransport)
+        }
+
+        fn served_over_every_transport(&self) -> Vec<&'static str> {
+            vec!["Strava (imported)", "Garmin (imported)"]
         }
     }
 

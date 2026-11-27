@@ -83,6 +83,7 @@ pub(super) async fn calendar_block(
         calendar_ledger_target(context, tenant, user_id, ledger_connections(scope)).await?;
     let pushed_by = who_pushes(scope, &ledger);
     let calendar_note = read_note(context, scope, &ledger).await?;
+    let connected = ledger.connected;
     let target = ledger.backend;
     let mut live = repos
         .prescribed_workouts
@@ -125,8 +126,20 @@ pub(super) async fn calendar_block(
             }
         })
         .collect();
+    // A calendar nothing backs is said so beside its name, unless the note
+    // already names the calendar the athlete chose and why it was passed over.
+    let calendar_note = calendar_note.or_else(|| {
+        (!connected).then(|| {
+            format!(
+                "{target} is not connected for this athlete, so it is not their active \
+                 calendar: what is listed here is only what Dravr pushed there before, and \
+                 push_training_plan writes nothing there until a calendar is connected."
+            )
+        })
+    });
     let mut block = CalendarBlock {
         provider: target,
+        connected,
         entries,
         pending,
         stale: pending.is_stale(),

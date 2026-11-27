@@ -43,6 +43,10 @@ pub struct ProviderOffer {
     pub status: &'static str,
     /// Whether its data can be read over the transport the call arrived by.
     pub readable_here: bool,
+    /// Whether an export of its history, imported into Dravr, can be read
+    /// over that transport: an imported archive is the athlete's own copy,
+    /// served where the live connection is not.
+    pub imported_readable_here: bool,
 }
 
 /// Whether `provider`'s data may be served over `transport`, by the terms the
@@ -60,6 +64,20 @@ pub(crate) fn readable_over(
         || terms
             .transport_policy(provider)
             .is_none_or(|policy| !policy.is_first_party_only())
+}
+
+/// Whether an export of `provider`'s history the athlete imports into Dravr
+/// may be served over `transport`: the registry holds an archive source for it
+/// (`<provider>_archive`) whose terms allow the transport.
+#[must_use]
+pub(crate) fn imports_readable_over(
+    terms: &dyn ProviderTerms,
+    provider: &str,
+    transport: Transport,
+) -> bool {
+    terms
+        .transport_policy(&format!("{provider}_archive"))
+        .is_some_and(|policy| transport.is_first_party() || !policy.is_first_party_only())
 }
 
 /// The offers for `user_id`, in provider-name order.
@@ -91,6 +109,7 @@ pub(crate) async fn provider_offers(
             name,
             status: state.status,
             readable_here: readable_over(registry.as_ref(), name, transport),
+            imported_readable_here: imports_readable_over(registry.as_ref(), name, transport),
         })
         .collect()
 }
@@ -105,6 +124,12 @@ pub fn describe_offers(offers: &[ProviderOffer]) -> String {
             let status = offer.status.replace('_', " ");
             if offer.readable_here {
                 format!("- {} ({status})", offer.name)
+            } else if offer.imported_readable_here {
+                format!(
+                    "- {} ({status}): what its connection syncs is readable only in the Dravr \
+                     app; an export of its history imported into Dravr is readable here",
+                    offer.name
+                )
             } else {
                 format!(
                     "- {} ({status}): its data is readable only in the Dravr app",
@@ -120,6 +145,22 @@ pub fn describe_offers(offers: &[ProviderOffer]) -> String {
 /// not leave the Dravr app.
 pub(crate) const APP_ONLY_NOTE: &str = "Its data is readable only in the Dravr app: connecting it \
      there does not make that data available over this interface.";
+
+/// What is added to [`APP_ONLY_NOTE`] for a provider whose imported history
+/// is served here ([`imports_readable_over`]).
+const IMPORT_READABLE_NOTE: &str = "An export of its history the athlete imports \
+     into Dravr is readable here.";
+
+/// The note on a provider whose data does not leave the Dravr app, naming
+/// the imported export when that is readable here.
+#[must_use]
+pub(crate) fn app_only_note(imported_readable_here: bool) -> String {
+    if imported_readable_here {
+        format!("{APP_ONLY_NOTE} {IMPORT_READABLE_NOTE}")
+    } else {
+        APP_ONLY_NOTE.to_owned()
+    }
+}
 
 /// Where an external caller's athlete goes to connect a provider.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -206,8 +247,9 @@ pub(crate) fn external_no_provider_response(
     } else {
         "The providers this Dravr offers are in `providers`, each with the athlete's state on \
          it and `readable_here`: whether that provider's data can be read over this interface. \
-         Where `readable_here` is false its data is readable only in the Dravr app, and stays \
-         there even once connected."
+         Where `readable_here` is false what its connection syncs is readable only in the \
+         Dravr app, and stays there even once connected; its `note` says when an export of its \
+         history imported into Dravr is readable here."
     };
     let how_to_connect = match connect {
         ConnectRoute::Tool => {
@@ -231,7 +273,7 @@ pub(crate) fn external_no_provider_response(
                 "readable_here": offer.readable_here,
             });
             if !offer.readable_here {
-                entry["note"] = Value::String(APP_ONLY_NOTE.to_owned());
+                entry["note"] = Value::String(app_only_note(offer.imported_readable_here));
             }
             entry
         })
@@ -282,11 +324,13 @@ mod tests {
                 name: "closed",
                 status: "disconnected",
                 readable_here: false,
+                imported_readable_here: false,
             },
             ProviderOffer {
                 name: "open",
                 status: "needs_reauth",
                 readable_here: true,
+                imported_readable_here: false,
             },
         ]
     }

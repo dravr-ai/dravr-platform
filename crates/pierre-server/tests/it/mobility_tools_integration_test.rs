@@ -1039,10 +1039,10 @@ async fn test_suggest_yoga_sequence_focus_area_keeps_to_the_area() -> Result<()>
     );
     assert_eq!(hips["total_duration_seconds"], 210);
     assert!(
-        hips["guidance"]
-            .as_str()
-            .unwrap()
-            .contains("30-minute yoga sequence is designed for post cardio, focused on the hips"),
+        hips["guidance"].as_str().unwrap().contains(
+            "This 3.5-minute yoga sequence is designed for post cardio, focused on the \
+                 hips. Its poses fill 3.5 of the 30 minutes asked"
+        ),
         "{}",
         hips["guidance"]
     );
@@ -1102,13 +1102,21 @@ async fn test_suggest_yoga_sequence_ends_lying_down_on_corpse_pose() -> Result<(
     .await;
     assert_eq!(
         field_values(&short_evening, "sequence", "english_name"),
-        ["Butterfly Pose", "Seated Forward Fold", "Corpse Pose"],
+        [
+            "Butterfly Pose",
+            "Seated Forward Fold",
+            "Reclined Pigeon",
+            "Happy Baby",
+            "Supine Spinal Twist",
+            "Corpse Pose"
+        ],
         "a short session keeps Corpse Pose's 300 s back and fills what is left in order, \
-         stopping at Legs Up The Wall's 300 s"
+         passing over Legs Up The Wall's 300 s for the shorter holds after it"
     );
     assert_eq!(
-        short_evening["total_duration_seconds"], 420,
-        "two 60 s holds and Corpse Pose's 300 s"
+        short_evening["total_duration_seconds"], 600,
+        "bug: five 60 s holds and Corpse Pose's 300 s fill the 10 minutes (2026-11-26 \
+         connector sweep: the fill stopped at Legs Up The Wall)"
     );
 
     let stress_relief = call_ok(

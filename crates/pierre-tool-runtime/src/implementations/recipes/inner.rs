@@ -21,6 +21,8 @@ use crate::conversions::{apply_format, ok_typed};
 use crate::implementations::nutrition_gate::{FiguresWithheld, NutritionAnswer, WithheldFigures};
 use crate::implementations::usda_shared::{check_ingredient_count, shared_usda_client};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_external::usda_nutrients::{self, Per100g};
+use pierre_external::{FoodSearchResult, UsdaClient};
 use pierre_formatters::OutputFormat;
 use pierre_tools_core::ToolResult;
 
@@ -562,6 +564,48 @@ pub(super) fn withheld_recipe_constraints(
 // validate_recipe
 // ---------------------------------------------------------------------------
 
+/// Generic search results a plain ingredient name is matched among.
+const GENERIC_CANDIDATES: u32 = 10;
+
+/// The USDA entry an ingredient name means: the generic food (Foundation or
+/// SR Legacy) it names, else — said in `warnings` — the search's first entry
+/// of any kind, a branded product included; `None`, also said, when nothing
+/// matched or the search failed.
+async fn match_ingredient(
+    client: &UsdaClient,
+    name: &str,
+    warnings: &mut Vec<String>,
+) -> Option<FoodSearchResult> {
+    match client.search_generic_foods(name, GENERIC_CANDIDATES).await {
+        Ok(result) => {
+            if let Some(food) = usda_nutrients::pick_generic_match(name, &result.foods) {
+                return Some(food.clone());
+            }
+        }
+        Err(e) => {
+            warnings.push(format!("USDA search failed for {name}: {e}"));
+            return None;
+        }
+    }
+    match client.search_foods(name, 1, 1).await {
+        Ok(result) => {
+            let food = result.foods.into_iter().next();
+            match &food {
+                Some(food) => warnings.push(format!(
+                    "No generic USDA food matched {name}; its figures come from the {} entry '{}'",
+                    food.data_type, food.description
+                )),
+                None => warnings.push(format!("No USDA match found for: {name}")),
+            }
+            food
+        }
+        Err(e) => {
+            warnings.push(format!("USDA search failed for {name}: {e}"));
+            None
+        }
+    }
+}
+
 pub(super) async fn handle_validate_recipe(
     ctx: &ToolExecutionContext,
     args: Value,
@@ -589,7 +633,8 @@ pub(super) async fn handle_validate_recipe(
             )
         })?;
 
-    // Two USDA calls per ingredient, so the array length is the fan-out —
+    // Up to three USDA calls per ingredient (generic search, any-kind
+    // fallback, detail), so the array length is the fan-out —
     // bound it by a constant instead of by whatever the caller sends.
     check_ingredient_count(ingredients_json)?;
 
@@ -608,13 +653,7 @@ pub(super) async fn handle_validate_recipe(
 
     let client = shared_usda_client(api_key);
 
-    let mut total_calories = 0.0;
-    let mut total_protein = 0.0;
-    let mut total_carbs = 0.0;
-    let mut total_fat = 0.0;
-    let mut total_fiber = 0.0;
-    let mut total_sodium = 0.0;
-    let mut total_sugar = 0.0;
+    let mut totals = Per100g::default();
     let mut warnings: Vec<String> = Vec::new();
     let mut validated_ingredients: Vec<ValidatedIngredient> = Vec::new();
     let mut usda_matched_count: u32 = 0;
@@ -654,98 +693,45 @@ pub(super) async fn handle_validate_recipe(
             }
         };
 
-        match client.search_foods(name, 1, 1).await {
-            Ok(result) if !result.foods.is_empty() => {
-                let food = &result.foods[0];
-                match client.get_food_details(food.fdc_id).await {
-                    Ok(details) => {
-                        let multiplier = grams / 100.0;
-                        for nutrient in &details.food_nutrients {
-                            match nutrient.nutrient_name.as_str() {
-                                "Energy" => {
-                                    total_calories =
-                                        nutrient.amount.mul_add(multiplier, total_calories);
-                                }
-                                "Protein" => {
-                                    total_protein =
-                                        nutrient.amount.mul_add(multiplier, total_protein);
-                                }
-                                "Carbohydrate, by difference" => {
-                                    total_carbs = nutrient.amount.mul_add(multiplier, total_carbs);
-                                }
-                                "Total lipid (fat)" => {
-                                    total_fat = nutrient.amount.mul_add(multiplier, total_fat);
-                                }
-                                "Fiber, total dietary" => {
-                                    total_fiber = nutrient.amount.mul_add(multiplier, total_fiber);
-                                }
-                                "Sodium, Na" => {
-                                    total_sodium =
-                                        nutrient.amount.mul_add(multiplier, total_sodium);
-                                }
-                                "Sugars, total including NLEA" => {
-                                    total_sugar = nutrient.amount.mul_add(multiplier, total_sugar);
-                                }
-                                _ => {}
-                            }
-                        }
-                        validated_ingredients.push(ValidatedIngredient {
-                            name: (*name).to_owned(),
-                            amount,
-                            unit: unit_str.to_owned(),
-                            grams,
-                            fdc_id: Some(food.fdc_id),
-                            usda_match: Some(food.description.clone()),
-                        });
-                        usda_matched_count += 1;
-                    }
-                    Err(e) => {
-                        warnings.push(format!("USDA lookup failed for {name}: {e}"));
-                        validated_ingredients.push(ValidatedIngredient {
-                            name: (*name).to_owned(),
-                            amount,
-                            unit: unit_str.to_owned(),
-                            grams,
-                            fdc_id: None,
-                            usda_match: None,
-                        });
-                    }
-                }
-            }
-            Ok(_) => {
-                warnings.push(format!("No USDA match found for: {name}"));
+        let unmatched = ValidatedIngredient {
+            name: (*name).to_owned(),
+            amount,
+            unit: unit_str.to_owned(),
+            grams,
+            fdc_id: None,
+            usda_match: None,
+        };
+        let Some(food) = match_ingredient(&client, name, &mut warnings).await else {
+            validated_ingredients.push(unmatched);
+            continue;
+        };
+        match client.get_food_details(food.fdc_id).await {
+            Ok(details) => {
+                // USDA amounts are per 100 g; each figure is read once, by id.
+                totals = totals.plus(&Per100g::of(&details).for_grams(grams));
                 validated_ingredients.push(ValidatedIngredient {
-                    name: (*name).to_owned(),
-                    amount,
-                    unit: unit_str.to_owned(),
-                    grams,
-                    fdc_id: None,
-                    usda_match: None,
+                    fdc_id: Some(food.fdc_id),
+                    usda_match: Some(food.description),
+                    ..unmatched
                 });
+                usda_matched_count += 1;
             }
             Err(e) => {
-                warnings.push(format!("USDA search failed for {name}: {e}"));
-                validated_ingredients.push(ValidatedIngredient {
-                    name: (*name).to_owned(),
-                    amount,
-                    unit: unit_str.to_owned(),
-                    grams,
-                    fdc_id: None,
-                    usda_match: None,
-                });
+                warnings.push(format!("USDA lookup failed for {name}: {e}"));
+                validated_ingredients.push(unmatched);
             }
         }
     }
 
     let servings_f64 = f64::from(servings);
     let nutrition_per_serving = ServingNutrition {
-        calories: (total_calories / servings_f64).round(),
-        protein_g: (total_protein / servings_f64 * 10.0).round() / 10.0,
-        carbs_g: (total_carbs / servings_f64 * 10.0).round() / 10.0,
-        fat_g: (total_fat / servings_f64 * 10.0).round() / 10.0,
-        fiber_g: (total_fiber / servings_f64 * 10.0).round() / 10.0,
-        sodium_mg: (total_sodium / servings_f64).round(),
-        sugar_g: (total_sugar / servings_f64 * 10.0).round() / 10.0,
+        calories: (totals.energy_kcal / servings_f64).round(),
+        protein_g: (totals.protein_g / servings_f64 * 10.0).round() / 10.0,
+        carbs_g: (totals.carbs_g / servings_f64 * 10.0).round() / 10.0,
+        fat_g: (totals.fat_g / servings_f64 * 10.0).round() / 10.0,
+        fiber_g: (totals.fiber_g / servings_f64 * 10.0).round() / 10.0,
+        sodium_mg: (totals.sodium_mg / servings_f64).round(),
+        sugar_g: (totals.sugar_g / servings_f64 * 10.0).round() / 10.0,
     };
 
     #[allow(clippy::cast_precision_loss)]

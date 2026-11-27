@@ -32,7 +32,7 @@ use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
 use crate::protocol::provider_offer::{
-    describe_offers, provider_offers, readable_over, APP_ONLY_NOTE,
+    app_only_note, describe_offers, imports_readable_over, provider_offers, readable_over,
 };
 use crate::protocol::provider_states::{
     offered_providers, provider_state, read_status_by_provider, user_facing_providers,
@@ -578,7 +578,11 @@ impl McpTool<dyn ToolRuntime> for ConnectProviderTool {
                 if let Some(transport) = ai_scope::declared_transport() {
                     if !readable_over(registry.as_ref(), provider, transport) {
                         payload.instructions.push_str("\n\n");
-                        payload.instructions.push_str(APP_ONLY_NOTE);
+                        payload.instructions.push_str(&app_only_note(imports_readable_over(
+                            registry.as_ref(),
+                            provider,
+                            transport,
+                        )));
                     }
                 }
                 ok_typed("connect_provider", payload)

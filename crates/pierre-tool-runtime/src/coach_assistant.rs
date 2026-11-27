@@ -30,7 +30,9 @@
 //! [`CoachConsents::assistant_read`]: pierre_core::models::groups::CoachConsents::assistant_read
 
 use pierre_core::models::groups::GroupMember;
+use pierre_core::permissions::scopes::OAuthScope;
 
+use crate::context::GRANTED_SCOPES;
 use crate::read_subject::MatchAudience;
 
 /// Whether the call running now is served to an assistant outside Dravr's
@@ -79,6 +81,25 @@ pub fn not_included_message(query: &str) -> String {
          appears in these roster tools only once they allow it in their own Dravr app, under \
          Group info → What your human coach can do."
     )
+}
+
+/// Whether an admin who leads no active group is told, by
+/// [`ADMIN_NO_GROUP_NOTE`], how to act as a coach.
+///
+/// The note names [`START_TOOL`](crate::support_session::START_TOOL), so an
+/// outside assistant hears it only when that tool is offered to it: the
+/// caller is an admin and the grant holds `admin`, as
+/// [`crate::tool_access`] requires of every admin tool. An admin who
+/// connected with the ordinary scopes is answered as anyone who coaches no
+/// group (2026-11-26 connector sweep). In Dravr's own app the role alone
+/// decides.
+#[must_use]
+pub(crate) fn says_admin_no_group_note(is_admin: bool) -> bool {
+    is_admin
+        && (!serving_coach_assistant()
+            || GRANTED_SCOPES
+                .try_with(|scopes| scopes.contains(&OAuthScope::Admin))
+                .unwrap_or(false))
 }
 
 /// What an admin who leads no active group reads from a coach tool.

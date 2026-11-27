@@ -39,6 +39,7 @@
 //! # }
 //! ```
 
+use crate::usda_nutrients::GENERIC_DATA_TYPES;
 use pierre_core::errors::AppError;
 use pierre_core::http_client::api_client as shared_client;
 use pierre_core::http_client::SharedHttpClient;
@@ -337,6 +338,32 @@ impl UsdaClient {
         page_size: u32,
         page_number: u32,
     ) -> Result<FoodSearchPaginatedResponse, AppError> {
+        self.search(query, page_size, page_number, None).await
+    }
+
+    /// [`Self::search_foods`] over generic foods only (Foundation and SR
+    /// Legacy, by the search's `dataType` filter): what a plain ingredient
+    /// name means, rather than whichever branded product the search ranks
+    /// first.
+    ///
+    /// # Errors
+    /// Returns error if API request fails or rate limit is exceeded
+    pub async fn search_generic_foods(
+        &self,
+        query: &str,
+        page_size: u32,
+    ) -> Result<FoodSearchPaginatedResponse, AppError> {
+        self.search(query, page_size, 1, Some(GENERIC_DATA_TYPES))
+            .await
+    }
+
+    async fn search(
+        &self,
+        query: &str,
+        page_size: u32,
+        page_number: u32,
+        data_types: Option<&str>,
+    ) -> Result<FoodSearchPaginatedResponse, AppError> {
         if query.is_empty() {
             return Err(AppError::invalid_input("Search query cannot be empty"));
         }
@@ -356,7 +383,10 @@ impl UsdaClient {
         let page_num = page_number;
 
         // Check cache first
-        let cache_key = format!("{query}:{page_size}:{page_num}");
+        let cache_key = format!(
+            "{query}:{page_size}:{page_num}:{}",
+            data_types.unwrap_or("")
+        );
         {
             let cache = self.search_cache.read().await;
             if let Some(entry) = cache.get(&cache_key) {
@@ -384,6 +414,7 @@ impl UsdaClient {
                 ("pageNumber", &page_num.to_string()),
                 ("api_key", self.config.api_key.expose_secret()),
             ])
+            .query(&data_types.map_or_else(Vec::new, |types| vec![("dataType", types)]))
             // Per-request override: the shared client carries its own default
             // ceiling, so without this the configured value was dead and the
             // real timeout silently disagreed with the config.

@@ -8,8 +8,8 @@
 //!
 //! Three small tables keyed by the user: `user_profiles` (one JSON document),
 //! `goals` (one JSON document per goal, carrying its own `goal_id`) and
-//! `user_configurations` (one JSON text). `user_id` is a `uuid` column on
-//! Postgres and `TEXT` on `SQLite`, so the shell hands the body its
+//! `user_configurations` (one JSON text). `user_id` and `goals.id` are `uuid`
+//! columns on Postgres and `TEXT` on `SQLite`, so the shell hands the body its
 //! [`uuid_columns`](super::uuid_columns) codec. The JSON documents bind and
 //! read as one [`Value`] on both drivers — `jsonb` on Postgres, `TEXT` on
 //! `SQLite` — so both hand back a compact re-rendering rather than the
@@ -120,7 +120,8 @@ macro_rules! impl_profile_repository {
             }
 
             async fn create_goal(&self, user_id: Uuid, mut goal_data: Value) -> AppResult<String> {
-                let goal_id = Uuid::new_v4().to_string();
+                let goal_uuid = Uuid::new_v4();
+                let goal_id = goal_uuid.to_string();
                 // The stored JSON carries its own row id under `goal_id`: goal reads
                 // return `goal_data` exactly as stored, and progress tracking finds a
                 // goal by that key, so the id must live inside the JSON itself.
@@ -128,8 +129,10 @@ macro_rules! impl_profile_repository {
                     goal_object.insert("goal_id".to_owned(), Value::String(goal_id.clone()));
                 }
 
+                // `goals.id` is a uuid on Postgres and TEXT on SQLite: it binds
+                // through the codec like `user_id`, never as a bare string.
                 sqlx::query(CREATE_GOAL_SQL)
-                    .bind(&goal_id)
+                    .bind($ids::bind(goal_uuid))
                     .bind($ids::bind(user_id))
                     .bind(&goal_data)
                     .bind(Timestamp::now())

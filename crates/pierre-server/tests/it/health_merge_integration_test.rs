@@ -532,6 +532,45 @@ async fn a_named_sleep_provider_narrows_the_scoring_tools_to_that_source() -> Re
 /// values the model passes: five weeks of nightly RMSSD from one source, a
 /// baseline around 60 ms and a last week near 50 ms, read as a week below
 /// the athlete's normal range, counted on every stored night.
+/// A trend over no synced night is the plain no-data answer every sleep tool
+/// gives, and one over too few nights says how many there are: neither is a
+/// parameter error, since the call was sound (2026-11-26 connector sweep:
+/// "Invalid parameters: … At least 7 days of sleep data required").
+#[tokio::test]
+async fn a_sleep_trend_without_enough_synced_nights_is_no_data_not_bad_input() -> Result<()> {
+    let executor = executor().await?;
+    let (user_id, tenant) = connected_user(&executor).await?;
+
+    let none = executor
+        .execute_tool(request("track_sleep_trends", json!({}), user_id, &tenant))
+        .await;
+    let none = none.unwrap_or_else(|e| panic!("bug: no synced night refused as bad input: {e}"));
+    assert!(!none.success);
+    let said = none.error.unwrap_or_default();
+    assert!(said.contains("No synced sleep for the last"), "{said}");
+    assert!(said.contains("sleep_history"), "{said}");
+
+    let ds = data_source(&executor, user_id, &tenant, "garmin").await?;
+    executor
+        .resources
+        .repos()
+        .sleep
+        .upsert_sleep_session(
+            &tenant,
+            &sleep(user_id, "garmin", &ds, 9, 7),
+            Timestamp::now(),
+        )
+        .await?;
+    let one = executor
+        .execute_tool(request("track_sleep_trends", json!({}), user_id, &tenant))
+        .await;
+    let one = one.unwrap_or_else(|e| panic!("bug: one synced night refused as bad input: {e}"));
+    assert!(!one.success);
+    let said = one.error.unwrap_or_default();
+    assert!(said.contains("Only 1 night(s) of sleep synced"), "{said}");
+    Ok(())
+}
+
 #[tokio::test]
 async fn the_sleep_tools_judge_hrv_on_the_athletes_stored_nights() -> Result<()> {
     let executor = executor().await?;

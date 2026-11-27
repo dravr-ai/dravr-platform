@@ -52,9 +52,10 @@ pub(super) fn raised_error_code(response: &ToolResponse) -> Option<String> {
 /// tool recorded in its [`ToolResponse`].
 ///
 /// Mirrors the pre-E3 `AppError` → `ProtocolError` mapping: validation input maps
-/// to `InvalidParameters`; auth / provider gating maps to `InvalidRequest`; an
-/// authorization refusal maps to `PermissionDenied`, which carries the tool
-/// name itself; every other code (not-found, internal, …) maps to
+/// to `InvalidParameters`; auth / provider gating and not-found map to
+/// `InvalidRequest`; an authorization refusal maps to `PermissionDenied`, which
+/// carries the tool name itself; an upstream service's failure maps to
+/// `ExecutionFailed`; every other code (database, internal, …) maps to
 /// `InternalError`. The `tool_name` prefix and original message are preserved
 /// so message-asserting callers keep matching.
 pub(super) fn protocol_error_from_raised(
@@ -97,6 +98,14 @@ pub(super) fn protocol_error_from_raised(
         | "RateLimitExceeded"
         | "QuotaExceeded"
         | "ExternalRateLimited" => ProtocolError::InvalidRequest(rendered),
+        // An upstream service's refusal ("route search is unavailable, retry
+        // in a few minutes", "intervals.icu answered 503") is written for the
+        // caller — `AppError::tool_message` passes it — so it stays a failure
+        // whose text the transport shows, never an internal error whose text
+        // only the log keeps.
+        "ExternalServiceError" | "ExternalServiceUnavailable" | "ExternalAuthFailed" => {
+            ProtocolError::ExecutionFailed(rendered)
+        }
         _ => ProtocolError::InternalError(rendered),
     }
 }
@@ -139,5 +148,55 @@ pub(super) fn tool_response_to_universal_response(
             error: None,
             metadata: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::conversions::tool_result_to_response;
+    use pierre_core::errors::AppError;
+
+    /// A provider or upstream service's refusal is written for the caller
+    /// (`AppError::tool_message` passes it), so it must come back as a
+    /// failure whose text the transport shows, never as an internal error
+    /// whose text is kept in the log.
+    #[test]
+    fn an_upstream_refusal_keeps_its_message_for_the_caller() {
+        for error in [
+            AppError::new(
+                ErrorCode::ExternalServiceUnavailable,
+                "Route search is temporarily unavailable: retry in a few minutes.",
+            ),
+            AppError::external_service("intervals_icu", "answered HTTP 503"),
+            AppError::new(ErrorCode::ExternalAuthFailed, "Strava refused the token"),
+        ] {
+            let code = format!("{:?}", error.code);
+            let expected = error.tool_message();
+            let response = tool_result_to_response(Err(error));
+            let raised = raised_error_code(&response).expect("a raised error is tagged");
+            assert_eq!(raised, code, "bug: the raised code is the error's own");
+            match protocol_error_from_raised("discover_routes", &raised, &response) {
+                ProtocolError::ExecutionFailed(message) => {
+                    assert_eq!(message, format!("discover_routes: {expected}"));
+                }
+                other => panic!("bug: {code} became {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_server_fault_stays_internal() {
+        let response = tool_result_to_response(Err(AppError::database("relation goals")));
+        let raised = raised_error_code(&response).expect("a raised error is tagged");
+        let mapped = protocol_error_from_raised("set_goal", &raised, &response);
+        assert!(
+            matches!(
+                &mapped,
+                ProtocolError::InternalError(message) if !message.contains("relation goals")
+            ),
+            "bug: a database fault must stay internal, its detail kept from the caller: \
+             {mapped:?}"
+        );
     }
 }

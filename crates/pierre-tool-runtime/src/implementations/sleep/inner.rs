@@ -16,7 +16,9 @@ use super::activity_source::{training_load_activities, training_load_of};
 use super::recovery_notice::fire_low_recovery_notification;
 #[cfg(feature = "client-notifications")]
 use crate::context::scoped_read_subject;
-use crate::protocol::sleep_helpers::{hrv_trend, latest_sleep_data, sleep_history_data};
+use crate::protocol::sleep_helpers::{
+    hrv_trend, latest_sleep_data, no_synced_sleep, sleep_history_data, too_few_synced_nights,
+};
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use dravr_cageux::algorithms::RecoveryAggregationAlgorithm;
@@ -638,6 +640,8 @@ pub(crate) fn handle_track_sleep_trends(
             .parameters
             .get("sleep_history")
             .filter(|_| source.is_none());
+        // The synced window, `None` when the nights came by hand.
+        let mut synced_days = None;
         let sleep_history: Vec<SleepData> = if let Some(sleep_history_json) = manual {
             serde_json::from_value(sleep_history_json.clone()).map_err(|e| {
                 ProtocolError::InvalidRequest(format!("Invalid sleep_history format: {e}"))
@@ -651,6 +655,7 @@ pub(crate) fn handle_track_sleep_trends(
                 .map_or(DEFAULT_TREND_DAYS, |d| {
                     u32::try_from(d.clamp(1, u64::from(MAX_TREND_DAYS))).unwrap_or(MAX_TREND_DAYS)
                 });
+            synced_days = Some(days);
             match sleep_history_data(
                 executor,
                 user_uuid,
@@ -672,9 +677,23 @@ pub(crate) fn handle_track_sleep_trends(
         let config = &cageux_config.sleep_recovery;
         let trend_min_days = config.sleep_trend.window_nights;
         if sleep_history.len() < trend_min_days {
-            return Err(ProtocolError::InvalidRequest(format!(
-                "At least {trend_min_days} days of sleep data required for trend analysis"
-            )));
+            // Synced nights that fall short are what the athlete has, not a
+            // mistake in the call: no night at all answers as every sleep
+            // tool does, too few say how many. Nights passed by hand are the
+            // caller's input, and too few of them is a parameter error.
+            return match synced_days {
+                Some(days) if sleep_history.is_empty() => {
+                    Ok(no_synced_sleep(source, days, "sleep_history"))
+                }
+                Some(days) => Ok(too_few_synced_nights(
+                    sleep_history.len(),
+                    days,
+                    trend_min_days,
+                )),
+                None => Err(ProtocolError::InvalidRequest(format!(
+                    "At least {trend_min_days} days of sleep data required for trend analysis"
+                ))),
+            };
         }
 
         // Calculate average sleep metrics

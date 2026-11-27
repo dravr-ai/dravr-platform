@@ -749,7 +749,7 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
                     let mut message = coach_assistant::not_included_message(member_query);
                     // The no-group note is for an admin who leads no active
                     // group (Q24); an admin who leads one just missed a name.
-                    if ctx.is_admin
+                    if coach_assistant::says_admin_no_group_note(ctx.is_admin)
                         && matches!(
                             roster_access(data.repos(), requester).await?,
                             RosterAccess::NotACoach

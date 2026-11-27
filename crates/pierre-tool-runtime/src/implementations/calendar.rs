@@ -546,6 +546,9 @@ pub(super) struct LedgerCalendar {
     /// The calendar the athlete chose, when the read passed it over: not
     /// among the connections read under (carnet#1393).
     pub(super) passed_over: Option<String>,
+    /// Whether a connection read under backs `backend`: false when the read
+    /// fell back to a calendar the athlete no longer, or never, connected.
+    pub(super) connected: bool,
 }
 
 /// The calendar a read of the push ledger looks under: the athlete's
@@ -590,6 +593,7 @@ pub(super) async fn calendar_ledger_target(
         .filter(|chosen| chosen_calendar(registry, &backends, Some(chosen.as_str())).is_none());
     Ok(LedgerCalendar {
         through_link: only_through_a_link(&rows, &backend),
+        connected: backends.contains(&backend.as_str()),
         backend,
         passed_over,
     })

@@ -661,6 +661,10 @@ async fn a_disconnected_choice_is_passed_over_with_a_note() -> Result<()> {
     // The read says it too: the calendar block reads the calendar it went to.
     let plan = fx.ok("get_training_plan", json!({})).await?;
     assert_eq!(plan["calendar"]["provider"], MOCK_B, "{plan}");
+    assert_eq!(
+        plan["calendar"]["connected"], true,
+        "the calendar read is held: {plan}"
+    );
     let read_note = plan["calendar"]["calendar_note"]
         .as_str()
         .expect("the block notes the passed-over choice");
@@ -789,11 +793,24 @@ async fn an_athlete_with_no_calendar_capable_connection_is_told_which_capability
     }
     assert!(fx.live(MOCK_A).await.is_empty() && fx.live(MOCK_B).await.is_empty());
 
-    // Reading the plan is not a write: the calendar block is just empty.
+    // Reading the plan is not a write: the calendar block is just empty, and
+    // the calendar it names is said to be unconnected, never read as the
+    // athlete's active one (2026-11-26 connector sweep: a disconnected
+    // intervals_icu read as the plan's calendar).
     let plan = fx.ok("get_training_plan", json!({})).await?;
     assert_eq!(
         plan["calendar"]["entries"].as_array().map(Vec::len),
         Some(0),
+        "{plan}"
+    );
+    assert_eq!(
+        plan["calendar"]["connected"], false,
+        "bug: a calendar no connection backs read as active: {plan}"
+    );
+    assert!(
+        plan["calendar"]["calendar_note"]
+            .as_str()
+            .is_some_and(|note| note.contains("not connected")),
         "{plan}"
     );
     Ok(())
