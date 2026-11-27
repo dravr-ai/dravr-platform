@@ -137,3 +137,8 @@ features:
     current: off — LAB_READER_MODEL is unset, so barrage's rules read every uploaded lab report. The model path is built and tested (an HTTP API provider or Ollama, bounded at 120 s, recorded as lab_reading usage, falling back to the rules on any failure) and is used only for an athlete who gave sensitive_t2 (carnet#1544)
     advance_when: ChefFamille names the model (an HTTP API provider or Ollama; whether copilot_headless with its built-in tools off is admitted is his open question) and a sample of real lab reports read by it shows fewer dropped results than the rules, then LAB_READER_MODEL is set on the deployment
     review_by: 2026-12-31
+  - name: consent-agent-write
+    surface: crates/pierre-auth/src/oauth2_server/endpoints/agent_write.rs and crates/pierre-routes-identity/src/oauth2/picker.rs agent_write_offered
+    current: off — the compiled contremaitre catalogue lacks oauth.agentWrite.title, so an agent-write authorization detail (owl PDPP §4.5, carnet#1544 slice 4c) is refused before sign-in "agent writes are not offered yet" and discovery does not list its type. The detail parses against barrage's row schemas, both bindings are checked (DPoP to the agent-write resource, none inside the MCP package), the agent_write token kind is derived and its scope carried through mint and refresh; the strings are on contremaitre feature/owl-finish-strings, unmerged
+    advance_when: the strings branch lands on contremaitre main and the platform pin moves past it, with the consent screen's write section, the approval writes, the write endpoint, the MCP write tool and the proposals screen in place (plan revision 21 steps 2 to 4)
+    review_by: 2026-12-31
