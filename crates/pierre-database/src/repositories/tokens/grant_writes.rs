@@ -248,8 +248,24 @@ macro_rules! find_live_parent_grant_sql {
 }
 pub(crate) use find_live_parent_grant_sql;
 
-/// Soft-delete the live child of parent `$1`, held by `$2` in `$3`; returns
-/// it, with its step-up columns.
+/// Soft-delete the live child of parent `$1` of one kind, held by `$2` in
+/// `$3`: its agent-write child when `$4` is true, its step-up child
+/// otherwise. Storing a child of one kind never ends the other (plan
+/// revision 21 §21.4). Returns it, with its step-up columns.
+pub(crate) const REVOKE_LIVE_CHILD_GRANTS_OF_KIND_SQL: &str = r"
+            UPDATE oauth_client_grants
+            SET revoked_at = CURRENT_TIMESTAMP
+            WHERE parent_grant_id = $1 AND user_id = $2 AND tenant_id = $3 AND revoked_at IS NULL
+              AND (scope = 'pdpp:agent_write') = $4
+            RETURNING id, user_id, tenant_id, client_id, scope, granted_at, revoked_at,
+                      consent_version, consent_locale, authorization_details, expires_at,
+                      parent_grant_id, step_up_auth_time, step_up_acr, host_profile_basis,
+                      host_profile_tier
+            ";
+
+/// Soft-delete every live child of parent `$1`, held by `$2` in `$3`, of
+/// either kind: the parent's end, or a re-consent that renews it, ends its
+/// whole package (owl PDPP §7.7). Returns them, with their step-up columns.
 pub(crate) const REVOKE_LIVE_CHILD_GRANTS_SQL: &str = r"
             UPDATE oauth_client_grants
             SET revoked_at = CURRENT_TIMESTAMP
@@ -427,6 +443,7 @@ macro_rules! impl_client_grant_writes {
                     conn,
                     $crate::repositories::tokens::grant_writes::REVOKE_LIVE_CHILD_GRANTS_SQL,
                     [grant.id.as_str(), user_id, tenant_id],
+                    None,
                     actor,
                 )
                 .await?;
@@ -498,6 +515,7 @@ macro_rules! impl_client_grant_writes {
                 .bind(&grant.tenant_id)
                 .bind(&grant.client_id)
                 .bind(keep_id)
+                .bind(grant.scope == pierre_core::models::AGENT_WRITE_SCOPE)
                 .fetch_all(&mut *conn)
                 .await
                 .map_err(|e| {
@@ -582,6 +600,7 @@ macro_rules! impl_client_grant_writes {
                         conn,
                         $crate::repositories::tokens::grant_writes::REVOKE_LIVE_CHILD_GRANTS_SQL,
                         [stored.id.as_str(), &grant.user_id, &grant.tenant_id],
+                        None,
                         approval.actor,
                     )
                     .await?;
@@ -744,6 +763,7 @@ macro_rules! impl_client_grant_writes {
                     conn,
                     $crate::repositories::tokens::grant_writes::REVOKE_CLIENT_CHILD_GRANTS_SQL,
                     [user_id, tenant_id, client_id],
+                    None,
                     client,
                 )
                 .await?;
@@ -925,16 +945,15 @@ macro_rules! impl_client_grant_writes {
                 .await
                 .map_err(|e| AppError::database(format!("Failed to list expired step-up grants: {e}")))?;
                 for row in &children {
-                    let child = $crate::repositories::tokens::child_grant_from_row(row)?;
-                    let (event, actor, at) = GrantEvent::ending(&child.grant, GrantActor::Auto, now);
-                    if Self::record_grant_event_in(
-                        conn,
-                        &child.grant,
-                        event,
-                        ReceiptApproval::by(actor).stepped_up(&child.terms),
-                        at,
-                    )
-                    .await?
+                    let (grant, terms) = $crate::repositories::tokens::ended_child_from_row(row)?;
+                    let (event, actor, at) = GrantEvent::ending(&grant, GrantActor::Auto, now);
+                    let approval = ReceiptApproval::by(actor);
+                    let approval = match &terms {
+                        Some(terms) => approval.stepped_up(terms),
+                        None => approval,
+                    };
+                    if Self::record_grant_event_in(conn, &grant, event, approval, at)
+                        .await?
                     {
                         written += 1;
                     }
@@ -950,30 +969,30 @@ macro_rules! impl_client_grant_writes {
                 conn: &mut <<$row as sqlx::Row>::Database as sqlx::Database>::Connection,
                 sql: &str,
                 binds: [&str; 3],
+                agent_write: Option<bool>,
                 actor: GrantActor,
             ) -> AppResult<()> {
                 let [first, second, third] = binds;
-                let rows = sqlx::query(sql)
-                    .bind(first)
-                    .bind(second)
-                    .bind(third)
+                let mut query = sqlx::query(sql).bind(first).bind(second).bind(third);
+                if let Some(agent_write) = agent_write {
+                    query = query.bind(agent_write);
+                }
+                let rows = query
                     .fetch_all(&mut *conn)
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to revoke a step-up grant: {e}"))
                     })?;
                 for row in &rows {
-                    let child = $crate::repositories::tokens::child_grant_from_row(row)?;
-                    let ended_at = child.grant.revoked_at.unwrap_or(child.grant.granted_at);
-                    let (event, actor, at) = GrantEvent::ending(&child.grant, actor, ended_at);
-                    Self::record_grant_event_in(
-                        conn,
-                        &child.grant,
-                        event,
-                        ReceiptApproval::by(actor).stepped_up(&child.terms),
-                        at,
-                    )
-                    .await?;
+                    let (grant, terms) = $crate::repositories::tokens::ended_child_from_row(row)?;
+                    let ended_at = grant.revoked_at.unwrap_or(grant.granted_at);
+                    let (event, actor, at) = GrantEvent::ending(&grant, actor, ended_at);
+                    let approval = ReceiptApproval::by(actor);
+                    let approval = match &terms {
+                        Some(terms) => approval.stepped_up(terms),
+                        None => approval,
+                    };
+                    Self::record_grant_event_in(conn, &grant, event, approval, at).await?;
                 }
                 Ok(())
             }
@@ -993,7 +1012,7 @@ macro_rules! impl_client_grant_writes {
                 approval: &GrantApproval,
             ) -> AppResult<Option<String>> {
                 use $crate::repositories::tokens::grant_writes::{
-                    find_live_parent_grant_sql, REVOKE_LIVE_CHILD_GRANTS_SQL,
+                    find_live_parent_grant_sql, REVOKE_LIVE_CHILD_GRANTS_OF_KIND_SQL,
                     STORE_CHILD_GRANT_SQL,
                 };
                 let store_error = |e: sqlx::Error| {
@@ -1017,8 +1036,9 @@ macro_rules! impl_client_grant_writes {
                 }
                 Self::end_children_in(
                     &mut tx,
-                    REVOKE_LIVE_CHILD_GRANTS_SQL,
+                    REVOKE_LIVE_CHILD_GRANTS_OF_KIND_SQL,
                     [terms.parent_grant_id.as_str(), &grant.user_id, &grant.tenant_id],
+                    Some(grant.scope == pierre_core::models::AGENT_WRITE_SCOPE),
                     approval.actor,
                 )
                 .await?;

@@ -40,10 +40,7 @@ use crate::oauth2_server::models::OAuth2Error;
 /// health-constraints type is.
 pub const AGENT_WRITE_TYPE: &str = "https://dravr.ai/pdpp/health-profile/v0/agent-write";
 
-/// The scope an agent-write grant's row and its tokens carry. The
-/// authorization server sets it; a client never asks for it, and it opens
-/// no tool.
-pub const AGENT_WRITE_SCOPE: &str = "pdpp:agent_write";
+pub use pierre_core::models::AGENT_WRITE_SCOPE;
 
 /// Whether a stored grant, code or refresh `scope` is an agent-write
 /// grant's.

@@ -267,7 +267,7 @@ pub use tool_selection::{
 mod child_grant;
 pub use child_grant::{
     ChildGrant, HostProfileBasis, HostProfileClaim, StepUpResult, StepUpTerms,
-    HOST_PROFILE_CLAIM_MAX_AGE_SECS, OWNER_VERIFIED_ACR, STEP_UP_MAX_AGE_SECS,
+    AGENT_WRITE_SCOPE, HOST_PROFILE_CLAIM_MAX_AGE_SECS, OWNER_VERIFIED_ACR, STEP_UP_MAX_AGE_SECS,
 };
 
 // A consent grant's receipts (carnet#1544)

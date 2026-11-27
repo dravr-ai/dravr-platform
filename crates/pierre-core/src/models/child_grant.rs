@@ -64,6 +64,12 @@ impl HostProfileClaim {
     }
 }
 
+/// The scope an agent-write grant's row and its tokens carry (owl PDPP §4.5,
+/// carnet#1544 slice 4c): a profile grant's, or a write child's inside an MCP
+/// package. The authorization server sets it; it parses to no `OAuthScope`,
+/// so it opens no tool.
+pub const AGENT_WRITE_SCOPE: &str = "pdpp:agent_write";
+
 /// The step-up assurance a child records (owl §4.2 `acr`).
 pub const OWNER_VERIFIED_ACR: &str = "owner_verified";
 

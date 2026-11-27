@@ -10,7 +10,7 @@ use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     ChildGrant, DeviceAuthorization, HostProfileBasis, OAuth2AuthCode, OAuth2Client,
-    OAuth2RefreshToken, OAuth2State, OAuthClientGrant, StepUpTerms,
+    OAuth2RefreshToken, OAuth2State, OAuthClientGrant, StepUpTerms, AGENT_WRITE_SCOPE,
 };
 use secrecy::SecretString;
 use uuid::Uuid;
@@ -281,6 +281,30 @@ where
             .try_get("expires_at")
             .map_err(|e| column_error("expires_at", e))?,
     })
+}
+
+/// Decode one ended child row of `oauth_client_grants`, of either kind: an
+/// agent-write child (scope `pdpp:agent_write`) as its grant alone, since it
+/// records no Host Profile, a step-up child with its terms.
+///
+/// # Errors
+/// As [`client_grant_from_row`] and [`child_grant_from_row`].
+pub(crate) fn ended_child_from_row<R>(row: &R) -> AppResult<(OAuthClientGrant, Option<StepUpTerms>)>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Timestamp: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<Timestamp>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<i64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let grant = client_grant_from_row(row)?;
+    if grant.scope == AGENT_WRITE_SCOPE {
+        return Ok((grant, None));
+    }
+    let child = child_grant_from_row(row)?;
+    Ok((child.grant, Some(child.terms)))
 }
 
 /// Decode one step-up child row of `oauth_client_grants`: a grant row with

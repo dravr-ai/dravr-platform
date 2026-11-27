@@ -40,7 +40,9 @@ use dravr_tronc::dates::{CivilDate, Timestamp, Zone};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::StepUpTerms;
 
-use super::authorization_details::{AccessMode, Budgets, Representation, ResolvedDetails};
+use super::authorization_details::{
+    AccessMode, Budgets, GrantDocument, Representation, ResolvedDetails,
+};
 
 /// What a call made under a detailed consent grant may reach.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -210,13 +212,16 @@ impl GrantCeiling {
     ///
     /// # Errors
     /// An internal error when the document does not read as resolved details
-    /// this server wrote, or carries no frozen window.
+    /// this server wrote, or carries no frozen window, and for an agent-write
+    /// document: no read ceiling is ever built from a grant that reads
+    /// nothing, so a read held to one fails closed.
     pub fn from_document(client_grant_id: &str, document: &str, zone: &Zone) -> AppResult<Self> {
-        Self::of_details(
-            client_grant_id,
-            &ResolvedDetails::from_document(document)?,
-            zone,
-        )
+        match GrantDocument::from_document(document)? {
+            GrantDocument::DataAccess(details) => Self::of_details(client_grant_id, &details, zone),
+            GrantDocument::AgentWrite(_) => Err(AppError::internal(
+                "An agent-write grant reads nothing: no read ceiling is built from it",
+            )),
+        }
     }
 
     /// Whether a row dated `at` falls inside the grant's window.
