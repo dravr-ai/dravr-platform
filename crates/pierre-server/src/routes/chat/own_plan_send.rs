@@ -51,7 +51,7 @@ use crate::mcp::resources::ServerContext;
 use crate::routes::athlete_home::TrainingPlanQuery;
 use crate::tools::runtime_adapter::into_runtime;
 
-use super::common::refusal;
+use super::common::{refusal, with_reason};
 use super::own_plan::{own_caller, own_plan_response, OwnCaller};
 use super::own_plan_dto::{PendingSendResponse, SendRequest, SendResponse, SendReviewResponse};
 use super::subject_session::plan_date;
@@ -82,26 +82,59 @@ async fn live_weeks(
 
 /// The status a refused send answers with: 409 to choose a calendar, 422
 /// with none to send to, 404 with no plan, 403 for every gate.
+///
+/// A 403's sentence is written here for the athlete, each a literal the
+/// `PermissionDenied` review reads; the push's own words are for the agent.
+/// `details.reason` carries the gate either way, for the client to word.
 fn send_refused(refused: &OwnSendRefusal) -> Response {
-    let status = match refused {
-        OwnSendRefusal::ChooseCalendar(_) => StatusCode::CONFLICT,
-        OwnSendRefusal::NoCalendar => StatusCode::UNPROCESSABLE_ENTITY,
-        OwnSendRefusal::NoPlan => StatusCode::NOT_FOUND,
-        OwnSendRefusal::CoachManaged
-        | OwnSendRefusal::TenantDisabled
-        | OwnSendRefusal::Refused { .. } => StatusCode::FORBIDDEN,
+    let reason = refused.reason();
+    let (status, error) = match refused {
+        OwnSendRefusal::ChooseCalendar(calendars) => {
+            let mut error = refusal(ErrorCode::InvalidInput, reason, &refused.message());
+            error.details = Some(Box::new(
+                json!({ "reason": reason, "calendars": calendars }),
+            ));
+            (StatusCode::CONFLICT, error)
+        }
+        OwnSendRefusal::NoCalendar => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            refusal(ErrorCode::InvalidInput, reason, &refused.message()),
+        ),
+        OwnSendRefusal::NoPlan => (
+            StatusCode::NOT_FOUND,
+            refusal(ErrorCode::ResourceNotFound, reason, &refused.message()),
+        ),
+        OwnSendRefusal::CoachManaged => (
+            StatusCode::FORBIDDEN,
+            with_reason(
+                AppError::new(
+                    ErrorCode::PermissionDenied,
+                    "Your calendar is written by your human coach, through their link",
+                ),
+                reason,
+            ),
+        ),
+        OwnSendRefusal::TenantDisabled => (
+            StatusCode::FORBIDDEN,
+            with_reason(
+                AppError::new(
+                    ErrorCode::PermissionDenied,
+                    "Sending your plan to a calendar is turned off in your workspace",
+                ),
+                reason,
+            ),
+        ),
+        OwnSendRefusal::Refused { .. } => (
+            StatusCode::FORBIDDEN,
+            with_reason(
+                AppError::new(
+                    ErrorCode::PermissionDenied,
+                    "Your calendar did not accept the send",
+                ),
+                reason,
+            ),
+        ),
     };
-    let code = match status {
-        StatusCode::NOT_FOUND => ErrorCode::ResourceNotFound,
-        StatusCode::FORBIDDEN => ErrorCode::PermissionDenied,
-        _ => ErrorCode::InvalidInput,
-    };
-    let mut error = refusal(code, refused.reason(), &refused.message());
-    if let OwnSendRefusal::ChooseCalendar(calendars) = refused {
-        error.details = Some(Box::new(
-            json!({ "reason": refused.reason(), "calendars": calendars }),
-        ));
-    }
     (status, Json(ErrorResponse::from(error))).into_response()
 }
 

@@ -93,6 +93,9 @@ crates/pierre-server/src/routes/athlete_home/physiology/edit.rs:Editing threshol
 crates/pierre-server/src/routes/chat/athlete_plan.rs:Training plans are turned off in {athlete}'s workspace
 crates/pierre-server/src/routes/chat/common.rs:Cannot attach conversation to a group you don't belong to
 crates/pierre-server/src/routes/chat/conversations.rs:Only the conversation's owner can delete it
+crates/pierre-server/src/routes/chat/own_plan_send.rs:Sending your plan to a calendar is turned off in your workspace
+crates/pierre-server/src/routes/chat/own_plan_send.rs:Your calendar did not accept the send
+crates/pierre-server/src/routes/chat/own_plan_send.rs:Your calendar is written by your human coach, through their link
 crates/pierre-server/src/routes/chat/participants.rs:Cannot add a user who is not a member of this conversation's tenant
 crates/pierre-server/src/routes/chat/room_quote.rs:That message is not shared with you
 crates/pierre-server/src/routes/coach_roster.rs:Only a coach attached to a group can read a roster
@@ -123,6 +126,7 @@ crates/pierre-tool-runtime/src/context.rs:Admin privileges required for this ope
 crates/pierre-tool-runtime/src/context.rs:Tenant context required for this operation
 crates/pierre-tool-runtime/src/implementations/admin_support.rs:A support session through an assistant runs over MCP or A2A only; in Dravr's own app, use the admin console
 crates/pierre-tool-runtime/src/implementations/plan_scope.rs:A coach writes an athlete's {object} from Dravr's own app or channels, not over this interface.
+crates/pierre-tool-runtime/src/implementations/plan_scope.rs:Your own plan is edited from Dravr's own app, not over this interface.
 crates/pierre-tool-runtime/src/support_session.rs:A support session through an assistant is ended from that assistant's own connection; in Dravr's own app, end it from the admin console
 crates/pierre-tool-runtime/src/support_session.rs:A support session through an assistant starts from that assistant's own MCP or A2A connection; in Dravr's own app, start it from the admin console
 crates/pierre-tool-runtime/src/support_session.rs:Admin privileges required for a support session
