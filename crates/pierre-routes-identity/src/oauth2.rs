@@ -621,6 +621,7 @@ impl OAuth2Routes {
         )
         .with_token_limiter(context.rate_limiter.clone())
         .with_step_up_offered(picker::step_up_offered(&context.strings))
+        .with_agent_write_offered(picker::agent_write_offered(&context.strings))
     }
 
     /// Mint an authorization code and redirect back to the client.

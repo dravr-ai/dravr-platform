@@ -105,11 +105,11 @@ async fn on_sqlite(url: &str) {
         "INSERT INTO users (id, email, password_hash, created_at, last_active)
          VALUES ($1, $2, 'x', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
     )
-        .bind(USER)
-        .bind("writer@agent-write.test")
-        .execute(&pool)
-        .await
-        .unwrap();
+    .bind(USER)
+    .bind("writer@agent-write.test")
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::raw_sql(PLANT_GRANTS).execute(&pool).await.unwrap();
     assert!(
         sqlx::query(WRITE_CHILD)

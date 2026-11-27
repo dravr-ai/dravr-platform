@@ -36,7 +36,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 
 use pierre_auth::oauth2_server::authorization_details::{
-    preset_defaults, review_digest, Preset, Representation, ResolvedDetails, Stream,
+    preset_defaults, review_digest, GrantDocument, Preset, Representation, ResolvedDetails, Stream,
 };
 use pierre_auth::oauth2_server::endpoints::CheckedAuthorization;
 use pierre_auth::oauth2_server::models::OAuth2Error;
@@ -127,6 +127,20 @@ pub(super) fn offered(strings: &MessagingStringsRegistry) -> bool {
 /// before sign-in otherwise.
 pub(super) fn step_up_offered(strings: &MessagingStringsRegistry) -> bool {
     offered(strings) && step_up_worded(strings)
+}
+
+/// The catalogue line whose presence offers agent-write grants: the write
+/// section's title on the consent screen (carnet#1544 slice 4c).
+pub(super) const KEY_AGENT_WRITE_TITLE: &str = "oauth.agentWrite.title";
+
+/// Whether the catalogue words an agent-write consent, in English at least:
+/// an agent-write request is resolved only then, and refused before sign-in
+/// "agent writes are not offered yet" otherwise (`consent-agent-write` in
+/// `feature-phases.yaml`).
+pub(super) fn agent_write_offered(strings: &MessagingStringsRegistry) -> bool {
+    !ConsentText::new(strings, "en")
+        .line(KEY_AGENT_WRITE_TITLE)
+        .is_empty()
 }
 
 /// One of the picker's choices.
@@ -706,15 +720,20 @@ pub(super) fn check_review_digest(
 
 /// The details `grant` stored; `None` for a plain grant, or one whose
 /// document does not read (logged), which no request then matches.
+///
+/// An agent-write grant's document is not a read grant's details: it reads
+/// as `Err`, so no read request is ever answered by it, nor compared to it.
 pub(super) fn stored_details(grant: &OAuthClientGrant) -> Result<Option<ResolvedDetails>, ()> {
     grant
         .authorization_details
         .as_deref()
-        .map(ResolvedDetails::from_document)
+        .map(GrantDocument::from_document)
         .transpose()
         .map_err(
             |e| error!(grant_id = %grant.id, "A grant's authorization details do not read: {e}"),
-        )
+        )?
+        .map(|document| document.data_access().ok_or(()))
+        .transpose()
 }
 
 /// Whether a live `grant` answers `checked` without the screen: it grants
@@ -726,6 +745,11 @@ pub(super) fn skip_accepts(
     checked: &CheckedAuthorization,
     subject: ConsentSubject<'_>,
 ) -> bool {
+    // An agent-write approval is never remembered: each one is a fresh
+    // sign-in and the athlete's own decision (owl PDPP §4.5, §6.4).
+    if checked.agent_write.is_some() {
+        return false;
+    }
     let Ok(stored) = stored_details(grant) else {
         return false;
     };

@@ -322,8 +322,14 @@ async fn discovery_names_the_kinds_and_the_dpop_algorithms() {
     let prm: Value = serde_json::from_str(&prm.body_text()).unwrap();
     assert_eq!(
         prm["pdpp_token_kinds_supported"],
-        json!(["owner", "client"]),
-        "bug: discovery does not list the two token kinds: {prm}"
+        json!(["owner", "client", "agent_write"]),
+        "bug: discovery does not list the three token kinds: {prm}"
+    );
+    assert!(
+        prm["health_agent_write_base"]
+            .as_str()
+            .is_some_and(|base| base.ends_with("/api/agent-write/v0")),
+        "bug: discovery names no agent-write base (owl PDPP §5.3): {prm}"
     );
     assert_eq!(
         prm["dpop_bound_access_tokens_required"], false,
@@ -345,5 +351,49 @@ async fn discovery_names_the_kinds_and_the_dpop_algorithms() {
     assert_eq!(
         metadata["dpop_signing_alg_values_supported"], prm["dpop_signing_alg_values_supported"],
         "one list of algorithms, published twice"
+    );
+}
+
+/// A third party's token whose scope is exactly `pdpp:agent_write` is the
+/// `agent_write` kind (owl PDPP §5.1, carnet#1544 slice 4c); one holding it
+/// beside another scope stays `client`, and so does Dravr's own app.
+#[tokio::test]
+async fn an_agent_write_scope_alone_is_the_agent_write_kind() {
+    let world = world().await;
+    let kind_of = |client_id: &str, scopes: &[&str]| {
+        let scopes: Vec<String> = scopes.iter().map(|s| (*s).to_owned()).collect();
+        let token = world
+            .resources
+            .auth
+            .auth_manager
+            .generate_oauth_access_token(
+                &world.resources.auth.jwks_manager,
+                &DelegatedGrant {
+                    client_id,
+                    scopes: &scopes,
+                    audience: Some("https://mcp.example.test/api/agent-write/v0"),
+                },
+                &world.user.id,
+                None,
+            )
+            .unwrap();
+        insecure_decode::<Claims>(&token)
+            .unwrap()
+            .claims
+            .pdpp_token_kind()
+    };
+    assert_eq!(
+        kind_of("some-registered-client", &["pdpp:agent_write"]),
+        Some("agent_write"),
+        "bug: an agent-write token is not its own kind"
+    );
+    assert_eq!(
+        kind_of("some-registered-client", &["fitness:read", "pdpp:agent_write"]),
+        Some("client"),
+        "bug: a mixed scope was read as agent_write"
+    );
+    assert_eq!(
+        kind_of("some-registered-client", &["fitness:read"]),
+        Some("client")
     );
 }

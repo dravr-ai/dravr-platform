@@ -104,6 +104,13 @@ pub(super) fn asks_step_up(details: Option<&ResolvedDetails>) -> bool {
     details.is_some_and(|details| details.preset().requires_step_up())
 }
 
+/// Whether approving `checked` needs a sign-in on Dravr's hosted page at
+/// most [`STEP_UP_MAX_AGE_SECS`] old: a step-up, and every agent-write
+/// grant under either binding (ChefFamille 2026-11-26, owl PDPP §4.5).
+pub(super) fn asks_fresh_sign_in(checked: &CheckedAuthorization) -> bool {
+    asks_step_up(checked.details.as_ref()) || checked.agent_write.is_some()
+}
+
 /// A step-up approval to record.
 pub(super) struct StepUpApproval<'req> {
     /// The client approved
@@ -159,7 +166,7 @@ impl OAuth2Routes {
         request: &AuthorizeRequest,
         headers: &HeaderMap,
     ) -> Option<Response> {
-        if !asks_step_up(checked.details.as_ref())
+        if !asks_fresh_sign_in(checked)
             || Self::fresh_sign_in(headers, context, Timestamp::now())
                 .await
                 .is_some()
@@ -347,6 +354,38 @@ mod tests {
             basis(ASSESSED_HOSTS, "dcr-client", None, Some(&claimed)),
             Some((HostProfileBasis::DeclaredRequest, "T2".to_owned())),
             "bug: a DCR client's own T2 claim did not stand"
+        );
+    }
+
+    #[test]
+    fn every_agent_write_approval_asks_a_fresh_sign_in() {
+        use pierre_auth::oauth2_server::authorization_details::{ResolvedAgentWrite, Stream};
+        let mcp = "https://mcp.example.test/mcp";
+        let mut checked = CheckedAuthorization {
+            scope: "fitness:read".to_owned(),
+            resource: Some(mcp.to_owned()),
+            client_name: None,
+            consent_every_time: false,
+            unstored_client: None,
+            client_host_profile: None,
+            admin_grantable: false,
+            details: Some(preset_defaults(Preset::TrainingCoach, mcp)),
+            agent_write: None,
+            preset_source: Some(mcp.to_owned()),
+        };
+        assert!(
+            !asks_fresh_sign_in(&checked),
+            "bug: a T1 preset asked a sign-in"
+        );
+        checked.agent_write = Some(ResolvedAgentWrite::for_write_scope(&[Stream::Sleep]).unwrap());
+        assert!(
+            asks_fresh_sign_in(&checked),
+            "bug: a combined write asked none"
+        );
+        checked.details = None;
+        assert!(
+            asks_fresh_sign_in(&checked),
+            "bug: a write alone asked none"
         );
     }
 

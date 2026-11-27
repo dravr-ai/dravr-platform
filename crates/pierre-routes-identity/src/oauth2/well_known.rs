@@ -13,7 +13,9 @@ use axum::{
 use pierre_auth::auth::PDPP_TOKEN_KINDS;
 use pierre_auth::config;
 use pierre_auth::dpop;
-use pierre_auth::oauth2_server::authorization_details::AUTHORIZATION_DETAILS_TYPES;
+use pierre_auth::oauth2_server::authorization_details::{
+    AGENT_WRITE_TYPE, AUTHORIZATION_DETAILS_TYPES,
+};
 use pierre_core::permissions::scopes::OAuthScope;
 use tokio::task::spawn_blocking;
 
@@ -30,6 +32,13 @@ impl OAuth2Routes {
         State(context): State<OAuth2Context>,
     ) -> Json<serde_json::Value> {
         let issuer_url = context.config.issuer_url.clone();
+        // An agent-write detail is listed only while it is offered: until
+        // the catalogue words its consent, it is refused.
+        let agent_write_offered = super::picker::agent_write_offered(&context.strings);
+        let detail_types: Vec<&str> = AUTHORIZATION_DETAILS_TYPES
+            .into_iter()
+            .filter(|kind| agent_write_offered || *kind != AGENT_WRITE_TYPE)
+            .collect();
 
         // Use spawn_blocking for JSON serialization (CPU-bound operation)
         let discovery_json = spawn_blocking(move || {
@@ -59,7 +68,7 @@ impl OAuth2Routes {
                 // is fetched and validated instead of registered.
                 "client_id_metadata_document_supported": true,
                 // RFC 9396: the detail types this server resolves.
-                "authorization_details_types_supported": AUTHORIZATION_DETAILS_TYPES,
+                "authorization_details_types_supported": detail_types,
                 // RFC 9449 §5.1: the token endpoint binds to a DPoP proof.
                 "dpop_signing_alg_values_supported": dpop::signing_algorithms()
             })
@@ -127,6 +136,7 @@ impl OAuth2Routes {
         resource_url: String,
     ) -> Json<serde_json::Value> {
         let issuer_url = context.config.issuer_url.clone();
+        let agent_write_base = context.config.agent_write_resource_url();
 
         // Use spawn_blocking for JSON serialization (CPU-bound operation)
         let metadata_json = spawn_blocking(move || {
@@ -141,7 +151,9 @@ impl OAuth2Routes {
                 "dpop_signing_alg_values_supported": dpop::signing_algorithms(),
                 "dpop_bound_access_tokens_required": false,
                 // Owl PDPP §5.1: the kinds of token this resource serves.
-                "pdpp_token_kinds_supported": PDPP_TOKEN_KINDS
+                "pdpp_token_kinds_supported": PDPP_TOKEN_KINDS,
+                // Owl PDPP §5.3: where an agent-write token proposes records.
+                "health_agent_write_base": agent_write_base
             })
         })
         .await

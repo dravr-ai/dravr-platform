@@ -63,6 +63,10 @@ pub(super) fn renewing_policy<'policy>(
     strings: &MessagingStringsRegistry,
     subject: ConsentSubject<'_>,
 ) -> Option<(&'policy OAuthStandingPolicy, ResolvedDetails)> {
+    // A standing policy never approves an agent write (owl PDPP §6.4).
+    if checked.agent_write.is_some() {
+        return None;
+    }
     let (policy, requested) = if let Some(asked) = &checked.details {
         let preset = asked.preset().name();
         let policy = policies.iter().find(|policy| policy.preset == preset)?;
@@ -227,6 +231,26 @@ mod tests {
             details.same_terms(&terms),
             "bug: the renewal is not for the policy's terms"
         );
+    }
+
+    /// owl PDPP §6.4: an agent-write grant is never approved by a standing
+    /// policy, beside a read grant the policy renews or alone (carnet#1544
+    /// slice 4c).
+    #[test]
+    fn a_policy_never_approves_an_agent_write() {
+        use pierre_auth::oauth2_server::authorization_details::{ResolvedAgentWrite, Stream};
+        let strings = MessagingStringsRegistry::new();
+        let terms = preset_defaults(Preset::TrainingCoach, SOURCE);
+        let policies = [policy(&strings, &terms)];
+        let write = ResolvedAgentWrite::for_write_scope(&[Stream::RecoveryDaily]).unwrap();
+        for details in [Some(terms.clone()), None] {
+            let mut asking = checked(details);
+            asking.agent_write = Some(write.clone());
+            assert!(
+                renewing_policy(&policies, &asking, SCOPE, &strings, subject()).is_none(),
+                "bug: a standing policy approved an agent write"
+            );
+        }
     }
 
     /// owl §6.4: a standing policy never renews a T2 grant, even one whose

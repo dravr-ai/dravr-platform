@@ -41,7 +41,7 @@ use axum::{
 use dravr_tronc::dates::Timestamp;
 use pierre_auth::auth::{Claims, Confirmation, JwtValidationError};
 use pierre_auth::dpop::{BEARER_SCHEME, DPOP_SCHEME};
-use pierre_auth::oauth2_server::authorization_details::ResolvedDetails;
+use pierre_auth::oauth2_server::authorization_details::GrantDocument;
 use pierre_auth::oauth2_server::client_auth::{is_basic_authorization, resolve_client_credentials};
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::models::OAuth2Error;
@@ -103,7 +103,7 @@ pub(super) struct Introspection {
     /// What a preset grant was approved for (RFC 9396 §9.1); absent for a
     /// plain grant
     #[serde(skip_serializing_if = "Option::is_none")]
-    authorization_details: Option<ResolvedDetails>,
+    authorization_details: Option<GrantDocument>,
     /// The live step-up child the token reads beside its grant (owl §7.6):
     /// its details and `step_up_result`; absent when the grant has none
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -114,7 +114,7 @@ pub(super) struct Introspection {
 
 /// What a delegated token's standing grant was approved for: its details
 /// (`None` for a plain grant) and its live step-up child.
-type Admitted = (Option<ResolvedDetails>, Option<StepUpEcho>);
+type Admitted = (Option<GrantDocument>, Option<StepUpEcho>);
 
 impl Introspection {
     /// The answer for an inactive token.
@@ -346,7 +346,7 @@ impl OAuth2Routes {
                 client_grant_id.and_then(|id| standing.grants.iter().find(|grant| grant.id == id));
             let details = held
                 .and_then(|grant| grant.authorization_details.as_deref())
-                .map(ResolvedDetails::from_document)
+                .map(GrantDocument::from_document)
                 .transpose()?;
             let step_up = held
                 .and_then(|grant| grant.child.as_ref())

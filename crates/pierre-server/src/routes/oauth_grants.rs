@@ -38,7 +38,9 @@ use serde_json::Value;
 use tracing::warn;
 
 use crate::mcp::resources::ServerContext;
-use pierre_auth::oauth2_server::authorization_details::{ResolvedDetails, Stream, Tier};
+use pierre_auth::oauth2_server::authorization_details::{
+    GrantDocument, ResolvedDetails, Stream, Tier,
+};
 use pierre_auth::oauth2_server::client_registration::client_display_host;
 use pierre_core::errors::AppError;
 use pierre_core::models::{
@@ -129,8 +131,12 @@ fn preset_and_tier(grant: &OAuthClientGrant) -> (Option<&'static str>, Option<Ti
     let Some(document) = grant.authorization_details.as_deref() else {
         return (None, None);
     };
-    match ResolvedDetails::from_document(document) {
-        Ok(details) => (Some(details.preset().name()), Some(details.max_tier())),
+    match GrantDocument::from_document(document) {
+        Ok(GrantDocument::DataAccess(details)) => {
+            (Some(details.preset().name()), Some(details.max_tier()))
+        }
+        // An agent-write grant names no preset; its tier is its targets'.
+        Ok(GrantDocument::AgentWrite(write)) => (None, Some(write.max_tier())),
         Err(error) => {
             warn!(grant_id = %grant.id, error = %error, "A connected app's grant details do not read");
             (None, None)

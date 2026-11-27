@@ -1047,8 +1047,7 @@ mod tests {
     #[test]
     fn an_agent_write_alone_is_a_profile_grant_either_binding() {
         for sender in ["dpop", "none"] {
-            let parsed =
-                parse_authorization_details(&json!([write(sender)]).to_string()).unwrap();
+            let parsed = parse_authorization_details(&json!([write(sender)]).to_string()).unwrap();
             assert!(parsed.data_access.is_none(), "bug: {sender} read authority");
             assert!(parsed.agent_write.is_some(), "bug: {sender} write lost");
         }
@@ -1071,8 +1070,12 @@ mod tests {
         );
         // A constraint index still counts the write detail's place.
         let parsed = parse_authorization_details(
-            &json!([write("none"), access(&json!({})), constraints(&json!({"applies_to": 1}))])
-                .to_string(),
+            &json!([
+                write("none"),
+                access(&json!({})),
+                constraints(&json!({"applies_to": 1}))
+            ])
+            .to_string(),
         );
         assert!(parsed.is_ok(), "bug: {parsed:?}");
     }
@@ -1083,8 +1086,8 @@ mod tests {
             json!([write("none"), write("none")]),
             json!([write("none"), constraints(&json!({}))]),
         ] {
-            let error = parse_authorization_details(&details.to_string())
-                .expect_err("bug: accepted");
+            let error =
+                parse_authorization_details(&details.to_string()).expect_err("bug: accepted");
             assert_eq!(error.error, "invalid_authorization_details");
         }
         let mut as_set = write("dpop");

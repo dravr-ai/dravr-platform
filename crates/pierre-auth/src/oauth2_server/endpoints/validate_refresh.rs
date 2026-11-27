@@ -13,8 +13,8 @@ use uuid::Uuid;
 
 use super::admin_grant::holds_admin;
 use super::OAuth2AuthorizationServer;
-use crate::oauth2_server::authorization_details::is_agent_write_scope;
 use crate::auth::{oauth_access_token_lifetime_secs, Claims, JwtValidationError, TokenLineage};
+use crate::oauth2_server::authorization_details::is_agent_write_scope;
 use crate::oauth2_server::first_party::is_first_party;
 use crate::oauth2_server::models::{
     OAuth2Error, OAuth2RefreshToken, ValidateRefreshRequest, ValidateRefreshResponse,

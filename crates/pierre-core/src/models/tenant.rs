@@ -473,9 +473,8 @@ impl ClientGrantStanding {
         // A token naming no grant is never held to an agent-write grant
         // (owl PDPP §4.5), which reads nothing; one naming it is, and its
         // ceiling refuses to build, so such a token fails closed.
-        let read_detailed = |grant: &&StandingGrant| {
-            detailed(grant) && grant.scope != super::AGENT_WRITE_SCOPE
-        };
+        let read_detailed =
+            |grant: &&StandingGrant| detailed(grant) && grant.scope != super::AGENT_WRITE_SCOPE;
         client_grant_id.map_or_else(
             || {
                 self.grants

@@ -312,9 +312,9 @@ impl ResolvedAgentWrite {
     /// # Errors
     /// An internal error when the expiry falls outside the calendar.
     pub fn approve(&self, now: Timestamp, result: StepUpResult) -> AppResult<(Self, Timestamp)> {
-        let expires_at = now
-            .checked_add(self.lifetime())
-            .ok_or_else(|| AppError::internal("An agent-write grant's expiry falls outside the calendar"))?;
+        let expires_at = now.checked_add(self.lifetime()).ok_or_else(|| {
+            AppError::internal("An agent-write grant's expiry falls outside the calendar")
+        })?;
         let mut approved = self.clone();
         approved.step_up_result = Some(result);
         Ok((approved, expires_at))
@@ -362,7 +362,10 @@ impl ResolvedAgentWrite {
             return Err(AppError::internal("An agent-write detail is not an object"));
         };
         let mut detail = Map::new();
-        detail.insert("type".to_owned(), Value::String(AGENT_WRITE_TYPE.to_owned()));
+        detail.insert(
+            "type".to_owned(),
+            Value::String(AGENT_WRITE_TYPE.to_owned()),
+        );
         detail.extend(members);
         Ok(Value::Object(detail))
     }
@@ -381,8 +384,9 @@ impl ResolvedAgentWrite {
     /// An internal error when `document` is not an agent-write document this
     /// server wrote, or no longer passes its checks.
     pub fn from_document(document: &str) -> AppResult<Self> {
-        let unreadable =
-            |why: &str| AppError::internal(format!("A grant's agent-write detail does not read: {why}"));
+        let unreadable = |why: &str| {
+            AppError::internal(format!("A grant's agent-write detail does not read: {why}"))
+        };
         let details: Vec<Map<String, Value>> =
             serde_json::from_str(document).map_err(|e| unreadable(&e.to_string()))?;
         let Ok([mut detail]) = <[_; 1]>::try_from(details) else {
@@ -411,14 +415,19 @@ fn check_target(target: &TargetWire) -> Result<AgentWriteTarget, OAuth2Error> {
                 target.stream
             ))
         })?;
-    let schema = Stream::from_name(name).and_then(row_schema).ok_or_else(|| {
-        refused(&format!(
-            "{}: no record of that stream can be proposed",
-            target.stream
-        ))
-    })?;
+    let schema = Stream::from_name(name)
+        .and_then(row_schema)
+        .ok_or_else(|| {
+            refused(&format!(
+                "{}: no record of that stream can be proposed",
+                target.stream
+            ))
+        })?;
     if target.fields.is_empty() {
-        return Err(refused(&format!("{}: fields names no field", target.stream)));
+        return Err(refused(&format!(
+            "{}: fields names no field",
+            target.stream
+        )));
     }
     let mut seen = BTreeSet::new();
     let mut fields = Vec::with_capacity(target.fields.len());
@@ -443,7 +452,10 @@ fn check_target(target: &TargetWire) -> Result<AgentWriteTarget, OAuth2Error> {
         })?;
         fields.push(spec.name);
     }
-    if let Some(missing) = schema.required().find(|required| !fields.contains(required)) {
+    if let Some(missing) = schema
+        .required()
+        .find(|required| !fields.contains(required))
+    {
         return Err(refused(&format!(
             "{}: fields must include {missing}, which every record carries",
             target.stream
@@ -478,7 +490,10 @@ fn lifetime_seconds(text: &str) -> Option<i64> {
 ///
 /// # Errors
 /// An internal error if the detail cannot be serialized.
-pub fn agent_write_review_digest(text_version: &str, detail: &ResolvedAgentWrite) -> AppResult<String> {
+pub fn agent_write_review_digest(
+    text_version: &str,
+    detail: &ResolvedAgentWrite,
+) -> AppResult<String> {
     let mut digest = Sha256::new();
     digest.update(text_version.as_bytes());
     digest.update(b"\nagent-write\n");
@@ -641,7 +656,11 @@ mod tests {
                 );
             }
         }
-        for name in ["health.vault.agent.pending", "recovery.daily.summary", "health.vault.nope.summary"] {
+        for name in [
+            "health.vault.agent.pending",
+            "recovery.daily.summary",
+            "health.vault.nope.summary",
+        ] {
             let error = parsed(&json!({"targets": [{"stream": name, "fields": ["x"]}]}))
                 .expect_err(&format!("bug: {name} accepted"));
             assert!(error.contains(name), "bug: {name} refused as {error:?}");
@@ -657,20 +676,36 @@ mod tests {
 
     #[test]
     fn the_document_round_trips_and_terms_ignore_the_sign_in() {
-        let write = parsed(&json!({"rate": {"records_per_day": 5, "requests_per_hour": 3}})).unwrap();
+        let write =
+            parsed(&json!({"rate": {"records_per_day": 5, "requests_per_hour": 3}})).unwrap();
         let now = Timestamp::from_epoch_seconds(1_800_000_000).unwrap();
         let (approved, expires_at) = write
-            .approve(now, StepUpResult { satisfied_at: now, acr: "owner_verified".to_owned() })
+            .approve(
+                now,
+                StepUpResult {
+                    satisfied_at: now,
+                    acr: "owner_verified".to_owned(),
+                },
+            )
             .unwrap();
-        assert_eq!(expires_at.epoch_seconds(), 1_800_000_000 + 30 * SECONDS_PER_DAY);
+        assert_eq!(
+            expires_at.epoch_seconds(),
+            1_800_000_000 + 30 * SECONDS_PER_DAY
+        );
         let document = approved.to_document().unwrap();
         let read = ResolvedAgentWrite::from_document(&document).unwrap();
         assert_eq!(read, approved);
         assert!(read.same_terms(&write));
-        assert_eq!(read.step_up_result().map(|r| r.acr.as_str()), Some("owner_verified"));
+        assert_eq!(
+            read.step_up_result().map(|r| r.acr.as_str()),
+            Some("owner_verified")
+        );
         let value: Value = serde_json::from_str(&document).unwrap();
         assert_eq!(value[0]["type"], AGENT_WRITE_TYPE);
-        assert_eq!(value[0]["targets"][0]["stream"], "health.vault.recovery.daily.summary");
+        assert_eq!(
+            value[0]["targets"][0]["stream"],
+            "health.vault.recovery.daily.summary"
+        );
         assert!(ResolvedAgentWrite::from_document("[]").is_err());
         assert!(ResolvedAgentWrite::from_document(
             &json!([{"type": "https://pdpp.dev/data-access"}]).to_string()
@@ -684,7 +719,13 @@ mod tests {
         let wider = parsed(&json!({"rate": {"records_per_day": 6}})).unwrap();
         let now = Timestamp::from_epoch_seconds(1_800_000_000).unwrap();
         let (approved, _) = write
-            .approve(now, StepUpResult { satisfied_at: now, acr: "owner_verified".to_owned() })
+            .approve(
+                now,
+                StepUpResult {
+                    satisfied_at: now,
+                    acr: "owner_verified".to_owned(),
+                },
+            )
             .unwrap();
         let digest = agent_write_review_digest("v1", &write).unwrap();
         assert_eq!(digest, agent_write_review_digest("v1", &approved).unwrap());
