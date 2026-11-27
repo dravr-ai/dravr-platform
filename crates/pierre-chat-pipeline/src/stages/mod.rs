@@ -104,8 +104,6 @@ pub mod subject_context;
 pub mod tool_dispatch;
 /// The turn clock, sent after the cache breakpoints (carnet#895).
 pub mod turn_clock;
-/// Runs once what the turn's calls handed to its end (carnet#1702).
-pub(crate) mod turn_end;
 /// What the peer-claim verifier may treat as evidence: platform-framed data only.
 mod turn_evidence;
 /// Post-turn memory extraction, recorded before it runs

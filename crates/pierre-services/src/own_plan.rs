@@ -33,6 +33,7 @@
 
 use std::collections::BTreeSet;
 
+use dravr_tronc::dates::CivilDate;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use pierre_core::transport::TransportPolicy;
@@ -42,10 +43,11 @@ use pierre_database::repositories::{
     SavePlanBundleParams, SavedPlanBundle,
 };
 use pierre_database::RepositoryRegistry;
-use pierre_memory::training_plans::{training_content, PlanWeek, PlannedDay};
+use pierre_memory::training_plans::{parse_plan_date, training_content, PlanWeek, PlannedDay};
+use tracing::info;
 use uuid::Uuid;
 
-use crate::coach_plan_draft::CoachDraftTarget;
+use crate::coach_plan_draft::{coach_plan_view, CoachDraftTarget};
 use crate::plan_change_history::{self, record_plan_change, PlanChange};
 
 /// A write to the athlete's live plan: the bundle the live save path
@@ -271,6 +273,156 @@ pub fn rebase_days(
         rebased.extend(source.iter().filter(|day| day.date == date).cloned());
     }
     rebased
+}
+
+/// `days` with every entry on `date` replaced by `entries`, in their order:
+/// the date's entries take the place of its first one, or the place the date
+/// falls in the week where it holds none.
+#[must_use]
+pub fn with_entries_on(days: &[PlannedDay], entries: &[PlannedDay], date: &str) -> Vec<PlannedDay> {
+    let at = days
+        .iter()
+        .position(|day| day.date == date)
+        .unwrap_or_else(|| days.partition_point(|day| day.date.as_str() < date));
+    let mut kept: Vec<PlannedDay> = days
+        .iter()
+        .filter(|day| day.date != date)
+        .cloned()
+        .collect();
+    let tail = kept.split_off(at.min(kept.len()));
+    kept.extend(entries.iter().cloned());
+    kept.extend(tail);
+    kept
+}
+
+/// What accepting a proposal on the athlete's own plan came to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProposalAccept {
+    /// The proposal's dates — the date asked for, and the other date of a
+    /// moved session — are on the live plan now.
+    Accepted(Vec<CivilDate>),
+    /// The date proposes nothing: already accepted or refused, or never
+    /// proposed. Nothing was written.
+    NotProposed,
+}
+
+/// Whether `week` holds `date`: its first day or one of the six after it.
+fn week_holds(week: &PlanWeek, date: CivilDate) -> bool {
+    parse_plan_date(&week.week_start).is_some_and(|start| {
+        start <= date && start.checked_add_days(7).is_some_and(|end| date < end)
+    })
+}
+
+/// Accept what the athlete's own overlay proposes on `date`, and on the other
+/// date of a session it moves (carnet#1841): each date's overlay entries go
+/// onto the live plan in place of its live entries, through
+/// [`write_live_weeks`], recorded as the athlete's `proposal_accept`.
+///
+/// Idempotent: a date that proposes nothing is answered as such and writes
+/// nothing. A proposed date in a week the live plan does not hold yet is
+/// given that week, from the overlay's.
+///
+/// # Errors
+///
+/// The errors of the plan view and of [`write_live_weeks`].
+pub async fn accept_proposal(
+    repos: &RepositoryRegistry,
+    tenant: TenantId,
+    athlete: Uuid,
+    date: CivilDate,
+) -> AppResult<ProposalAccept> {
+    let view = coach_plan_view(repos, &CoachDraftTarget::own(tenant, athlete)).await?;
+    let Some(group) = view
+        .proposal_groups()
+        .into_iter()
+        .find(|group| group.contains(&date))
+    else {
+        return Ok(ProposalAccept::NotProposed);
+    };
+    let (Some(live), Some(draft)) = (view.live.as_ref(), view.draft.as_ref()) else {
+        return Ok(ProposalAccept::NotProposed);
+    };
+    // The weeks the proposal touches, by `week_start`, each as it will be
+    // written: the live week, else the overlay's.
+    let mut weeks: Vec<PlanWeek> = Vec::new();
+    let mut author: Option<String> = None;
+    for day in &group {
+        let Some(proposed) = draft.weeks.iter().find(|week| week_holds(week, *day)) else {
+            continue;
+        };
+        author = author.or_else(|| proposed.author_agent_id.clone());
+        let dated = day.to_string();
+        let entries: Vec<PlannedDay> = proposed
+            .days
+            .iter()
+            .filter(|entry| entry.date == dated)
+            .map(|entry| PlannedDay {
+                coach_original: None,
+                coach_added: false,
+                ..entry.clone()
+            })
+            .collect();
+        let at = match weeks
+            .iter()
+            .position(|week| week.week_start == proposed.week_start)
+        {
+            Some(at) => at,
+            None => {
+                let base = live
+                    .weeks
+                    .iter()
+                    .find(|week| week.week_start == proposed.week_start)
+                    .cloned()
+                    .unwrap_or_else(|| PlanWeek {
+                        days: Vec::new(),
+                        ..proposed.clone()
+                    });
+                weeks.push(base);
+                weeks.len() - 1
+            }
+        };
+        if let Some(week) = weeks.get_mut(at) {
+            week.days = with_entries_on(&week.days, &entries, &dated);
+        }
+    }
+    if weeks.is_empty() {
+        return Ok(ProposalAccept::NotProposed);
+    }
+    let inputs: Vec<PlanWeekInput<'_>> = weeks
+        .iter()
+        .map(|week| PlanWeekInput {
+            week_start: &week.week_start,
+            focus: &week.focus,
+            days: &week.days,
+            adjustment_reason: &week.adjustment_reason,
+            phase_index: week.phase_index,
+        })
+        .collect();
+    write_live_weeks(
+        repos,
+        tenant,
+        athlete,
+        LiveWrite {
+            author: PlanAuthor::from_agent(author.as_deref()),
+            goal_fact_id: None,
+            outline: None,
+            replace_season: false,
+            weeks: &inputs,
+            transport_policy: TransportPolicy::strictest_of([
+                live.plan.transport_policy,
+                draft.plan.transport_policy,
+            ]),
+            source: PlanChangeSource::Athlete,
+            kind: PlanChangeKind::ProposalAccept,
+        },
+    )
+    .await?;
+    info!(
+        user_id = %athlete,
+        dates = group.len(),
+        "athlete accepted a proposal of their agent's"
+    );
+    Ok(ProposalAccept::Accepted(group))
 }
 
 #[cfg(test)]

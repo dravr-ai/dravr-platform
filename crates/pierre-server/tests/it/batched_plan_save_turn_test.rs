@@ -8,9 +8,9 @@
 //! `save_training_plan` calls in one turn. Each save carried a destructive
 //! charge, the fourth met the per-turn cap of three, and the athlete read the
 //! Guardian's refusal instead of the plan, its last weeks unsaved. In a chat
-//! turn a save hands its calendar push to the turn's end and gives its
-//! destructive charge back, so the four batches land and the reply is the
-//! model's.
+//! turn a save gives its destructive charge back, so the four batches land
+//! and the reply is the model's. Since carnet#1841 none of them reaches the
+//! calendar: the athlete sends their plan themselves.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -303,7 +303,7 @@ async fn a_plan_saved_in_four_batches_lands_whole_under_the_models_reply() {
 }
 
 #[tokio::test]
-async fn a_plan_saved_in_four_batches_reaches_the_calendar_once_after_the_reply() {
+async fn a_plan_saved_in_four_batches_reaches_no_calendar_until_the_athlete_sends_it() {
     let stub = stub_live(12_000).await;
     let monday = next_monday();
     let athlete = Athlete::new(monday, Some(&stub)).await;
@@ -315,19 +315,19 @@ async fn a_plan_saved_in_four_batches_reaches_the_calendar_once_after_the_reply(
     );
     assert_eq!(
         stub.event_count().await,
-        8,
-        "bug: the turn's end did not put every saved day on the calendar"
+        0,
+        "bug: the athlete's own save reached the calendar (Phil, 2026-11-26)"
     );
     assert_eq!(
         stub.window_reads().await,
-        1,
-        "bug: the calendar was reconciled once per batch, not once per turn"
+        0,
+        "bug: a save read the calendar it never writes"
     );
 }
 
-/// The seal a turn's end leaves outlives the turn, and must keep no server
-/// alive: every test builds its own, and PostgreSQL refuses connections once
-/// enough of their pools linger (carnet#1702's first branch run).
+/// A finished turn keeps no server alive: every test builds its own, and
+/// PostgreSQL refuses connections once enough of their pools linger
+/// (carnet#1702's first branch run).
 #[tokio::test]
 async fn a_finished_turn_keeps_no_server_alive() {
     let athlete = Athlete::new(next_monday(), None).await;

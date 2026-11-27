@@ -17,7 +17,7 @@ use pierre_core::models::{
 use pierre_database::repositories::PlanChangeEvent;
 use pierre_services::coach_plan_draft::DraftState;
 use pierre_services::coached_athlete::SoloAthleteResponse;
-use pierre_services::plan_calendar_push::KeyChange;
+use pierre_services::plan_calendar_push::{KeyChange, PushReport, SkipReason};
 use pierre_services::plan_card::{PlanCard, PlanSubject};
 use pierre_services::plan_card_history::word_stored_outside_evidence;
 use pierre_tool_runtime::implementations::coach_session_editor::{
@@ -454,7 +454,8 @@ pub(super) struct SubjectPlanHistoryResponse {
 pub(super) struct PlanChangeEventResponse {
     /// What kind of change: `day_edit`, `day_add`, `day_remove`,
     /// `day_restore`, `day_move`, `date_revert`, `coach_call`,
-    /// `agent_draft`, `publish` or `discard`.
+    /// `agent_draft`, `publish`, `discard`, and on the athlete's own plan
+    /// `proposal_accept`, `agent_save` and `send`.
     pub kind: &'static str,
     /// Who made it: `coach`, `agent`, or `athlete` on their own plan.
     pub source: &'static str,
@@ -534,6 +535,11 @@ pub(super) struct PendingSendEntry {
     pub after: Option<PlannedSession>,
     /// The calendar backend it goes to.
     pub destination: String,
+    /// Only in the send review, which reads the provider: whether the
+    /// athlete changed the entry there after Dravr wrote it (« Modifiée sur
+    /// Intervals.icu »). Such an entry is left alone unless replaced.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edited_on_provider: Option<bool>,
 }
 
 impl PendingSendResponse {
@@ -556,10 +562,109 @@ impl PendingSendResponse {
                     before: key.before,
                     after: key.after,
                     destination: destination.clone(),
+                    edited_on_provider: None,
                 })
                 .collect(),
             destination: pending.destination,
             calendars: pending.calendars,
+        }
+    }
+}
+
+/// `POST /api/me/plan/send/review`: what « Envoyer » would send, checked
+/// against the provider (carnet#1841).
+#[derive(Debug, Serialize)]
+pub(super) struct SendReviewResponse {
+    /// The pending send, each entry saying whether the athlete edited it on
+    /// the provider.
+    pub pending_send: PendingSendResponse,
+    /// The dates of the entries the athlete edited on the provider, sorted:
+    /// left alone unless named in `replace_edited`.
+    pub edited_on_provider: Vec<CivilDate>,
+    /// How many dates the send changes as it stands, the edited ones left
+    /// out: the N of « Envoyer (N) ».
+    pub count: usize,
+}
+
+/// `POST /api/me/plan/send` body.
+#[derive(Debug, Default, Deserialize)]
+pub(super) struct SendRequest {
+    /// The dates whose entry the athlete edited on the provider that the
+    /// send overwrites anyway (« Remplacer »), `YYYY-MM-DD`.
+    #[serde(default)]
+    pub replace_edited: Vec<String>,
+}
+
+/// What the send created, updated and removed.
+#[derive(Debug, Serialize)]
+pub(super) struct SendCounts {
+    /// Entries created on the calendar.
+    pub created: usize,
+    /// Entries updated in place.
+    pub updated: usize,
+    /// Entries taken off the calendar.
+    pub removed: usize,
+}
+
+/// An entry the send left alone, and why.
+#[derive(Debug, Serialize)]
+pub(super) struct SendSkipped {
+    /// The entry's date.
+    pub date: CivilDate,
+    /// Why: `edited_on_provider`.
+    pub reason: SkipReason,
+}
+
+/// An entry the provider or the ledger refused.
+#[derive(Debug, Serialize)]
+pub(super) struct SendFailed {
+    /// The entry's date.
+    pub date: CivilDate,
+    /// What went wrong.
+    pub error: String,
+}
+
+/// `POST /api/me/plan/send` answered 200: what the send did, and what is
+/// still pending after it.
+#[derive(Debug, Serialize)]
+pub(super) struct SendResponse {
+    /// What it created, updated and removed.
+    pub report: SendCounts,
+    /// The entries it left alone.
+    pub skipped: Vec<SendSkipped>,
+    /// The entries it failed to write.
+    pub failed: Vec<SendFailed>,
+    /// What « Envoyer » would send now.
+    pub pending_send: PendingSendResponse,
+}
+
+impl SendResponse {
+    /// The push's report and the pending send after it, as the wire carries
+    /// them.
+    pub(super) fn of(report: PushReport, pending_send: PendingSendResponse) -> Self {
+        Self {
+            report: SendCounts {
+                created: report.created,
+                updated: report.updated,
+                removed: report.removed,
+            },
+            skipped: report
+                .skipped
+                .into_iter()
+                .map(|entry| SendSkipped {
+                    date: entry.date,
+                    reason: entry.reason,
+                })
+                .collect(),
+            failed: report
+                .failed
+                .into_iter()
+                .map(|entry| SendFailed {
+                    date: entry.date,
+                    error: entry.error,
+                })
+                .collect(),
+            pending_send,
         }
     }
 }

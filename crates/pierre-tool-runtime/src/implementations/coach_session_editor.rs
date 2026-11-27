@@ -109,7 +109,7 @@ mod day_edits;
 mod own_days;
 mod sessions;
 
-pub use date_revert::revert_draft_date;
+pub use date_revert::{refuse_own_date, revert_draft_date};
 pub use day_edits::{
     add_draft_session, remove_draft_day, restore_draft_day, save_draft_coach_call,
     save_draft_hand_day, AddedSession, HandDay,
@@ -930,11 +930,40 @@ async fn save_days_into_week(
     days: &[PlannedDay],
     change: DayChange,
 ) -> AppResult<SavedDraftBundle> {
+    let author = PlanAuthor::from_agent(thread.writer.agent_id.as_deref());
+    save_draft_week(
+        repos,
+        &thread.target,
+        author,
+        PlanChangeSource::Coach,
+        week,
+        days,
+        change,
+    )
+    .await
+}
+
+/// Save `days` as `week` of `target`'s draft, and only that week, authored by
+/// `author`, and record the write in the plan's change history as `source`'s
+/// `change` ([`record_plan_change`]), which never fails the save.
+///
+/// # Errors
+///
+/// The repository error of the save.
+async fn save_draft_week(
+    repos: &RepositoryRegistry,
+    target: &CoachDraftTarget,
+    author: PlanAuthor<'_>,
+    source: PlanChangeSource,
+    week: &PlanWeek,
+    days: &[PlannedDay],
+    change: DayChange,
+) -> AppResult<SavedDraftBundle> {
     let saved = repos
         .training_plans
         .save_draft_bundle(&SaveDraftParams {
-            owner: thread.target.owner(),
-            author: PlanAuthor::from_agent(thread.writer.agent_id.as_deref()),
+            owner: target.owner(),
+            author,
             goal_fact_id: None,
             outline: None,
             weeks: &[PlanWeekInput {
@@ -948,11 +977,11 @@ async fn save_days_into_week(
         })
         .await?;
     let recorded = PlanChange {
-        source: PlanChangeSource::Coach,
+        source,
         kind: change.kind,
         dates: &[change.date],
     };
-    record_plan_change(repos, &thread.target, recorded).await;
+    record_plan_change(repos, target, recorded).await;
     Ok(saved)
 }
 

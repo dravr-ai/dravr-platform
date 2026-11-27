@@ -895,21 +895,29 @@ async fn three_irreversible_calls_commit_and_the_fourth_is_denied() {
     );
 }
 
-/// carnet#1492 (superseding carnet#1403's "separate step"): the writing plan
-/// tools' own descriptions, on every surface that lists them, say the write
-/// puts the plan on the calendar and point at the reply's `calendar_push`, and
-/// none repeats a budget an admin can change.
+/// carnet#1492, then carnet#1841: a coach's publish and the push tool say the
+/// write puts the plan on the calendar and point at the reply's
+/// `calendar_push`; an athlete's own save says it never sends (Phil,
+/// 2026-11-26). None repeats a budget an admin can change.
 #[tokio::test]
-async fn the_plan_writes_say_they_push_and_where_the_reply_says_so() {
+async fn the_plan_writes_say_which_of_them_push_and_where_the_reply_says_so() {
     common::init_server_config();
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    for tool in [
-        "save_training_plan",
-        "publish_training_plan",
-        "push_training_plan",
-    ] {
+    let save = resources
+        .mcp
+        .tool_registry
+        .get("save_training_plan")
+        .expect("registered")
+        .definition()
+        .description;
+    assert!(
+        save.contains("never sends") && !save.contains("calendar_push"),
+        "save_training_plan: {save}"
+    );
+    assert!(!save.contains("per turn"), "save_training_plan: {save}");
+    for tool in ["publish_training_plan", "push_training_plan"] {
         let description = resources
             .mcp
             .tool_registry

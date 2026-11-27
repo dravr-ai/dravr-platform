@@ -32,13 +32,19 @@ use std::sync::Arc;
 
 use dravr_tronc::dates::CivilDate;
 use pierre_core::errors::AppResult;
+use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::PlanChangeKind;
+use pierre_database::repositories::PlanChangeSource;
 use pierre_memory::training_plans::PlannedDay;
-use pierre_services::coach_plan_draft::coach_plan_view;
+use pierre_services::coach_plan_draft::{coach_plan_view, CoachDraftTarget};
+use pierre_services::own_plan::with_entries_on;
 use tracing::info;
 
 use super::day_edits::as_athletes_write;
-use super::{holds, save_days_into_week, DayChange, DraftDayOutcome, EditorThread};
+use super::own_days::as_own_write;
+use super::{
+    holds, save_days_into_week, save_draft_week, DayChange, DraftDayOutcome, EditorThread, OwnPlan,
+};
 use crate::runtime::ToolRuntime;
 
 /// `days` with every entry on `date` replaced by the entries `live` holds on
@@ -61,19 +67,7 @@ fn reverted(days: &[PlannedDay], live: &[PlannedDay], date: &str) -> Option<Vec<
     if held.eq(wanted.iter()) {
         return None;
     }
-    let at = days
-        .iter()
-        .position(|day| day.date == date)
-        .unwrap_or_else(|| days.partition_point(|day| day.date.as_str() < date));
-    let mut kept: Vec<PlannedDay> = days
-        .iter()
-        .filter(|day| day.date != date)
-        .cloned()
-        .collect();
-    let tail = kept.split_off(at.min(kept.len()));
-    kept.extend(wanted);
-    kept.extend(tail);
-    Some(kept)
+    Some(with_entries_on(days, &wanted, date))
 }
 
 /// Put the live plan's entries back on `date` of the coach's draft.
@@ -137,6 +131,69 @@ pub async fn revert_draft_date(
         Ok(DraftDayOutcome::Saved)
     };
     as_athletes_write(repos, target, write).await
+}
+
+/// Refuse what the athlete's own overlay proposes on `date` (carnet#1841):
+/// the live plan's entries are put back on that date of the overlay, whole,
+/// as [`revert_draft_date`] puts them back on a coach's draft. The live plan
+/// is never touched. Recorded as the athlete's `date_revert`; the week keeps
+/// the agent that proposed it as its author.
+///
+/// `Unchanged`, with nothing written, when the date proposes nothing.
+///
+/// # Errors
+///
+/// `UnavailableOverTransport` for a plan an external caller may not read,
+/// and the repository errors of the reads and the save.
+pub async fn refuse_own_date(
+    runtime: &Arc<dyn ToolRuntime>,
+    own: &OwnPlan,
+    date: CivilDate,
+) -> AppResult<DraftDayOutcome> {
+    let repos = runtime.repos();
+    let target: CoachDraftTarget = own.target();
+    let refuse = async {
+        let view = coach_plan_view(repos, &target).await?;
+        let Some(draft) = view.draft else {
+            return Ok(DraftDayOutcome::Unchanged);
+        };
+        let drafted = draft
+            .weeks
+            .into_iter()
+            .find(|week| holds(week, date) && draft.drafted_weeks.contains(&week.week_start));
+        let Some(week) = drafted else {
+            return Ok(DraftDayOutcome::Unchanged);
+        };
+        let dated = date.to_string();
+        let live: Vec<PlannedDay> = view.live.map_or_default(|live| {
+            live.weeks
+                .into_iter()
+                .flat_map(|week| week.days)
+                .filter(|day| day.date == dated)
+                .collect()
+        });
+        let Some(days) = reverted(&week.days, &live, &dated) else {
+            return Ok(DraftDayOutcome::Unchanged);
+        };
+        let change = DayChange {
+            kind: PlanChangeKind::DateRevert,
+            date,
+        };
+        let author = PlanAuthor::from_agent(week.author_agent_id.as_deref());
+        save_draft_week(
+            repos,
+            &target,
+            author,
+            PlanChangeSource::Athlete,
+            &week,
+            &days,
+            change,
+        )
+        .await?;
+        info!(user_id = %own.athlete, date = %dated, "athlete refused a proposal of their agent's");
+        Ok(DraftDayOutcome::Saved)
+    };
+    as_own_write(repos, own, refuse).await
 }
 
 #[cfg(test)]

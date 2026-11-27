@@ -90,21 +90,16 @@ pub(crate) fn scoped_turn<'a>(
     ))
 }
 
-/// The rest of the turn once its prompt is stored, then what its calls
-/// handed to its end, built and boxed here for the reason [`scoped_turn`]
-/// is. Erased behind `dyn`: it is the deepest future the pipeline builds,
-/// and every caller proving its own `Send` would walk it.
+/// The rest of the turn once its prompt is stored, built and boxed here for
+/// the reason [`scoped_turn`] is. Erased behind `dyn`: it is the deepest
+/// future the pipeline builds, and every caller proving its own `Send` would
+/// walk it.
 pub(crate) fn answered_turn<'a>(
     ctx: &'a ChatPipelineContext,
     input: TurnInput,
     profile: &'a SurfaceProfile,
     hooks: &'a PipelineHooks<'_>,
     msg_result: UserMessageResult,
-    turn_end: stages::turn_end::TurnEndRun,
 ) -> BoxedTurn<'a> {
-    Box::pin(async move {
-        let answered = answer_stored_turn(ctx, input, profile, hooks, msg_result).await;
-        turn_end.run(ctx).await;
-        answered
-    })
+    Box::pin(answer_stored_turn(ctx, input, profile, hooks, msg_result))
 }

@@ -96,11 +96,20 @@ pub enum PlanChangeKind {
     Discard,
     /// A session moved from one date to another (carnet#1841).
     DayMove,
+    /// A proposal on the athlete's own plan accepted: its dates moved from
+    /// their overlay onto their live plan (carnet#1841).
+    ProposalAccept,
+    /// Weeks or an outline the athlete's agent saved onto their live plan,
+    /// as the athlete asked (carnet#1841).
+    AgentSave,
+    /// The athlete's live plan sent to their provider calendar with
+    /// « Envoyer » (carnet#1841).
+    Send,
 }
 
 impl PlanChangeKind {
     /// Every kind, for a caller that maps each to its words.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 13] = [
         Self::DayEdit,
         Self::DayAdd,
         Self::DayRemove,
@@ -111,6 +120,9 @@ impl PlanChangeKind {
         Self::Publish,
         Self::Discard,
         Self::DayMove,
+        Self::ProposalAccept,
+        Self::AgentSave,
+        Self::Send,
     ];
 
     /// The value the `kind` column stores, and the wire carries.
@@ -127,6 +139,9 @@ impl PlanChangeKind {
             Self::Publish => "publish",
             Self::Discard => "discard",
             Self::DayMove => "day_move",
+            Self::ProposalAccept => "proposal_accept",
+            Self::AgentSave => "agent_save",
+            Self::Send => "send",
         }
     }
 

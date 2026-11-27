@@ -581,24 +581,16 @@ pub struct SaveTrainingPlanResult {
     pub weeks_saved: usize,
     /// Each week, and whether it replaced an earlier version of itself.
     pub weeks: Vec<SavedWeek>,
-    /// The athlete's own save put on their chosen calendar — in a chat turn,
-    /// queued for once the reply is written (carnet#1702) — or why it was
-    /// not. Absent on a draft save, when the athlete holds no calendar Dravr
-    /// writes, and when their tenant switched `push_training_plan` off — what
-    /// would repeat on every save is not said on every save.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub calendar_push: Option<CalendarPushOutcome>,
-    /// When the push did not run: what one would change, when the calendar
-    /// already carries this plan. Absent when the athlete has never pushed.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub calendar: Option<CalendarPreview>,
-    /// `true` when a group's human coach saved for a coached athlete: the
-    /// save went into the coach's draft, which the athlete does not see
-    /// until the coach publishes it with `publish_training_plan`. `plan_id`
+    /// `true` when the save went into a draft rather than the live plan: a
+    /// group's human coach's draft of a coached athlete's plan, which the
+    /// athlete does not see until the coach publishes it with
+    /// `publish_training_plan`, or the athlete's own overlay, where a change
+    /// nobody asked for waits for them to accept it (carnet#1841). `plan_id`
     /// is then the draft's.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub draft: bool,
-    /// On a draft save: what to tell the coach about it.
+    /// What to tell the reader about the save: where a draft save went, or
+    /// that the athlete's own save sent nothing to their calendar.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
 }
@@ -712,9 +704,10 @@ pub(super) const NO_CALENDAR: &str = "no_calendar";
 /// gates and then failed.
 pub(super) const PUSH_FAILED: &str = "push_failed";
 
-/// What a save or a publish did to the athlete's calendar on its own
-/// (carnet#1492): the plan reconciled onto their chosen calendar, queued for
-/// the end of a chat turn, or why nothing was written there.
+/// What a coach's publish did to the athlete's calendar on its own
+/// (carnet#1492): the plan reconciled onto their chosen calendar, or why
+/// nothing was written there. An athlete's own save sends nothing: their
+/// « Envoyer » does (carnet#1841).
 ///
 /// The write it follows never fails because of it. A gate that refuses the
 /// push, or a push that fails, is reported here beside a plan that landed.
@@ -727,14 +720,6 @@ pub enum CalendarPushOutcome {
         /// alone or failed to write.
         report: PushReport,
     },
-    /// Every gate passed, and the push runs once this chat turn's reply is
-    /// written, however many of the turn's saves queued it (carnet#1702).
-    Queued {
-        /// The calendar backend the push will write.
-        provider: String,
-        /// When it lands, in words to relay.
-        message: String,
-    },
     /// Nothing on the athlete's calendar was written.
     NotPushed {
         /// Why, as a code a client branches on: the refusing gate's own
@@ -744,14 +729,6 @@ pub enum CalendarPushOutcome {
         /// Why, in words to relay.
         message: String,
     },
-}
-
-impl CalendarPushOutcome {
-    /// Whether nothing was pushed for the reason `code` names.
-    #[must_use]
-    pub(super) fn refused_for(&self, code: &str) -> bool {
-        matches!(self, Self::NotPushed { reason, .. } if reason == code)
-    }
 }
 
 #[cfg(test)]

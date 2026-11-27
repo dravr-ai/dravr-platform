@@ -103,7 +103,7 @@ fn new_week_start(weeks: &[PlanWeek], date: CivilDate) -> Option<CivilDate> {
 
 /// Run `write`, the athlete's own write on their plan: tracked so the plan is
 /// stamped from what it read (carnet#769), under their AI consents.
-async fn as_own_write(
+pub(super) async fn as_own_write(
     repos: &RepositoryRegistry,
     own: &OwnPlan,
     write: impl Future<Output = AppResult<DraftDayOutcome>> + Send,

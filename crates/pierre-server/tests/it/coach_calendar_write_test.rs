@@ -1768,8 +1768,8 @@ async fn an_athlete_reading_through_the_link_is_told_their_human_coach_pushes_it
         "{coach_view}"
     );
 
-    // The athlete's own change leaves the calendar behind, and says who
-    // brings it up to date.
+    // The athlete's own change leaves the calendar behind and sends nothing
+    // (carnet#1841); their read says who brings it up to date.
     let monday = next_plan_monday();
     let day = |offset: i64, workout: &str, minutes: u32| {
         json!({
@@ -1792,16 +1792,14 @@ async fn an_athlete_reading_through_the_link_is_told_their_human_coach_pushes_it
         )
         .await;
     assert!(!refused, "{saved}");
-    assert_eq!(saved["calendar"]["stale"], true, "{saved}");
-    assert_eq!(saved["calendar"]["pushed_by"], "human_coach", "{saved}");
-    // The save's own push is the athlete's, and the link's calendar is the
-    // coach's to write: refused in the coach's terms, the save standing
-    // (carnet#1492).
-    assert_eq!(saved["calendar_push"]["status"], "not_pushed", "{saved}");
-    assert_eq!(
-        saved["calendar_push"]["reason"], "human_coach_writes_calendar",
-        "{saved}"
+    assert!(
+        saved.get("calendar_push").is_none(),
+        "bug: the athlete's own save tried a push: {saved}"
     );
+    let (plan, refused) = w.as_athlete(&GetTrainingPlanTool, alex, json!({})).await;
+    assert!(!refused, "{plan}");
+    assert_eq!(plan["calendar"]["stale"], true, "{plan}");
+    assert_eq!(plan["calendar"]["pushed_by"], "human_coach", "{plan}");
     assert_eq!(
         w.api.event_writes().len(),
         3,

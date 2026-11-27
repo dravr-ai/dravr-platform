@@ -34,7 +34,6 @@ use crate::incomplete_window::IncompleteWindows;
 use crate::reconnect::ReconnectOffers;
 use crate::registry::ToolRegistry;
 use crate::tool_selection::ToolSelectionService;
-use crate::turn_end::TurnEndDispatches;
 use crate::turn_tools::TurnTools;
 use dravr_cageux::config::intelligence::IntelligenceConfig;
 use pierre_cache::Cache;
@@ -394,15 +393,6 @@ pub trait ToolRuntime: Send + Sync + 'static {
         static NOTICES: LazyLock<Arc<EnvelopeNotices>> =
             LazyLock::new(|| Arc::new(EnvelopeNotices::new()));
         &NOTICES
-    }
-
-    /// The process-wide store of what each chat turn's calls handed to its
-    /// end (carnet#1702). Shared for the reason [`Self::reconnect_offers`] is:
-    /// a headless turn's tools run on the tool-host surface's own executor.
-    fn turn_end_dispatches(&self) -> &Arc<TurnEndDispatches> {
-        static HANDED: LazyLock<Arc<TurnEndDispatches>> =
-            LazyLock::new(|| Arc::new(TurnEndDispatches::new()));
-        &HANDED
     }
 
     /// The process-wide store of the tools each outside caller's turn ran

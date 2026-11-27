@@ -1214,7 +1214,7 @@ async fn the_athletes_own_plan_has_no_draft_to_publish() {
     assert!(refused["error"]
         .as_str()
         .unwrap()
-        .contains("Your own saves are already live"));
+        .contains("Your own plan is never published"));
 
     let unknown = fx.coach_publishes(json!({ "action": "push" })).await;
     assert_eq!(unknown["reason"], "invalid_action", "{unknown}");

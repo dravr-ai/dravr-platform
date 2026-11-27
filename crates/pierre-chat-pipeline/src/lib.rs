@@ -552,13 +552,10 @@ async fn run_turn(
     // dispatches then knows the message it answers ([`TURN_ASK`]).
     let msg_result = store_turn_prompt(ctx, &input, profile, hooks).await?;
     let ask = turn_ask(&input, &msg_result.message);
-    // What the turn's calls hand to its end runs once the turn is answered,
-    // however it was: the writes that handed it over landed (carnet#1702).
-    let turn_end = stages::turn_end::TurnEndRun::of(&input);
     TURN_ASK
         .scope(
             Some(ask),
-            answered_turn(ctx, input, profile, hooks, msg_result, turn_end),
+            answered_turn(ctx, input, profile, hooks, msg_result),
         )
         .await
 }

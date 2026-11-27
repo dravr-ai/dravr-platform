@@ -897,10 +897,10 @@ impl UniversalExecutor {
             }
         });
         // A call that answers a chat turn under its real turn token may hand
-        // an effect the turn's next call would only repeat to the turn's end
-        // (carnet#1702). A one-shot MCP or A2A call is its own turn, with no
-        // end to hand anything to, and a read of a coached athlete answers into
-        // no conversation.
+        // its effect over, giving its destructive charge back when it wrote
+        // nothing destructive (carnet#1702). A one-shot MCP or A2A call is its
+        // own turn, and a read of a coached athlete answers into no
+        // conversation.
         let handoff = (self.turn_token.is_some() && self.turn_ask.is_some() && in_conversation)
             .then(HandoffSlot::default);
         // Boxed before the scopes wrap it: each wrapper would otherwise carry
@@ -1020,12 +1020,10 @@ impl UniversalExecutor {
                 reservation.refund();
             }
         } else {
-            let handed = handoff.as_ref().and_then(HandoffSlot::handed);
+            let handed = handoff.as_ref().is_some_and(HandoffSlot::handed);
             if let Some(reservation) = reservation {
                 reservation.keep_unless_handed_over(handed);
             }
-            let turn_end = self.resources.turn_end_dispatches();
-            turn_end.record_handoff(&turn_key, handed, self.seat);
             if writes_data || labels.is_irreversible() {
                 turns.record_committed(&turn_key, &tool_name);
             }

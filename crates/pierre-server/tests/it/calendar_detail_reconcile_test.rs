@@ -383,6 +383,7 @@ impl Fixture {
             &self.repos,
             calendar,
             &PushPlanParams {
+                replace_edited: &[],
                 tenant: self.tenant,
                 user_id: self.user_id,
                 provider: PROVIDER,

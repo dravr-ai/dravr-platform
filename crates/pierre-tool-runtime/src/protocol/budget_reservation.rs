@@ -27,7 +27,6 @@ use tracing::warn;
 
 use crate::guardian::{GuardianTurns, TurnKey};
 use crate::security::SecurityLabels;
-use crate::turn_end::Handoff;
 
 /// How far the dispatch holding a reservation has got.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -82,18 +81,18 @@ impl<'dispatch> BudgetReservation<'dispatch> {
     }
 
     /// The call succeeded: its budget stays spent — all of it, unless it
-    /// handed its destructive effect to its turn's end ([`crate::turn_end`]).
-    pub(super) fn keep_unless_handed_over(self, handed: Option<Handoff>) {
-        if handed.is_some() {
+    /// handed its effect over to its turn as nothing destructive
+    /// ([`crate::turn_end`]).
+    pub(super) fn keep_unless_handed_over(self, handed: bool) {
+        if handed {
             self.keep_handing_destructive_over();
         } else {
             self.keep();
         }
     }
 
-    /// The call succeeded and handed its destructive effect to its turn's end:
-    /// its write stays spent, and its destructive charge comes back for the
-    /// run that carries the effect to spend once.
+    /// The call succeeded and handed its effect over as nothing destructive:
+    /// its write stays spent, and its destructive charge comes back.
     fn keep_handing_destructive_over(mut self) {
         self.stage = Stage::Settled;
         self.turns.refund(self.turn_key, self.labels, false);
@@ -208,7 +207,7 @@ mod tests {
             reserve(&turns, &key);
             let mut reservation = held(&turns, &key);
             reservation.start();
-            reservation.keep_unless_handed_over(Some(Handoff::NothingToCarry));
+            reservation.keep_unless_handed_over(true);
         }
         assert_eq!(
             spent(&turns, &key),

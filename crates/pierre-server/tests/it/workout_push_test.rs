@@ -41,15 +41,19 @@ use pierre_core::models::{
 };
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::training_plans::PlanAuthor;
-use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
+use pierre_database::repositories::{
+    PlanChangeKind, PlanChangeQuery, PlanChangeSource, PlanOutlineInput, PlanWeekInput,
+    SavePlanBundleParams,
+};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
+use pierre_memory::training_plans::{GoalRace, PlanPhase, PlanWeek, PlannedDay, RacePriority};
 use pierre_providers::ai_scope;
 use pierre_services::parq;
 use pierre_services::plan_fueling::FUELING_WITHHELD_CLAUSE;
-use pierre_tool_runtime::context::{DispatchOrigin, TurnAsk, DISPATCH_ORIGIN, TURN_ASK};
+use pierre_tool_runtime::context::{AuthMethod, ToolExecutionContext, TurnAsk, TURN_ASK};
 use pierre_tool_runtime::guardian::{CallFate, TurnKey, TurnState};
 use pierre_tool_runtime::implementations::endurance_workouts::PrescribeWorkoutTool;
+use pierre_tool_runtime::implementations::training_plan_push::{review_own_send, send_own_plan};
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::task_cancellation::scoped_with_cancel_flag;
@@ -465,6 +469,26 @@ impl Fixture {
             );
         }
         rows
+    }
+
+    /// The `week_start` of each week of the athlete's live plan.
+    async fn live_week_starts(&self) -> Vec<String> {
+        let repos = self.executor.resources.repos();
+        let (tenant, user) = (self.tenant.to_string(), self.user_id.to_string());
+        let plan = repos
+            .training_plans
+            .get_active_plan(&tenant, &user)
+            .await
+            .expect("read the live plan")
+            .expect("a live plan");
+        repos
+            .training_plans
+            .list_plan_weeks(&tenant, &user, &plan.id, false)
+            .await
+            .expect("read the live weeks")
+            .into_iter()
+            .map(|week| week.week_start)
+            .collect()
     }
 
     /// The rows whose entry is live on the calendar, in calendar order.
@@ -1561,8 +1585,8 @@ async fn pushing_a_plan_puts_every_future_session_on_the_calendar_and_reconciles
     );
 
     // ── The agent adjusts week one through the tool ────────────────────
-    // Wednesday becomes rest, Saturday gets longer; the save puts the change
-    // on the calendar itself (carnet#1492).
+    // Wednesday becomes rest, Saturday gets longer. The save sends nothing
+    // (carnet#1841); the athlete's send puts the change on the calendar.
     let saved = fixture
         .ok(
             "save_training_plan",
@@ -1584,35 +1608,31 @@ async fn pushing_a_plan_puts_every_future_session_on_the_calendar_and_reconciles
             }),
         )
         .await?;
+    assert!(
+        saved.get("calendar_push").is_none() && saved.get("calendar").is_none(),
+        "bug: the athlete's own save sent or previewed a push: {saved}"
+    );
+    assert_eq!(
+        stub.request_lines().await.len(),
+        8,
+        "bug: the save reached the calendar"
+    );
     // Saturday changed and the week note changed (its adjustment reason is
     // part of it); Wednesday is gone; Monday, Thursday and next week's tempo
     // ride are as they were.
-    let pushed = &saved["calendar_push"];
-    assert_eq!(pushed["status"], "pushed", "got: {saved}");
+    let pushed = fixture.ok("push_training_plan", json!({})).await?;
     assert_eq!(
-        pushed["report"]["updated"].as_u64(),
+        pushed["updated"].as_u64(),
         Some(2),
-        "Saturday and the week note; got: {saved}"
+        "Saturday and the week note; got: {pushed}"
     );
     assert_eq!(
-        pushed["report"]["removed"].as_u64(),
+        pushed["removed"].as_u64(),
         Some(1),
-        "Wednesday; got: {saved}"
+        "Wednesday; got: {pushed}"
     );
-    assert_eq!(
-        pushed["report"]["unchanged"].as_u64(),
-        Some(3),
-        "got: {saved}"
-    );
-    assert_eq!(
-        pushed["report"]["created"].as_u64(),
-        Some(0),
-        "got: {saved}"
-    );
-    assert!(
-        saved.get("calendar").is_none(),
-        "a save that pushed leaves nothing pending: {saved}"
-    );
+    assert_eq!(pushed["unchanged"].as_u64(), Some(3), "got: {pushed}");
+    assert_eq!(pushed["created"].as_u64(), Some(0), "got: {pushed}");
 
     let lines = stub.request_lines().await;
     let save_lines = &lines[8..];
@@ -2274,8 +2294,10 @@ async fn lay_season(fixture: &Fixture, monday: CivilDate) {
         .await;
 }
 
+/// The athlete's own save sends nothing (Phil, 2026-11-26): their send puts
+/// the saved week on their calendar (carnet#1841).
 #[tokio::test]
-async fn an_athletes_own_save_puts_the_plan_on_their_calendar() -> Result<()> {
+async fn an_athletes_own_save_waits_for_their_send() -> Result<()> {
     let stub = stub_live(6000).await;
     let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
     let monday = next_plan_monday();
@@ -2283,14 +2305,17 @@ async fn an_athletes_own_save_puts_the_plan_on_their_calendar() -> Result<()> {
     assert!(stub.requests().await.is_empty(), "nothing pushed yet");
 
     let saved = fixture.ok("save_training_plan", two_runs(monday)).await?;
-    let push = &saved["calendar_push"];
-    assert_eq!(push["status"], "pushed", "got: {saved}");
-    assert_eq!(push["report"]["created"].as_u64(), Some(2), "got: {saved}");
-    assert_eq!(push["report"]["provider"], INTERVALS_ICU, "got: {saved}");
     assert!(
-        saved.get("calendar").is_none(),
-        "nothing is pending once the save pushed: {saved}"
+        saved.get("calendar_push").is_none(),
+        "bug: the athlete's own save pushed: {saved}"
     );
+    assert!(
+        stub.requests().await.is_empty(),
+        "bug: the athlete's own save reached the calendar"
+    );
+    let pushed = fixture.ok("push_training_plan", json!({})).await?;
+    assert_eq!(pushed["created"].as_u64(), Some(2), "got: {pushed}");
+    assert_eq!(pushed["provider"], INTERVALS_ICU, "got: {pushed}");
     let names: HashSet<String> = stub
         .events()
         .await
@@ -2305,7 +2330,7 @@ async fn an_athletes_own_save_puts_the_plan_on_their_calendar() -> Result<()> {
     assert_eq!(
         fixture.live().await.len(),
         2,
-        "bug: the save's push recorded no live ledger row per written day"
+        "bug: the send recorded no live ledger row per written day"
     );
     Ok(())
 }
@@ -2373,21 +2398,18 @@ async fn an_athlete_with_no_calendar_saves_without_a_word_about_one() -> Result<
 }
 
 #[tokio::test]
-async fn a_calendar_that_refuses_the_saves_push_never_undoes_the_save() -> Result<()> {
+async fn a_save_never_calls_a_calendar_that_would_refuse_it() -> Result<()> {
     let stub = stub_refusing("HTTP/1.1 503 Service Unavailable").await;
     let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
     let monday = next_plan_monday();
     lay_season(&fixture, monday).await;
 
     let saved = fixture.ok("save_training_plan", two_runs(monday)).await?;
-    let push = &saved["calendar_push"];
-    assert_eq!(push["status"], "not_pushed", "got: {saved}");
-    assert_eq!(push["reason"], "push_failed", "got: {saved}");
     assert!(
-        push["message"].as_str().is_some_and(|m| m.contains("503")),
-        "the calendar's own refusal is named: {saved}"
+        saved.get("calendar_push").is_none(),
+        "bug: the athlete's own save tried a push: {saved}"
     );
-    // The week is saved all the same.
+    // The week is saved, and nothing met the refusing calendar.
     let plan = fixture.ok("get_training_plan", json!({})).await?;
     assert!(
         plan.to_string().contains("Steady 50"),
@@ -2401,15 +2423,15 @@ async fn a_calendar_that_refuses_the_saves_push_never_undoes_the_save() -> Resul
     Ok(())
 }
 
-// ── A plan saved in batches in one chat turn (carnet#1702) ────────────────
+// ── A plan saved in batches in one chat turn (carnet#1702, carnet#1841) ────
 
 /// The executor of one chat turn over the fixture's resources: its turn token
-/// and the turn ask the pipeline scopes before it builds one, so a call it
-/// runs can hand an effect to the turn's end.
-fn chat_turn_executor(fixture: &Fixture, turn: &str) -> UniversalToolExecutor {
+/// and the turn ask the pipeline scopes before it builds one — answering the
+/// athlete's message `asked`, or a prompt the platform composed with none.
+fn chat_turn_executor(fixture: &Fixture, turn: &str, asked: Option<&str>) -> UniversalToolExecutor {
     let ask = TurnAsk {
         turn_id: turn.to_owned(),
-        user_message_id: None,
+        user_message_id: asked.map(str::to_owned),
     };
     TURN_ASK.sync_scope(Some(ask), || {
         UniversalToolExecutor::new(Arc::clone(&fixture.executor.resources))
@@ -2479,70 +2501,109 @@ async fn save_four_batches(
 }
 
 #[tokio::test]
-async fn a_plan_saved_in_four_batches_reaches_the_calendar_once_after_the_turn() -> Result<()> {
+async fn an_asked_for_plan_saved_in_four_batches_sends_nothing_until_the_athlete_sends_it(
+) -> Result<()> {
     let stub = stub_live(9000).await;
     let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
     let monday = next_plan_monday();
     lay_season(&fixture, monday).await;
     let turn = format!("batched-plan-{}", Uuid::new_v4());
     let key = TurnKey::new(Some(fixture.tenant.as_uuid()), turn.clone());
-    let executor = chat_turn_executor(&fixture, &turn);
+    let executor = chat_turn_executor(&fixture, &turn, Some("athlete-message"));
 
     for saved in save_four_batches(&fixture, &executor, monday).await? {
-        assert_eq!(saved["calendar_push"]["status"], "queued", "got: {saved}");
-        assert_eq!(
-            saved["calendar_push"]["provider"], INTERVALS_ICU,
-            "got: {saved}"
+        assert!(
+            saved.get("calendar_push").is_none() && saved.get("draft").is_none(),
+            "bug: the athlete's asked-for save is live and pushes nothing: {saved}"
         );
         assert!(
-            saved.get("calendar").is_none(),
-            "nothing is previewed for a push the turn will run: {saved}"
+            saved["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("Nothing was sent")),
+            "bug: the reply says nothing was sent: {saved}"
         );
     }
     assert!(
         stub.requests().await.is_empty(),
-        "bug: a batch reached the calendar before the turn's end"
+        "bug: an athlete's own save reached the calendar (Phil, 2026-11-26)"
     );
     assert_eq!(
         spent(&fixture, &key),
         (0, 4),
-        "four writes, and no destructive charge until the push runs"
+        "four writes, and no destructive charge: nothing reached a calendar"
     );
 
-    let handed = fixture.executor.resources.turn_end_dispatches().take(&key);
-    assert_eq!(handed.len(), 1, "bug: four batches queued {handed:?}");
-    let push = handed[0].dispatch;
-    assert_eq!(
-        (push.tool, push.trigger),
-        ("push_training_plan", "save_training_plan"),
-        "bug: the turn's end must push the plan, reported as the saves'"
-    );
-
-    // What the chat pipeline runs when the turn ends: one push on the turn's
-    // executor, reported as the saves'.
-    let ran = DISPATCH_ORIGIN
-        .scope(
-            DispatchOrigin::TurnEnd {
-                trigger: push.trigger,
-            },
-            run_on(&executor, &fixture, push.tool, json!({})),
-        )
-        .await?;
-    assert!(ran.success, "the turn's push runs: {:?}", ran.error);
+    // The athlete's yes to sending it: one push, one destructive charge.
+    let ran = run_on(&executor, &fixture, "push_training_plan", json!({})).await?;
+    assert!(ran.success, "the athlete's send runs: {:?}", ran.error);
     let report = ran.result.expect("push report");
     assert_eq!(report["created"].as_u64(), Some(8), "got: {report}");
     assert_eq!(stub.events().await.len(), 8, "every saved day is on it");
-    assert_eq!(
-        stub.window_reads().await,
-        1,
-        "the calendar was reconciled once"
-    );
     assert_eq!(fixture.live().await.len(), 8, "one ledger row per day");
     assert_eq!(
         spent(&fixture, &key),
         (1, 5),
-        "the whole plan cost one destructive charge"
+        "the send is the plan's one destructive charge"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_unasked_save_is_proposed_never_live_and_never_sent() -> Result<()> {
+    let stub = stub_live(9200).await;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
+    let monday = next_plan_monday();
+    lay_season(&fixture, monday).await;
+    let turn = format!("routine-{}", Uuid::new_v4());
+    let key = TurnKey::new(Some(fixture.tenant.as_uuid()), turn.clone());
+    // A turn the platform composed answers no message of the athlete's.
+    let executor = chat_turn_executor(&fixture, &turn, None);
+    let saved = run_on(
+        &executor,
+        &fixture,
+        "save_training_plan",
+        two_runs(monday + Elapsed::weeks(5)),
+    )
+    .await?;
+    assert!(saved.success, "{:?}", saved.error);
+    let saved = saved.result.expect("result payload");
+    assert_eq!(
+        saved["draft"], true,
+        "bug: an unasked save lands in the athlete's own overlay: {saved}"
+    );
+    assert!(
+        saved["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("Proposed to the athlete")),
+        "bug: the reply says it is a proposal: {saved}"
+    );
+    let live_weeks = fixture.live_week_starts().await;
+    assert!(
+        !live_weeks.contains(&(monday + Elapsed::weeks(5)).to_string()),
+        "bug: an unasked save reached the live plan: {live_weeks:?}"
+    );
+    assert!(stub.requests().await.is_empty(), "no calendar was called");
+    assert_eq!(spent(&fixture, &key), (0, 1), "a proposal spends no charge");
+
+    // An outline nobody asked for is refused: accepting works date by date.
+    let outline = run_on(
+        &executor,
+        &fixture,
+        "save_training_plan",
+        json!({ "outline": {
+            "goal_race": { "name": "Unasked", "date": "2027-05-16", "discipline": "run",
+                           "priority": "A" },
+            "strategy": "an unasked re-lay",
+        } }),
+    )
+    .await;
+    match outline {
+        Err(refused) => assert!(
+            refused.to_string().contains("an outline is not a date"),
+            "{refused}"
+        ),
+        Ok(written) => panic!("bug: an unasked outline was written: {:?}", written.result),
+    }
     Ok(())
 }
 
@@ -2555,7 +2616,7 @@ async fn an_athlete_with_no_calendar_saves_four_batches_in_one_turn() -> Result<
     lay_season(&fixture, monday).await;
     let turn = format!("batched-plan-{}", Uuid::new_v4());
     let key = TurnKey::new(Some(fixture.tenant.as_uuid()), turn.clone());
-    let executor = chat_turn_executor(&fixture, &turn);
+    let executor = chat_turn_executor(&fixture, &turn, Some("athlete-message"));
 
     for saved in save_four_batches(&fixture, &executor, monday).await? {
         assert!(
@@ -2568,16 +2629,134 @@ async fn an_athlete_with_no_calendar_saves_four_batches_in_one_turn() -> Result<
         (0, 4),
         "bug: a save that reached no calendar spent a destructive charge"
     );
-    assert!(
-        fixture
-            .executor
-            .resources
-            .turn_end_dispatches()
-            .take(&key)
-            .is_empty(),
-        "no push is queued for an athlete with no calendar"
-    );
     assert!(stub.requests().await.is_empty(), "no calendar was called");
+    Ok(())
+}
+
+// ── The athlete's own « Envoyer » (carnet#1841) ────────────────────────────
+
+/// The athlete's own context, as their Plan tab's routes build it.
+fn own_context(fixture: &Fixture) -> ToolExecutionContext {
+    ToolExecutionContext::new(
+        fixture.user_id,
+        Some(fixture.tenant),
+        Arc::clone(&fixture.executor.resources),
+        AuthMethod::JwtBearer,
+    )
+}
+
+/// The athlete's live weeks, as the send is judged on them.
+async fn own_live_weeks(fixture: &Fixture) -> Vec<PlanWeek> {
+    let repos = fixture.executor.resources.repos();
+    let (tenant, user) = (fixture.tenant_str(), fixture.user_id.to_string());
+    let plan = repos
+        .training_plans
+        .get_active_plan(&tenant, &user)
+        .await
+        .expect("read the live plan")
+        .expect("a live plan");
+    repos
+        .training_plans
+        .list_plan_weeks(&tenant, &user, &plan.id, false)
+        .await
+        .expect("read the live weeks")
+}
+
+#[tokio::test]
+async fn the_send_review_names_an_entry_edited_on_the_provider_and_the_send_replaces_it_only_when_asked(
+) -> Result<()> {
+    let stub = stub_live(9700).await;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
+    let monday = next_plan_monday();
+    lay_season(&fixture, monday).await;
+    fixture.ok("save_training_plan", two_runs(monday)).await?;
+    let context = own_context(&fixture);
+    let today = Timestamp::now().utc_date();
+
+    // The first send puts both runs on the calendar.
+    let weeks = own_live_weeks(&fixture).await;
+    let first = send_own_plan(&context, &weeks, today, &[])
+        .await?
+        .expect("the first send runs");
+    assert_eq!(first.created, 2, "got: {first:?}");
+
+    // The athlete edits Monday's run on Intervals.icu, and their plan
+    // changes it too.
+    let monday_key = CalendarKey::plan_day(fixture.user_id, monday, 0);
+    let edited = stub.event_by_key(&monday_key).await.expect("Monday's run");
+    stub.touch(edited.id, Timestamp::now() + Elapsed::hours(1))
+        .await;
+    fixture
+        .save_weeks(
+            false,
+            &[(
+                monday,
+                "",
+                vec![
+                    planned(monday, "run", "Easy 60", Some(60), "Z1"),
+                    planned(
+                        monday + Elapsed::days(2),
+                        "run",
+                        "Steady 50",
+                        Some(50),
+                        "Z2",
+                    ),
+                ],
+            )],
+        )
+        .await;
+    let weeks = own_live_weeks(&fixture).await;
+
+    let review = review_own_send(&context, &weeks, today)
+        .await?
+        .expect("the review reads the calendar");
+    assert_eq!(
+        review.edited_on_provider,
+        [monday_key.clone()],
+        "bug: the review names the entry the athlete edited on the provider"
+    );
+
+    // Sent as it stands, the edited entry is left alone.
+    let kept = send_own_plan(&context, &weeks, today, &[])
+        .await?
+        .expect("the send runs");
+    assert_eq!(kept.updated, 0, "got: {kept:?}");
+    assert_eq!(
+        kept.skipped
+            .iter()
+            .map(|entry| entry.date)
+            .collect::<Vec<_>>(),
+        [monday],
+        "bug: the edited entry was overwritten without « Remplacer »: {kept:?}"
+    );
+
+    // « Remplacer » on Monday overwrites it.
+    let replaced = send_own_plan(&context, &weeks, today, &[monday])
+        .await?
+        .expect("the send runs");
+    assert_eq!(replaced.updated, 1, "got: {replaced:?}");
+    assert!(replaced.skipped.is_empty(), "got: {replaced:?}");
+
+    let sends = fixture
+        .executor
+        .resources
+        .repos()
+        .plan_change_events
+        .list_plan_changes(&PlanChangeQuery {
+            tenant: fixture.tenant,
+            athlete: fixture.user_id,
+            coach: fixture.user_id,
+            before: None,
+            limit: 10,
+        })
+        .await?;
+    assert!(
+        sends
+            .iter()
+            .any(|event| event.kind == PlanChangeKind::Send
+                && event.source == PlanChangeSource::Athlete),
+        "bug: a send is recorded in the athlete's own history: {sends:?}"
+    );
     Ok(())
 }
 

@@ -803,3 +803,84 @@ async fn an_own_edit_never_reads_as_a_proposal_and_wins_over_one() {
         "bug: a proposed date the athlete edited drops its proposal: {body}"
     );
 }
+
+#[tokio::test]
+async fn accepting_a_move_takes_both_dates_live_and_refusing_leaves_the_live_plan() {
+    let fx = Fixture::new().await;
+    fx.lay_season(&live_week()).await;
+    // Unasked, the agent moves Tuesday's tempo to Thursday and rewrites
+    // Wednesday.
+    fx.agent_proposes(&[
+        session(&on(2), "Hills 45"),
+        session(&on(3), "Tempo 40"),
+        session(&on(4), "Long 90"),
+    ])
+    .await;
+
+    // Accepting Thursday accepts the move whole: Tuesday too.
+    let (status, body) = fx
+        .write(AxumTestRequest::post(&format!(
+            "/api/me/plan/proposals/dates/{}/accept",
+            on(3)
+        )))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(
+        live_on(&body, &on(1)).is_empty(),
+        "bug: the moved tempo left Tuesday: {body}"
+    );
+    assert_eq!(live_on(&body, &on(3)), ["Tempo 40"], "{body}");
+    assert_eq!(
+        dates(&body["proposed_dates"]),
+        [on(2)],
+        "bug: only Wednesday's rewrite is still proposed: {body}"
+    );
+    assert_eq!(live_on(&body, &on(2)), ["Easy 45"], "{body}");
+
+    // Accepting it again is no change.
+    let (status, again) = fx
+        .write(AxumTestRequest::post(&format!(
+            "/api/me/plan/proposals/dates/{}/accept",
+            on(1)
+        )))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{again}");
+    assert_eq!(live_on(&again, &on(3)), ["Tempo 40"], "{again}");
+
+    // Refusing Wednesday drops the proposal and never touches the live plan.
+    let (status, body) = fx
+        .write(AxumTestRequest::post(&format!(
+            "/api/me/plan/proposals/dates/{}/refuse",
+            on(2)
+        )))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["proposed_dates"], json!([]), "{body}");
+    assert_eq!(
+        live_on(&body, &on(2)),
+        ["Easy 45"],
+        "bug: refusing a proposal changed the live plan: {body}"
+    );
+    let kinds = fx.history_kinds().await;
+    assert!(
+        kinds.contains(&("proposal_accept".to_owned(), "athlete".to_owned()))
+            && kinds.contains(&("date_revert".to_owned(), "athlete".to_owned())),
+        "bug: the accept and the refusal are the athlete's own changes: {kinds:?}"
+    );
+}
+
+#[tokio::test]
+async fn with_no_calendar_the_send_and_its_review_are_refused() {
+    let fx = Fixture::new().await;
+    fx.lay_season(&live_week()).await;
+    let (status, body) = fx
+        .write(AxumTestRequest::post("/api/me/plan/send/review"))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(body["details"]["reason"], "no_calendar", "{body}");
+    let (status, body) = fx
+        .write(AxumTestRequest::post("/api/me/plan/send").json(&json!({})))
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(body["details"]["reason"], "no_calendar", "{body}");
+}

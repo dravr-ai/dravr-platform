@@ -38,12 +38,15 @@ use dravr_tronc::dates::CivilDate;
 use pierre_core::models::periodization::serde_num::whole_u32_opt;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::training_plans::PlanAuthor;
-use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
+use pierre_database::repositories::{
+    PlanChangeKind, PlanChangeSource, PlanOutlineInput, PlanWeekInput,
+};
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlanWeek, PlannedDay, WeekStatus};
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use pierre_services::athlete_anchors::stored_athlete_anchors;
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::coach_plan_draft::CoachDraftTarget;
+use pierre_services::own_plan::{write_live_weeks, LiveWrite};
 use pierre_services::plan_fueling::FuelingDisclosure;
 use pierre_services::plan_goal_fact::{
     converge_goal_fact, fact_belongs_to_user, retire_superseded_goal_facts,
@@ -66,7 +69,7 @@ use super::training_plan_authorship::{
     agent_title, load_conversation, plan_authors, season_held_refusal,
 };
 use super::training_plan_drafts::{draft_section, save_into_draft, DraftSave};
-use super::training_plan_push::{calendar_after_own_save, calendar_block};
+use super::training_plan_push::{calendar_block, own_pending_send, SendBlocked};
 use super::training_plan_rails::{run_live_plan_rails, LivePlanWrite};
 use super::training_plan_schema::{
     athlete_prop, outline_schema, parse_payload_part, replace_season_prop, string_prop,
@@ -77,7 +80,7 @@ use super::training_plan_vision::{
     check_phase_indexes, check_template_slugs, instantiate_template_days, resolve_flavour,
     validate_flavour, validate_phase, validate_season_window, FlavourPayload,
 };
-use crate::context::ToolExecutionContext;
+use crate::context::{PlanAsk, ToolExecutionContext};
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
@@ -86,6 +89,7 @@ use crate::implementations::training_plans_output::{
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
+use crate::turn_end::TurnEnd;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::errors::{AppError, AppResult};
@@ -545,8 +549,10 @@ async fn read_plan(
 ///
 /// A coach's `athlete=` save lands in the coach's draft for that athlete,
 /// which the athlete never reads; `publish_training_plan` makes it their live
-/// season and notifies them (carnet#1069). The athlete's own save goes onto
-/// their chosen calendar as it lands (carnet#1492).
+/// season and notifies them (carnet#1069). The athlete's own agent saves
+/// what the athlete asked for onto their live plan and what nobody asked for
+/// into their own overlay, as a proposal; neither sends anything to a
+/// calendar, which the athlete's « Envoyer » does (carnet#1841).
 #[derive(Debug)]
 pub struct SaveTrainingPlanTool;
 
@@ -576,7 +582,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
         let schema = object_schema(properties, None);
         answers_with::<SaveTrainingPlanResult>(tool_definition(
             "save_training_plan",
-            "Persist the plan you agreed with the athlete — the outline and/or day-by-day weeks — in the SAME turn you state it; an unsaved plan is forgotten. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or with replace_season when the athlete asked you to re-lay one another agent laid; re-save a week another agent wrote only when the athlete asks. Adjustments re-save only the changed weeks and supersede prospectively; past weeks are immutable. Saving also puts the plan on the athlete's chosen calendar: relay calendar_push when it is not_pushed, and any day it skipped or failed (queued: it lands after your reply); calendar.pushed_by human_coach means their human coach updates that calendar. In Dravr's app or channels a group's human coach can save for a consenting athlete as a draft: the reply says draft: true, and the athlete sees none of it until the coach publishes it with publish_training_plan; elsewhere a save is the caller's own.",
+            "Persist the plan you agreed with the athlete — the outline and/or day-by-day weeks — in the SAME turn you state it; an unsaved plan is forgotten. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or with replace_season when the athlete asked you to re-lay one another agent laid; re-save a week another agent wrote only when the athlete asks. Adjustments re-save only the changed weeks and supersede prospectively; past weeks are immutable. What the athlete asked for is saved onto their plan at once; what nobody asked for (a turn with no message of theirs) is proposed instead (draft: true), weeks only, for them to accept or refuse date by date. Saving never sends anything to their calendar: never say it was sent. They send it themselves with « Envoyer »; on a channel ask whether to send it to their calendar and call push_training_plan only on their yes. In Dravr's app or channels a group's human coach can save for a consenting athlete as a draft: the reply says draft: true, and the athlete sees none of it until the coach publishes it with publish_training_plan; elsewhere a save is the caller's own.",
             schema,
             // The athlete's own save reconciles their calendar, removing the
             // days Dravr put there that the plan dropped (carnet#1492).
@@ -737,10 +743,31 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             }
             // A coach writes their own draft of the athlete's plan, never the
             // season itself: read it beside the season, under the same rule.
-            let draft_target = scope
-                .acting_for()
-                .is_some()
-                .then(|| CoachDraftTarget::new(tenant, scope.user_id, writer.user_id));
+            // The athlete's own agent writes what nobody asked for into the
+            // athlete's own overlay, as a proposal they accept date by date,
+            // and what they asked for onto their live plan (carnet#1841).
+            let unprompted =
+                scope.acting_for().is_none() && context.plan_ask() == PlanAsk::Unprompted;
+            if unprompted && outline.is_some() {
+                return Err(AppError::invalid_input(
+                    "nobody asked for this change, so it is proposed to the athlete date by date, \
+                     and an outline is not a date: save only the weeks you propose, or ask the \
+                     athlete before re-laying their season",
+                ));
+            }
+            if unprompted && active.is_none() {
+                return Err(AppError::invalid_input(
+                    "nobody asked for this change and the athlete has no plan to propose it on: \
+                     ask them before laying one",
+                ));
+            }
+            let draft_target = if scope.acting_for().is_some() {
+                Some(CoachDraftTarget::new(tenant, scope.user_id, writer.user_id))
+            } else if unprompted {
+                Some(CoachDraftTarget::own(tenant, scope.user_id))
+            } else {
+                None
+            };
             let draft = match draft_target.as_ref() {
                 Some(target) => repos.training_plans.get_draft_plan(target.owner()).await?,
                 None => None,
@@ -862,14 +889,15 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             // publishes it, and nothing is reported as a write to their plan.
             // The coach's reply carries the safety findings on the draft view,
             // read from the athlete's load under the athlete's own AI consents
-            // (carnet#1419).
+            // (carnet#1419). The athlete's own agent's unasked save lands in
+            // their own overlay the same way (carnet#1841).
             if let Some(target) = draft_target.as_ref() {
                 let saving = Box::pin(save_into_draft(
                     state,
                     repos,
                     DraftSave {
                         target,
-                        athlete: scope.acting_for().unwrap_or_default(),
+                        athlete: scope.acting_for(),
                         author,
                         goal_fact_id: goal_fact_id.as_deref(),
                         outline: outline_input,
@@ -903,20 +931,24 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
 
             // Persist the outline and every week in ONE transaction so a
             // mid-payload failure can't strand a superseded plan with a
-            // half-saved successor.
-            let bundle = repos
-                .training_plans
-                .save_plan_bundle(&SavePlanBundleParams {
-                    tenant_id: &tenant_id,
-                    user_id: &user_id,
+            // half-saved successor; the athlete's own overlay is rebased over
+            // what it wrote (carnet#1841).
+            let bundle = write_live_weeks(
+                repos,
+                tenant,
+                scope.user_id,
+                LiveWrite {
                     author,
                     goal_fact_id: goal_fact_id.as_deref(),
                     outline: outline_input,
-                    weeks: &week_inputs,
                     replace_season,
+                    weeks: &week_inputs,
                     transport_policy: ai_scope::derived_policy(),
-                })
-                .await?;
+                    source: PlanChangeSource::Agent,
+                    kind: PlanChangeKind::AgentSave,
+                },
+            )
+            .await?;
 
             // The plan is stored, so the goal facts its goal replaced can go.
             retire_superseded_goal_facts(repos, tenant, &user_id, &superseded_goal_facts).await;
@@ -937,15 +969,13 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             )
             .await;
 
-            // The save is committed, and goes onto the athlete's chosen
-            // calendar; the save stands whatever the push comes to.
-            let (calendar_push, calendar) = Box::pin(calendar_after_own_save(
-                &context,
-                &scope,
-                &bundle.plan.id,
-                rails.today,
-            ))
-            .await;
+            // The save is committed and sends nothing: the athlete sends their
+            // plan with « Envoyer » (Phil, 2026-11-26). Destroying nothing on a
+            // calendar, it gives its destructive charge back in a chat turn.
+            if let Some(end) = TurnEnd::here() {
+                end.hand_over();
+            }
+            let message = Box::pin(nothing_sent(&context, &bundle.plan.id, rails.today)).await;
 
             let week_ids = saved_weeks(&bundle.weeks);
             // Only the two safety-shaped checks, and only when they found
@@ -964,15 +994,51 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                     goal_fact_id,
                     weeks_saved: week_ids.len(),
                     weeks: week_ids,
-                    calendar_push,
-                    calendar,
                     draft: false,
-                    message: None,
+                    message: Some(message),
                 },
             )
         }
         .await;
         tool_result_to_response(result)
+    }
+}
+
+/// What the athlete's own live save tells the agent about their calendar:
+/// nothing was sent, and how many dates now wait for their « Envoyer »
+/// (carnet#1841). Best-effort: the save is committed, so a calendar that
+/// cannot be read leaves the count out, never the save.
+async fn nothing_sent(context: &ToolExecutionContext, plan_id: &str, today: CivilDate) -> String {
+    const SENT_NOTHING: &str = "Saved to the athlete's plan. Nothing was sent to their calendar";
+    let repos = context.resources.repos();
+    let tenant = context.tenant_id.map(TenantId::from_uuid);
+    let weeks = match tenant {
+        Some(tenant) => repos
+            .training_plans
+            .list_plan_weeks(&tenant.to_string(), &ctx_user_id(context), plan_id, false)
+            .await
+            .ok(),
+        None => None,
+    };
+    let pending = match weeks {
+        Some(weeks) => own_pending_send(context, &weeks, today).await.ok(),
+        None => None,
+    };
+    match pending {
+        Some(pending) if pending.blocked == Some(SendBlocked::NoProvider) => {
+            format!("{SENT_NOTHING}: they connect none Dravr writes.")
+        }
+        Some(pending) if pending.blocked.is_none() => {
+            let mut dates: Vec<CivilDate> = pending.entries.iter().map(|key| key.date).collect();
+            dates.sort_unstable();
+            dates.dedup();
+            format!(
+                "{SENT_NOTHING}: {} date(s) wait for them to send with « Envoyer » in their Plan \
+                 tab. Offer push_training_plan only if they ask you to send it.",
+                dates.len()
+            )
+        }
+        _ => format!("{SENT_NOTHING}: they send it themselves with « Envoyer »."),
     }
 }
 
@@ -991,10 +1057,11 @@ crate::declare_security!(
     GetTrainingPlanTool => empty,
     reads: ToolData::own(&[Stream::Workout]).with_beyond_activities(),
 );
-// The athlete's own save deletes on the provider the entries the plan dropped
-// (carnet#1492), so it spends the per-turn destructive budget as a push does:
-// the cap keeps a save loop off the calendar. A refused save refunds it, and in
-// a chat turn every save gives it back: the turn's end pushes at most once (carnet#1702).
+// A save overwrites the athlete's live weeks, or a coach's draft of them, so it
+// is declared destructive and spends the per-turn destructive budget. It sends
+// nothing to a calendar (carnet#1841): a refused save refunds the charge, and in
+// a chat turn every save gives it back, so a plan written in batches is never
+// refused at its fourth (carnet#1702).
 crate::declare_security!(
     SaveTrainingPlanTool => IRREVERSIBLE,
     reads: ToolData::own(&[Stream::Workout])

@@ -602,6 +602,10 @@ pub struct PushPlanParams<'a> {
     /// Cooperative cancel flag, observed between entries. `None` for callers
     /// with no cancellation channel (the push runs to completion).
     pub cancel: Option<&'a AtomicBool>,
+    /// The dates whose entry the athlete edited on the provider that this
+    /// push overwrites anyway: their « Remplacer » in the send review
+    /// (carnet#1841). Every other edited entry is left alone and reported.
+    pub replace_edited: &'a [CivilDate],
 }
 
 /// Whether the caller's cooperative cancel flag is raised.
@@ -756,6 +760,13 @@ pub async fn push_active_plan(
                     .and_then(|id| observed.get(id).map(|seen| (id.to_owned(), seen)));
                 match known_event {
                     Some((event_id, seen)) => match known_entry(calendar, row, seen, &hash).await {
+                        KnownEntry::EditedOnProvider
+                            if params.replace_edited.contains(&entry.session.date) =>
+                        {
+                            write
+                                .update(calendar, &event_id, Some(row.id), &mut report)
+                                .await;
+                        }
                         KnownEntry::EditedOnProvider => {
                             report.skipped.push(edited_on_provider(entry));
                         }
@@ -872,31 +883,101 @@ async fn known_entry(
     seen: &CalendarEventRef,
     hash: &str,
 ) -> KnownEntry {
-    let slack = Elapsed::seconds(PROVIDER_EDIT_SLACK_SECONDS);
-    let edited = |event: &CalendarEventRef| {
-        event
-            .updated_at
-            .is_some_and(|stamp| stamp > row.updated_at + slack)
-    };
-    if edited(seen) {
+    if stamped_after(row, seen) {
         return KnownEntry::EditedOnProvider;
     }
     if row.payload_hash.as_deref() == Some(hash) {
         return KnownEntry::Unchanged;
     }
-    if seen.updated_at.is_none() {
-        match ai_scope::for_display(calendar.calendar_event_detail(seen.clone())).await {
-            Ok(detail) if edited(&detail) => return KnownEntry::EditedOnProvider,
-            Ok(_) => {}
-            Err(e) => warn!(
+    if seen.updated_at.is_none() && detail_edited(calendar, row, seen).await {
+        return KnownEntry::EditedOnProvider;
+    }
+    KnownEntry::Changed
+}
+
+/// Whether the listed entry `seen` carries a change stamp later than `row`'s
+/// own write, past the slack a provider's clock is allowed.
+fn stamped_after(row: &PrescribedWorkout, seen: &CalendarEventRef) -> bool {
+    let slack = Elapsed::seconds(PROVIDER_EDIT_SLACK_SECONDS);
+    seen.updated_at
+        .is_some_and(|stamp| stamp > row.updated_at + slack)
+}
+
+/// Whether `seen`, read in detail, was changed on the provider after `row`
+/// wrote it; a read that fails is logged and counts as unchanged.
+async fn detail_edited(
+    calendar: &dyn FitnessProvider,
+    row: &PrescribedWorkout,
+    seen: &CalendarEventRef,
+) -> bool {
+    match ai_scope::for_display(calendar.calendar_event_detail(seen.clone())).await {
+        Ok(detail) => stamped_after(row, &detail),
+        Err(e) => {
+            warn!(
                 provider = calendar.name(),
                 event_id = %seen.provider_event_id,
                 error = %e,
                 "calendar entry detail unread before its update"
-            ),
+            );
+            false
         }
     }
-    KnownEntry::Changed
+}
+
+/// The keys of `pending` a push would leave alone because the athlete
+/// changed their entry on the provider after Dravr wrote it (carnet#1841):
+/// the send review's « Modifiée sur Intervals.icu ». Only an update can be
+/// left alone so; a withdrawal is taken off whatever the athlete did.
+///
+/// Reads `calendar`'s listing over the pending dates once, and an entry in
+/// detail only where the listing carries no change stamp, as the push does.
+///
+/// # Errors
+///
+/// Returns the provider's error when its calendar cannot be listed at all.
+pub async fn edited_on_calendar(
+    calendar: &dyn FitnessProvider,
+    live_rows: &[PrescribedWorkout],
+    pending: &[KeyDiff],
+) -> AppResult<Vec<String>> {
+    let updates: Vec<(&KeyDiff, &PrescribedWorkout)> = pending
+        .iter()
+        .filter(|key| key.change == KeyChange::Update)
+        .filter_map(|key| {
+            live_rows
+                .iter()
+                .find(|row| row.external_id.as_deref() == Some(key.external_id.as_str()))
+                .map(|row| (key, row))
+        })
+        .collect();
+    let (Some(from), Some(to)) = (
+        updates.iter().map(|(key, _)| key.date).min(),
+        updates.iter().map(|(key, _)| key.date).max(),
+    ) else {
+        return Ok(Vec::new());
+    };
+    let observed: HashMap<String, CalendarEventRef> =
+        ai_scope::for_display(calendar.list_calendar_events(from, to))
+            .await?
+            .into_iter()
+            .map(|event| (event.provider_event_id.clone(), event))
+            .collect();
+    let mut edited = Vec::new();
+    for (key, row) in updates {
+        let Some(seen) = row
+            .provider_event_id
+            .as_deref()
+            .and_then(|id| observed.get(id))
+        else {
+            continue;
+        };
+        let changed = stamped_after(row, seen)
+            || (seen.updated_at.is_none() && detail_edited(calendar, row, seen).await);
+        if changed {
+            edited.push(key.external_id.clone());
+        }
+    }
+    Ok(edited)
 }
 
 /// The report line of a wanted entry the athlete changed on the provider

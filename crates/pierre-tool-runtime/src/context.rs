@@ -149,8 +149,8 @@ tokio::task_local! {
 
     /// Who decided the in-flight tool call should run. Scoped by the chat
     /// pipeline around a read it runs on the athlete's behalf before the model
-    /// has said anything, and around a tool it runs once the reply is written;
-    /// absent everywhere else, which means the model asked. Inherited by a
+    /// has said anything; absent everywhere else, which means the model
+    /// asked. Inherited by a
     /// nested dispatch on the same task, so what a prefetched tool reads
     /// through another counts as prefetched too.
     pub static DISPATCH_ORIGIN: DispatchOrigin;
@@ -198,6 +198,20 @@ pub struct TurnAsk {
     pub user_message_id: Option<String>,
 }
 
+/// Whether the athlete asked for what a plan write does (carnet#1841).
+///
+/// A change the athlete asked for applies to their live plan at once; one
+/// their agent makes unasked waits in their own overlay as a proposal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlanAsk {
+    /// The athlete asked: their own turn, or a call outside any chat turn
+    /// (their own client, MCP, A2A).
+    Requested,
+    /// Nobody asked: a turn the platform composed, with no message of the
+    /// athlete's, or a call the pipeline ran on its own.
+    Unprompted,
+}
+
 /// Who decided a tool call should run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DispatchOrigin {
@@ -206,12 +220,6 @@ pub enum DispatchOrigin {
     Model,
     /// The chat pipeline ran it before the model said anything.
     Prefetch,
-    /// The chat pipeline ran it once the reply was written, because calls of
-    /// the turn handed it over ([`crate::turn_end`]).
-    TurnEnd {
-        /// Registry name of the tool whose calls handed it over.
-        trigger: &'static str,
-    },
 }
 
 impl DispatchOrigin {
@@ -220,16 +228,6 @@ impl DispatchOrigin {
         DISPATCH_ORIGIN
             .try_with(|origin| *origin)
             .unwrap_or_default()
-    }
-
-    /// The tool whose calls handed this run over, for a run the turn's end
-    /// made.
-    #[must_use]
-    pub(crate) const fn trigger(self) -> Option<&'static str> {
-        match self {
-            Self::TurnEnd { trigger } => Some(trigger),
-            Self::Model | Self::Prefetch => None,
-        }
     }
 }
 
@@ -428,6 +426,22 @@ impl ToolExecutionContext {
             turn_direct_message: TURN_DIRECT_MESSAGE.try_with(Clone::clone).ok().flatten(),
             turn_ask: TURN_ASK.try_with(Clone::clone).ok().flatten(),
             is_admin: Some(ctx.is_admin),
+        }
+    }
+
+    /// Whether the athlete asked for what this call writes to their plan
+    /// (carnet#1841): requested on a turn answering a message of theirs and
+    /// outside any chat turn; unprompted on a turn the platform composed
+    /// (it stores no message of theirs) and on a call the pipeline ran
+    /// before the model said anything.
+    #[must_use]
+    pub fn plan_ask(&self) -> PlanAsk {
+        if DispatchOrigin::current() == DispatchOrigin::Prefetch {
+            return PlanAsk::Unprompted;
+        }
+        match &self.turn_ask {
+            Some(ask) if ask.user_message_id.is_none() => PlanAsk::Unprompted,
+            _ => PlanAsk::Requested,
         }
     }
 

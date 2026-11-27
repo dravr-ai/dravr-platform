@@ -58,9 +58,7 @@ use uuid::Uuid;
 
 use super::plan_scope::{resolve_plan_scope, PlanScope, PlanScopeRequest, PlanSubject};
 use super::training_plan_authorship::load_conversation;
-use super::training_plan_push::{
-    calendar_preview_after_save, push_after_write, AthleteNotice, PushStep,
-};
+use super::training_plan_push::{calendar_preview_after_save, push_after_write, AthleteNotice};
 use super::training_plan_rails::{draft_plan_safety, run_live_plan_rails, LivePlanWrite};
 use super::training_plans_output::{
     race_summary, saved_weeks, CalendarPushOutcome, DraftSection, PlanEnvelopeReport,
@@ -72,7 +70,7 @@ use crate::conversions::{
 };
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
-use crate::turn_end::{Handoff, TurnEnd};
+use crate::turn_end::TurnEnd;
 
 /// The tool's name, as the scope check and the log lines name it.
 const PUBLISH_TOOL: &str = "publish_training_plan";
@@ -81,8 +79,9 @@ const PUBLISH_TOOL: &str = "publish_training_plan";
 pub(super) struct DraftSave<'a> {
     /// Whose draft.
     pub(super) target: &'a CoachDraftTarget,
-    /// The athlete's roster name, for the reply.
-    pub(super) athlete: &'a str,
+    /// The athlete's roster name, for the reply; `None` on the athlete's own
+    /// overlay, which their own agent writes (carnet#1841).
+    pub(super) athlete: Option<&'a str>,
     /// The agent the coach's turn answers as.
     pub(super) author: PlanAuthor<'a>,
     /// A goal fact of the athlete's the payload named and the save verified.
@@ -139,7 +138,7 @@ pub(super) async fn save_into_draft(
     // destructive charge its label took, and a draft written in batches is
     // not refused at its fourth (carnet#1702).
     if let Some(end) = TurnEnd::here() {
-        end.hand_over(Handoff::NothingToCarry);
+        end.hand_over();
     }
     let draft = &saved.draft.plan;
     info!(
@@ -161,8 +160,24 @@ pub(super) async fn save_into_draft(
         record_plan_change(repos, target, change).await;
     }
     let safety = draft_plan_safety(state, repos, target, &saved, laid_outline).await;
-    let athlete = save.athlete;
     let weeks = saved_weeks(&saved.weeks);
+    let message = save.athlete.map_or_else(
+        || {
+            format!(
+                "Proposed to the athlete, not applied: {} date(s) wait in their Plan tab for \
+                 Accepter or Refuser. Their plan and their calendar are unchanged until they \
+                 accept, and nothing is sent until they press « Envoyer ».",
+                dates.len()
+            )
+        },
+        |athlete| {
+            format!(
+                "Saved to your draft of {athlete}'s plan. {athlete} does not see it until you \
+                 publish it with publish_training_plan (action \"publish\"); discard it with \
+                 action \"discard\"."
+            )
+        },
+    );
     ok_typed(
         "save_training_plan",
         SaveTrainingPlanResult {
@@ -170,20 +185,14 @@ pub(super) async fn save_into_draft(
             envelope: PlanEnvelopeReport::from_days(saved.weeks.iter().flat_map(|w| &w.days)),
             ignored_arguments: save.ignored_arguments,
             plan_id: draft.id.clone(),
-            athlete: Some(athlete.to_owned()),
+            athlete: save.athlete.map(str::to_owned),
             goal_race: race_summary(draft.goal_race.as_ref()),
             superseded_plan_id: None,
             goal_fact_id: draft.goal_fact_id.clone(),
             weeks_saved: weeks.len(),
             weeks,
-            calendar_push: None,
-            calendar: None,
             draft: true,
-            message: Some(format!(
-                "Saved to your draft of {athlete}'s plan. {athlete} does not see it until you \
-                 publish it with publish_training_plan (action \"publish\"); discard it with \
-                 action \"discard\"."
-            )),
+            message: Some(message),
         },
     )
 }
@@ -344,7 +353,6 @@ pub async fn publish_draft_live(
         &push_args,
         publish.trigger,
         AthleteNotice::ToldByPublish,
-        PushStep::Run,
     ))
     .await;
     Ok(DraftPublishOutcome::Published(Box::new(
@@ -475,8 +483,9 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
              week or re-laid the season since, publish is refused with status `conflict` and \
              nothing changes: tell the coach which weeks, and publish again with \
              overwrite_athlete_changes only if they choose. publish also puts the plan on the \
-             athlete's chosen calendar: relay the reply's calendar_push. The caller's own plan \
-             has no draft: their saves are already live.",
+             athlete's chosen calendar: relay the reply's calendar_push. The caller's own plan is \
+             never published: what they ask for is saved live, and what nobody asked for is \
+             theirs to accept date by date in their Plan tab.",
             schema,
             annotations(
                 "Publish training plan",
@@ -541,8 +550,9 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
             let PlanSubject::Coached { access } = &scope.subject else {
                 return Ok(refusal(
                     "own_plan",
-                    "Your own saves are already live — there is no draft of your own plan to \
-                     publish. publish_training_plan publishes a group coach's draft of a coached \
+                    "Your own plan is never published: what you ask for is saved live, and what \
+                     nobody asked for waits in your Plan tab for you to accept or refuse it date \
+                     by date. publish_training_plan publishes a group coach's draft of a coached \
                      athlete's plan.",
                 ));
             };
@@ -645,7 +655,7 @@ async fn publish(
     // A publish whose push did not run says what one would now change, when
     // the calendar already carries this plan.
     let calendar = match &calendar_push {
-        CalendarPushOutcome::Pushed { .. } | CalendarPushOutcome::Queued { .. } => None,
+        CalendarPushOutcome::Pushed { .. } => None,
         CalendarPushOutcome::NotPushed { .. } => {
             calendar_preview_after_save(context, scope, &published.plan.id, today).await
         }
@@ -665,9 +675,6 @@ async fn publish(
             "It is on {name}'s calendar too: calendar_push.report says what changed, and any day \
              it skipped or failed to write."
         ),
-        CalendarPushOutcome::Queued { .. } => {
-            format!("It goes onto {name}'s calendar once this reply is sent.")
-        }
         CalendarPushOutcome::NotPushed { message, .. } => {
             let message = message.trim_end();
             let stop = if message.ends_with(['.', '!', '?']) {
