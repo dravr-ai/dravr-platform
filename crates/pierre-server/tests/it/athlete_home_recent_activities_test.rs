@@ -33,8 +33,9 @@ use axum::extract::Query;
 use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use axum::{Json, Router};
-use dravr_barrage::parse::polyline::encode_polyline;
+use dravr_arpenteur::{trimmed_overview_polyline, RouteTrack, RouteTrackError};
 use dravr_tronc::dates::{Elapsed, Timestamp};
+use dravr_tronc::geo::polyline::encode_polyline;
 use futures_util::future::join_all;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{
@@ -43,7 +44,6 @@ use pierre_core::models::{
 };
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::StoredRouteTrack;
-use pierre_fitness_compute::{trimmed_overview_polyline, RouteTrack, RouteTrackError};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use serde_json::{json, Value};

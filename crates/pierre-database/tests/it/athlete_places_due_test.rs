@@ -8,8 +8,9 @@
 //! `DATABASE_URL` names, isolated per test, so the fleet-wide scan sees this
 //! test's rows only, on `SQLite` and `PostgreSQL` alike.
 
+use dravr_arpenteur::HomeDeclaration;
 use dravr_tronc::dates::{Elapsed, Timestamp};
-use pierre_core::models::{ActivityBuilder, HomeDeclaration, SportType, TenantId, User};
+use pierre_core::models::{ActivityBuilder, SportType, TenantId, User};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{PlaceRun, StoredRouteTrack};
 use pierre_database::RepositoryRegistry;

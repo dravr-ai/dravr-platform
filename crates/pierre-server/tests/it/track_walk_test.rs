@@ -40,8 +40,9 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use dravr_barrage::parse::polyline::encode_polyline;
+use dravr_arpenteur::track::RouteTrack;
 use dravr_tronc::dates::{Elapsed, Timestamp};
+use dravr_tronc::geo::polyline::encode_polyline;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{ActivityBuilder, ConnectionType, SportType, TenantId};
 use pierre_database::backends::factory::DatabaseBackend;
@@ -49,7 +50,6 @@ use pierre_database::repositories::{
     ActivityBackfillJobRow, ActivityDetail, BackfillJobKind, BackfillJobState, DetailWalkRow,
     JobProgress, StoredRouteTrack,
 };
-use pierre_fitness_compute::route_track::RouteTrack;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::request_budget::{
     budget_counter_key, budget_period, detail_walk_athlete_counter_key, detail_walk_counter_key,

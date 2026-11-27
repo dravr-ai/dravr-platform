@@ -20,10 +20,10 @@
 //! one athlete's conversation reads nothing for another's, so a reference is
 //! a handle and never a capability.
 
+use dravr_arpenteur::compose;
 use pierre_cache::{Cache, CacheKey, CacheResource};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
-use pierre_fitness_compute::route_compose;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -50,7 +50,7 @@ pub struct StoredRoute {
 /// read back by.
 ///
 /// The reference is derived from the line itself
-/// ([`route_compose::route_ref`]), so storing the same line again lands on
+/// ([`compose::route_ref`]), so storing the same line again lands on
 /// the same entry and restarts its 24-hour lifetime rather than adding one.
 ///
 /// # Errors
@@ -69,7 +69,7 @@ pub async fn store_route(
             route.name
         )));
     }
-    let reference = route_compose::route_ref(&route.coordinates, route.out_and_back);
+    let reference = compose::route_ref(&route.coordinates, route.out_and_back);
     let key = route_key(tenant_id, user_id, &reference);
     cache
         .set(&key, route, key.resource.recommended_ttl())
@@ -144,10 +144,7 @@ mod tests {
         let reference = store_route(&cache, tenant_id, user_id, &route)
             .await
             .unwrap();
-        assert_eq!(
-            reference,
-            route_compose::route_ref(&route.coordinates, false)
-        );
+        assert_eq!(reference, compose::route_ref(&route.coordinates, false));
         assert_eq!(
             load_route(&cache, tenant_id, user_id, &reference)
                 .await

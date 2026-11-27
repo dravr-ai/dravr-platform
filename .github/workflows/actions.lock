@@ -16,6 +16,8 @@ workflows:
         - 'actions/github-script@v9'
     '.github/workflows/build-pointer.yml':
         - 'actions/checkout@v6'
+    '.github/workflows/bump-arpenteur.yml':
+        - 'actions/checkout@v6'
     '.github/workflows/bump-barrage.yml':
         - 'actions/checkout@v6'
     '.github/workflows/bump-canot.yml':

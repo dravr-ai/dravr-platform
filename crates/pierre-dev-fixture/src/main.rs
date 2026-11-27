@@ -49,7 +49,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{serve, Json, Router};
-use dravr_barrage::parse::polyline::encode_polyline;
+use dravr_tronc::geo::polyline::encode_polyline;
 use pierre_core::uuid_utils;
 use pierre_dev_fixture::garmin::{
     self, user_from_bearer, GarminFixture, GarminFixtureConfig, PushTarget,

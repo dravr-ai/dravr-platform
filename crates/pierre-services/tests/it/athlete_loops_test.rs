@@ -10,8 +10,9 @@
 //! area make an area place (carnet#1723). Every search is made the way the
 //! `discover_routes` tool makes it.
 
-use dravr_barrage::parse::polyline::encode_polyline;
 use dravr_tronc::dates::Timestamp;
+use dravr_tronc::geo::meters_between;
+use dravr_tronc::geo::polyline::encode_polyline;
 use pierre_core::ai_policy::{ProviderTerms, SourcePolicy};
 use pierre_core::models::{ActivityBuilder, SportType, TenantId};
 use pierre_core::transport::TransportPolicy;
@@ -19,7 +20,7 @@ use pierre_services::athlete_loops::{own_loops, Effort, LoopSearch, OwnLoop};
 use pierre_services::athlete_places::{declare_home, HomeChoice, PlaceTarget};
 use uuid::Uuid;
 
-use crate::athlete_places_test::{loop_from, meters, trip_to, World, DOOR, SUTTON};
+use crate::athlete_places_test::{loop_from, trip_to, World, DOOR, SUTTON};
 
 /// Terms that keep nothing from a model: every stored row is served.
 struct OpenTerms;
@@ -149,12 +150,12 @@ async fn a_loop_carries_its_place_date_distance_gain_and_a_trimmed_line() {
     );
     let (lat, lon) = first.line[0];
     assert!(
-        first.line.len() > 2 && meters((lat, lon), SUTTON) >= 150.0,
+        first.line.len() > 2 && meters_between((lat, lon), SUTTON) >= 150.0,
         "bug: the line is the privacy-trimmed track, never starting at the spot itself: {:?}",
         first.line.first()
     );
     assert!(
-        (first.distance_from_center_meters - meters((lat, lon), SUTTON)).abs() < 1.0,
+        (first.distance_from_center_meters - meters_between((lat, lon), SUTTON)).abs() < 1.0,
         "bug: the distance from the centre is measured to the line's start"
     );
 }
@@ -275,7 +276,7 @@ async fn a_loop_from_home_is_offered_through_its_area_inferred_or_declared() {
         .places()
         .await
         .into_iter()
-        .find(|place| meters((place.centroid_lat, place.centroid_lon), DOOR) > 700.0)
+        .find(|place| meters_between((place.centroid_lat, place.centroid_lon), DOOR) > 700.0)
         .expect("bug: precondition: the rides from the door must make an area");
     // The search is centred where discover_routes centres it with no place
     // asked: on a place's centroid, the area's, never the door.
@@ -305,7 +306,7 @@ async fn a_loop_from_home_is_offered_through_its_area_inferred_or_declared() {
                 "bug: a loop from home carries the area's place, never home's"
             );
             assert!(
-                found.line.len() > 2 && meters(found.line[0], DOOR) >= 150.0,
+                found.line.len() > 2 && meters_between(found.line[0], DOOR) >= 150.0,
                 "bug: the line is the privacy-trimmed track, never starting at the door: {:?}",
                 found.line.first()
             );

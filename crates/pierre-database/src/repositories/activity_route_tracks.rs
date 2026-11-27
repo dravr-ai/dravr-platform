@@ -8,10 +8,10 @@
 //!
 //! A completed activity's route does not change, so it is read from the
 //! provider once and kept in `activity_route_tracks`. The track itself is
-//! opaque JSON here: its shape is `pierre_fitness_compute`'s `RouteTrack`,
-//! which this crate cannot name (that crate depends on this one), the same
-//! split `route_summaries` makes for its terrain blobs. What this crate does
-//! own is the row's two outcomes, which the table's CHECK constraint mirrors:
+//! opaque JSON here: its shape is `dravr_arpenteur::track::RouteTrack`, which
+//! the services layer builds and reads, the same split `route_summaries`
+//! makes for its terrain blobs. What this crate does own is the row's two
+//! outcomes, which the table's CHECK constraint mirrors:
 //! a track, or the reason there is none — never both, never neither.
 //!
 //! `$n` placeholders throughout: sqlx accepts them on `SQLite` as well as

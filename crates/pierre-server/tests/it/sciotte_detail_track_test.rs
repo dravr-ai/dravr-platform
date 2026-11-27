@@ -42,15 +42,14 @@ use axum::extract::{Path, State};
 use axum::http::{Request, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use dravr_arpenteur::track::{RouteTrack, MAP_MAX_POINTS};
+use dravr_arpenteur::HomeDeclaration;
+use dravr_arpenteur::DEFAULT_PRIVACY_RADIUS_METERS;
 use dravr_tronc::dates::{Elapsed, Timestamp};
-use pierre_core::models::{
-    Activity, ActivityBuilder, ConnectionType, HomeDeclaration, SportType, TenantId,
-};
+use dravr_tronc::geo::meters_between;
+use pierre_core::models::{Activity, ActivityBuilder, ConnectionType, SportType, TenantId};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::{BackfillJobState, StoredRouteTrack};
-use pierre_fitness_compute::route_track::{RouteTrack, MAP_MAX_POINTS};
-use pierre_fitness_compute::routes::haversine_meters_between;
-use pierre_fitness_compute::DEFAULT_PRIVACY_RADIUS_METERS;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_services::athlete_places::places_pass;
@@ -308,10 +307,6 @@ async fn pass_detail_rechecks(resources: &Arc<ServerContext>, user_id: Uuid) {
     }
 }
 
-fn metres(a: (f64, f64), b: (f64, f64)) -> f64 {
-    haversine_meters_between(a.0, a.1, b.0, b.1)
-}
-
 #[tokio::test]
 async fn a_detail_read_carrying_a_route_stores_the_rides_trimmed_track_with_no_extra_read() {
     let (reader_url, reader) = spawn_session_reader().await;
@@ -337,12 +332,12 @@ async fn a_detail_read_carrying_a_route_stores_the_rides_trimmed_track_with_no_e
     let first = track.first_point().unwrap();
     let last = track.last_point().unwrap();
     assert!(
-        metres(first, recorded[0]) >= DEFAULT_PRIVACY_RADIUS_METERS,
+        meters_between(first, recorded[0]) >= DEFAULT_PRIVACY_RADIUS_METERS,
         "bug: the stored track starts {:.0} m from the recorded start, inside the privacy radius",
-        metres(first, recorded[0])
+        meters_between(first, recorded[0])
     );
     assert!(
-        metres(last, recorded[recorded.len() - 1]) >= DEFAULT_PRIVACY_RADIUS_METERS,
+        meters_between(last, recorded[recorded.len() - 1]) >= DEFAULT_PRIVACY_RADIUS_METERS,
         "bug: the stored track ends inside the privacy radius of the recorded end"
     );
     assert!(

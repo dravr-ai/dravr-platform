@@ -15,6 +15,7 @@
 //! The tools live in `pierre-server` rather than `pierre-tool-runtime`, which
 //! is why they are pinned here and not in that crate's schema test.
 
+use dravr_arpenteur::terrain::RouteSummary;
 use dravr_tronc::dates::CivilDate;
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::models::coverage::{
@@ -22,7 +23,6 @@ use pierre_core::models::coverage::{
 };
 use pierre_fitness_compute::intervals::IntervalsExport;
 use pierre_fitness_compute::latest_snapshot::LatestSnapshot;
-use pierre_fitness_compute::routes::RouteSummary;
 use pierre_mcp_server::tools::implementations::endurance_export::{
     DossierExport, ExportDossierTool, ExportLatestSnapshotTool,
 };

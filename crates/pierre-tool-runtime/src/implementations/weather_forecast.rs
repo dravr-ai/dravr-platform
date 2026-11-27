@@ -17,6 +17,8 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tracing::{info, warn};
 
+use dravr_meteo::daylight::{daylight, solar_date, Daylight};
+use dravr_meteo::free_text_query;
 use dravr_meteo::{
     GeocodeError, Geocoder, Place, PlaceQuery, WeatherError, WeatherProvider, WeatherQuery,
     WeatherSample,
@@ -24,8 +26,6 @@ use dravr_meteo::{
 use pierre_core::models::{PlaceRef, TenantId};
 use pierre_database::repositories::PlaceNameSource;
 use pierre_database::RepositoryRegistry;
-use pierre_fitness_compute::daylight::{daylight, solar_date, Daylight};
-use pierre_fitness_compute::geocoding::free_text_query;
 use pierre_providers::ai_scope;
 use pierre_services::athlete_clock::athlete_zone;
 use uuid::Uuid;

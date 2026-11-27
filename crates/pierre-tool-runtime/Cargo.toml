@@ -53,6 +53,9 @@ dravr-cageux = { workspace = true }
 # on its result.
 dravr-barrage = { workspace = true }
 pierre-fitness-compute = { version = "0.3.0", path = "../pierre-fitness-compute" }
+# Route and place geometry: terrain, privacy trimming, tracks, composition,
+# OSM route discovery and place clustering.
+dravr-arpenteur = { workspace = true }
 pierre-providers = { version = "0.3.0", path = "../pierre-providers" }
 pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
 pierre-mcp-schema = { version = "0.3.0", path = "../pierre-mcp-schema" }

@@ -94,12 +94,12 @@ use std::sync::{Arc, LazyLock, Mutex as StdMutex, MutexGuard, PoisonError};
 use std::time::Duration as StdDuration;
 
 use dashmap::DashMap;
+use dravr_arpenteur::track::{RouteTrack, RouteTrackError};
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_config::timeouts::ServerTimeouts;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, RouteGeometrySource, TenantId};
 use pierre_database::RepositoryRegistry;
-use pierre_fitness_compute::route_track::{RouteTrack, RouteTrackError};
 use pierre_providers::request_budget::session_read_cap;
 use pierre_services::activity_track::{self, stored_track, RouteRead, StoredTrack};
 use pierre_tool_runtime::activity_detail_store;

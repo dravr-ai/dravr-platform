@@ -10,7 +10,7 @@
 //! the mapped line of each under a `route_ref`. A session the coach proposes
 //! often runs along several of them, and this tool joins those stretches,
 //! in the order given, into one line through
-//! [`route_compose::compose`] — the platform measures the itinerary and
+//! [`compose::compose`] — the platform measures the itinerary and
 //! stores its line, so the model quotes a distance it did not add up and
 //! draws a map from a reference it did not have to copy coordinates into.
 
@@ -26,9 +26,7 @@ use serde::Serialize;
 use serde_json::Value;
 use tracing::info;
 
-use pierre_fitness_compute::route_compose::{
-    self, ComposeError, Stretch, JOIN_TOLERANCE_METERS, MAX_STRETCHES,
-};
+use dravr_arpenteur::compose::{self, ComposeError, Stretch, JOIN_TOLERANCE_METERS, MAX_STRETCHES};
 
 use super::routes::route_owner;
 use crate::conversions::{answers_with, ok_typed, tool_definition, tool_result_to_response};
@@ -174,7 +172,7 @@ impl McpTool<dyn ToolRuntime> for ComposeRouteTool {
                 stretches.push(stored?.ok_or_else(|| unknown_route_ref(route_ref))?);
             }
 
-            let composed = route_compose::compose(
+            let composed = compose::compose(
                 &stretches
                     .iter()
                     .map(|stretch| Stretch {
@@ -235,7 +233,7 @@ impl McpTool<dyn ToolRuntime> for ComposeRouteTool {
 /// strings, in running order.
 ///
 /// A count outside that range is refused with the sentence
-/// [`route_compose::compose`] itself would give, so the model reads one
+/// [`compose::compose`] itself would give, so the model reads one
 /// wording whichever check catches it — and the store is not read for a
 /// list that could never compose.
 fn parse_route_refs(args: &Value) -> AppResult<Vec<String>> {

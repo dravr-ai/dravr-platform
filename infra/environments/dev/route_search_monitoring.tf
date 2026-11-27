@@ -5,7 +5,7 @@
 # Copyright (c) 2026 dravr.ai
 #
 # discover_routes asks the public Overpass instances for named routes
-# (crates/pierre-fitness-compute/src/osm_routes/overpass.rs). When none answers
+# (dravr-arpenteur, src/discovery/overpass.rs). When none answers
 # within the walk's budget, the athlete is told the route search is down
 # (overloaded when every instance said it was saturated) and gets only their
 # own loops, or none. Nobody else hears of it:

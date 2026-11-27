@@ -7,8 +7,9 @@
 //! carnet#1593. `create_test_db` opens whichever `DATABASE_URL` names, so
 //! these run on `SQLite` and `PostgreSQL` alike.
 
+use dravr_arpenteur::HomeDeclaration;
 use dravr_tronc::dates::{Elapsed, Timestamp};
-use pierre_core::models::{HomeDeclaration, StoredHome, TenantId, User};
+use pierre_core::models::{StoredHome, TenantId, User};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::RepositoryRegistry;
 use pierre_test_support::db::create_test_db;

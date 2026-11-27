@@ -18,18 +18,19 @@ use crate::common;
 
 use std::sync::Arc;
 
+use dravr_arpenteur::compose;
+use dravr_arpenteur::{
+    build_overpass_query, routes_from_overpass_json, DiscoveredRoute, DistanceSource,
+    OverpassConfig, RouteDiscoveryService, TargetFit, TargetUse,
+};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_chat_pipeline::stages::viz_blocks::extract_viz_blocks;
 use pierre_chat_pipeline::stages::viz_route::{read_route_tracks, RouteTracks};
 use pierre_chat_pipeline::{InputSource, QuotaState, TurnInput, TurnOrigin};
+use pierre_core::constants::project;
+use pierre_core::http_client::api_inner_client;
 use pierre_core::models::{ConversationTurnId, SportType, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_fitness_compute::geocoding::free_text_query;
-use pierre_fitness_compute::route_compose;
-use pierre_fitness_compute::{
-    build_overpass_query, routes_from_overpass_json, DiscoveredRoute, DistanceSource,
-    RouteDiscoveryService, TargetFit, TargetUse,
-};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::implementations::compose_route::ComposeRouteTool;
@@ -50,7 +51,11 @@ async fn test_unsupported_sport_returns_empty() {
     // Swim is not a land route — discover_routes_for_sport should return
     // an empty vec without hitting Overpass — a pure logic test, on a
     // refused origin so a regression is refused on this machine.
-    let service = RouteDiscoveryService::new(Some(common::REFUSED_ORIGIN));
+    let service = RouteDiscoveryService::new(OverpassConfig {
+        origin: Some(common::REFUSED_ORIGIN.to_owned()),
+        user_agent: project::user_agent(),
+        client: api_inner_client().clone(),
+    });
     let routes = service
         .discover_routes_for_sport(&SportType::Swim, PREVOST_QC_LAT, PREVOST_QC_LON, None, None)
         .await
@@ -60,13 +65,6 @@ async fn test_unsupported_sport_returns_empty() {
         "expected empty result for unsupported sport, got {} routes",
         routes.len()
     );
-}
-
-#[tokio::test]
-async fn test_forward_geocode_empty_query_rejected() {
-    // No live test needed — a blank place is no query, so nothing is sent.
-    assert!(free_text_query("   ", None).is_none());
-    assert!(free_text_query(" , ", None).is_none());
 }
 
 // ============================================================================
@@ -934,7 +932,7 @@ async fn test_compose_route_refuses_a_gap_naming_both_stretches() {
             && error.contains("412 m")
             && error.contains(&format!(
                 "{:.0} m a join may bridge",
-                route_compose::JOIN_TOLERANCE_METERS
+                compose::JOIN_TOLERANCE_METERS
             )),
         "{error}"
     );
@@ -948,8 +946,8 @@ async fn test_compose_route_refuses_arguments_it_cannot_compose() {
     let riverside = athlete
         .store("Sentier de la Rivière", north_line(-72.0, 46.0, 1_000.0))
         .await;
-    let too_many = vec![riverside.clone(); route_compose::MAX_STRETCHES + 1];
-    let at_most = format!("at most {} stretches", route_compose::MAX_STRETCHES);
+    let too_many = vec![riverside.clone(); compose::MAX_STRETCHES + 1];
+    let at_most = format!("at most {} stretches", compose::MAX_STRETCHES);
 
     for (args, expected) in [
         (json!({}), "route_refs is required"),
@@ -1009,7 +1007,7 @@ async fn test_compose_route_over_a_real_capture_keeps_the_discovered_line() {
     )
     .await
     .expect("the stretch is stored");
-    assert_eq!(route_ref, route_compose::route_ref(&line, false));
+    assert_eq!(route_ref, compose::route_ref(&line, false));
 
     let alone = athlete
         .compose(json!({ "route_refs": [route_ref] }))

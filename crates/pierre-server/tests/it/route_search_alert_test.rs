@@ -12,10 +12,12 @@
 //! of the Terraform and makes the walk log the line.
 
 use crate::common;
-use pierre_core::errors::ErrorCode;
+use dravr_arpenteur::{OverpassConfig, RouteDiscoveryService};
+use pierre_core::constants::project;
+use pierre_core::errors::{AppError, ErrorCode};
+use pierre_core::http_client::api_inner_client;
 use pierre_core::models::SportType;
 use pierre_core::permissions::scopes::OAuthScope;
-use pierre_fitness_compute::RouteDiscoveryService;
 use pierre_test_support::log_capture;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use regex::Regex;
@@ -56,12 +58,17 @@ async fn an_unavailable_route_search_logs_the_one_line_the_alert_counts() {
     // A refused origin: the one instance fails at once and nothing leaves the
     // machine. A distinct point keeps the process-wide route cache out of it.
     let origin = closed_loopback_origin().await;
-    let service = RouteDiscoveryService::new(Some(&origin));
+    let service = RouteDiscoveryService::new(OverpassConfig {
+        origin: Some(origin),
+        user_agent: project::user_agent(),
+        client: api_inner_client().clone(),
+    });
 
     let (log, guard) = log_capture::capture_events();
     let err = service
         .discover_routes_for_sport(&SportType::Run, 12.345, -67.891, None, None)
         .await
+        .map_err(AppError::from)
         .expect_err("a refused instance answers no route");
     drop(guard);
 

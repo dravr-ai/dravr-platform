@@ -4,8 +4,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use dravr_arpenteur::HomeDeclaration;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{CachedRowKey, HomeDeclaration, StoredHome, TenantId};
+use pierre_core::models::{CachedRowKey, StoredHome, TenantId};
 
 use super::PostgresDatabase;
 use crate::repositories::activity_cache::sql::{ASSIGN_PLACE_SQL, CLEAR_DANGLING_PLACES_SQL};

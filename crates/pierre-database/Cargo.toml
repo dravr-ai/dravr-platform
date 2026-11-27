@@ -20,6 +20,8 @@ dravr-colleur = { workspace = true }
 # Workspace crates
 pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-response", "all-errors", "sqlx-types", "sqlx-sqlite", "admin-jwt"] }
 pierre-memory = { version = "0.3.0", path = "../pierre-memory" }
+# The home declaration the athlete_places repository stores and reads.
+dravr-arpenteur = { workspace = true }
 
 # Time-series storage engine: the data_point_series backend implements
 # riviere's TimeSeriesStore trait over SQLite and PostgreSQL.

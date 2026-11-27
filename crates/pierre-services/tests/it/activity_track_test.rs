@@ -4,11 +4,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use dravr_arpenteur::RouteTrack;
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{TenantId, User};
 use pierre_database::backends::factory::Database;
 use pierre_database::repositories::StoredRouteTrack;
-use pierre_fitness_compute::RouteTrack;
 use pierre_services::activity_track::{stored_track, StoredTrack};
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;

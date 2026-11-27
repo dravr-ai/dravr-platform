@@ -22,7 +22,7 @@ use uuid::Uuid;
 /// rendering of what was stored, not the caller's bytes. The column is
 /// `jsonb` on Postgres (which re-orders keys) and `TEXT` on `SQLite`, and
 /// both engines are written to and read through one [`Value`] bind, so the
-/// only reader, `pierre_fitness_compute::routes::route_summary_from_cache`,
+/// only reader, `dravr_arpenteur::terrain::route_summary_from_cache`,
 /// sees the same content from either.
 #[async_trait]
 pub trait RouteSummaryRepository: Send + Sync {

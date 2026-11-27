@@ -14,12 +14,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use dravr_arpenteur::terrain::{
+    build_route_summary_from_streams, route_summary_from_cache, stream_route_identity, RouteSummary,
+};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{Activity, TenantId};
 use pierre_fitness_compute::intervals::build_intervals;
-use pierre_fitness_compute::routes::{
-    build_route_summary_from_streams, route_summary_from_cache, stream_route_identity,
-};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -28,7 +28,6 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::models::TimeSeriesData;
 use pierre_core::transport::Transport;
 use pierre_fitness_compute::intervals::IntervalsExport;
-use pierre_fitness_compute::routes::RouteSummary;
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_tool_runtime::context::{scoped_read_subject, ToolExecutionContext};
 use pierre_tool_runtime::conversions::{

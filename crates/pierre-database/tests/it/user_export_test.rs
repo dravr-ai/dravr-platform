@@ -14,8 +14,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use dravr_arpenteur::HomeDeclaration;
 use dravr_tronc::dates::{CivilDate, Timestamp};
-use pierre_core::models::{ApiKey, ApiKeyTier, HomeDeclaration, Tenant, TenantId, User};
+use pierre_core::models::{ApiKey, ApiKeyTier, Tenant, TenantId, User};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
     UserExportTable, CREDENTIAL_MARKERS, NOT_CREDENTIAL_COLUMNS, USER_EXPORT_EXCLUDED_TABLES,

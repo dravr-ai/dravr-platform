@@ -125,6 +125,7 @@ use std::sync::Arc;
 use axum::extract::{Path, Query, State};
 use axum::routing::{get, put};
 use axum::{Json, Router};
+use dravr_arpenteur::track::{trimmed_overview_polyline, RouteTrack, RouteTrackError};
 use dravr_tronc::dates::civil_clock::{clock_date, resolve_zone};
 use dravr_tronc::dates::{CivilDate, Elapsed, Timestamp};
 use photograveur::{RouteBounds as ViewBounds, RouteView};
@@ -136,7 +137,6 @@ use pierre_core::models::{
 use pierre_database::repositories::{
     sport_type_string, ActivityFetchFailure, CachedActivityRow, CachedRowsQuery, StoredRouteOutcome,
 };
-use pierre_fitness_compute::route_track::{trimmed_overview_polyline, RouteTrack, RouteTrackError};
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::{backend_pair_for, user_facing_name};

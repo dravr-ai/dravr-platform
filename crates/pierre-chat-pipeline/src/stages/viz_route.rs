@@ -32,9 +32,9 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
+use dravr_arpenteur::track::RouteTrack;
 use pierre_cache::Cache;
 use pierre_core::models::{TenantId, TimeSeriesData};
-use pierre_fitness_compute::route_track::RouteTrack;
 use pierre_providers::ai_scope;
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};

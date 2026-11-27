@@ -17,12 +17,12 @@ use serde_json::{json, Value};
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use pierre_cache::Cache;
-use pierre_fitness_compute::geocoding::free_text_query;
-use pierre_fitness_compute::osm_routes::{
-    DiscoveredRoute, DistanceSource, RouteDiscoveryService, TargetFit,
+use dravr_arpenteur::compose;
+use dravr_arpenteur::discovery::{
+    DiscoveredRoute, DistanceSource, OverpassConfig, RouteDiscoveryService, TargetFit,
 };
-use pierre_fitness_compute::route_compose;
+use dravr_meteo::free_text_query;
+use pierre_cache::Cache;
 use pierre_services::athlete_loops::{Effort, LoopSearch};
 
 use super::compose_route::ComposeRouteTool;
@@ -36,7 +36,9 @@ use dravr_cageux::models::sport_alias::resolve_sport_type;
 use dravr_meteo::{GeocodeError, Geocoder, Place};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
+use pierre_core::constants::project;
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::http_client::api_inner_client;
 use pierre_core::models::{SportType, TenantId};
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_tools_core::ToolResult;
@@ -402,13 +404,11 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
             // own few seconds, and the store's loops. Never spawned, so both
             // run under this call's gate and provenance. The instances are
             // the ones the deployment configuration names.
-            let service = RouteDiscoveryService::new(
-                state
-                    .config()
-                    .external_services
-                    .overpass_api_base
-                    .as_deref(),
-            );
+            let service = RouteDiscoveryService::new(OverpassConfig {
+                origin: state.config().external_services.overpass_api_base.clone(),
+                user_agent: project::user_agent(),
+                client: api_inner_client().clone(),
+            });
             let walk = service.discover_routes_for_sport(
                 &sport,
                 resolved.latitude,
@@ -434,7 +434,8 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
             // The loops the store refuses are dropped first: whether any loop
             // answers instead of the walk is whether one is listed.
             let mut listed = own_loops::entries(state, tenant_id, user_id, &sport, loops).await;
-            let (routes, osm_unavailable) = own_loops::settle_walk(walk, !listed.is_empty())?;
+            let (routes, osm_unavailable) =
+                own_loops::settle_walk(walk.map_err(AppError::from), !listed.is_empty())?;
             let own_count = listed.len();
             let drawable = store_drawable_routes(state.cache(), tenant_id, user_id, &routes).await;
             listed.extend(
@@ -663,7 +664,7 @@ async fn store_drawable_routes(
             // One verdict per pair, written both ways, so the links are
             // symmetric by construction. Two routes drawn along the same line
             // share a reference, and a route does not connect to itself.
-            if first_ref == second_ref || !route_compose::meets(first_line, second_line) {
+            if first_ref == second_ref || !compose::meets(first_line, second_line) {
                 continue;
             }
             link(&mut drawable[i].connects_to, second_ref);
@@ -852,11 +853,11 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
+    use dravr_arpenteur::discovery::{RouteSource, RouteType};
     use dravr_meteo::{
         CacheLimits, CachedGeocoder, DummyWeatherProvider, Geocoded, PlacePreference, PlaceQuery,
     };
     use pierre_cache::CacheConfig;
-    use pierre_fitness_compute::osm_routes::{RouteSource, RouteType};
 
     use super::super::weather_forecast::forecast;
 
@@ -1042,7 +1043,7 @@ mod tests {
                 .route_ref
                 .as_deref()
                 .expect("a mapped line is stored");
-            assert_eq!(route_ref, route_compose::route_ref(line, false));
+            assert_eq!(route_ref, compose::route_ref(line, false));
             let stored = route_store::load_route(&cache, tenant_id, user_id, route_ref)
                 .await
                 .unwrap()

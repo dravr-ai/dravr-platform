@@ -36,17 +36,17 @@ use axum::http::StatusCode as HttpStatus;
 use axum::http::{Request, StatusCode};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use dravr_barrage::parse::polyline::encode_polyline;
+use dravr_arpenteur::track::MAP_MAX_POINTS;
+use dravr_arpenteur::DEFAULT_PRIVACY_RADIUS_METERS;
 use dravr_tronc::dates::{Elapsed, Timestamp};
+use dravr_tronc::geo::meters_between;
+use dravr_tronc::geo::polyline::encode_polyline;
 use futures_util::future::join_all;
 use pierre_core::models::{
     Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserOAuthToken,
 };
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::StoredRouteTrack;
-use pierre_fitness_compute::route_track::MAP_MAX_POINTS;
-use pierre_fitness_compute::routes::haversine_meters_between;
-use pierre_fitness_compute::DEFAULT_PRIVACY_RADIUS_METERS;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_mcp_server::services::activity_route::UNREAD_ROUTE_RECHECK_MINUTES;
@@ -176,10 +176,6 @@ fn weaving_track(count: usize, phase: f64) -> Vec<(f64, f64)> {
             )
         })
         .collect()
-}
-
-fn metres(a: (f64, f64), b: (f64, f64)) -> f64 {
-    haversine_meters_between(a.0, a.1, b.0, b.1)
 }
 
 fn coordinates(route: &Value) -> Vec<(f64, f64)> {
@@ -759,9 +755,9 @@ async fn a_route_overview_draws_the_map_without_a_provider_call() {
     assert!(route["distances_meters"].is_null());
     let drawn = coordinates(route);
     assert!(drawn.len() >= 2 && drawn.len() < track.len());
-    assert!(metres(drawn[0], track[0]) >= DEFAULT_PRIVACY_RADIUS_METERS - 1.0);
+    assert!(meters_between(drawn[0], track[0]) >= DEFAULT_PRIVACY_RADIUS_METERS - 1.0);
     assert!(
-        metres(*drawn.last().unwrap(), *track.last().unwrap())
+        meters_between(*drawn.last().unwrap(), *track.last().unwrap())
             >= DEFAULT_PRIVACY_RADIUS_METERS - 1.0
     );
     let bounds = &route["bounds"];
@@ -808,7 +804,7 @@ async fn without_an_overview_the_streams_draw_it_once_and_the_next_read_is_store
     let drawn = coordinates(route);
     assert!(drawn.len() <= MAP_MAX_POINTS);
     assert!(drawn.len() > 2, "a weaving ride keeps its corners");
-    assert!(metres(drawn[0], recorded[0]) >= DEFAULT_PRIVACY_RADIUS_METERS);
+    assert!(meters_between(drawn[0], recorded[0]) >= DEFAULT_PRIVACY_RADIUS_METERS);
     let elevations = route["elevation_meters"].as_array().unwrap();
     let distances = route["distances_meters"].as_array().unwrap();
     assert_eq!(elevations.len(), drawn.len());
@@ -1280,7 +1276,7 @@ async fn a_mirror_detail_read_with_no_route_is_unavailable_and_read_again_once_i
     assert!(body["reason"].is_null(), "{body}");
     let drawn = coordinates(&body["route"]);
     assert!(drawn.len() > 2 && drawn.len() <= MAP_MAX_POINTS);
-    assert!(metres(drawn[0], recorded[0]) >= DEFAULT_PRIVACY_RADIUS_METERS);
+    assert!(meters_between(drawn[0], recorded[0]) >= DEFAULT_PRIVACY_RADIUS_METERS);
     assert!(matches!(
         stored(&resources, &athlete, "sciotte", "m2").await,
         Some(StoredRouteTrack::Drawn { ref source, .. }) if source == "streams"
@@ -1394,9 +1390,10 @@ async fn a_row_with_no_start_and_no_overview_is_drawn_from_its_streams() {
     let route = &body["route"];
     let drawn = coordinates(route);
     assert!(drawn.len() > 2 && drawn.len() <= MAP_MAX_POINTS);
-    assert!(metres(drawn[0], recorded[0]) >= DEFAULT_PRIVACY_RADIUS_METERS);
+    assert!(meters_between(drawn[0], recorded[0]) >= DEFAULT_PRIVACY_RADIUS_METERS);
     assert!(
-        metres(*drawn.last().unwrap(), *recorded.last().unwrap()) >= DEFAULT_PRIVACY_RADIUS_METERS
+        meters_between(*drawn.last().unwrap(), *recorded.last().unwrap())
+            >= DEFAULT_PRIVACY_RADIUS_METERS
     );
     assert_eq!(
         route["elevation_meters"].as_array().unwrap().len(),

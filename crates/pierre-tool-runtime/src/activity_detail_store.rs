@@ -30,6 +30,7 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::slice;
 
+use dravr_arpenteur::track::RouteTrack;
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::errors::AppResult;
@@ -40,7 +41,6 @@ use pierre_database::repositories::{
     ActivityDetail, CachedActivityRow, CachedRowCursor, CachedRowsQuery,
 };
 use pierre_database::RepositoryRegistry;
-use pierre_fitness_compute::route_track::RouteTrack;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::mirror_backend_for;
 use pierre_services::activity_track::{self, RouteRead};

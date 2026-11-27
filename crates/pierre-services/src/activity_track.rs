@@ -18,12 +18,12 @@
 //! before they reach a caller, so their first and last points sit past the
 //! privacy radius.
 
+use dravr_arpenteur::track::{RouteTrack, RouteTrackError, MAP_MAX_POINTS};
 use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, RouteGeometrySource, SportType, TenantId};
 use pierre_database::repositories::{CachedActivityRow, StoredRouteOutcome, StoredRouteTrack};
 use pierre_database::RepositoryRegistry;
-use pierre_fitness_compute::route_track::{RouteTrack, RouteTrackError, MAP_MAX_POINTS};
 use pierre_providers::core::OwnerStores;
 use tracing::warn;
 use uuid::Uuid;
@@ -256,12 +256,12 @@ pub(crate) fn records_outdoor_route(activity: &Activity) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use dravr_barrage::parse::polyline::encode_polyline;
     use dravr_tronc::dates::Elapsed;
+    use dravr_tronc::geo::meters_between;
+    use dravr_tronc::geo::polyline::encode_polyline;
     use pierre_core::models::{ActivityBuilder, TimeSeriesData, User};
     use pierre_database::backends::factory::Database;
     use pierre_database::repositories::{ActivityStreamsWrite, StoredRouteTrack, StreamOrigin};
-    use pierre_fitness_compute::routes::haversine_meters_between;
     use pierre_test_support::db::create_test_db;
 
     use super::*;
@@ -448,7 +448,7 @@ mod tests {
         ] {
             let track = world.track(&row).await.unwrap();
             let (lat, lon) = track.first_point().unwrap();
-            let meters = haversine_meters_between(lat, lon, origin.0, origin.1);
+            let meters = meters_between((lat, lon), origin);
             assert!(
                 meters >= 150.0,
                 "bug: a local track starts {meters:.0} m from the recorded start, inside the privacy radius"

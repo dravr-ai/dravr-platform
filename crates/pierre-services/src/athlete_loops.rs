@@ -33,16 +33,16 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
+use dravr_arpenteur::places::ONE_SPOT_REACH_METERS;
+use dravr_arpenteur::track::{RouteTrack, MAP_MAX_POINTS};
 use dravr_tronc::dates::Timestamp;
+use dravr_tronc::geo::meters_between;
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{PlaceRef, SportType, TenantId};
 use pierre_core::untrusted::display_line;
 use pierre_database::repositories::CachedActivityRow;
 use pierre_database::RepositoryRegistry;
-use pierre_fitness_compute::places::ONE_SPOT_REACH_METERS;
-use pierre_fitness_compute::route_track::{RouteTrack, MAP_MAX_POINTS};
-use pierre_fitness_compute::routes::haversine_meters_between;
 use schemars::JsonSchema;
 use serde::Serialize;
 use uuid::Uuid;
@@ -195,11 +195,9 @@ pub async fn own_loops(
         .await?
         .into_iter()
         .filter(|place| {
-            haversine_meters_between(
-                search.latitude,
-                search.longitude,
-                place.centroid_lat,
-                place.centroid_lon,
+            meters_between(
+                (search.latitude, search.longitude),
+                (place.centroid_lat, place.centroid_lon),
             ) <= search.radius_meters + place.radius_m
         })
         .map(|place| place.id)
@@ -396,7 +394,7 @@ async fn workout_track(
 /// The candidate as a loop, when its trimmed track ends where it started.
 fn as_loop(candidate: &Candidate<'_>, track: RouteTrack, search: &LoopSearch) -> Option<OwnLoop> {
     let (first, last) = (track.first_point()?, track.last_point()?);
-    if haversine_meters_between(first.0, first.1, last.0, last.1) > ONE_SPOT_REACH_METERS {
+    if meters_between(first, last) > ONE_SPOT_REACH_METERS {
         return None;
     }
     let line = track.simplified(MAP_MAX_POINTS).coordinates;
@@ -412,12 +410,7 @@ fn as_loop(candidate: &Candidate<'_>, track: RouteTrack, search: &LoopSearch) ->
         elevation_gain_meters: candidate.elevation_gain_meters,
         relative_effort: candidate.score.map(Effort::of_score),
         line,
-        distance_from_center_meters: haversine_meters_between(
-            search.latitude,
-            search.longitude,
-            first.0,
-            first.1,
-        ),
+        distance_from_center_meters: meters_between((search.latitude, search.longitude), first),
     })
 }
 

@@ -18,11 +18,15 @@
 
 use std::time::{Duration, Instant};
 
-use pierre_core::errors::{AppResult, ErrorCode};
+use dravr_arpenteur::{
+    ArpenteurError, ArpenteurResult, DiscoveredRoute, OverpassConfig, RouteDiscoveryService,
+    RouteSource, RouteType,
+};
+use dravr_meteo::free_text_query;
+use pierre_core::constants::project;
+use pierre_core::http_client::api_inner_client;
 use pierre_core::models::SportType;
-use pierre_fitness_compute::geocoding::free_text_query;
 use pierre_fitness_compute::weather_clients::WeatherClients;
-use pierre_fitness_compute::{DiscoveredRoute, RouteDiscoveryService, RouteSource, RouteType};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 
@@ -51,15 +55,20 @@ const OVERPASS_BACKOFF: Duration = Duration::from_secs(45);
 static OVERPASS_GATE: Mutex<()> = Mutex::const_new(());
 
 /// Queries Overpass one test at a time and retries only
-/// `ExternalServiceUnavailable`. Any other error, and the last unavailable
+/// `ArpenteurError::Unavailable`. Any other error, and the last unavailable
 /// one, is returned so the test still fails: nothing here skips (carnet#805).
 async fn discover_with_retry(
     sport: &SportType,
     radius_meters: u32,
-) -> AppResult<Vec<DiscoveredRoute>> {
+) -> ArpenteurResult<Vec<DiscoveredRoute>> {
     let _gate = OVERPASS_GATE.lock().await;
-    // The public instances a deployment asks.
-    let service = RouteDiscoveryService::new(None);
+    // The public instances a deployment asks, over the client and user agent
+    // production hands the service.
+    let service = RouteDiscoveryService::new(OverpassConfig {
+        origin: None,
+        user_agent: project::user_agent(),
+        client: api_inner_client().clone(),
+    });
     let mut attempt = 1;
     loop {
         let result = service
@@ -72,13 +81,10 @@ async fn discover_with_retry(
             )
             .await;
         match result {
-            Err(e)
-                if e.code == ErrorCode::ExternalServiceUnavailable
-                    && attempt < OVERPASS_ATTEMPTS =>
-            {
+            Err(ArpenteurError::Unavailable(cause)) if attempt < OVERPASS_ATTEMPTS => {
                 eprintln!(
-                    "overpass attempt {attempt} unavailable, retrying: {}",
-                    e.message
+                    "overpass attempt {attempt} unavailable ({}), retrying",
+                    cause.label()
                 );
                 attempt += 1;
                 sleep(OVERPASS_BACKOFF).await;

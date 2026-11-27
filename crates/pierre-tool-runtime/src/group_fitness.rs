@@ -16,6 +16,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use dravr_arpenteur::track::RouteTrack;
 use dravr_cageux::algorithms::training_load::{DailyTrainingLoad, TrainingLoadAlgorithm};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::form_reading::FormReading;
@@ -31,7 +32,6 @@ use pierre_core::models::FormBand;
 use pierre_core::models::{Activity, ProviderConnection, TenantId};
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_database::RepositoryRegistry;
-use pierre_fitness_compute::route_track::RouteTrack;
 use pierre_fitness_compute::AthleteInputs;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_services::provider_notice::under_ai_consent;

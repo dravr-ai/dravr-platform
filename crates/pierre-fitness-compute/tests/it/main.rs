@@ -12,8 +12,6 @@
 //! copy of the crate. Only a suite that writes the process environment stays
 //! one, because the environment is shared by every test in a binary.
 
-mod intervals_routes_test;
+mod intervals_test;
 mod latest_snapshot_test;
-mod route_privacy_test;
-mod route_track_test;
 mod training_history_compute_test;

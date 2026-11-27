@@ -161,7 +161,7 @@ pub use delegated_connection::{
 pub use units::UnitSystem;
 
 // Places of activities (carnet#1484)
-pub use athlete_place::{CachedRowKey, HomeDeclaration, PlaceRef, StoredHome};
+pub use athlete_place::{CachedRowKey, PlaceRef, StoredHome};
 pub use route_geometry::RouteGeometrySource;
 
 pub use check_in::CheckInCadence;

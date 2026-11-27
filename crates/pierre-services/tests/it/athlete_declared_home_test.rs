@@ -10,13 +10,15 @@
 //! the places list, never the seed, except the refusals, which check that
 //! nothing was stored.
 
-use pierre_core::models::{ActivityBuilder, HomeDeclaration, SportType};
+use dravr_arpenteur::HomeDeclaration;
+use dravr_tronc::geo::meters_between;
+use pierre_core::models::{ActivityBuilder, SportType};
 use pierre_services::athlete_places::{
     declare_home, HomeChoice, HomeState, PlaceRefusal, PlaceTarget,
 };
 use uuid::Uuid;
 
-use crate::athlete_places_test::{block_from, meters, out_and_back, World, DOOR, OKA, SUTTON};
+use crate::athlete_places_test::{block_from, out_and_back, World, DOOR, OKA, SUTTON};
 
 impl World {
     async fn declare(&self, choice: HomeChoice) -> Result<HomeState, PlaceRefusal> {
@@ -120,7 +122,7 @@ async fn here_on_a_home_start_moves_the_exclusion_and_forget_restores_the_guess(
             .places()
             .await
             .iter()
-            .all(|p| meters((p.centroid_lat, p.centroid_lon), DOOR) > 1_000.0),
+            .all(|p| meters_between((p.centroid_lat, p.centroid_lon), DOOR) > 1_000.0),
         "bug: a place is left at the declared door"
     );
 

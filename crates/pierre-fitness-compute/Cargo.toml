@@ -1,5 +1,5 @@
 # ABOUTME: Platform-side fitness computations over dravr-cageux primitives + provider/context data
-# ABOUTME: Endurance (snapshot/history/intervals/routes/thresholds), geo, weather
+# ABOUTME: Endurance (snapshot/history/intervals/thresholds) and weather
 
 [package]
 name = "pierre-fitness-compute"
@@ -16,33 +16,19 @@ sqlite = ["pierre-database/sqlite"]
 postgresql = ["pierre-database/postgresql"]
 
 [dependencies]
-pierre-core = { version = "0.3.0", path = "../pierre-core", features = ["http-client"] }
+pierre-core = { version = "0.3.0", path = "../pierre-core" }
 pierre-database = { version = "0.3.0", path = "../pierre-database", default-features = false }
 dravr-meteo = { workspace = true }
 dravr-cageux = { workspace = true }
-# The encoded-polyline codec route overviews are read and written through.
-dravr-barrage = { workspace = true }
 
 # Derives the JSON Schemas the endurance export tools declare.
 schemars = "1.2"
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
 dravr-tronc = { workspace = true, features = ["schemars1"] }
-tracing = "0.1"
 async-trait = "0.1"
-sha2 = "0.10"
-hex = "0.4"
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
-# Fresh ids for places no previous place passes its id to.
-uuid = { version = "1.29", features = ["v4"] }
-# Paces the one retry an Overpass instance gets after a gateway error, and
-# hedges the next instance while one is silent.
-tokio = { version = "1.54", features = ["macros", "time"] }
-# Holds the Overpass instances asked at once in one walk, first answer wins.
-futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
 [dev-dependencies]
-tokio = { version = "1.54", features = ["macros", "rt", "net", "io-util", "time"] }
+serde_json = "1.0"
 
 [lints]
 workspace = true

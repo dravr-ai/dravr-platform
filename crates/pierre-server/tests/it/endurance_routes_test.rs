@@ -155,7 +155,7 @@ async fn route_summary_is_tenant_scoped() {
 /// that breaks reconstruction fails here.
 #[tokio::test]
 async fn cached_row_serves_the_summary_the_builder_produced() {
-    use pierre_fitness_compute::routes::{
+    use dravr_arpenteur::terrain::{
         build_route_summary_from_streams, route_summary_from_cache, stream_route_identity,
     };
 

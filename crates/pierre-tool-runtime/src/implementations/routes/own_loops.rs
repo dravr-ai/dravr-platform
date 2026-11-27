@@ -14,11 +14,11 @@
 
 use std::sync::Arc;
 
+use dravr_arpenteur::discovery::{sport_route_type, DiscoveredRoute};
 use dravr_tronc::dates::{Timestamp, Zone};
 use pierre_cache::Cache;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{SportType, TenantId};
-use pierre_fitness_compute::osm_routes::{sport_route_type, DiscoveredRoute};
 use pierre_providers::ai_scope;
 use pierre_services::athlete_clock::athlete_zone;
 use pierre_services::athlete_loops::{self, LoopSearch, OwnLoop};

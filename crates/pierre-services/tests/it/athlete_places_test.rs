@@ -16,15 +16,15 @@
 use std::f64::consts::TAU;
 use std::sync::atomic::{AtomicI64, Ordering};
 
-use dravr_barrage::parse::polyline::encode_polyline;
 use dravr_tronc::dates::{Elapsed, Timestamp};
+use dravr_tronc::geo::meters_between;
+use dravr_tronc::geo::polyline::encode_polyline;
 use pierre_core::models::{Activity, ActivityBuilder, SegmentEffort, SportType, TenantId, User};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
     AthletePlace, CachedActivityRow, CachedRowsQuery, PlaceNameSource,
 };
 use pierre_database::RepositoryRegistry;
-use pierre_fitness_compute::routes::haversine_meters_between;
 use pierre_services::athlete_places::{
     declare_home, name_place, places_pass, HomeChoice, NamedPlace, PlaceRefusal, PlaceTarget,
     PlacesPassReport,
@@ -143,10 +143,6 @@ pub(crate) fn trip_to(origin: (f64, f64), north: f64, east: f64, phase: f64) -> 
     }));
     path.extend(out.iter().rev());
     path
-}
-
-pub(crate) fn meters(a: (f64, f64), b: (f64, f64)) -> f64 {
-    haversine_meters_between(a.0, a.1, b.0, b.1)
 }
 
 pub(crate) struct World {
@@ -281,7 +277,7 @@ impl World {
             .places()
             .await
             .into_iter()
-            .filter(|p| meters((p.centroid_lat, p.centroid_lon), spot) < 500.0)
+            .filter(|p| meters_between((p.centroid_lat, p.centroid_lon), spot) < 500.0)
             .collect();
         assert_eq!(
             near.len(),
@@ -411,7 +407,7 @@ async fn three_workouts_at_a_spot_make_a_place_and_two_make_none() {
             .places()
             .await
             .iter()
-            .all(|p| meters((p.centroid_lat, p.centroid_lon), BROMONT) > 1_000.0),
+            .all(|p| meters_between((p.centroid_lat, p.centroid_lon), BROMONT) > 1_000.0),
         "bug: two workouts are not a place"
     );
 }
@@ -432,7 +428,7 @@ async fn starts_ringing_the_door_form_no_place_and_no_centroid_sits_near_it() {
         "bug: only Sutton is a place; the door is home, got {places:?}"
     );
     for place in &places {
-        let from_door = meters((place.centroid_lat, place.centroid_lon), DOOR);
+        let from_door = meters_between((place.centroid_lat, place.centroid_lon), DOOR);
         assert!(
             from_door > 500.0,
             "bug: a stored centroid sits {from_door:.0} m from the door"
@@ -645,7 +641,7 @@ async fn rides_from_the_door_are_placed_by_the_area_they_ride_through() {
     );
     for place in &places {
         assert!(
-            meters((place.centroid_lat, place.centroid_lon), DOOR) > 700.0,
+            meters_between((place.centroid_lat, place.centroid_lon), DOOR) > 700.0,
             "bug: an area's centroid lies near the door: {place:?}"
         );
         assert_eq!(
@@ -734,7 +730,7 @@ async fn naming_a_ride_from_the_door_before_any_pass_names_its_area() {
         .find(|place| place.id == named.id)
         .expect("bug: the named area is not stored");
     assert!(
-        meters((place.centroid_lat, place.centroid_lon), DOOR) > 700.0,
+        meters_between((place.centroid_lat, place.centroid_lon), DOOR) > 700.0,
         "bug: the named place sits at the door: {place:?}"
     );
 }
@@ -804,7 +800,7 @@ async fn naming_a_ride_that_never_left_the_door_makes_no_place() {
     assert!(
         after
             .iter()
-            .all(|place| meters((place.centroid_lat, place.centroid_lon), DOOR) > 1_000.0),
+            .all(|place| meters_between((place.centroid_lat, place.centroid_lon), DOOR) > 1_000.0),
         "bug: a place sits at the door: {after:?}"
     );
     assert_eq!(
@@ -1004,7 +1000,7 @@ async fn erasure_removes_an_unnamed_place_and_keeps_a_named_one_empty() {
     assert!(
         places
             .iter()
-            .all(|p| meters((p.centroid_lat, p.centroid_lon), SUTTON) > 500.0),
+            .all(|p| meters_between((p.centroid_lat, p.centroid_lon), SUTTON) > 500.0),
         "bug: two workouts left are no place, so Sutton went: {places:?}"
     );
     let kept = world.place_at(BROMONT).await;
@@ -1113,7 +1109,7 @@ async fn a_raw_start_never_shapes_a_centroid_and_only_joins_a_place() {
             .places()
             .await
             .iter()
-            .all(|p| meters((p.centroid_lat, p.centroid_lon), BROMONT) > 1_000.0),
+            .all(|p| meters_between((p.centroid_lat, p.centroid_lon), BROMONT) > 1_000.0),
         "bug: raw starts alone made a place"
     );
     for id in &raw_only {

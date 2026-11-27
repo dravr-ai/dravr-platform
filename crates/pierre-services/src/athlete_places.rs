@@ -45,17 +45,18 @@
 
 use std::collections::{HashMap, HashSet};
 
+use dravr_arpenteur::places::{
+    cluster, ClusteredPlace, PlaceAnchor, PlaceParams, StartKind, StartPoint, PLACES_VERSION,
+};
+use dravr_arpenteur::HomeDeclaration;
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::errors::AppResult;
-use pierre_core::models::{Activity, CachedRowKey, HomeDeclaration, TenantId};
+use pierre_core::models::{Activity, CachedRowKey, TenantId};
 use pierre_core::untrusted::display_line;
 use pierre_database::repositories::{
     AthletePlace, CachedActivityRow, CachedRowCursor, CachedRowsQuery, PlaceNameSource, PlaceRun,
 };
 use pierre_database::RepositoryRegistry;
-use pierre_fitness_compute::places::{
-    cluster, ClusteredPlace, PlaceAnchor, PlaceParams, StartKind, StartPoint, PLACES_VERSION,
-};
 use pierre_providers::deduplication::one_activity_key;
 use schemars::JsonSchema;
 use serde::Serialize;
@@ -759,7 +760,7 @@ async fn workout_start(
     rows: &[CachedActivityRow],
     workout: &Workout,
     endpoints: &mut Vec<(f64, f64)>,
-) -> AppResult<Option<StartPoint>> {
+) -> AppResult<Option<StartPoint<CachedRowKey>>> {
     for &index in &workout.rows {
         let row = &rows[index];
         let Some(track) = local_track(repos, tenant_id, user_id, row).await? else {
@@ -820,7 +821,7 @@ fn anchor(place: &AthletePlace) -> PlaceAnchor {
 /// cross are the door's as much as the area's, and do not name the trail
 /// network, so it waits for the athlete's (carnet#1723).
 fn stored_place(
-    place: &ClusteredPlace,
+    place: &ClusteredPlace<CachedRowKey>,
     previous: Option<&AthletePlace>,
     members: &[&Workout],
     rows: &[CachedActivityRow],

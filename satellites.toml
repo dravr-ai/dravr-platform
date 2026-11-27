@@ -119,6 +119,16 @@ repo       = "dravr-colleur"
 source     = "git-tag"
 companions = "dravr-cageux:from-manifest"
 
+# Route and place geometry (terrain, privacy trimming, drawable tracks, route
+# composition, OSM route discovery, place clustering), compiled into the
+# platform. Its own manifest pins dravr-cageux for the sport vocabulary, the
+# stream type and the unit constants, so the two move in one commit at the tag
+# arpenteur's manifest names, as barrage's and colleur's do.
+[dravr-arpenteur]
+repo       = "dravr-arpenteur"
+source     = "git-tag"
+companions = "dravr-cageux:from-manifest"
+
 # ---------------------------------------------------------------------------
 # Diamond pins — owned by dravr-barrage's manifest, never moved alone
 # ---------------------------------------------------------------------------

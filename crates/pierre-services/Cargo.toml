@@ -53,6 +53,9 @@ dravr-cageux = { workspace = true }
 # platform's Postgres pool (feature postgresql) when deployed.
 dravr-barrage = { workspace = true, features = ["sqlite"] }
 pierre-fitness-compute = { version = "0.3.0", path = "../pierre-fitness-compute" }
+# Route and place geometry: terrain, privacy trimming, tracks, composition,
+# OSM route discovery and place clustering.
+dravr-arpenteur = { workspace = true }
 pierre-llm = { version = "0.3.0", path = "../pierre-llm" }
 # The price table and token-count arithmetic; the override registry here layers on them.
 embacle = { version = "0.48.1" }
@@ -88,7 +91,8 @@ dravr-riviere = { workspace = true }
 async-trait = "0.1"
 base64 = "0.22"
 bcrypt = "0.16"
-dravr-tronc = { workspace = true, features = ["zones", "schemars1"] }
+# `geo`: the great-circle distance own loops and place lookups measure with.
+dravr-tronc = { workspace = true, features = ["zones", "schemars1", "geo"] }
 dashmap = "6.1"
 futures-util = "0.3"
 hex = "0.4"

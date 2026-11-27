@@ -1,4 +1,4 @@
-// ABOUTME: A cached activity row's key, its place as served (id, name, who named it), and what the athlete said of home
+// ABOUTME: A cached activity row's key, its place as served (id, name, who named it), and the stored home declaration
 // ABOUTME: A served place carries no point; the declared home's point is read by the places recompute alone, never served
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -15,13 +15,13 @@
 //! automatic one (a city or a segment) only first-party. A serializer here
 //! would bypass that check, so the response builder renders it explicitly.
 //!
-//! [`HomeDeclaration`] is what the athlete said about home (carnet#1593). Its
-//! point is a trimmed start or a place centroid, never a raw start, and only
-//! the places recompute reads it (`check-activity-writers.sh`). Its `Debug`
-//! names the state alone, so a `{:?}` in a log never prints the point.
+//! [`StoredHome`] is what the athlete said about home (carnet#1593), as a
+//! `dravr_arpenteur::HomeDeclaration`. Its point is a trimmed start or a place
+//! centroid, never a raw start, and only the places recompute reads it
+//! (`check-activity-writers.sh`). Its `Debug` names the state alone, so a
+//! `{:?}` in a log never prints the point.
 
-use std::fmt;
-
+use dravr_arpenteur::HomeDeclaration;
 use dravr_tronc::dates::Timestamp;
 
 /// A `cached_activities` row's key: the provider key it is filed under and
@@ -47,34 +47,6 @@ pub struct PlaceRef {
     pub athlete_named: bool,
 }
 
-/// What the athlete said about home. No statement reads as `Inferred`.
-#[derive(Clone, Copy, PartialEq)]
-pub enum HomeDeclaration {
-    /// Nothing said, or "forget": the clustering infers home.
-    Inferred,
-    /// Home is around this seed: a trimmed start or a place centroid, in
-    /// degrees. Never served.
-    At {
-        /// Latitude in degrees.
-        lat: f64,
-        /// Longitude in degrees.
-        lon: f64,
-    },
-    /// Home is not where the athlete trains: nothing is excluded.
-    Elsewhere,
-}
-
-impl fmt::Debug for HomeDeclaration {
-    /// The state alone; the seed is never formatted.
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Inferred => "Inferred",
-            Self::At { .. } => "At",
-            Self::Elsewhere => "Elsewhere",
-        })
-    }
-}
-
 /// The stored declaration and when it was made.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct StoredHome {
@@ -89,20 +61,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn home_declaration_debug_never_prints_the_point() {
-        let home = HomeDeclaration::At {
-            lat: 46.812_345,
-            lon: -71.208_765,
-        };
+    fn stored_home_debug_never_prints_the_point() {
         let stored = StoredHome {
-            home,
+            home: HomeDeclaration::At {
+                lat: 46.812_345,
+                lon: -71.208_765,
+            },
             declared_at: None,
         };
-        for printed in [
-            format!("{home:?}"),
-            format!("{stored:?}"),
-            format!("{home:#?}"),
-        ] {
+        for printed in [format!("{stored:?}"), format!("{stored:#?}")] {
             assert!(
                 !printed.chars().any(|c| c.is_ascii_digit()),
                 "bug: a home declaration's Debug printed its point: {printed}"

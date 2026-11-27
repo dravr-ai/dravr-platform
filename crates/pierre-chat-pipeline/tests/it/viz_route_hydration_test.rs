@@ -7,10 +7,10 @@
 // Test files: allow missing_docs (rustc lint) and unwrap/expect/panic (valid in tests per CLAUDE.md).
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, missing_docs)]
 
+use dravr_arpenteur::track::{RouteTrack, RouteTrackError};
 use photograveur::{resolve, Locale, RenderBlock, RouteView};
 use pierre_chat_pipeline::stages::viz_route::{hydrate_route, RouteSubject, RouteTracks};
 use pierre_core::models::TimeSeriesData;
-use pierre_fitness_compute::route_track::{RouteTrack, RouteTrackError};
 use serde_json::{json, Value};
 
 /// Points in the fixture track.

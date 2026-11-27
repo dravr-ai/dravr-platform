@@ -25,10 +25,10 @@ use crate::coach_athlete_reads_test::{fixture, ok, run, Fixture, Person, ATHLETE
 use std::slice;
 use std::sync::Arc;
 
+use dravr_arpenteur::places::PLACES_VERSION;
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::models::{Activity, CachedRowKey};
 use pierre_database::repositories::{AthletePlace, PlaceNameSource, PlaceRun};
-use pierre_fitness_compute::places::PLACES_VERSION;
 use pierre_tool_runtime::activity_detail_store::store_detail;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};

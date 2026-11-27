@@ -20,6 +20,8 @@ use crate::common;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
+use dravr_arpenteur::places::PLACES_VERSION;
+use dravr_meteo::daylight::{daylight, solar_date, Daylight};
 use dravr_meteo::{
     GeocodeError, Geocoded, Geocoder, PlaceQuery, WeatherError, WeatherProvider, WeatherQuery,
     WeatherSample,
@@ -28,8 +30,6 @@ use dravr_tronc::dates::Timestamp;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{AthletePlace, PlaceRun};
 use pierre_database::RepositoryRegistry;
-use pierre_fitness_compute::daylight::{daylight, solar_date, Daylight};
-use pierre_fitness_compute::places::PLACES_VERSION;
 use pierre_tool_runtime::implementations::weather_forecast::{
     default_place, forecast, forecast_at_place,
 };

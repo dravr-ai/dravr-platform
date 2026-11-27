@@ -37,6 +37,7 @@ use uuid::Error as UuidError;
 
 #[cfg(feature = "http-response")]
 use axum::response::{IntoResponse, Response};
+use dravr_arpenteur::ArpenteurError;
 use dravr_tronc::dates::{DateError, Timestamp};
 #[cfg(feature = "http-response")]
 use http::{header::RETRY_AFTER, HeaderValue};
@@ -862,6 +863,25 @@ impl From<TryFromSliceError> for AppError {
             ErrorCode::InvalidInput,
             format!("Array conversion error: {error}"),
         )
+    }
+}
+
+/// Conversion from `dravr_arpenteur::ArpenteurError` to `AppError`: an
+/// Overpass outage stays an unavailable external service, worded for the
+/// athlete by its cause (overloaded, or a plain failure that may be ours) —
+/// no host, status code or timing, which go to the walk's one structured
+/// warning; a body that is not Overpass JSON and a fault in arpenteur itself
+/// are internal errors.
+impl From<ArpenteurError> for AppError {
+    fn from(error: ArpenteurError) -> Self {
+        match error {
+            ArpenteurError::Unavailable(cause) => {
+                Self::new(ErrorCode::ExternalServiceUnavailable, cause.message())
+            }
+            ArpenteurError::Parse(message) | ArpenteurError::Internal(message) => {
+                Self::internal(message)
+            }
+        }
     }
 }
 

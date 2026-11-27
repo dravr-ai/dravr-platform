@@ -34,7 +34,7 @@
 //! thousands of points, so the block names one — a recorded activity by its
 //! `activity_id`, or a route the coach proposes by its `route_ref` — and the
 //! platform reads its geometry ([`read_route_tracks`]) and carries it on the
-//! block ([`RouteTrack`](pierre_fitness_compute::route_track::RouteTrack)).
+//! block ([`RouteTrack`](dravr_arpenteur::track::RouteTrack)).
 //! Coordinates the model produced itself would be
 //! invented ones, which is why the schema gives it nowhere to put them.
 

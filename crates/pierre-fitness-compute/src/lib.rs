@@ -1,5 +1,5 @@
 // ABOUTME: Platform-side fitness computations over dravr-cageux primitives + provider/context data
-// ABOUTME: Endurance (snapshot/history/intervals/routes/thresholds), geo, weather
+// ABOUTME: Endurance (snapshot/history/intervals/thresholds) and weather
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,8 +12,9 @@
 //! engine plus provider and context data.
 //!
 //! It owns the Endurance API computations (latest snapshot, training history,
-//! intervals, route terrain, LT1/LT2 thresholds), geocoding and OSM route
-//! discovery, and weather context.
+//! intervals, LT1/LT2 thresholds) and weather context. Route and place
+//! geometry lives in `dravr-arpenteur`; place parsing and daylight in
+//! `dravr-meteo`.
 
 /// Endurance Phase 1 latest-snapshot computation (`export_latest_snapshot`).
 pub mod latest_snapshot;
@@ -34,35 +35,6 @@ pub use training_history_compute::{
 pub mod intervals;
 pub use intervals::{build_intervals, IntervalRow, IntervalsExport};
 
-/// Endurance Phase 3 GPX terrain analysis (`export_routes`).
-pub mod routes;
-pub use routes::{
-    build_route_summary, build_route_summary_from_streams, haversine_meters_between, Climb,
-    ClimbCategory, RouteSummary, TerrainSummary,
-};
-
-/// Endpoint privacy trimming applied to route geometry before it leaves the platform.
-pub mod route_privacy;
-pub use route_privacy::{trim_route_endpoints, TrimmedRoute, DEFAULT_PRIVACY_RADIUS_METERS};
-
-/// Drawable route tracks: privacy-trimmed geometry from streams or a route overview.
-pub mod route_track;
-pub use route_track::{
-    trimmed_overview_polyline, RouteBounds, RouteClimb, RouteTrack, RouteTrackError,
-};
-
-/// Stitching discovered trail stretches into one drawable itinerary, and the
-/// `route_ref` a drawable public line is stored and named by.
-pub mod route_compose;
-
-/// Sunrise and sunset for a place and day, from NOAA's solar position equations.
-pub mod daylight;
-/// How a free-text place becomes a gazetteer query.
-pub mod geocoding;
-/// Route and trail discovery via OpenStreetMap (Overpass API + OSM piste data).
-pub mod osm_routes;
-/// Where an athlete trains: trimmed activity starts clustered into places with stable ids.
-pub mod places;
 /// Weather impact analysis + provider factory (delegates vendor logic to dravr-meteo).
 pub mod weather;
 // Outer doc intentionally omitted, as for `weather_cache_adapter` below.
@@ -73,8 +45,3 @@ pub mod weather_clients;
 // into one virtual doc block whose first paragraph trips
 // `clippy::too_long_first_doc_paragraph`.
 pub mod weather_cache_adapter;
-
-pub use osm_routes::{
-    build_overpass_query, routes_from_overpass_json, select_routes, DiscoveredRoute,
-    DistanceSource, RouteDiscoveryService, RouteSource, RouteType, TargetFit, TargetUse,
-};

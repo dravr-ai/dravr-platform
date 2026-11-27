@@ -1453,9 +1453,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
+name = "dravr-arpenteur"
+version = "0.1.0"
+dependencies = [
+ "dravr-cageux",
+ "dravr-tronc",
+ "futures-util",
+ "hex",
+ "reqwest",
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "dravr-barrage"
-version = "0.35.4"
-source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.35.4#46454f0b8baa671c44edc843153c8049be744a34"
+version = "0.36.0"
+source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.36.0#192e3080d1a3d9c7fc12c05e9f56b6d741cc4e28"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -3998,6 +4017,7 @@ name = "pierre-chat-pipeline"
 version = "0.3.0"
 dependencies = [
  "async-trait",
+ "dravr-arpenteur",
  "dravr-canot",
  "dravr-colleur",
  "dravr-contremaitre",
@@ -4017,7 +4037,6 @@ dependencies = [
  "pierre-contremaitre",
  "pierre-core",
  "pierre-database",
- "pierre-fitness-compute",
  "pierre-groups",
  "pierre-llm",
  "pierre-logging",
@@ -4154,6 +4173,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "bcrypt",
+ "dravr-arpenteur",
  "dravr-cageux",
  "dravr-canot",
  "dravr-equilibre",
@@ -4193,6 +4213,7 @@ version = "0.3.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
+ "dravr-arpenteur",
  "dravr-colleur",
  "dravr-riviere",
  "dravr-tronc",
@@ -4217,7 +4238,6 @@ name = "pierre-dev-fixture"
 version = "0.3.0"
 dependencies = [
  "axum",
- "dravr-barrage",
  "dravr-tronc",
  "pierre-config",
  "pierre-core",
@@ -4261,22 +4281,14 @@ name = "pierre-fitness-compute"
 version = "0.3.0"
 dependencies = [
  "async-trait",
- "dravr-barrage",
  "dravr-cageux",
  "dravr-meteo",
  "dravr-tronc",
- "futures-util",
- "hex",
  "pierre-core",
  "pierre-database",
- "reqwest",
  "schemars 1.2.3",
  "serde",
  "serde_json",
- "sha2 0.10.9",
- "tokio",
- "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -4750,6 +4762,7 @@ dependencies = [
  "base64 0.22.1",
  "bcrypt",
  "dashmap",
+ "dravr-arpenteur",
  "dravr-barrage",
  "dravr-cageux",
  "dravr-canot",
@@ -4837,6 +4850,7 @@ dependencies = [
  "arc-swap",
  "async-trait",
  "bitflags 2.13.2",
+ "dravr-arpenteur",
  "dravr-barrage",
  "dravr-cageux",
  "dravr-colleur",
@@ -4908,6 +4922,7 @@ dependencies = [
  "clap",
  "criterion",
  "dashmap",
+ "dravr-arpenteur",
  "dravr-barrage",
  "dravr-cageux",
  "dravr-canot",

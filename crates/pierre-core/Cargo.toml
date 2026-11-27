@@ -137,6 +137,10 @@ dravr-canot = { workspace = true }
 # pierre-core re-exports Activity, SportType, and intelligence types
 dravr-cageux = { workspace = true }
 
+# Route and place geometry: StoredHome holds its HomeDeclaration, and
+# ArpenteurError maps onto AppError in errors/
+dravr-arpenteur = { workspace = true }
+
 # Health and wellness domain models with composition-based provider traits
 dravr-equilibre = { workspace = true }
 

@@ -40,9 +40,10 @@
 //! each, so the stamps compare alike on both engines.
 
 use async_trait::async_trait;
+use dravr_arpenteur::HomeDeclaration;
 use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{CachedRowKey, HomeDeclaration, StoredHome, TenantId};
+use pierre_core::models::{CachedRowKey, StoredHome, TenantId};
 use tracing::warn;
 use uuid::Uuid;
 

@@ -16,13 +16,14 @@
 #[cfg(feature = "tools-groups")]
 mod roster_start_tests {
     use crate::common::create_test_server_resources;
-    use dravr_barrage::parse::polyline::encode_polyline;
+    use dravr_arpenteur::track::RouteTrack;
     use dravr_tronc::dates::{Elapsed, Timestamp};
+    use dravr_tronc::geo::meters_between;
+    use dravr_tronc::geo::polyline::encode_polyline;
     use pierre_core::models::groups::RosterActivity;
     use pierre_core::models::{
         Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserStatus,
     };
-    use pierre_fitness_compute::route_track::RouteTrack;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_tool_runtime::group_fitness::fetch_member_snapshots;
     use pierre_tool_runtime::runtime::ToolRuntime;
@@ -33,7 +34,7 @@ mod roster_start_tests {
     /// Where every test ride is recorded as starting: the member's door.
     const DOOR: (f64, f64) = (45.5017, -73.5673);
 
-    /// Metres per degree of latitude, for the test's own distance check.
+    /// Metres per degree of latitude, which the test's tracks are laid out by.
     const METERS_PER_DEGREE: f64 = 111_320.0;
 
     async fn seed_member(resources: &ServerContext) -> (Uuid, TenantId) {
@@ -106,12 +107,6 @@ mod roster_start_tests {
         .start_longitude(DOOR.1)
         .summary_polyline_opt(overview)
         .build()
-    }
-
-    fn meters_between(a: (f64, f64), b: (f64, f64)) -> f64 {
-        let dlat = (a.0 - b.0) * METERS_PER_DEGREE;
-        let dlon = (a.1 - b.1) * METERS_PER_DEGREE * a.0.to_radians().cos();
-        dlat.hypot(dlon)
     }
 
     fn start_of(activity: &RosterActivity) -> Option<(f64, f64)> {
