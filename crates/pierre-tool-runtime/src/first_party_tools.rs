@@ -187,10 +187,11 @@ mod tests {
             let mut schemas = registry.all_schemas();
             retain_offered(&registry, &mut schemas, &athlete);
             let kept: Vec<&str> = schemas.iter().map(|schema| schema.name.as_str()).collect();
-            assert_eq!(
-                kept,
-                ["recall_user_memory"],
-                "bug: an athlete's external listing keeps the memory tool alone"
+            // The memory read is T3, which no outside client reads
+            // (`Withheld::NeverExternal`), so nothing here is left to list.
+            assert!(
+                kept.is_empty(),
+                "bug: an athlete's external listing keeps no coach, first-party or T3 tool: {kept:?}"
             );
 
             let coach = Caller {
@@ -204,8 +205,8 @@ mod tests {
             retain_offered(&registry, &mut schemas, &coach);
             assert_eq!(
                 schemas.len(),
-                4,
-                "the three coach tools and the memory read"
+                3,
+                "the three coach tools; the memory read is never external"
             );
 
             let in_app = Caller {

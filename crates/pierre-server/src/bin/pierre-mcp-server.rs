@@ -633,36 +633,49 @@ async fn report_ungranted_refresh_families(repos: &RepositoryRegistry) {
     let now = Timestamp::now();
     let mut groups = 0_usize;
     for tenant in &tenants {
-        let tenant_id = tenant.id.to_string();
-        match repos
-            .oauth2_server
-            .refresh_families_without_grant(&tenant_id, now)
-            .await
-        {
-            Ok(left) => {
-                for group in &left {
-                    info!(
-                        tenant_id = %group.tenant_id,
-                        client_id = %group.client_id,
-                        user_id = %group.user_id,
-                        families = group.families,
-                        "Live refresh-token families with no named grant: the grant backfill matched none, or several"
-                    );
-                }
-                groups += left.len();
-            }
-            Err(e) => warn!(
-                tenant_id = %tenant_id,
-                error = %e,
-                "Could not read refresh tokens without a grant"
-            ),
-        }
+        groups +=
+            report_tenant_ungranted_refresh_families(repos, &tenant.id.to_string(), now).await;
     }
     info!(
         groups,
         tenants = tenants.len(),
         "Refresh-token grant backfill: groups left without a grant"
     );
+}
+
+/// Log `tenant_id`'s live refresh-token families that name no grant, one
+/// line per client and user; returns how many such groups it logged (0 when
+/// the read fails, which is logged instead).
+async fn report_tenant_ungranted_refresh_families(
+    repos: &RepositoryRegistry,
+    tenant_id: &str,
+    now: Timestamp,
+) -> usize {
+    let left = match repos
+        .oauth2_server
+        .refresh_families_without_grant(tenant_id, now)
+        .await
+    {
+        Ok(left) => left,
+        Err(e) => {
+            warn!(
+                tenant_id = %tenant_id,
+                error = %e,
+                "Could not read refresh tokens without a grant"
+            );
+            return 0;
+        }
+    };
+    for group in &left {
+        info!(
+            tenant_id = %group.tenant_id,
+            client_id = %group.client_id,
+            user_id = %group.user_id,
+            families = group.families,
+            "Live refresh-token families with no named grant: the grant backfill matched none, or several"
+        );
+    }
+    left.len()
 }
 
 /// The deployment's blob store, which keeps every original file (an import's

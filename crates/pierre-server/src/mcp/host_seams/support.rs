@@ -124,7 +124,7 @@ mod tests {
 
     #[test]
     fn a_requests_host_profile_claim_is_read_and_anything_else_opens_nothing() {
-        let claim = |value| json!({"extensions": {HOST_PROFILE_EXTENSION: value}});
+        let claim = |value| json!({"extensions": {host_profile::HOST_PROFILE_EXTENSION: value}});
         assert_eq!(
             request_host_tier(&declaring(claim(json!({"tier_max": "t2", "version": 1})))),
             Some(Tier::T2),
