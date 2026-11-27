@@ -83,7 +83,7 @@ use pierre_database::repositories::{
     PlanChangeKind, PlanChangeSource, PlanWeekInput, SaveDraftParams, SavedDraftBundle,
 };
 use pierre_database::RepositoryRegistry;
-use pierre_memory::training_plans::{parse_plan_date, PlanWeek, PlannedDay};
+use pierre_memory::training_plans::{PlanWeek, PlannedDay};
 use pierre_providers::ai_scope;
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
 use pierre_services::athlete_anchors::stored_athlete_anchors;
@@ -898,7 +898,7 @@ async fn week_holding(
     };
     Ok(weeks
         .into_iter()
-        .find(|week| holds(week, date))
+        .find(|week| week.holds(date))
         .ok_or(DraftDayOutcome::NoPlanWeek))
 }
 
@@ -985,13 +985,6 @@ async fn save_draft_week(
     Ok(saved)
 }
 
-/// Whether `week` holds `date`: its first day or one of the six after it.
-fn holds(week: &PlanWeek, date: CivilDate) -> bool {
-    parse_plan_date(&week.week_start).is_some_and(|start| {
-        start <= date && start.checked_add_days(7).is_some_and(|end| date < end)
-    })
-}
-
 /// The label a built day's sport is written with: the replaced day's own
 /// when the build's sport family covers it, else the family's.
 fn sport_label(replaced: Option<&PlannedDay>, sport: SportFamily) -> String {
@@ -1008,7 +1001,7 @@ mod tests {
     };
     use dravr_tronc::dates::Timestamp;
     use pierre_contremaitre::TrainingCatalogueRegistry;
-    use pierre_memory::training_plans::WeekStatus;
+    use pierre_memory::training_plans::{parse_plan_date, WeekStatus};
     use serde_json::Value;
 
     fn date(text: &str) -> CivilDate {
@@ -1285,19 +1278,19 @@ mod tests {
             updated_at: Timestamp::now(),
         };
         assert!(
-            holds(&week, date("2026-11-16")),
+            week.holds(date("2026-11-16")),
             "bug: a week holds its first day"
         );
         assert!(
-            holds(&week, date("2026-11-22")),
+            week.holds(date("2026-11-22")),
             "bug: a week holds its seventh day"
         );
         assert!(
-            !holds(&week, date("2026-11-23")),
+            !week.holds(date("2026-11-23")),
             "bug: a week does not hold the next Monday"
         );
         assert!(
-            !holds(&week, date("2026-11-15")),
+            !week.holds(date("2026-11-15")),
             "bug: a week does not hold the day before it"
         );
 

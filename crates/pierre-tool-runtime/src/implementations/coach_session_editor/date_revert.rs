@@ -43,7 +43,7 @@ use tracing::info;
 use super::day_edits::as_athletes_write;
 use super::own_days::as_own_write;
 use super::{
-    holds, save_days_into_week, save_draft_week, DayChange, DraftDayOutcome, EditorThread, OwnPlan,
+    save_days_into_week, save_draft_week, DayChange, DraftDayOutcome, EditorThread, OwnPlan,
 };
 use crate::runtime::ToolRuntime;
 
@@ -100,7 +100,7 @@ pub async fn revert_draft_date(
         let drafted = draft
             .weeks
             .into_iter()
-            .find(|week| holds(week, date) && draft.drafted_weeks.contains(&week.week_start));
+            .find(|week| week.holds(date) && draft.drafted_weeks.contains(&week.week_start));
         let Some(week) = drafted else {
             return Ok(DraftDayOutcome::Unchanged);
         };
@@ -160,7 +160,7 @@ pub async fn refuse_own_date(
         let drafted = draft
             .weeks
             .into_iter()
-            .find(|week| holds(week, date) && draft.drafted_weeks.contains(&week.week_start));
+            .find(|week| week.holds(date) && draft.drafted_weeks.contains(&week.week_start));
         let Some(week) = drafted else {
             return Ok(DraftDayOutcome::Unchanged);
         };

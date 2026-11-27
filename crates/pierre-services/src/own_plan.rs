@@ -43,7 +43,7 @@ use pierre_database::repositories::{
     SavePlanBundleParams, SavedPlanBundle,
 };
 use pierre_database::RepositoryRegistry;
-use pierre_memory::training_plans::{parse_plan_date, training_content, PlanWeek, PlannedDay};
+use pierre_memory::training_plans::{training_content, PlanWeek, PlannedDay};
 use tracing::info;
 use uuid::Uuid;
 
@@ -306,13 +306,6 @@ pub enum ProposalAccept {
     NotProposed,
 }
 
-/// Whether `week` holds `date`: its first day or one of the six after it.
-fn week_holds(week: &PlanWeek, date: CivilDate) -> bool {
-    parse_plan_date(&week.week_start).is_some_and(|start| {
-        start <= date && start.checked_add_days(7).is_some_and(|end| date < end)
-    })
-}
-
 /// Accept what the athlete's own overlay proposes on `date`, and on the other
 /// date of a session it moves (carnet#1841): each date's overlay entries go
 /// onto the live plan in place of its live entries, through
@@ -347,7 +340,7 @@ pub async fn accept_proposal(
     let mut weeks: Vec<PlanWeek> = Vec::new();
     let mut author: Option<String> = None;
     for day in &group {
-        let Some(proposed) = draft.weeks.iter().find(|week| week_holds(week, *day)) else {
+        let Some(proposed) = draft.weeks.iter().find(|week| week.holds(*day)) else {
             continue;
         };
         author = author.or_else(|| proposed.author_agent_id.clone());

@@ -51,8 +51,11 @@ use crate::plan_calendar_push::PushReport;
 /// `plan`, the athlete's live season now.
 ///
 /// Returns whether the notice was dispatched: `false` with no notification
-/// service, or when the coach's account cannot be read (logged). The notice
-/// carries the plan's own transport stamp, since it names the plan's race.
+/// service, when the coach's account cannot be read (logged), or when the
+/// plan has no race yet (carnet#1841): the notice's sentence names the race,
+/// and it is never sent with an empty one, so the coach is told to let the
+/// athlete know instead. The notice carries the plan's own transport stamp,
+/// since it names the plan's race.
 pub async fn tell_plan_published(
     repos: &RepositoryRegistry,
     notifications: Option<&Arc<NotificationService>>,
@@ -60,6 +63,14 @@ pub async fn tell_plan_published(
     plan: &TrainingPlan,
 ) -> bool {
     let Some(service) = notifications else {
+        return false;
+    };
+    let Some(race) = plan.goal_race.as_ref() else {
+        warn!(
+            athlete_user_id = %target.athlete(),
+            plan_id = %plan.id,
+            "coach plan notice: the published plan has no race yet; no notice names one"
+        );
         return false;
     };
     let Some(coach_name) = coach_name(repos, target.coach()).await else {
@@ -70,9 +81,7 @@ pub async fn tell_plan_published(
         target.athlete(),
         notice_tenant(target.tenant()),
         &coach_name,
-        plan.goal_race
-            .as_ref()
-            .map_or("", |race| race.name.as_str()),
+        &race.name,
         plan.transport_policy,
     );
     true

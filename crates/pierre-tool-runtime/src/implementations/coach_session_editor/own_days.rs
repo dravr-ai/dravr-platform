@@ -51,8 +51,7 @@ use super::day_edits::{
 };
 use super::sessions::{expected_index, placed, stamp_edit, without, SessionAt};
 use super::{
-    build_day, holds, sport_label, writer_catalogue, DraftDayOutcome, EditorWords, OwnPlan,
-    SessionBuild,
+    build_day, sport_label, writer_catalogue, DraftDayOutcome, EditorWords, OwnPlan, SessionBuild,
 };
 use crate::runtime::ToolRuntime;
 
@@ -70,7 +69,7 @@ fn week_of(season: Option<&PlanWithWeeks>, date: CivilDate) -> Result<PlanWeek, 
     season
         .weeks
         .iter()
-        .find(|week| holds(week, date))
+        .find(|week| week.holds(date))
         .cloned()
         .ok_or(DraftDayOutcome::NoPlanWeek)
 }
@@ -161,7 +160,7 @@ impl WeekWrite {
 /// holding it, else a new one on the plan's week grid; `NoPlanWeek` when a
 /// new one would overlap a week the plan holds.
 fn landing_week(weeks: &[PlanWeek], date: CivilDate) -> Result<WeekWrite, DraftDayOutcome> {
-    if let Some(week) = weeks.iter().find(|week| holds(week, date)) {
+    if let Some(week) = weeks.iter().find(|week| week.holds(date)) {
         return Ok(WeekWrite::over(week, week.days.clone()));
     }
     new_week_start(weeks, date)
@@ -474,7 +473,7 @@ pub async fn move_own_session(
         };
         let left = without(&source.days, index);
         let to_dated = to.to_string();
-        let weeks = if holds(&source, to) {
+        let weeks = if source.holds(to) {
             if let Err(outcome) = next_position(&left, &to_dated) {
                 return Ok(outcome);
             }

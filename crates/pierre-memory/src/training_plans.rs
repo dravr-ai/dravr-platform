@@ -737,6 +737,15 @@ pub struct PlanWeek {
 }
 
 impl PlanWeek {
+    /// Whether the week holds `date`: its first day or one of the six after
+    /// it. A week whose start does not parse holds none.
+    #[must_use]
+    pub fn holds(&self, date: CivilDate) -> bool {
+        parse_plan_date(&self.week_start).is_some_and(|start| {
+            start <= date && start.checked_add_days(7).is_some_and(|end| date < end)
+        })
+    }
+
     /// Drop the coach's editor marks from every day — the pre-edit snapshot
     /// (carnet#1714) and the added-session flag (carnet#1716): a week that
     /// goes live, or that an agent reads, carries neither. The coach's call
