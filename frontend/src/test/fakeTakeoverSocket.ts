@@ -17,6 +17,8 @@ export class FakeTakeoverSocket {
   static instances: FakeTakeoverSocket[] = [];
 
   readonly url: string;
+  /** The subprotocols the viewer offered, which carry its token. */
+  readonly protocols: string[];
   readyState = FakeTakeoverSocket.CONNECTING;
   binaryType = 'blob';
   /** The raw text messages the viewer sent. */
@@ -26,8 +28,14 @@ export class FakeTakeoverSocket {
   onmessage: ((event: { data: unknown }) => void) | null = null;
   onclose: (() => void) | null = null;
 
-  constructor(url: string) {
+  constructor(url: string, protocols: string | string[] = []) {
+    if (typeof protocols === 'string') protocols = [protocols];
+    // A browser refuses a subprotocol that is not an HTTP token.
+    if (protocols.some((protocol) => !/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(protocol))) {
+      throw new SyntaxError(`invalid subprotocol in ${JSON.stringify(protocols)}`);
+    }
     this.url = url;
+    this.protocols = protocols;
     FakeTakeoverSocket.instances.push(this);
   }
 

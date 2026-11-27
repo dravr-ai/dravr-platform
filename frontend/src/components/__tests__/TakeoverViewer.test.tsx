@@ -12,8 +12,10 @@ import { FakeTakeoverSocket, drawImage, installFakeTakeoverSocket, lastSocket } 
 
 vi.mock('../../services/api', () => ({
   oauthApi: {
-    sciotteTakeoverSocketUrl: (token: string) =>
-      `ws://app.dravr.test/ws/providers/sciotte/takeover?token=${encodeURIComponent(token)}`,
+    sciotteTakeoverSocket: (token: string) => ({
+      url: 'ws://app.dravr.test/ws/providers/sciotte/takeover',
+      protocols: ['pierre-takeover', `pierre-takeover.${token}`],
+    }),
   },
 }));
 
@@ -64,7 +66,21 @@ describe('TakeoverViewer', () => {
       i18n.t('shell.sciotteTakeoverConnecting', { provider: 'Garmin' }),
     );
     await waitFor(() => expect(FakeTakeoverSocket.instances).toHaveLength(1));
-    expect(lastSocket().url).toBe(`ws://app.dravr.test/ws/providers/sciotte/takeover?token=${encodeURIComponent(TOKEN)}`);
+    expect(lastSocket().url).toBe('ws://app.dravr.test/ws/providers/sciotte/takeover');
+    expect(lastSocket().protocols).toEqual(['pierre-takeover', `pierre-takeover.${TOKEN}`]);
+  });
+
+  it('never puts the token in the socket URL, which request logs keep', async () => {
+    viewer();
+    await waitFor(() => expect(FakeTakeoverSocket.instances).toHaveLength(1));
+    expect(lastSocket().url).not.toContain(TOKEN);
+    expect(lastSocket().url).not.toContain('token');
+  });
+
+  it('ends without a socket when the token cannot ride as a subprotocol', async () => {
+    const { props } = viewer({ token: 'not a token' });
+    await waitFor(() => expect(props.onEnded).toHaveBeenCalledTimes(1));
+    expect(FakeTakeoverSocket.instances).toHaveLength(0);
   });
 
   it('shows the prompt once the page streams, and names the view for assistive tech', async () => {

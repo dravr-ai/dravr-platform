@@ -41,7 +41,8 @@ export interface TakeoverSocket {
 }
 
 /**
- * The takeover socket for `token`.
+ * The takeover socket for `token`, which it offers as a subprotocol so the
+ * token never appears in the socket's URL.
  *
  * Any close of it, the browser's included, ends the sign-in on the server and
  * a second socket is refused, so this dials once per token and closes only
@@ -72,13 +73,18 @@ export function useTakeoverSocket(token: string, handlers: TakeoverSocketHandler
     let answered = false;
 
     const dial = window.setTimeout(() => {
-      const url = oauthApi.sciotteTakeoverSocketUrl(token, window.location.origin);
-      if (!url) {
+      // The token rides in the upgrade's Sec-WebSocket-Protocol header, never
+      // in the URL, which proxy and request logs keep.
+      const target = oauthApi.sciotteTakeoverSocket(token, window.location.origin);
+      try {
+        if (!target) throw new Error('no takeover socket URL');
+        // A token that is not a valid subprotocol value throws here.
+        socket = new WebSocket(target.url, target.protocols);
+      } catch {
         setStage('ended');
         handlersRef.current.onEnded();
         return;
       }
-      socket = new WebSocket(url);
       socket.binaryType = 'blob';
       socketRef.current = socket;
       socket.onmessage = (event: MessageEvent<unknown>) => {

@@ -68,8 +68,9 @@ fn edge_snippet_sets_every_security_header() {
         "X-Frame-Options must be DENY, always"
     );
     assert!(
-        snippet.contains(r#"add_header Referrer-Policy "strict-origin-when-cross-origin" always;"#),
-        "Referrer-Policy must be strict-origin-when-cross-origin, always"
+        snippet.contains(r#"add_header Referrer-Policy "strict-origin" always;"#),
+        "Referrer-Policy must be strict-origin, always: a same-origin request must not carry \
+         a landing's secret-bearing address as its Referer (carnet#1873)"
     );
     assert!(
         snippet.contains("max-age=31536000; includeSubDomains"),

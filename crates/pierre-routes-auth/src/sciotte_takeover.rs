@@ -4,11 +4,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! `GET /ws/providers/sciotte/takeover?token=…` (ADR-034).
+//! `GET /ws/providers/sciotte/takeover` (ADR-034).
 //!
 //! A sign-in the provider's robot check parked answers `takeover_required`
 //! with a link whose fragment carries a takeover token. The page it opens
-//! connects here with that token. This relay:
+//! connects here offering that token as a subprotocol,
+//! `pierre-takeover.<token>` beside the fixed `pierre-takeover` that the
+//! upgrade echoes. The token never rides in the URL, which every proxy and
+//! request log in front of the API records (carnet#1873). This relay:
 //!
 //! - verifies the token ([`verify_takeover_link_token`]), and binds the
 //!   caller to their own parked flow through the remembered flow
@@ -35,7 +38,7 @@ use std::time::{Duration, Instant};
 
 use axum::body::to_bytes;
 use axum::extract::ws::{Message, WebSocket};
-use axum::extract::{Query, State, WebSocketUpgrade};
+use axum::extract::{State, WebSocketUpgrade};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use dravr_sciotte::client::{ClientError, SciotteClient};
@@ -48,7 +51,6 @@ use pierre_middleware::provider_link_token::{
     TakeoverTokenClaims,
 };
 use pierre_providers::sciotte_error::to_app_error;
-use serde::Deserialize;
 use serde_json::Value;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
@@ -82,11 +84,29 @@ const TAKEOVER_ENDED_REASON: &str = "takeover_ended";
 /// service for the outcome it may already have sent.
 const OUTCOME_LEFT_BEHIND_WAIT: Duration = Duration::from_secs(2);
 
-/// Query of the takeover socket.
-#[derive(Deserialize)]
-pub(crate) struct TakeoverQuery {
-    /// The takeover token the page read from its link's fragment.
-    token: String,
+/// The subprotocol a takeover socket speaks: the upgrade echoes it, never
+/// the token offered beside it.
+const TAKEOVER_PROTOCOL: &str = "pierre-takeover";
+
+/// Prefix of the offered subprotocol that carries the takeover token the
+/// page read from its link's fragment.
+const TAKEOVER_TOKEN_PROTOCOL_PREFIX: &str = "pierre-takeover.";
+
+/// The takeover token the socket offered as a subprotocol.
+///
+/// A token anywhere else (the URL's query included) is not read: a socket
+/// that offered none is unauthenticated.
+fn offered_token(upgrade: &WebSocketUpgrade) -> Result<String, AppError> {
+    upgrade
+        .requested_protocols()
+        .find_map(|offered| {
+            offered
+                .to_str()
+                .ok()?
+                .strip_prefix(TAKEOVER_TOKEN_PROTOCOL_PREFIX)
+                .map(str::to_owned)
+        })
+        .ok_or_else(|| AppError::auth_invalid("The takeover socket offered no takeover token"))
 }
 
 /// Who a takeover is for, read from its verified token.
@@ -119,20 +139,21 @@ impl Caller {
     }
 }
 
-/// `GET /ws/providers/sciotte/takeover?token=…`: the athlete's view of their
-/// sign-in parked at a provider's robot check.
+/// `GET /ws/providers/sciotte/takeover`: the athlete's view of their sign-in
+/// parked at a provider's robot check, its token offered as a subprotocol.
 ///
 /// # Errors
 ///
-/// `401` for a token that is not a valid takeover token; `400` when the
-/// caller has no parked sign-in (it ended, or lapsed); `409` for an attempt
-/// already cancelled; the service's refusal when the flow it held is gone.
+/// `401` for a socket that offered no token, or one that is not a valid
+/// takeover token; `400` when the caller has no parked sign-in (it ended, or
+/// lapsed); `409` for an attempt already cancelled; the service's refusal
+/// when the flow it held is gone.
 pub(crate) async fn handle_sciotte_takeover_ws(
     State(resources): State<AuthRoutesContext>,
-    Query(query): Query<TakeoverQuery>,
     upgrade: WebSocketUpgrade,
 ) -> Result<Response, AppError> {
-    let claims = verify_takeover_link_token(&query.token, &resources.admin_jwt_secret)?;
+    let token = offered_token(&upgrade)?;
+    let claims = verify_takeover_link_token(&token, &resources.admin_jwt_secret)?;
     let token_provider = claims.tgt.clone();
     let caller = Caller::of(claims)?;
     refuse_cancelled_attempt(&resources.cache, Some(&caller.attempt)).await?;
@@ -164,6 +185,7 @@ pub(crate) async fn handle_sciotte_takeover_ws(
     };
     info!(user_id = %caller.user_id, provider = %provider, "Sign-in takeover opened");
     Ok(upgrade
+        .protocols([TAKEOVER_PROTOCOL])
         .max_message_size(MAX_INPUT_BYTES)
         .on_upgrade(move |viewer| async move {
             let relay = Relay {

@@ -1115,16 +1115,16 @@ mod messaging_e2e_tests {
         let (_user_id, tenant_id) =
             create_e2e_user(&resources, "wa_verify@example.com", "WaVerify123!").await;
 
-        // Configure WhatsApp channel
-        let wa_secret = "my_verify_token_secret";
+        // Configure WhatsApp channel: the handshake checks the verify token,
+        // never the app secret that signs payloads.
         db.upsert_channel_config(&UpsertChannelConfigParams {
             id: &Uuid::new_v4().to_string(),
             tenant_id,
             channel_type: "whatsapp",
             api_key: Some("wa_access_token"),
             api_secret: None,
-            webhook_secret: Some(wa_secret),
-            verify_token: None,
+            webhook_secret: Some("wa_app_secret"),
+            verify_token: Some("my_verify_token_secret"),
             account_id: None,
             phone_number: Some("999888777"),
             bot_token: None,
@@ -1171,16 +1171,16 @@ mod messaging_e2e_tests {
         let (_user_id, tenant_id) =
             create_e2e_user(&resources, "msg_verify@example.com", "MsgVerify123!").await;
 
-        // Configure Messenger channel
-        let msg_secret = "messenger_app_secret_verify";
+        // Configure Messenger channel: the handshake checks the verify token,
+        // never the app secret that signs payloads.
         db.upsert_channel_config(&UpsertChannelConfigParams {
             id: &Uuid::new_v4().to_string(),
             tenant_id,
             channel_type: "messenger",
             api_key: Some("page_access_token"),
             api_secret: None,
-            webhook_secret: Some(msg_secret),
-            verify_token: None,
+            webhook_secret: Some("messenger_app_secret"),
+            verify_token: Some("messenger_verify_token"),
             account_id: Some("page_id_123"),
             phone_number: None,
             bot_token: None,
@@ -1193,7 +1193,7 @@ mod messaging_e2e_tests {
 
         // Valid verification
         let resp = AxumTestRequest::get(
-            "/api/messaging/webhook/messenger?hub.mode=subscribe&hub.verify_token=messenger_app_secret_verify&hub.challenge=meta_challenge_789",
+            "/api/messaging/webhook/messenger?hub.mode=subscribe&hub.verify_token=messenger_verify_token&hub.challenge=meta_challenge_789",
         )
         .send(router)
         .await;

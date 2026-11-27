@@ -648,7 +648,16 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
     assert!(oauth_url.contains("redirect_uri="));
     assert!(oauth_url.contains("response_type=code"));
     assert!(oauth_url.contains("scope="));
-    assert!(oauth_url.contains(&format!("state={user_id}%3A"))); // URL encoded ":"
+    // The state is opaque (carnet#1873): it names no user and carries no
+    // return URL, which stay in the server-side state row.
+    assert!(
+        oauth_url.contains("state="),
+        "the authorize URL carries a state"
+    );
+    assert!(
+        !oauth_url.contains(&user_id),
+        "the authorize URL never names the user: {oauth_url}"
+    );
 
     // Test 4: MCP Protocol - Initialize
     let init_response = client.initialize_mcp().await?;

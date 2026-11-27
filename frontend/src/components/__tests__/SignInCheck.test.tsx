@@ -12,7 +12,10 @@ import { FakeTakeoverSocket, installFakeTakeoverSocket, lastSocket } from '../..
 
 vi.mock('../../services/api', () => ({
   oauthApi: {
-    sciotteTakeoverSocketUrl: (token: string) => `ws://app.dravr.test/ws/providers/sciotte/takeover?token=${token}`,
+    sciotteTakeoverSocket: (token: string) => ({
+      url: 'ws://app.dravr.test/ws/providers/sciotte/takeover',
+      protocols: ['pierre-takeover', `pierre-takeover.${token}`],
+    }),
   },
 }));
 

@@ -75,13 +75,16 @@ pub struct MetaVerifyQuery {
 ///
 /// Meta sends `GET /webhook?hub.mode=subscribe&hub.verify_token=TOKEN&hub.challenge=CHALLENGE`
 /// when configuring the webhook URL. We validate the verify token against the channel's
-/// `webhook_secret` and echo `hub.challenge` back as plain text to confirm ownership.
+/// stored `verify_token` and echo `hub.challenge` back as plain text to confirm ownership.
+/// A channel with no stored `verify_token` refuses the handshake: its `webhook_secret`
+/// signs inbound payloads and never stands in for the token.
 ///
 /// Supports both Messenger and `WhatsApp` channels.
 ///
 /// # Errors
 /// Returns an error when `hub.mode` isn't `subscribe`, no channel config exists
-/// for the channel, or the presented verify token matches none of them.
+/// for the channel, none of them stores a verify token, or the presented verify
+/// token matches none of them.
 pub async fn verify_webhook(
     State(resources): State<Arc<ServerContext>>,
     Path(channel): Path<String>,
@@ -103,22 +106,33 @@ pub async fn verify_webhook(
         )));
     }
 
-    // Prefer verify_token; fall back to webhook_secret if verify_token is not
-    // configured. A stored token that is blank matches nothing, a request
-    // carrying no token included (`matches_configured_secret`), and does not
-    // fall back: the signing secret is never accepted in a verify token's place
-    // once that column holds a value.
-    let token_matches = configs.iter().any(|config| {
-        let stored_verify_token = config.get("verify_token").and_then(|v| v.as_str());
-        let stored_webhook_secret = config.get("webhook_secret").and_then(|v| v.as_str());
-        stored_verify_token
-            .or(stored_webhook_secret)
-            .is_some_and(|expected| {
-                matches_configured_secret(
-                    expected.as_bytes(),
-                    query.verify_token.expose_secret().as_bytes(),
-                )
-            })
+    // Only a stored verify token is ever compared. The channel's
+    // `webhook_secret` is the Meta app secret, the HMAC key every inbound
+    // payload is signed with, and `hub.verify_token` travels in the URL: it
+    // never stands in for a missing verify token. A stored token that is blank
+    // matches nothing, a request carrying no token included
+    // (`matches_configured_secret`).
+    let stored_tokens: Vec<&str> = configs
+        .iter()
+        .filter_map(|config| config.get("verify_token").and_then(Value::as_str))
+        .collect();
+
+    if stored_tokens.is_empty() {
+        warn!(
+            channel = %channel,
+            configs = configs.len(),
+            "Meta webhook verification refused: no verify_token is configured for this channel"
+        );
+        return Err(AppError::auth_invalid(format!(
+            "No webhook verify token is configured for {channel}"
+        )));
+    }
+
+    let token_matches = stored_tokens.iter().any(|expected| {
+        matches_configured_secret(
+            expected.as_bytes(),
+            query.verify_token.expose_secret().as_bytes(),
+        )
     });
 
     if !token_matches {

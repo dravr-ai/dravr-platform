@@ -35,19 +35,22 @@ async function jpegFrame(page: Page): Promise<Buffer> {
 /** The mocked takeover socket: what the page sent, whether it closed, and the server's side. */
 interface Takeover {
   socket: () => WebSocketRoute;
-  token: () => string | null;
+  /** The token the page offered as its socket subprotocol. */
+  token: () => Promise<string | null>;
+  /** A `token` query on the socket URL, which must stay absent. */
+  urlToken: () => string | null;
   received: () => Array<Record<string, unknown>>;
   closed: () => boolean;
 }
 
 async function mockTakeover(page: Page, frame: Buffer): Promise<Takeover> {
   let route: WebSocketRoute | null = null;
-  let token: string | null = null;
+  let urlToken: string | null = null;
   const received: Array<Record<string, unknown>> = [];
   let closed = false;
   await page.routeWebSocket('**/ws/providers/sciotte/takeover**', (ws) => {
     route = ws;
-    token = new URL(ws.url()).searchParams.get('token');
+    urlToken = new URL(ws.url()).searchParams.get('token');
     ws.onMessage((message) => {
       if (typeof message === 'string') received.push(JSON.parse(message) as Record<string, unknown>);
     });
@@ -57,12 +60,36 @@ async function mockTakeover(page: Page, frame: Buffer): Promise<Takeover> {
     ws.send(JSON.stringify({ type: 'status', state: 'ready', ...FRAME }));
     ws.send(frame);
   });
+  // The token rides in the Sec-WebSocket-Protocol header (carnet#1873), which
+  // a routed socket does not expose: record what the page offers. Added after
+  // the route, so it wraps the mock socket class the route installs.
+  await page.addInitScript(() => {
+    const Native = window.WebSocket;
+    const offered: Array<{ url: string; protocols: string[] }> = [];
+    (window as unknown as { __takeoverSockets: typeof offered }).__takeoverSockets = offered;
+    window.WebSocket = class extends Native {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        offered.push({
+          url: String(url),
+          protocols: protocols === undefined ? [] : ([] as string[]).concat(protocols),
+        });
+        super(url, protocols);
+      }
+    } as typeof WebSocket;
+  });
   return {
     socket: () => {
       if (!route) throw new Error('the page opened no takeover socket');
       return route;
     },
-    token: () => token,
+    urlToken: () => urlToken,
+    token: async () => {
+      const offered = await page.evaluate(
+        () => (window as unknown as { __takeoverSockets: Array<{ protocols: string[] }> }).__takeoverSockets,
+      );
+      const carrier = offered.at(-1)?.protocols.find((p) => p.startsWith('pierre-takeover.'));
+      return carrier ? carrier.slice('pierre-takeover.'.length) : null;
+    },
     received: () => received,
     closed: () => closed,
   };
@@ -88,7 +115,8 @@ function typed(takeover: Takeover) {
 test.describe('Login takeover page', () => {
   test('opens the socket with the link token, renders frames, and takes the token out of the address bar', async ({ page }) => {
     const takeover = await openTakeover(page);
-    expect(takeover.token()).toBe(TOKEN);
+    expect(await takeover.token()).toBe(TOKEN);
+    expect(takeover.urlToken(), 'the token never rides in the socket URL').toBeNull();
 
     const canvas = page.getByRole('img', { name: 'Garmin sign-in page' });
     await expect(canvas).toBeVisible();
@@ -223,7 +251,8 @@ test.describe('Login takeover in the sign-in window', () => {
     await expect(dialog.getByTestId('takeover-status')).toHaveText(
       "Garmin wants to check you're not a robot. Complete the check below, then press Sign In.",
     );
-    expect(takeover.token()).toBe(TOKEN);
+    expect(await takeover.token()).toBe(TOKEN);
+    expect(takeover.urlToken(), 'the token never rides in the socket URL').toBeNull();
     expect(logins[0]?.attempt_id).toEqual(expect.stringMatching(/^[0-9a-f-]{36}$/));
     expect(logins[0]).not.toHaveProperty('consents');
     const canvas = dialog.getByRole('img', { name: 'Garmin sign-in page' });

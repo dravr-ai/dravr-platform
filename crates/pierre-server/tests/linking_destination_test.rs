@@ -121,8 +121,14 @@ async fn a_channel_with_no_resolvable_destination_refuses_to_link() {
 
     for (channel, credentials) in [
         ("telegram", json!({ "webhook_secret": "tg-secret" })),
-        ("whatsapp", json!({ "api_key": "wa-key" })),
-        ("messenger", json!({ "api_key": "page-token" })),
+        (
+            "whatsapp",
+            json!({ "api_key": "wa-key", "verify_token": "wa-verify" }),
+        ),
+        (
+            "messenger",
+            json!({ "api_key": "page-token", "verify_token": "page-verify" }),
+        ),
         ("slack", json!({ "webhook_secret": "signing-secret" })),
         ("discord", json!({ "webhook_secret": "public-key" })),
     ] {
@@ -151,7 +157,7 @@ async fn a_channel_links_to_the_destination_its_config_names() {
 
     for (channel, credentials, prefix) in [(
         "messenger",
-        json!({ "account_id": "page-1" }),
+        json!({ "account_id": "page-1", "verify_token": "page-verify" }),
         "https://m.me/page-1?ref=",
     )] {
         let (status, body) = init_link(&router, &token, channel, credentials).await;

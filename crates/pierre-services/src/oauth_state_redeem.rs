@@ -1,5 +1,5 @@
-// ABOUTME: Redeeming an OAuth callback's state — verified server-side, marked used, redirect read
-// ABOUTME: Split out of oauth_flow; the only path to a flow's mobile redirect URL
+// ABOUTME: Redeeming an OAuth callback's state — verified server-side, marked used, redirect read from the row
+// ABOUTME: Split out of oauth_flow; the only path to a flow's return URL
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,11 +7,13 @@
 //! The state a callback carries, redeemed once against server-side storage.
 //!
 //! Kept out of `oauth_flow` so that orchestrator stays within its size budget,
-//! and so the one rule of this module sits in one place: a flow's mobile
-//! redirect URL is read from a state only after that state redeems. The URL
-//! rides base64-encoded inside the state string, and the callback route is
-//! public, so a redirect read from an unredeemed state is an open redirect
-//! (carnet#556).
+//! and so the one rule of this module sits in one place: a flow's return URL
+//! comes from the server-side row its state redeems, never from the state
+//! string. The state is opaque (carnet#1873): the URL of a hosted connect
+//! start carries the athlete's connect link token, and the state travels in
+//! the provider's authorize URL and our callback's request logs. Reading the
+//! row only once it redeems also keeps the public callback from being an
+//! open redirect (carnet#556).
 
 use dravr_tronc::dates::Timestamp;
 use pierre_core::errors::{AppError, AppResult};
@@ -19,13 +21,13 @@ use std::fmt;
 use tracing::{error, warn};
 
 use crate::oauth_flow::OAuthService;
-use crate::oauth_redirects::extract_mobile_redirect_from_state;
+use crate::oauth_redirects::is_allowed_redirect_url;
 
 /// A callback `state` that [`OAuthService::redeem_state`] verified against
 /// server-side storage and marked used.
 pub struct ParsedOAuthState {
     pub(crate) user_id: uuid::Uuid,
-    /// Optional redirect URL for mobile OAuth flows (base64 encoded in state)
+    /// The flow's return URL, read from its state row and allowlisted
     pub(crate) mobile_redirect_url: Option<String>,
     /// PKCE code verifier recovered from server-side state storage
     pub(crate) pkce_code_verifier: Option<String>,
@@ -75,10 +77,10 @@ impl OAuthService {
     /// Redeem a callback's `state`: verify it was issued by this server for
     /// `provider`, is unexpired and unused, and mark it used.
     ///
-    /// This is the only way to learn a flow's mobile redirect URL. The URL
-    /// rides inside the state string, so reading it from a state nobody looked
-    /// up would let anyone who builds a state of their own choose where the
-    /// callback redirects (carnet#556).
+    /// This is the only way to learn a flow's return URL: it is stored with
+    /// the state's row and read back only from a row this call redeemed, so
+    /// nobody who builds a state of their own chooses where the callback
+    /// redirects (carnet#556).
     ///
     /// # Errors
     /// Returns an error when the provider is unsupported or the state is
@@ -98,8 +100,8 @@ impl OAuthService {
     /// and has not been used before (one-time use). Uses the provider name as the
     /// `client_id` for additional validation that the callback matches the initiated flow.
     ///
-    /// State format: `{user_id}:{random}` or `{user_id}:{random}:{base64_redirect_url}`
-    /// The redirect URL allows mobile apps to specify where to redirect after OAuth completes.
+    /// The state is an opaque key: the user, tenant, PKCE verifier and return
+    /// URL all come from the row it names.
     pub(crate) async fn consume_and_validate_state(
         &self,
         state: &str,
@@ -131,9 +133,11 @@ impl OAuthService {
             AppError::auth_invalid("OAuth state missing user identity")
         })?;
 
-        // Extract optional mobile redirect URL from the state string
-        // (embedded as base64 in the third segment of the state format)
-        let mobile_redirect_url = self.extract_mobile_redirect_from_state_str(state);
+        // The return URL the flow was started with, still checked against
+        // the allowlist: the configured origins may have changed since.
+        let mobile_redirect_url = client_state
+            .return_redirect
+            .filter(|url| self.is_allowed_return_url(url));
 
         // PKCE code verifier stored server-side during authorization URL generation
         let pkce_code_verifier = client_state.pkce_code_verifier;
@@ -153,13 +157,10 @@ impl OAuthService {
         })
     }
 
-    /// Extract mobile redirect URL from state string format
-    ///
-    /// State format: `{user_id}:{random}:{base64_redirect_url}`
-    /// Delegates to `extract_mobile_redirect_from_state`.
-    fn extract_mobile_redirect_from_state_str(&self, state: &str) -> Option<String> {
-        extract_mobile_redirect_from_state(
-            state,
+    /// Whether a stored return URL is still on the redirect allowlist.
+    fn is_allowed_return_url(&self, url: &str) -> bool {
+        is_allowed_redirect_url(
+            url,
             &self.config().base_url,
             &self.config().security.allowed_mobile_redirect_origins,
         )

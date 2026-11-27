@@ -32,8 +32,6 @@ use axum::extract::Path;
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{delete, get, post};
 use axum::{Form, Json, Router};
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use base64::Engine as _;
 use dravr_tronc::dates::Elapsed;
 use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
@@ -218,6 +216,7 @@ async fn complete_oauth_link(resources: &ServerContext, user_id: Uuid, tenant_id
             scope: None,
             pkce_code_verifier: None,
             oauth_app_client_id: None,
+            return_redirect: None,
             created_at: Timestamp::now(),
             expires_at: Timestamp::now() + Elapsed::minutes(10),
             used: false,
@@ -517,10 +516,11 @@ async fn the_authorize_url_asks_for_the_comma_joined_scopes_without_pkce() {
 }
 
 /// The mobile init answers the same authorize URL, with the app's deep link
-/// carried as the state's third segment for the callback to return to, while
-/// the redirect URI Intervals.icu sees stays this server's callback.
+/// kept in the flow's state row for the callback to return to — never in the
+/// state Intervals.icu sees (carnet#1873) — while the redirect URI it sees
+/// stays this server's callback.
 #[tokio::test]
-async fn the_mobile_init_carries_the_apps_deep_link_in_the_state() {
+async fn the_mobile_init_keeps_the_apps_deep_link_in_the_state_row() {
     let (base, _mock) = mock_intervals().await;
     let mut config = config_pointed_at(&base);
     PUBLIC_BASE_URL.clone_into(&mut config.base_url);
@@ -544,11 +544,22 @@ async fn the_mobile_init_carries_the_apps_deep_link_in_the_state() {
     let body: Value = response.json();
 
     let state = body["state"].as_str().expect("the init answers its state");
-    let segments: Vec<&str> = state.split(':').collect();
-    assert_eq!(segments.len(), 3, "user, nonce and the deep link: {state}");
+    assert!(
+        !state.contains(':'),
+        "the state is opaque, with no segment to decode: {state}"
+    );
+    let stored = resources
+        .common
+        .repos
+        .oauth_client_state
+        .consume_oauth_client_state(state, PROVIDER, Timestamp::now())
+        .await
+        .unwrap()
+        .expect("the state is stored for the callback");
     assert_eq!(
-        URL_SAFE_NO_PAD.decode(segments[2]).unwrap(),
-        deep_link.as_bytes()
+        stored.return_redirect.as_deref(),
+        Some(deep_link),
+        "the deep link rides the state row"
     );
 
     let url = Url::parse(body["authorization_url"].as_str().unwrap()).unwrap();

@@ -652,9 +652,10 @@ async fn test_oauth_callback_error_handling() {
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("OAuth state"));
 
-    // carnet#556: the redirect inside a state string counts only once the
-    // state redeems. A forged state names no redirect, however valid its URL;
-    // a state this server stored gives back the redirect it was minted with.
+    // carnet#556, carnet#1873: a flow's return URL is read from the row its
+    // state redeems, never from the state string. A forged state in the old
+    // `{user}:{nonce}:{base64(url)}` shape names no redirect; a stored state
+    // gives back the allowlisted URL its row was minted with, once.
     {
         use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
         use dravr_tronc::dates::Timestamp;
@@ -663,36 +664,57 @@ async fn test_oauth_callback_error_handling() {
         let redirect = "dravr://oauth-callback";
         let encoded = URL_SAFE_NO_PAD.encode(redirect.as_bytes());
         let forged = format!("{test_user_id}:{}:{encoded}", uuid::Uuid::new_v4());
-        assert!(oauth_routes.redeem_state(&forged, "strava").await.is_err());
+        assert!(
+            oauth_routes.redeem_state(&forged, "strava").await.is_err(),
+            "a state this server never stored does not redeem"
+        );
 
-        let minted = format!("{test_user_id}:{}:{encoded}", uuid::Uuid::new_v4());
-        server_resources
-            .common
-            .repos
-            .oauth_client_state
-            .store_oauth_client_state(&OAuthClientState {
-                state: minted.clone(),
-                provider: "strava".to_owned(),
-                user_id: Some(test_user_id),
-                tenant_id: None,
-                redirect_uri: "http://localhost:8081/api/oauth/callback/strava".to_owned(),
-                scope: None,
-                pkce_code_verifier: None,
-                oauth_app_client_id: None,
-                created_at: Timestamp::now(),
-                expires_at: Timestamp::now() + Elapsed::minutes(10),
-                used: false,
-            })
+        let mint = |state: &str, return_redirect: &str| OAuthClientState {
+            state: state.to_owned(),
+            provider: "strava".to_owned(),
+            user_id: Some(test_user_id),
+            tenant_id: None,
+            redirect_uri: "http://localhost:8081/api/oauth/callback/strava".to_owned(),
+            scope: None,
+            pkce_code_verifier: None,
+            oauth_app_client_id: None,
+            return_redirect: Some(return_redirect.to_owned()),
+            created_at: Timestamp::now(),
+            expires_at: Timestamp::now() + Elapsed::minutes(10),
+            used: false,
+        };
+        let repo = &server_resources.common.repos.oauth_client_state;
+
+        let minted = uuid::Uuid::new_v4().simple().to_string();
+        repo.store_oauth_client_state(&mint(&minted, redirect))
             .await
             .unwrap();
         let redeemed = oauth_routes
             .redeem_state(&minted, "strava")
             .await
             .expect("a stored state redeems");
-        assert_eq!(redeemed.mobile_redirect_url(), Some(redirect));
+        assert_eq!(
+            redeemed.mobile_redirect_url(),
+            Some(redirect),
+            "the return URL comes back from the row"
+        );
         assert!(
             oauth_routes.redeem_state(&minted, "strava").await.is_err(),
             "a state redeems once"
+        );
+
+        let off_list = uuid::Uuid::new_v4().simple().to_string();
+        repo.store_oauth_client_state(&mint(&off_list, "https://evil.example/steal"))
+            .await
+            .unwrap();
+        let redeemed = oauth_routes
+            .redeem_state(&off_list, "strava")
+            .await
+            .expect("a stored state redeems");
+        assert_eq!(
+            redeemed.mobile_redirect_url(),
+            None,
+            "a stored URL off the redirect allowlist is never honoured"
         );
     }
 
@@ -955,14 +977,19 @@ async fn test_oauth_state_csrf_protection() {
         .await
         .unwrap();
 
-    // Verify state contains user ID
-    assert!(auth_response.state.contains(&user_id.to_string()));
-
-    // Verify state format is UUID:UUID
-    let state_parts: Vec<&str> = auth_response.state.split(':').collect();
-    assert_eq!(state_parts.len(), 2);
-    assert_eq!(state_parts[0], user_id.to_string());
-    assert!(uuid::Uuid::parse_str(state_parts[1]).is_ok());
+    // The state is opaque (carnet#1873): it names neither the user nor
+    // anything else the provider could read.
+    assert!(
+        !auth_response.state.contains(&user_id.to_string())
+            && !auth_response.state.contains(&user_id.simple().to_string()),
+        "the state names no user: {}",
+        auth_response.state
+    );
+    assert!(
+        !auth_response.state.contains(':'),
+        "the state has no segments to parse: {}",
+        auth_response.state
+    );
 
     // Verify each request generates unique state
     let auth_response2 = oauth_routes

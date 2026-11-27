@@ -170,7 +170,7 @@ fn an_oauth2_state_never_prints_its_state() {
 }
 
 #[test]
-fn an_oauth_client_state_never_prints_its_state_or_pkce_verifier() {
+fn an_oauth_client_state_never_prints_its_state_pkce_verifier_or_return_url() {
     let state = OAuthClientState {
         state: "sentinel-clientstate-7f3a".to_owned(),
         provider: "strava".to_owned(),
@@ -180,13 +180,20 @@ fn an_oauth_client_state_never_prints_its_state_or_pkce_verifier() {
         scope: None,
         pkce_code_verifier: Some("sentinel-verifier-7f3a".to_owned()),
         oauth_app_client_id: None,
+        return_redirect: Some(
+            "https://example.test/providers/connect?token=sentinel-link-7f3a".to_owned(),
+        ),
         created_at: Timestamp::now(),
         expires_at: Timestamp::now(),
         used: false,
     };
     let printed = printed_without(
         &state,
-        &["sentinel-clientstate-7f3a", "sentinel-verifier-7f3a"],
+        &[
+            "sentinel-clientstate-7f3a",
+            "sentinel-verifier-7f3a",
+            "sentinel-link-7f3a",
+        ],
     );
     assert!(printed.contains("OAuthClientState"), "{printed}");
 }

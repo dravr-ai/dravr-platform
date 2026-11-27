@@ -13,6 +13,7 @@ import ResetPassword from './components/ResetPassword';
 import VerifyEmail from './components/VerifyEmail';
 import AcceptInvitation from './components/AcceptInvitation';
 import { ACCEPT_INVITATION_PATH, TAKEOVER_PATH, VERIFY_EMAIL_PATH, parseInvitationKind, parseLinkToken } from './utils/tokenLink';
+import { isRegisterLandingPath, parseSignupCode } from './utils/signupLink';
 import PendingApproval from './components/PendingApproval';
 import Dashboard from './components/Dashboard';
 import OnboardingFlow from './components/OnboardingFlow';
@@ -94,17 +95,17 @@ function isTakeoverPath(): boolean {
  * names rather than the sign-in form.
  */
 function isRegisterPath(): boolean {
-  return window.location.pathname === '/register' || window.location.pathname === '/signup';
+  return isRegisterLandingPath(window.location.pathname);
 }
 
 /**
- * The signup code a create-account link carries (`/signup?code=…`), so a code
- * an admin or coach shares as a link fills itself in (carnet#1128).
+ * The signup code a create-account link carries (`/signup#code=…`, or an
+ * older `/signup?code=…`), so a code an admin or coach shares as a link fills
+ * itself in (carnet#1128, carnet#1873).
  */
 function getSignupCodeParam(): string | null {
   if (!isRegisterPath()) return null;
-  const code = new URLSearchParams(window.location.search).get('code')?.trim();
-  return code ? code : null;
+  return parseSignupCode(window.location.search, window.location.hash);
 }
 
 type AuthView = 'login' | 'register' | 'forgot-password' | 'reset-password';

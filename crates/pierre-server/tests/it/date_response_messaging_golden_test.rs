@@ -80,7 +80,11 @@ impl Messaging {
                 "/api/messaging/channels/messenger",
                 &json!({
                     "enabled": true,
-                    "credentials": { "api_key": "page-token", "account_id": "page-1" }
+                    "credentials": {
+                        "api_key": "page-token",
+                        "account_id": "page-1",
+                        "verify_token": "page-verify"
+                    }
                 }),
             )
             .await;

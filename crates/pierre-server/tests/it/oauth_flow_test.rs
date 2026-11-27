@@ -111,41 +111,6 @@ fn test_data_scheme_rejected() {
 }
 
 #[test]
-fn test_extract_state_with_allowed_redirect() {
-    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-
-    let redirect = "dravr://oauth/callback";
-    let encoded = URL_SAFE_NO_PAD.encode(redirect.as_bytes());
-    let state = format!("user-id:random-uuid:{encoded}");
-
-    let result =
-        oauth_redirects::extract_mobile_redirect_from_state(&state, "https://api.dravr.ai", &[]);
-    assert_eq!(result, Some(redirect.to_owned()));
-}
-
-#[test]
-fn test_extract_state_with_rejected_redirect() {
-    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-
-    let redirect = "https://evil.com/steal";
-    let encoded = URL_SAFE_NO_PAD.encode(redirect.as_bytes());
-    let state = format!("user-id:random-uuid:{encoded}");
-
-    let result =
-        oauth_redirects::extract_mobile_redirect_from_state(&state, "https://api.dravr.ai", &[]);
-    assert_eq!(result, None);
-}
-
-#[test]
-fn test_extract_state_without_redirect() {
-    let state = "user-id:random-uuid";
-
-    let result =
-        oauth_redirects::extract_mobile_redirect_from_state(state, "https://api.dravr.ai", &[]);
-    assert_eq!(result, None);
-}
-
-#[test]
 fn test_oauth_return_url_appends_query_when_none() {
     // Mobile deep link / SPA return: no existing query, so the result params
     // are joined with `?`.

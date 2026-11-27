@@ -1,4 +1,4 @@
-// ABOUTME: Post-OAuth redirect URL validation and construction — allowlist, state decoding, return URLs
+// ABOUTME: Post-OAuth redirect URL validation and construction — allowlist and return URLs
 // ABOUTME: Pure helpers shared by the OAuth callback routes and the OAuth flow service
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -82,64 +82,6 @@ fn is_origin_allowed(url: &Url, base_url: &str, extra_origins: &[String]) -> boo
         );
     }
     allowed
-}
-
-/// Extract mobile redirect URL from the OAuth state string
-///
-/// State format: `{user_id}:{random}:{base64_redirect_url}`
-/// The redirect URL is embedded as base64-encoded data in the third segment.
-///
-/// Returns `None` if the state doesn't contain a redirect URL or decoding fails.
-/// The `base_url` and `extra_origins` are used to validate HTTPS redirect targets.
-#[must_use]
-pub fn extract_mobile_redirect_from_state(
-    state: &str,
-    base_url: &str,
-    extra_origins: &[String],
-) -> Option<String> {
-    let parts: Vec<&str> = state.splitn(3, ':').collect();
-    parts
-        .get(2)
-        .filter(|s| !s.is_empty())
-        .and_then(|encoded| decode_and_validate_redirect_url(encoded, base_url, extra_origins))
-}
-
-/// Decode a base64-encoded redirect URL and validate against the allowlist
-///
-/// Only URLs with allowed schemes/origins are accepted to prevent open redirect attacks.
-///
-/// Returns `None` if decoding fails or the URL is not allowed.
-#[must_use]
-pub fn decode_and_validate_redirect_url(
-    encoded: &str,
-    base_url: &str,
-    extra_origins: &[String],
-) -> Option<String> {
-    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-
-    URL_SAFE_NO_PAD
-        .decode(encoded)
-        .map_err(|e| {
-            warn!("Failed to decode base64 redirect URL: {}", e);
-            e
-        })
-        .ok()
-        .and_then(|bytes| {
-            String::from_utf8(bytes)
-                .map_err(|e| {
-                    warn!("Failed to decode redirect URL as UTF-8: {}", e);
-                    e
-                })
-                .ok()
-        })
-        .and_then(|url| {
-            if is_allowed_redirect_url(&url, base_url, extra_origins) {
-                Some(url)
-            } else {
-                warn!("Rejected redirect URL (not in allowlist): {}", url);
-                None
-            }
-        })
 }
 
 /// Append the `provider`/`success`/`error` result params to a post-OAuth URL.

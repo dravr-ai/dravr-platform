@@ -166,17 +166,36 @@ function oauthStartQuery(options: OAuthStartOptions, params = new URLSearchParam
   return query ? `?${query}` : '';
 }
 
+/** The subprotocol the takeover socket speaks; the server echoes it back. */
+export const SCIOTTE_TAKEOVER_PROTOCOL = 'pierre-takeover';
+
+/** How to open a takeover socket: where, and the subprotocols that carry its token. */
+export interface SciotteTakeoverSocket {
+  url: string;
+  protocols: string[];
+}
+
 /**
  * The takeover socket's URL on the origin of `base` (an absolute http(s) URL
- * of the API): `ws://` under `http://`, `wss://` under `https://`, with the
- * takeover token as its `token` query parameter. `null` when `base` is not an
- * absolute http(s) URL.
+ * of the API): `ws://` under `http://`, `wss://` under `https://`. It carries
+ * no token: a URL reaches proxy and request logs. `null` when `base` is not
+ * an absolute http(s) URL.
  */
-export function sciotteTakeoverSocketUrl(base: string, token: string): string | null {
+export function sciotteTakeoverSocketUrl(base: string): string | null {
   const match = /^(https?):\/\/([^/?#]+)/i.exec(base);
   if (!match) return null;
   const scheme = match[1].toLowerCase() === 'https' ? 'wss' : 'ws';
-  return `${scheme}://${match[2]}${ENDPOINTS.PROVIDERS.SCIOTTE_TAKEOVER_SOCKET}?token=${encodeURIComponent(token)}`;
+  return `${scheme}://${match[2]}${ENDPOINTS.PROVIDERS.SCIOTTE_TAKEOVER_SOCKET}`;
+}
+
+/**
+ * The subprotocols a takeover socket offers: the fixed one the server echoes,
+ * and the takeover token beside it (`pierre-takeover.<token>`). The upgrade's
+ * `Sec-WebSocket-Protocol` header carries the token, which no log records.
+ * A JWT's characters are all valid in a subprotocol.
+ */
+export function sciotteTakeoverProtocols(token: string): string[] {
+  return [SCIOTTE_TAKEOVER_PROTOCOL, `${SCIOTTE_TAKEOVER_PROTOCOL}.${token}`];
 }
 
 /**
@@ -421,14 +440,16 @@ export function createOAuthApi(axios: AxiosInstance) {
     },
 
     /**
-     * The URL of the takeover socket of a sign-in a provider's robot check
-     * parked, for its takeover token, on the API's own origin — or on
-     * `fallbackOrigin` when the client's base URL is relative (a web app
-     * served beside its API). `null` when neither is an absolute http(s) URL.
+     * The takeover socket of a sign-in a provider's robot check parked: its
+     * URL on the API's own origin — or on `fallbackOrigin` when the client's
+     * base URL is relative (a web app served beside its API) — and the
+     * subprotocols that carry `token`. `null` when neither origin is an
+     * absolute http(s) URL.
      */
-    sciotteTakeoverSocketUrl(token: string, fallbackOrigin?: string): string | null {
+    sciotteTakeoverSocket(token: string, fallbackOrigin?: string): SciotteTakeoverSocket | null {
       const base = axios.defaults.baseURL ?? '';
-      return sciotteTakeoverSocketUrl(base, token) ?? (fallbackOrigin ? sciotteTakeoverSocketUrl(fallbackOrigin, token) : null);
+      const url = sciotteTakeoverSocketUrl(base) ?? (fallbackOrigin ? sciotteTakeoverSocketUrl(fallbackOrigin) : null);
+      return url ? { url, protocols: sciotteTakeoverProtocols(token) } : null;
     },
 
     /**

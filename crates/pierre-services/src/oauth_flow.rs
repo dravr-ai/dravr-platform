@@ -1,5 +1,5 @@
 // ABOUTME: OAuth flow business logic extracted from route handlers
-// ABOUTME: State parsing, redirect URL validation, PKCE, token exchange, provider disconnect, connection status
+// ABOUTME: Opaque state minting, redirect URL validation, PKCE, token exchange, provider disconnect, connection status
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,6 +9,8 @@ use std::{
     sync::Arc,
 };
 
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine as _;
 use dravr_tronc::dates::Timestamp;
 use secrecy::SecretString;
 use tracing::{debug, error, field, info, warn, Span};
@@ -44,15 +46,27 @@ use pierre_runtime_context::DataContext;
 /// What a flow's starter asks of it beyond the authorization itself.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct AuthUrlOptions<'a> {
-    /// A post-OAuth return URL, embedded as the third (base64) state segment —
-    /// the same channel the mobile deep-link flow uses. The session-less
-    /// callback decodes it and redirects success/failure there instead of the
-    /// SPA. The channel-initiated hosted connect flow passes its picker URL so
-    /// a failed Strava OAuth bounces the user back to the picker (which opens
-    /// the session sign-in fallback) rather than stranding them on the SPA
-    /// error page. The URL is validated against the redirect allowlist by the
-    /// callback before it is honored.
+    /// A post-OAuth return URL, kept in the flow's server-side state row.
+    ///
+    /// The same channel the mobile deep-link flow uses. The session-less
+    /// callback reads it back from the row it redeems and redirects
+    /// success/failure there instead of the SPA. It never rides the `state`
+    /// the provider sees: a hosted connect start's URL carries the athlete's
+    /// connect link token (carnet#1873). The channel-initiated hosted connect
+    /// flow passes its picker URL so a failed Strava OAuth bounces the user
+    /// back to the picker (which opens the session sign-in fallback) rather
+    /// than stranding them on the SPA error page. The URL is validated against
+    /// the redirect allowlist by the callback before it is honored.
     pub return_redirect: Option<&'a str>,
+}
+
+/// A fresh `state` for a provider authorization: 256 random bits, base64url.
+///
+/// It names nothing — not the user, not the return URL — because it travels
+/// in the provider's authorize URL and our callback's request logs; the
+/// server-side row keyed by it holds the rest.
+fn opaque_state() -> String {
+    URL_SAFE_NO_PAD.encode(rand::random::<[u8; 32]>())
 }
 
 /// What a resolved OAuth client presents at its provider
@@ -897,21 +911,9 @@ impl OAuthService {
             server_level,
         );
 
-        // Embed the optional return URL as the third state segment (base64), so
-        // the callback bounces success/failure there. base64 URL_SAFE_NO_PAD
-        // never emits ':' so the segment split stays unambiguous.
-        let state = options.return_redirect.map_or_else(
-            || format!("{}:{}", user_id, uuid::Uuid::new_v4()),
-            |url| {
-                use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-                format!(
-                    "{}:{}:{}",
-                    user_id,
-                    uuid::Uuid::new_v4(),
-                    URL_SAFE_NO_PAD.encode(url.as_bytes())
-                )
-            },
-        );
+        // The state the provider sees is opaque: everything the callback needs
+        // (the user, the tenant, the return URL) lives in the row it redeems.
+        let state = opaque_state();
 
         // The same configuration the code exchange presents. Its builder
         // sends the challenge, and the verifier is kept below, only when the
@@ -942,6 +944,7 @@ impl OAuthService {
             scope: Some(scope).filter(|scope| !scope.is_empty()),
             pkce_code_verifier: params.use_pkce.then_some(pkce.code_verifier),
             oauth_app_client_id: oauth_app_attribution,
+            return_redirect: options.return_redirect.map(str::to_owned),
             created_at: now,
             expires_at: now + Elapsed::minutes(10),
             used: false,

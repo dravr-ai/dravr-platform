@@ -22,7 +22,10 @@ vi.mock('../../services/api', () => ({
     sciotteSubmitOTP: vi.fn(),
     sciotteCancel: (...args: unknown[]) => sciotteCancel(...args),
     authorizeUrl: vi.fn(),
-    sciotteTakeoverSocketUrl: (token: string) => `ws://app.dravr.test/ws/providers/sciotte/takeover?token=${token}`,
+    sciotteTakeoverSocket: (token: string) => ({
+      url: 'ws://app.dravr.test/ws/providers/sciotte/takeover',
+      protocols: ['pierre-takeover', `pierre-takeover.${token}`],
+    }),
   },
 }));
 vi.mock('../OAuthAppSetupModal', () => ({ default: () => null }));
@@ -79,7 +82,8 @@ describe('SciotteLoginModal — the takeover of a provider robot check', () => {
 
   it("opens the takeover in the window with the token from the link's fragment", async () => {
     const { socket } = await intoTakeover();
-    expect(socket.url).toBe(`ws://app.dravr.test/ws/providers/sciotte/takeover?token=${TOKEN}`);
+    expect(socket.url).toBe('ws://app.dravr.test/ws/providers/sciotte/takeover');
+    expect(socket.protocols).toEqual(['pierre-takeover', `pierre-takeover.${TOKEN}`]);
     expect(screen.getByTestId('takeover-viewer')).toBeInTheDocument();
     expect(screen.queryByTestId('takeover-oauth-offer')).not.toBeInTheDocument();
   });

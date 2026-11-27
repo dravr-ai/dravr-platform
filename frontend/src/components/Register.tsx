@@ -27,7 +27,7 @@ import { describeRegistration, isInvalidSignupCode, isPasswordLongEnough } from 
 interface RegisterProps {
   onNavigateToLogin: () => void;
   onRegistrationSuccess: (message: string, email: string) => void;
-  /** A signup code the create-account link carried (`/signup?code=…`). */
+  /** A signup code the create-account link carried (`/signup#code=…`, or `?code=…`). */
   initialSignupCode?: string;
 }
 

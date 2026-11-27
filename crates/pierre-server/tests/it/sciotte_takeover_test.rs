@@ -7,7 +7,8 @@
 //! ADR-034: a login that names its window's attempt asks the service for a
 //! takeover. One a captcha parks answers `takeover_required` with a link to
 //! `/sign-in-check` carrying a takeover token in its fragment; the page opens
-//! `/ws/providers/sciotte/takeover?token=…`, and the platform relays it to
+//! `/ws/providers/sciotte/takeover` offering that token as a subprotocol
+//! (never in the URL, which request logs keep), and the platform relays it to
 //! the service's own takeover socket. These tests run the platform's real routes
 //! against a loopback stand-in of the service (a test double, per the
 //! repo's mock rule), on a thread of its own so it outlives each test's
@@ -47,6 +48,11 @@ use sha2::{Digest, Sha256};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::runtime::Builder;
 use tokio::time::{sleep, timeout};
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::handshake::client::{
+    Request as WsRequest, Response as WsResponse,
+};
+use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::{Error as WsError, Message};
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use uuid::Uuid;
@@ -74,6 +80,9 @@ fn flow_of(email: &str) -> String {
         format!("flow-{id}")
     }
 }
+
+/// The subprotocol the takeover socket speaks, which the platform echoes.
+const TAKEOVER_PROTOCOL: &str = "pierre-takeover";
 
 /// The longest any one wait here may take.
 const WAIT: Duration = Duration::from_secs(10);
@@ -362,14 +371,33 @@ impl Athlete {
         urlencoding::decode(token).unwrap().into_owned()
     }
 
+    /// Open the takeover socket as the page does: the token offered as a
+    /// subprotocol beside the fixed one, nothing in the URL.
     async fn open(&self, token: &str) -> Result<Viewer, WsError> {
-        connect_async(format!(
-            "ws://{}/ws/providers/sciotte/takeover?token={}",
-            self.platform,
-            urlencoding::encode(token)
-        ))
-        .await
-        .map(|(socket, _)| socket)
+        self.open_offering(&format!("{TAKEOVER_PROTOCOL}, {TAKEOVER_PROTOCOL}.{token}"))
+            .await
+            .map(|(socket, _)| socket)
+    }
+
+    /// Open the takeover socket offering `protocols` as its
+    /// `Sec-WebSocket-Protocol`, answering the upgrade response too.
+    async fn open_offering(&self, protocols: &str) -> Result<(Viewer, WsResponse), WsError> {
+        let mut request = self.socket_request("");
+        request.headers_mut().insert(
+            "sec-websocket-protocol",
+            HeaderValue::from_str(protocols).unwrap(),
+        );
+        connect_async(request).await
+    }
+
+    /// The upgrade request of the takeover socket, with `query` after its path.
+    fn socket_request(&self, query: &str) -> WsRequest {
+        format!(
+            "ws://{}/ws/providers/sciotte/takeover{query}",
+            self.platform
+        )
+        .into_client_request()
+        .unwrap()
     }
 
     async fn holds_garmin_session(&self) -> bool {
@@ -829,4 +857,66 @@ async fn a_cancel_reaches_a_sign_in_service_of_its_own() {
         reader().0.cancels.lock().unwrap().contains(&key)
     })
     .await;
+}
+
+/// The upgrade answers with the fixed subprotocol alone: the token offered
+/// beside it is never echoed back into a response.
+#[tokio::test]
+async fn the_upgrade_echoes_the_fixed_protocol_never_the_token() {
+    let athlete = Athlete::new().await;
+    let token = athlete.park(&email(CHALLENGED), &attempt()).await;
+    let (_viewer, response) = athlete
+        .open_offering(&format!("{TAKEOVER_PROTOCOL}, {TAKEOVER_PROTOCOL}.{token}"))
+        .await
+        .expect("the relay upgrades");
+    let echoed = response
+        .headers()
+        .get_all("sec-websocket-protocol")
+        .iter()
+        .map(|value| value.to_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        echoed,
+        vec![TAKEOVER_PROTOCOL.to_owned()],
+        "only the fixed subprotocol is echoed"
+    );
+}
+
+/// A token in the URL's query, where proxy and request logs keep it, opens
+/// nothing: the only carrier is the subprotocol header.
+#[tokio::test]
+async fn a_token_in_the_url_opens_nothing() {
+    let athlete = Athlete::new().await;
+    let token = athlete.park(&email(CHALLENGED), &attempt()).await;
+    let request = athlete.socket_request(&format!("?token={}", urlencoding::encode(&token)));
+    match connect_async(request).await {
+        Err(WsError::Http(response)) => assert_eq!(
+            response.status(),
+            401,
+            "a socket whose token is only in its URL is unauthenticated"
+        ),
+        other => panic!(
+            "a token in the URL is refused 401, got {:?}",
+            other.map(|_| ())
+        ),
+    }
+}
+
+/// A socket that offers the fixed subprotocol but no token is refused as
+/// unauthenticated before any flow is looked up.
+#[tokio::test]
+async fn a_socket_offering_no_token_opens_nothing() {
+    let athlete = Athlete::new().await;
+    athlete.park(&email(CHALLENGED), &attempt()).await;
+    match athlete.open_offering(TAKEOVER_PROTOCOL).await {
+        Err(WsError::Http(response)) => assert_eq!(
+            response.status(),
+            401,
+            "a socket offering no token is unauthenticated"
+        ),
+        other => panic!(
+            "a socket offering no token is refused 401, got {:?}",
+            other.map(|_| ())
+        ),
+    }
 }

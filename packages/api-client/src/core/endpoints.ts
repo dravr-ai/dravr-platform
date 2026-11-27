@@ -213,7 +213,8 @@ export const ENDPOINTS = {
     TRANSFER_CONSENT: (provider: string) => `/api/providers/${provider}/transfer-consent`,
     /**
      * WebSocket of a sign-in parked at a provider's robot check (ADR-034),
-     * opened with `?token=` (the takeover token). Under `/ws`, which the web
+     * opened with the takeover token offered as a subprotocol, never in the
+     * URL (`sciotteTakeoverProtocols`). Under `/ws`, which the web
      * app's nginx and Vite proxy carry as an upgrade.
      */
     SCIOTTE_TAKEOVER_SOCKET: '/ws/providers/sciotte/takeover',

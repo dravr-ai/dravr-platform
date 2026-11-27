@@ -14,8 +14,8 @@ use uuid::Uuid;
 /// Stored when generating an authorization URL and consumed atomically during callback.
 /// Separate from `OAuth2State` which is for Pierre's `OAuth2` server flow.
 ///
-/// `Debug` is hand-written: the state value (the CSRF secret) and the PKCE
-/// code verifier print as `[REDACTED]`.
+/// `Debug` is hand-written: the state value (the CSRF secret), the PKCE
+/// code verifier and the return URL print as `[REDACTED]`.
 #[derive(Clone)]
 pub struct OAuthClientState {
     /// Unique state value sent through the OAuth flow
@@ -38,6 +38,12 @@ pub struct OAuthClientState {
     /// the authorize URL (a mismatch makes the provider reject the code).
     /// `None` means the env-default `STRAVA_CLIENT_ID` app.
     pub oauth_app_client_id: Option<String>,
+    /// Where the callback returns the athlete; `None` returns to the frontend.
+    ///
+    /// Kept here rather than in the `state` the provider sees (carnet#1873):
+    /// a hosted connect start's URL carries the athlete's connect link token.
+    /// Checked against the redirect allowlist when the callback reads it.
+    pub return_redirect: Option<String>,
     /// When this state was created
     pub created_at: Timestamp,
     /// When this state expires (typically 10 minutes)
@@ -60,6 +66,10 @@ impl fmt::Debug for OAuthClientState {
                 &self.pkce_code_verifier.as_ref().map(|_| "[REDACTED]"),
             )
             .field("oauth_app_client_id", &self.oauth_app_client_id)
+            .field(
+                "return_redirect",
+                &self.return_redirect.as_ref().map(|_| "[REDACTED]"),
+            )
             .field("created_at", &self.created_at)
             .field("expires_at", &self.expires_at)
             .field("used", &self.used)

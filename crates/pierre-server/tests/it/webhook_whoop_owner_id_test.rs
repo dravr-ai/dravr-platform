@@ -179,6 +179,7 @@ async fn token_exchange_captures_the_whoop_user_id() {
             scope: None,
             pkce_code_verifier: None,
             oauth_app_client_id: None,
+            return_redirect: None,
             created_at: Timestamp::now(),
             expires_at: Timestamp::now() + Elapsed::minutes(10),
             used: false,

@@ -286,19 +286,18 @@ async fn test_oauth_authorization_url_generation() {
     assert!(strava_auth
         .authorization_url
         .contains("scope=activity%3Aread_all"));
-    assert!(strava_auth.state.contains(&user_id.to_string()));
     assert_eq!(strava_auth.expires_in_minutes, 10);
-    // The plain call must NOT embed a return segment: `{user_id}:{uuid}`.
-    assert_eq!(
-        strava_auth.state.split(':').count(),
-        2,
-        "plain get_auth_url state must have exactly two segments"
+    assert!(
+        !strava_auth.state.contains(&user_id.to_string()) && !strava_auth.state.contains(':'),
+        "the state is opaque, naming no user: {}",
+        strava_auth.state
     );
 
-    // A `return_redirect` option embeds the post-OAuth return URL as the third
-    // (base64) state segment so the session-less callback bounces success/
-    // failure there — the channel-initiated hosted connect flow relies on this
-    // to send a failed Strava OAuth back to the picker's session sign-in fallback.
+    // A `return_redirect` option keeps the post-OAuth return URL in the flow's
+    // state row so the session-less callback bounces success/failure there —
+    // the channel-initiated hosted connect flow relies on this to send a
+    // failed Strava OAuth back to the picker. It never rides the state the
+    // provider sees: the hosted URL carries the connect token (carnet#1873).
     let return_url = "http://localhost:8081/providers/connect?token=abc.def";
     let with_return = oauth_routes
         .get_auth_url(
@@ -311,200 +310,28 @@ async fn test_oauth_authorization_url_generation() {
         )
         .await
         .unwrap();
-    let segments: Vec<&str> = with_return.state.split(':').collect();
+    let encoded = URL_SAFE_NO_PAD.encode(return_url.as_bytes());
+    for leak in [return_url, "abc.def", encoded.as_str()] {
+        assert!(
+            !with_return.state.contains(leak) && !with_return.authorization_url.contains(leak),
+            "{leak} reaches the provider: {}",
+            with_return.authorization_url
+        );
+    }
+    let redeemed = oauth_routes
+        .redeem_state(&with_return.state, "strava")
+        .await
+        .expect("the minted state redeems");
     assert_eq!(
-        segments.len(),
-        3,
-        "state must carry the embedded return segment"
+        redeemed.mobile_redirect_url(),
+        Some(return_url),
+        "the return URL comes back from the state row"
     );
-    let decoded = String::from_utf8(
-        URL_SAFE_NO_PAD
-            .decode(segments[2])
-            .expect("third state segment is base64"),
-    )
-    .expect("decoded return URL is utf-8");
-    assert_eq!(decoded, return_url, "embedded return URL round-trips");
 
     // Direct `garmin` OAuth was removed in a3ecd1b6's provider cleanup —
     // Garmin data now flows through the headless session sign-in (`sciotte_garmin`).
     // The Strava block above is the canonical OAuth-URL-generation check
     // for this test's intent.
-}
-
-#[tokio::test]
-async fn test_oauth_state_validation() {
-    common::init_server_config();
-
-    let encryption_key = generate_encryption_key().to_vec();
-
-    let database = create_test_db_with_key(encryption_key).await.unwrap();
-
-    let auth_manager = AuthManager::new(24);
-
-    let temp_dir = tempfile::tempdir().unwrap();
-    let config = Arc::new(ServerConfig {
-        http_port: 8080,
-        log_level: LogLevel::Info,
-        logging: LoggingConfig::default(),
-        http_client: HttpClientConfig::default(),
-        database: DatabaseConfig {
-            url: DatabaseUrl::Memory,
-            auto_migrate: true,
-            backup: BackupConfig {
-                enabled: false,
-                interval_seconds: 3600,
-                retention_count: 7,
-                directory: temp_dir.path().to_path_buf(),
-            },
-            postgres_pool: PostgresPoolConfig::default(),
-        },
-        auth: AuthConfig {
-            jwt_expiry_hours: 24,
-            refresh_token_expiry_days: 30,
-        },
-        oauth: OAuthConfig {
-            strava: OAuthProviderConfig {
-                client_id: Some("test_strava_client_id".to_owned()),
-                client_secret: Some(SecretString::from("test_strava_client_secret")),
-                redirect_uri: Some("http://localhost:8080/api/oauth/callback/strava".to_owned()),
-                scopes: vec![],
-                enabled: true,
-            },
-            garmin: OAuthProviderConfig {
-                client_id: Some("test_garmin_client_id".to_owned()),
-                client_secret: Some(SecretString::from("test_garmin_client_secret")),
-                redirect_uri: Some("http://localhost:8080/api/oauth/callback/garmin".to_owned()),
-                scopes: vec![],
-                enabled: true,
-            },
-            whoop: OAuthProviderConfig {
-                client_id: None,
-                client_secret: None,
-                redirect_uri: None,
-                scopes: vec![],
-                enabled: false,
-            },
-            terra: OAuthProviderConfig {
-                client_id: None,
-                client_secret: None,
-                redirect_uri: None,
-                scopes: vec![],
-                enabled: false,
-            },
-            ..OAuthConfig::default()
-        },
-        security: SecurityConfig {
-            cors_origins: vec!["*".to_owned()],
-            allowed_mobile_redirect_origins: vec![],
-            tls: TlsConfig {
-                enabled: false,
-                cert_path: None,
-                key_path: None,
-            },
-            headers: SecurityHeadersConfig {
-                environment: Environment::Testing,
-            },
-        },
-        external_services: ExternalServicesConfig {
-            strava_api: StravaApiConfig::default(),
-            ..Default::default()
-        },
-        app_behavior: AppBehaviorConfig {
-            max_activities_fetch: 100,
-            default_activities_limit: 20,
-            ci_mode: true,
-            auto_approve_users: false,
-            auto_approve_users_from_env: false,
-            auto_approve_domains: vec![],
-            protocol: ProtocolConfig {
-                mcp_version: "2025-06-18".to_owned(),
-                server_name: "pierre-mcp-server-test".to_owned(),
-                server_version: env!("CARGO_PKG_VERSION").to_owned(),
-            },
-        },
-        session_cookie: SessionCookieConfig::default(),
-        oauth2_server: OAuth2ServerConfig::default(),
-        host: "localhost".to_owned(),
-        base_url: "http://localhost:8081".to_owned(),
-        mcp: McpConfig {
-            protocol_version: "2025-06-18".to_owned(),
-            server_name: "pierre-mcp-server-test".to_owned(),
-            ..Default::default()
-        },
-        cors: CorsConfig {
-            allowed_origins: "*".to_owned(),
-            allow_localhost_dev: true,
-        },
-        cache: CacheConfig {
-            redis_url: None,
-            max_entries: 10000,
-            cleanup_interval_secs: 300,
-            ..Default::default()
-        },
-        usda_api_key: None,
-        rate_limiting: RateLimitConfig::default(),
-        sleep_tool_params: SleepToolParamsConfig::default(),
-        activity_fetch_limit: 100,
-        goal_management: GoalManagementConfig::default(),
-        training_zones: TrainingZonesConfig::default(),
-        firebase: FirebaseConfig::default(),
-        tokio_runtime: TokioRuntimeConfig::default(),
-        monitoring: MonitoringConfig::default(),
-        frontend_url: None,
-        resend_api_key: None,
-        resend_from_email: None,
-        llm_chain: placeholder_llm_chain(),
-        website_base_url: "https://dravr.ai".to_owned(),
-        ..ServerConfig::default()
-    });
-
-    let cache = common::create_test_cache().await.unwrap();
-    let server_resources = Arc::new(
-        ServerContext::new(
-            database,
-            auth_manager,
-            "test_jwt_secret",
-            common::offline_config(config),
-            cache,
-            ServerContextOptions {
-                rsa_key_size_bits: Some(2048),
-                jwks_manager: Some(common::get_shared_test_jwks()),
-                llm_provider: None,
-                chat_provider: None,
-                extra_tools: Vec::new(),
-                billing_provider: None,
-                turn_runner: None,
-                archive_imports: None,
-                live_records: None,
-                blobs: None,
-                lab_reader: None,
-                pdf_text_bin: None,
-                contremaitre: None,
-                #[cfg(feature = "client-messaging")]
-                channel_adapters: common::offline_adapters(),
-            },
-        )
-        .await
-        .unwrap(),
-    );
-
-    let _oauth_routes = OAuthService::new(
-        server_resources.data(),
-        server_resources.common.config.clone(),
-    );
-
-    // Test valid state format
-    let user_id = Uuid::new_v4();
-    let state_id = Uuid::new_v4();
-    let valid_state = format!("{user_id}:{state_id}");
-
-    // This should parse correctly (we can't test the full callback without mocking the HTTP client)
-    // But we can verify the state format is what we expect
-    assert!(valid_state.contains(':'));
-    let parts: Vec<&str> = valid_state.split(':').collect();
-    assert_eq!(parts.len(), 2);
-    assert!(Uuid::parse_str(parts[0]).is_ok());
-    assert!(Uuid::parse_str(parts[1]).is_ok());
 }
 
 #[tokio::test]

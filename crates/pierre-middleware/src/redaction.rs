@@ -423,8 +423,24 @@ pub fn redact_query(query: &str, config: &RedactionConfig) -> String {
 /// that cannot send a header proves itself with a secret in the URL path.
 ///
 /// `/webhooks/garmin/{token}/{summaryType}` is Garmin's push URL, whose token
-/// (`GARMIN_WEBHOOK_TOKEN`) is the only secret a forged push must guess.
-const SECRET_PATH_SEGMENT_PREFIXES: [&str; 1] = ["/webhooks/garmin/"];
+/// (`GARMIN_WEBHOOK_TOKEN`) is the only secret a forged push must guess. The
+/// others carry a link a person taps (carnet#1873): `/r/{code}` resolves to a
+/// link-token URL, `/messaging/link/{code}` binds a chat identity,
+/// `/groups/join/{code}` and `/api/invites/{code}` join a group, and
+/// `/api/viz/{token}.png` serves an athlete's chart.
+///
+/// The frontend's nginx `$log_path` map redacts the same prefixes, and
+/// Google's request logs of these routes are dropped by
+/// `infra/environments/dev/log_exclusions.tf`; this module's tests hold all
+/// three to the same list.
+const SECRET_PATH_SEGMENT_PREFIXES: [&str; 6] = [
+    "/webhooks/garmin/",
+    "/r/",
+    "/messaging/link/",
+    "/groups/join/",
+    "/api/invites/",
+    "/api/viz/",
+];
 
 /// The placeholder a secret path segment is logged as.
 const REDACTED_PATH_SEGMENT: &str = "[redacted]";
@@ -432,15 +448,18 @@ const REDACTED_PATH_SEGMENT: &str = "[redacted]";
 /// A request path safe to log.
 ///
 /// The segment after each [`SECRET_PATH_SEGMENT_PREFIXES`] prefix is
-/// replaced by a placeholder, everything else kept verbatim. It is redacted
-/// whatever the PII settings say, since it is a credential, not personal
-/// data.
+/// replaced by a placeholder, everything else kept verbatim; an empty segment
+/// carries nothing and is kept, as nginx keeps it. It is redacted whatever
+/// the PII settings say, since it is a credential, not personal data.
 #[must_use]
 pub fn redacted_path(path: &str) -> String {
     for prefix in SECRET_PATH_SEGMENT_PREFIXES {
         if let Some(rest) = path.strip_prefix(prefix) {
-            let after = rest.find('/').map_or("", |at| &rest[at..]);
-            return format!("{prefix}{REDACTED_PATH_SEGMENT}{after}");
+            let segment_end = rest.find('/').unwrap_or(rest.len());
+            if segment_end == 0 {
+                break;
+            }
+            return format!("{prefix}{REDACTED_PATH_SEGMENT}{}", &rest[segment_end..]);
         }
     }
     path.to_owned()
@@ -565,6 +584,41 @@ mod tests {
         assert_eq!(redacted_path("/api/activities"), "/api/activities");
     }
 
+    #[test]
+    fn a_link_code_or_chart_token_in_the_path_is_never_logged() {
+        let config = RedactionConfig::new(false, "[REDACTED]".to_owned());
+        for (path, logged) in [
+            ("/r/0123456789abcdef0123456789abcdef", "/r/[redacted]"),
+            ("/messaging/link/Zq3XYZZYcode", "/messaging/link/[redacted]"),
+            ("/groups/join/XYZZY234", "/groups/join/[redacted]"),
+            ("/api/invites/XYZZY234", "/api/invites/[redacted]"),
+            ("/api/viz/XYZZYtoken.png", "/api/viz/[redacted]"),
+        ] {
+            let uri: http::Uri = path.parse().unwrap();
+            let line = redacted_request_line(&uri, &config);
+            // The whole line is pinned, so no part of the secret survives.
+            assert_eq!(line, logged, "{path} logs its secret segment redacted");
+        }
+    }
+
+    #[test]
+    fn a_route_beside_a_secret_prefix_is_logged_verbatim() {
+        for path in [
+            "/api/messaging/link/init/slack",
+            "/api/chat/groups/join",
+            "/api/viz/",
+            "/r/",
+            "/rx/abc",
+            "/api/invitesx/abc",
+        ] {
+            assert_eq!(
+                redacted_path(path),
+                path,
+                "{path} carries no secret segment"
+            );
+        }
+    }
+
     /// A value no generated name or filler can contain, so finding it in the
     /// output can only mean it leaked.
     fn secret() -> impl Strategy<Value = String> {
@@ -646,6 +700,290 @@ mod tests {
             query in "(page|limit|sort|provider)=[a-z0-9]{0,6}(&(page|limit|sort|provider)=[a-z0-9]{0,6}){0,3}",
         ) {
             prop_assert_eq!(redact_query(&query, &RedactionConfig::default()), query);
+        }
+    }
+
+    /// Parity between the URLs that carry a bearer secret and the places that
+    /// must never store one whole (carnet#1873).
+    ///
+    /// Nothing at runtime joins them: Google's load balancer and Cloud Run
+    /// request logs store the full URL and Referer, and only the exclusions in
+    /// `infra/environments/dev/log_exclusions.tf` keep them out, while our own
+    /// logs redact through the nginx `$log_path` map and `redacted_path`.
+    mod url_secret_parity {
+        use std::fs;
+        use std::path::Path;
+
+        use regex::Regex;
+
+        use super::super::SECRET_PATH_SEGMENT_PREFIXES;
+
+        /// Which field of a request log entry a URL is stored in.
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        enum Field {
+            RequestUrl,
+            Referer,
+        }
+
+        /// Every URL shape that carries a bearer secret, as Google logs it.
+        ///
+        /// This is the authoritative list: a route that takes a secret in its
+        /// path or query gets a line here, and the test then demands an
+        /// exclusion in `log_exclusions.tf` that drops it. Each entry is the
+        /// field, a representative URL, and the secret it carries.
+        const SECRET_BEARING_URLS: &[(Field, &str, &str)] = &[
+            (Field::RequestUrl, "https://app.dravr.ai/webhooks/garmin/T0K3N/sleeps", "Garmin push token"),
+            (Field::RequestUrl, "https://app.dravr.ai/providers/connect?token=T0K3N", "connect link-token"),
+            (Field::RequestUrl, "https://app.dravr.ai/providers/connect?provider=strava&token=T0K3N&success=1", "connect link-token"),
+            (Field::RequestUrl, "https://app.dravr.ai/providers/connect/success?token=T0K3N", "connect link-token"),
+            (Field::RequestUrl, "https://app.dravr.ai/providers/connect/intervals_icu?token=T0K3N", "connect link-token"),
+            (Field::RequestUrl, "https://app.dravr.ai/providers/connect/import?token=T0K3N&source=x", "connect link-token"),
+            (Field::RequestUrl, "https://api.dravr.ai/api/providers/connect/oauth-init/strava?token=T0K3N", "connect link-token"),
+            (Field::RequestUrl, "https://app.dravr.ai/providers/signin?token=T0K3N", "sign-in link-token"),
+            (Field::RequestUrl, "https://app.dravr.ai/providers/sciotte/login?token=T0K3N", "sign-in link-token"),
+            (Field::RequestUrl, "https://app.dravr.ai/providers/signin/success?channel=c&target=t&token=T0K3N", "sign-in link-token"),
+            (Field::RequestUrl, "https://app.dravr.ai/r/0123456789abcdef0123456789abcdef", "short-link code"),
+            (Field::RequestUrl, "https://app.dravr.ai/ws/providers/sciotte/takeover?token=T0K3N", "takeover token"),
+            (Field::RequestUrl, "https://app.dravr.ai/messaging/link/AbCdEfGhIjKlMnOpQrStUvWxYz012345", "chat link code"),
+            (Field::RequestUrl, "https://app.dravr.ai/messaging/link/AbCdEfGhIjKlMnOpQrStUvWxYz012345?x=1", "chat link code"),
+            (Field::RequestUrl, "https://app.dravr.ai/api/viz/T0K3N.png", "chart token"),
+            (Field::RequestUrl, "https://app.dravr.ai/groups/join/ABCD2345", "group invite code"),
+            (Field::RequestUrl, "https://app.dravr.ai/api/invites/ABCD2345", "group invite code"),
+            (Field::Referer, "https://app.dravr.ai/groups/join/ABCD2345", "group invite code"),
+            (Field::RequestUrl, "https://app.dravr.ai/signup?code=C0D3", "signup code"),
+            (Field::RequestUrl, "https://app.dravr.ai/register?ref=x&code=C0D3", "signup code"),
+            (Field::Referer, "https://app.dravr.ai/signup?code=C0D3", "signup code"),
+            (Field::RequestUrl, "https://app.dravr.ai/api/messaging/webhook/messenger?hub.mode=subscribe&hub.verify_token=T0K3N&hub.challenge=c", "Meta verify token or app secret"),
+            (Field::RequestUrl, "https://app.dravr.ai/__/auth/handler?state=S7AT3&code=T0K3N&scope=email", "Firebase sign-in authorization code"),
+        ];
+
+        /// Routes beside a secret-bearing one that must stay in the request logs.
+        ///
+        /// None carries a usable secret, and an exclusion as broad as their
+        /// prefix would blind the runbooks that read them.
+        const KEPT_URLS: &[(Field, &str)] = &[
+            (
+                Field::RequestUrl,
+                "https://app.dravr.ai/__/auth/handler?apiKey=k&authType=signInViaRedirect",
+            ),
+            (
+                Field::RequestUrl,
+                "https://app.dravr.ai/__/auth/iframe?apiKey=k",
+            ),
+            (
+                Field::RequestUrl,
+                "https://app.dravr.ai/providers/connect/import/strava/activities",
+            ),
+            (
+                Field::RequestUrl,
+                "https://app.dravr.ai/providers/connect?provider=strava",
+            ),
+            (
+                Field::RequestUrl,
+                "https://app.dravr.ai/providers/connect?access_tokenish=1",
+            ),
+            (
+                Field::RequestUrl,
+                "https://app.dravr.ai/messaging/link/auth",
+            ),
+            (
+                Field::RequestUrl,
+                "https://app.dravr.ai/api/messaging/link/init/slack",
+            ),
+            (
+                Field::RequestUrl,
+                "https://app.dravr.ai/api/messaging/link/callback/slack?state=s&code=c",
+            ),
+            (
+                Field::RequestUrl,
+                "https://app.dravr.ai/auth/callback?code=c&state=s",
+            ),
+            (
+                Field::RequestUrl,
+                "https://app.dravr.ai/oauth2/login/google/callback?code=c&state=s",
+            ),
+            (
+                Field::RequestUrl,
+                "https://app.dravr.ai/api/oauth/authorize/strava",
+            ),
+            (
+                Field::RequestUrl,
+                "https://app.dravr.ai/api/oauth/callback/strava?code=c&state=Zm9wYXF1ZS1zdGF0ZQ",
+            ),
+            (
+                Field::RequestUrl,
+                "https://app.dravr.ai/api/chat/groups/join",
+            ),
+            (Field::RequestUrl, "https://app.dravr.ai/signup"),
+            (Field::RequestUrl, "https://app.dravr.ai/api/activities?r=1"),
+            (
+                Field::Referer,
+                "https://app.dravr.ai/auth/callback?code=c&state=s",
+            ),
+            (Field::Referer, "https://app.dravr.ai/dashboard"),
+        ];
+
+        /// The clause every exclusion opens with: Google's own request logs.
+        const REQUEST_LOGS: &str = r#"(resource.type=\"http_load_balancer\" OR log_id(\"run.googleapis.com/requests\")) AND "#;
+
+        /// One clause of an exclusion filter on a URL field.
+        enum Matcher {
+            /// `field=~"re"`: an unanchored RE2 match.
+            Regex(Regex),
+            /// `field:"text"`: Cloud Logging's case-insensitive substring.
+            Has(String),
+        }
+
+        impl Matcher {
+            fn matches(&self, url: &str) -> bool {
+                match self {
+                    Self::Regex(re) => re.is_match(url),
+                    Self::Has(text) => url.to_lowercase().contains(&text.to_lowercase()),
+                }
+            }
+        }
+
+        /// An exclusion's name and its clauses on `requestUrl` or `referer`.
+        struct Exclusion {
+            name: String,
+            clauses: Vec<(Field, Matcher)>,
+        }
+
+        impl Exclusion {
+            fn drops(&self, field: Field, url: &str) -> bool {
+                self.clauses
+                    .iter()
+                    .any(|(on, matcher)| *on == field && matcher.matches(url))
+            }
+        }
+
+        fn repo_file(relative: &str) -> String {
+            let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../..")
+                .join(relative);
+            fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("{} is readable: {e}", path.display()))
+        }
+
+        /// Parse one HCL filter string's URL clauses. The patterns hold no
+        /// backslash (`[?]` stands for a literal `?`), so `\"` ends each one.
+        fn clauses(filter: &str) -> Vec<(Field, Matcher)> {
+            let clause = Regex::new(r#"httpRequest\.(requestUrl|referer)(=~|:)\\"(.*?)\\""#)
+                .expect("the clause pattern compiles");
+            clause
+                .captures_iter(filter)
+                .map(|cap| {
+                    let field = if &cap[1] == "referer" {
+                        Field::Referer
+                    } else {
+                        Field::RequestUrl
+                    };
+                    let matcher = if &cap[2] == "=~" {
+                        Matcher::Regex(Regex::new(&cap[3]).unwrap_or_else(|e| {
+                            panic!("{:?} is RE2 syntax (no lookaround): {e}", &cap[3])
+                        }))
+                    } else {
+                        Matcher::Has(cap[3].to_owned())
+                    };
+                    (field, matcher)
+                })
+                .collect()
+        }
+
+        /// Every `google_logging_project_exclusion` in the file, in order.
+        fn exclusions() -> Vec<Exclusion> {
+            let tf = repo_file("infra/environments/dev/log_exclusions.tf");
+            tf.split("resource \"google_logging_project_exclusion\" \"")
+                .skip(1)
+                .map(|block| {
+                    let name = block.split('"').next().unwrap_or_default().to_owned();
+                    let filter = block
+                        .lines()
+                        .find_map(|line| line.trim().strip_prefix("filter"))
+                        .unwrap_or_else(|| panic!("{name} has a filter"));
+                    assert!(
+                        filter.contains(REQUEST_LOGS),
+                        "{name} is scoped to Google's request logs: {filter}"
+                    );
+                    let clauses = clauses(filter);
+                    assert!(
+                        !clauses.is_empty(),
+                        "{name} filters on a URL field: {filter}"
+                    );
+                    Exclusion { name, clauses }
+                })
+                .collect()
+        }
+
+        #[test]
+        fn every_secret_bearing_url_is_dropped_from_googles_request_logs() {
+            let exclusions = exclusions();
+            for (field, url, secret) in SECRET_BEARING_URLS {
+                assert!(
+                    exclusions.iter().any(|ex| ex.drops(*field, url)),
+                    "no exclusion in log_exclusions.tf drops the {secret} in {field:?} {url}"
+                );
+            }
+        }
+
+        #[test]
+        fn no_exclusion_drops_a_route_that_carries_no_secret() {
+            let exclusions = exclusions();
+            for (field, url) in KEPT_URLS {
+                let dropping: Vec<&str> = exclusions
+                    .iter()
+                    .filter(|ex| ex.drops(*field, url))
+                    .map(|ex| ex.name.as_str())
+                    .collect();
+                assert!(
+                    dropping.is_empty(),
+                    "{dropping:?} drop {field:?} {url}, which carries no secret"
+                );
+            }
+        }
+
+        #[test]
+        fn every_exclusion_answers_to_a_listed_secret() {
+            for exclusion in exclusions() {
+                assert!(
+                    SECRET_BEARING_URLS
+                        .iter()
+                        .any(|(field, url, _)| exclusion.drops(*field, url)),
+                    "{} drops no URL in SECRET_BEARING_URLS: list the secret it is for",
+                    exclusion.name
+                );
+            }
+        }
+
+        #[test]
+        fn every_secret_path_prefix_is_redacted_by_nginx_and_excluded() {
+            let nginx = repo_file("docker/images/frontend/nginx.conf");
+            let alternation = nginx
+                .split("(?<secret_prefix>")
+                .nth(1)
+                .and_then(|rest| rest.split(")[^/]+").next())
+                .expect("the $log_path map captures a secret_prefix");
+            let mut in_nginx: Vec<&str> = alternation.split('|').collect();
+            let mut in_rust = SECRET_PATH_SEGMENT_PREFIXES.to_vec();
+            in_nginx.sort_unstable();
+            in_rust.sort_unstable();
+            assert_eq!(
+                in_nginx, in_rust,
+                "nginx $log_path redacts exactly SECRET_PATH_SEGMENT_PREFIXES"
+            );
+
+            for prefix in SECRET_PATH_SEGMENT_PREFIXES {
+                assert!(
+                    SECRET_BEARING_URLS.iter().any(|(field, url, _)| {
+                        *field == Field::RequestUrl
+                            && url
+                                .split_once("://")
+                                .and_then(|(_, rest)| rest.find('/').map(|at| &rest[at..]))
+                                .is_some_and(|path| path.starts_with(prefix))
+                    }),
+                    "{prefix} has a SECRET_BEARING_URLS entry, so its exclusion is checked"
+                );
+            }
         }
     }
 }

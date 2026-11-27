@@ -188,9 +188,16 @@ async fn start_on_launch(resources: &ServerContext, jwt: &str) -> String {
     state_of_redirect(uri, status, &headers, &body)
 }
 
-/// The athlete a flow's state was minted for: its first `:` segment.
-fn athlete_of_state(state: &str) -> Uuid {
-    Uuid::parse_str(state.split(':').next().unwrap()).unwrap()
+/// The athlete a flow's state was minted for, read from the server-side row
+/// it names: the state itself is opaque (carnet#1873). Redeeming it spends
+/// the flow, so a test that completes the flow reads the athlete from what
+/// the completion connects instead.
+async fn athlete_of_state(service: &OAuthService, state: &str) -> Uuid {
+    service
+        .redeem_state(state, "strava")
+        .await
+        .expect("the flow's state redeems")
+        .user_id()
 }
 
 /// A stored API key for `user_id`, as the whole `Authorization` value a REST
@@ -413,19 +420,27 @@ async fn the_retired_initiate_route_answers_404() {
 #[tokio::test]
 async fn the_launch_route_starts_the_flow_of_the_athlete_the_credential_names() {
     let strava = mock_strava().await;
-    let (resources, _, _) = dravr(&strava).await;
+    let (resources, service, _) = dravr(&strava).await;
     let (session_athlete, _, jwt) = athlete(&resources).await;
     let (key_athlete, _, _) = athlete(&resources).await;
     let uri = "/api/oauth/authorize/strava";
 
     let (status, headers, body) = get_with_session(&resources, uri, &jwt).await;
     let session_state = state_of_redirect(uri, status, &headers, &body);
-    assert_eq!(athlete_of_state(&session_state), session_athlete);
+    assert_eq!(
+        athlete_of_state(&service, &session_state).await,
+        session_athlete,
+        "a session bearer starts its own athlete's flow"
+    );
 
     let key = api_key_for(&resources, key_athlete).await;
     let (status, headers, body) = get_with_authorization(&resources, uri, &key).await;
     let key_state = state_of_redirect(uri, status, &headers, &body);
-    assert_eq!(athlete_of_state(&key_state), key_athlete);
+    assert_eq!(
+        athlete_of_state(&service, &key_state).await,
+        key_athlete,
+        "an API key starts its own athlete's flow"
+    );
 }
 
 /// Identity comes from the credential and from nothing a caller writes: an
@@ -450,7 +465,6 @@ async fn the_launch_route_refuses_another_athletes_identity() {
     let uri = format!("/api/oauth/authorize/strava?user_id={owner_id}");
     let (status, headers, body) = get_with_session(&resources, &uri, &caller_jwt).await;
     let state = state_of_redirect(&uri, status, &headers, &body);
-    assert_eq!(athlete_of_state(&state), caller_id);
 
     service
         .handle_callback("auth-code", &state, "strava")
@@ -518,11 +532,6 @@ async fn the_connect_provider_tool_mints_a_delegated_bridges_flow_for_its_athlet
     assert_eq!(query("client_id").as_deref(), Some("poll-test-client"));
     let state = query("state").expect("the minted URL carries the flow's state");
     assert_eq!(state, minted["state"].as_str().unwrap());
-    assert_eq!(
-        athlete_of_state(&state),
-        owner_id,
-        "the flow belongs to the athlete the grant names"
-    );
 
     assert_eq!(
         strava_status(&executor, owner_id, owner_tenant).await["status"],
@@ -559,7 +568,7 @@ async fn the_connect_provider_tool_mints_a_delegated_bridges_flow_for_its_athlet
 #[tokio::test]
 async fn a_delegated_grant_reaches_connect_provider_only_within_its_scopes() {
     let strava = mock_strava().await;
-    let (resources, _, _) = dravr(&strava).await;
+    let (resources, service, _) = dravr(&strava).await;
     let (user_id, _, jwt) = athlete(&resources).await;
 
     let narrow = delegated_bearer(
@@ -598,8 +607,10 @@ async fn a_delegated_grant_reaches_connect_provider_only_within_its_scopes() {
     // The athlete's own session still starts a flow on the launch route.
     let uri = "/api/oauth/authorize/strava";
     let (status, headers, body) = get_with_session(&resources, uri, &jwt).await;
+    let state = state_of_redirect(uri, status, &headers, &body);
     assert_eq!(
-        athlete_of_state(&state_of_redirect(uri, status, &headers, &body)),
-        user_id
+        athlete_of_state(&service, &state).await,
+        user_id,
+        "the athlete's own session starts their flow"
     );
 }

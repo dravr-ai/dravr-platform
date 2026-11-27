@@ -384,6 +384,22 @@ else
     failures=$((failures + 1))
 fi
 
+# A landing whose address carries a secret until the app cleans it must not
+# hand that address to its first requests as their Referer: the SPA shell and
+# its assets are served under Referrer-Policy strict-origin (carnet#1873).
+echo "-- secret-bearing landings send only the origin as Referer --"
+for path in '/signup?code=SIGNUPCODE12' '/register?code=SIGNUPCODE12' '/groups/join/ABCD2345' \
+    '/auth/callback?code=c&state=s' '/assets/present-Ab12Cd34.js'; do
+    policy="$(curl -s -D - -o /dev/null "http://localhost:$PORT$path" --max-time 10 \
+        | tr -d '\r' | grep -i '^referrer-policy:' | sed 's/^[^:]*: *//' || true)"
+    if [ "$policy" = "strict-origin" ]; then
+        printf '  ok   %-6s %-45s -> Referrer-Policy strict-origin\n' GET "$path"
+    else
+        printf '  FAIL %-6s %-45s -> Referrer-Policy %s (expected strict-origin only)\n' GET "$path" "${policy:-absent}"
+        failures=$((failures + 1))
+    fi
+done
+
 # A Garmin activityDetails push is far past nginx's 1 MB default body cap; the
 # Garmin block raises it, so a 4 MB push must still reach the backend.
 echo "-- large Garmin push --"

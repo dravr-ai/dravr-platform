@@ -120,6 +120,51 @@ mod messaging_routes_tests {
         assert_eq!(body["action"], "upserted");
     }
 
+    /// A `WhatsApp` or Messenger config without a `verify_token` is refused:
+    /// the subscription handshake reads only that token (carnet#1873), and an
+    /// upsert replaces every column, so it could never be verified again.
+    #[tokio::test]
+    async fn test_upsert_meta_channel_config_requires_a_verify_token() {
+        let (router, token) = setup_messaging_router().await;
+
+        for channel in ["whatsapp", "messenger"] {
+            let response = AxumTestRequest::put(&format!("/api/messaging/channels/{channel}"))
+                .header("authorization", &token)
+                .json(&json!({
+                    "enabled": true,
+                    "credentials": {
+                        "api_key": "meta_key",
+                        "webhook_secret": "meta_app_secret"
+                    }
+                }))
+                .send(router.clone())
+                .await;
+            assert_eq!(
+                response.status_code(),
+                StatusCode::BAD_REQUEST,
+                "a {channel} config without a verify_token is refused"
+            );
+        }
+
+        let response = AxumTestRequest::put("/api/messaging/channels/whatsapp")
+            .header("authorization", &token)
+            .json(&json!({
+                "enabled": true,
+                "credentials": {
+                    "api_key": "meta_key",
+                    "webhook_secret": "meta_app_secret",
+                    "verify_token": "a-separate-verify-token"
+                }
+            }))
+            .send(router)
+            .await;
+        assert_eq!(
+            response.status_code(),
+            StatusCode::OK,
+            "a whatsapp config with its own verify_token is stored"
+        );
+    }
+
     /// An empty or whitespace-only `verify_token` is refused where it enters,
     /// so it is never the value Meta's subscription handshake is checked
     /// against.
@@ -282,7 +327,11 @@ mod messaging_routes_tests {
             .header("authorization", &token)
             .json(&json!({
                 "enabled": true,
-                "credentials": { "phone_number": "1323997520799051", "api_key": "wa-key" }
+                "credentials": {
+                    "phone_number": "1323997520799051",
+                    "api_key": "wa-key",
+                    "verify_token": "wa-verify"
+                }
             }))
             .send(router.clone())
             .await;
@@ -324,9 +373,16 @@ mod messaging_routes_tests {
             ),
             (
                 ChannelType::WhatsApp,
-                json!({ "phone_number": "1323997520799051", "api_key": "wa-key" }),
+                json!({
+                    "phone_number": "1323997520799051",
+                    "api_key": "wa-key",
+                    "verify_token": "wa-verify"
+                }),
             ),
-            (ChannelType::Messenger, json!({ "account_id": "page-1" })),
+            (
+                ChannelType::Messenger,
+                json!({ "account_id": "page-1", "verify_token": "page-verify" }),
+            ),
             (
                 ChannelType::Slack,
                 json!({ "api_key": "slack-id", "api_secret": "slack-secret" }),
@@ -383,7 +439,11 @@ mod messaging_routes_tests {
             .header("authorization", &token)
             .json(&json!({
                 "enabled": true,
-                "credentials": { "api_key": "page-token", "account_id": "page-1" }
+                "credentials": {
+                    "api_key": "page-token",
+                    "account_id": "page-1",
+                    "verify_token": "page-verify"
+                }
             }))
             .send(router.clone())
             .await;
@@ -1137,8 +1197,12 @@ mod messaging_routes_tests {
         );
     }
 
+    /// A channel with no stored verify token refuses the handshake. Its
+    /// `webhook_secret` is the Meta app secret, the HMAC key inbound payloads
+    /// are signed with, and `hub.verify_token` travels in the URL, so the
+    /// secret is never accepted in the token's place (carnet#1873).
     #[tokio::test]
-    async fn test_meta_verify_falls_back_to_webhook_secret_when_no_verify_token() {
+    async fn test_meta_verify_refuses_webhook_secret_when_no_verify_token() {
         use pierre_database::backends::{MessagingRepository, UpsertChannelConfigParams};
         use uuid::Uuid;
 
@@ -1155,15 +1219,14 @@ mod messaging_routes_tests {
             .unwrap();
         let tenant_id = tenants[0].id;
 
-        // Config without verify_token (legacy setup)
         let config_id = Uuid::new_v4().to_string();
-        let params = UpsertChannelConfigParams {
+        let mut params = UpsertChannelConfigParams {
             id: &config_id,
             tenant_id,
             channel_type: "messenger",
             api_key: Some("msg_key"),
             api_secret: None,
-            webhook_secret: Some("legacy_webhook_secret"),
+            webhook_secret: Some("meta_app_secret_hmac_key"),
             verify_token: None,
             account_id: None,
             phone_number: None,
@@ -1172,17 +1235,53 @@ mod messaging_routes_tests {
         };
         db.upsert_channel_config(&params).await.unwrap();
 
-        let router = MessagingRoutes::routes(Arc::clone(&resources));
+        let verify = |token: &'static str| {
+            let router = MessagingRoutes::routes(Arc::clone(&resources));
+            async move {
+                AxumTestRequest::get(&format!(
+                    "/api/messaging/webhook/messenger?hub.mode=subscribe\
+                     &hub.verify_token={token}&hub.challenge=refused_challenge"
+                ))
+                .send(router)
+                .await
+            }
+        };
 
-        // GET with webhook_secret value should succeed (backward compat)
-        let response = AxumTestRequest::get(
-            "/api/messaging/webhook/messenger?hub.mode=subscribe&hub.verify_token=legacy_webhook_secret&hub.challenge=compat_challenge",
-        )
-        .send(router)
-        .await;
+        for presented in ["meta_app_secret_hmac_key", "", "anything"] {
+            let response = verify(presented).await;
+            assert_eq!(
+                response.status_code(),
+                StatusCode::UNAUTHORIZED,
+                "a channel with no verify token must refuse {presented:?}"
+            );
+            assert_ne!(
+                response.text(),
+                "refused_challenge",
+                "a refused handshake must not echo the challenge"
+            );
+        }
 
-        assert_eq!(response.status_code(), StatusCode::OK);
-        assert_eq!(response.text(), "compat_challenge");
+        // Once the channel stores its own verify token, that token passes and
+        // the app secret still does not.
+        params.verify_token = Some("distinct_verify_token");
+        db.upsert_channel_config(&params).await.unwrap();
+
+        let response = verify("distinct_verify_token").await;
+        assert_eq!(
+            response.status_code(),
+            StatusCode::OK,
+            "the stored verify token must pass the handshake"
+        );
+        assert_eq!(
+            response.text(),
+            "refused_challenge",
+            "a passed handshake echoes the challenge"
+        );
+        assert_eq!(
+            verify("meta_app_secret_hmac_key").await.status_code(),
+            StatusCode::UNAUTHORIZED,
+            "the app secret must not pass once a verify token is stored"
+        );
     }
 
     /// A stored verify token of "" is no token. Two empty strings are equal,

@@ -458,6 +458,7 @@ mod history_walk_resume_test;
 mod history_walk_settle_test;
 mod history_walk_test;
 mod home_sync_truth_e2e_test;
+mod hosted_connect_oauth_state_test;
 mod hosted_import_test;
 mod http_api_integration_test;
 mod i18n_bundle_route_test;

@@ -545,9 +545,11 @@ pub(crate) async fn handle_connect_oauth_init(
     // picker (carrying the same connect token) rather than the SPA: on success
     // the picker shows its success page or the history step, and on failure
     // it offers the retry (Strava, its credential fallback) — so a channel
-    // user is never stranded on the SPA's "Connection Failed" page. The callback validates
-    // this URL against the redirect allowlist (same origin as base_url) before
-    // honoring it.
+    // user is never stranded on the SPA's "Connection Failed" page. The URL
+    // carries the connect token, so it is kept in the flow's server-side state
+    // row, never in the `state` the provider sees (carnet#1873); the callback
+    // validates it against the redirect allowlist (same origin as base_url)
+    // before honoring it.
     let return_url = format!(
         "{}/providers/connect?token={}",
         resources.config.base_url.trim_end_matches('/'),

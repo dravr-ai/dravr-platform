@@ -309,6 +309,18 @@ pub(super) async fn upsert_channel_config(
         ));
     }
 
+    // Meta's subscription handshake is checked against the stored verify
+    // token alone, never the app secret (carnet#1873), and an upsert replaces
+    // every column: a WhatsApp or Messenger config saved without one could
+    // never pass the handshake again.
+    if matches!(channel_type, ChannelType::WhatsApp | ChannelType::Messenger)
+        && verify_token.is_none()
+    {
+        return Err(AppError::invalid_input(format!(
+            "{channel} needs a verify_token: Meta's webhook subscription handshake is checked against it"
+        )));
+    }
+
     // `bot_username` is NOT persisted: `messaging_channel_configs` has no such
     // column, so a value sent here would be silently dropped. Say so instead of
     // accepting it — a caller who believes they configured the Telegram handle
