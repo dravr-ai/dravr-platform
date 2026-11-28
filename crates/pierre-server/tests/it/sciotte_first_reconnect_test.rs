@@ -35,6 +35,7 @@ use crate::garmin_sign_in_test::{
     SessionReaderSwitch, LIVE_SESSION,
 };
 use crate::helpers::axum_test::AxumTestRequest;
+use crate::helpers::hosted_signin::hosted_signin_session;
 use crate::reconnect_prompt_on_served_turn_test::{
     loop_result, offer_target, recover_in, token_after, RECOVERY_LINK_SECRET,
 };
@@ -49,7 +50,7 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::grant_withdrawal::GrantWithdrawal;
 use pierre_middleware::provider_link_token::{
-    mint_connect_link_token, mint_connect_oauth_init_url, mint_link_token, verify_link_token,
+    mint_connect_link_token, mint_connect_oauth_init_url, verify_link_token,
     MintProviderLinkTokenArgs, HOSTED_SIGNIN_PATH,
 };
 use pierre_providers::backend_resolver;
@@ -559,7 +560,8 @@ async fn the_hosted_garmin_sign_in_carries_no_grant_authorization_url() {
     let (reader, _calls) = spawn_switchable_session_reader(SessionReaderSwitch::default()).await;
     let resources = server_with_garmin_oauth(&reader).await;
     let (user_id, _user, tenant, _token) = athlete(&resources).await;
-    let link = mint_link_token(
+    // The bearer the hosted page signs in with once it burned its link.
+    let session = hosted_signin_session(
         &MintProviderLinkTokenArgs {
             user_id,
             tenant_id: tenant.as_uuid(),
@@ -569,10 +571,9 @@ async fn the_hosted_garmin_sign_in_carries_no_grant_authorization_url() {
             channel_thread: None,
         },
         &resources.auth.admin_jwt_secret,
-    )
-    .unwrap();
+    );
 
-    let (status, body) = sign_in(&resources, &link).await;
+    let (status, body) = sign_in(&resources, &session).await;
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["status"], "connected", "{body}");
     assert!(

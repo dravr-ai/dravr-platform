@@ -224,13 +224,13 @@ pub(crate) async fn handle_intervals_icu_form_submit(
                 channel = %identity.channel,
                 "Hosted connect: Intervals.icu linked"
             );
-            // The token rides along so the success page is written in the
-            // athlete's locale too.
+            // The athlete's locale rides along so the success page is written
+            // in it too; the token never goes into a URL (carnet#1874).
             let location = format!(
-                "/providers/connect/success?channel={}&target={}&token={}",
+                "/providers/connect/success?channel={}&target={}&locale={}",
                 encode(&identity.channel),
                 INTERVALS_ICU,
-                encode(&form.token)
+                encode(&identity.locale(&resources).await)
             );
             (StatusCode::SEE_OTHER, [(header::LOCATION, location)]).into_response()
         }

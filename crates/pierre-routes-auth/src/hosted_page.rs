@@ -31,8 +31,8 @@ use pierre_contremaitre::hosted_strings::{KEY_HOSTED_COMMON_YOUR_CHAT_APP, TEMPL
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::html::escape_html_attribute;
 use pierre_core::models::messaging::channel_display_name;
-use pierre_core::models::TenantId;
-use pierre_middleware::provider_link_token::{verify_link_token, ProviderLinkTokenClaims};
+use pierre_core::models::{TenantId, SUPPORTED_LOCALES};
+use pierre_middleware::provider_link_token::ProviderLinkTokenClaims;
 use pierre_services::locale::{resolve_linked_channel_locale, resolve_user_locale};
 use serde_json::Value;
 use uuid::Uuid;
@@ -151,26 +151,20 @@ pub(crate) async fn locale_for_claims(
     Some(locale_for_reader(resources, user_id, tenant_id, &claims.channel).await)
 }
 
-/// The locale of a page that may or may not hold a link-token.
+/// The locale a success page is written in.
 ///
-/// A token that verifies for `provider` names its athlete and their channel,
-/// whose stored locale is the page's. Anything else — no token, an expired or
-/// forged one, a subject that is not a user id — leaves the browser's
-/// `Accept-Language`.
-pub(crate) async fn locale_for_token(
-    resources: &AuthRoutesContext,
-    token: Option<&str>,
-    provider: &str,
-    headers: &HeaderMap,
-) -> String {
-    let claims = token
-        .filter(|token| !token.is_empty())
-        .and_then(|token| verify_link_token(token, &resources.admin_jwt_secret, provider).ok());
-    let resolved = match claims {
-        Some(claims) => locale_for_claims(resources, &claims).await,
-        None => None,
-    };
-    resolved.unwrap_or_else(|| preferred_locale(headers).to_owned())
+/// That is the one its sign-in page was written in, which that page passes
+/// along as `locale`, when it is supported; the browser's `Accept-Language`
+/// otherwise.
+///
+/// The sign-in page knows its athlete; the success page it opens does not,
+/// and is never handed the page's bearer for it — a URL is not where a
+/// credential goes (carnet#1874).
+pub(crate) fn success_page_locale(requested: Option<&str>, headers: &HeaderMap) -> &'static str {
+    requested
+        .and_then(|locale| SUPPORTED_LOCALES.iter().find(|known| **known == locale))
+        .copied()
+        .unwrap_or_else(|| preferred_locale(headers))
 }
 
 /// `value` as JSON that is safe inside a `<script>` element.

@@ -37,11 +37,12 @@ use std::time::Duration;
 
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
+use helpers::hosted_signin::hosted_signin_session;
 use helpers::impersonation::{assert_refusal_audited, assert_support_refused, impersonation_of};
 use pierre_cache::{Cache, CacheConfig};
 use pierre_core::models::{TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_middleware::provider_link_token::{mint_link_token, MintProviderLinkTokenArgs};
+use pierre_middleware::provider_link_token::MintProviderLinkTokenArgs;
 use pierre_routes_auth::{
     forget_remote_flow, remember_remote_flow, remember_remote_flow_for, require_remote_flow,
     AuthRoutes,
@@ -85,10 +86,10 @@ async fn test_cache() -> Cache {
     .expect("build cache")
 }
 
-/// A sign-in-scoped provider link-token — the hosted login page's credential,
-/// and the cheapest way to authenticate these handlers in-process.
+/// The hosted login page's sign-in session — its calls' credential, and the
+/// cheapest way to authenticate these handlers in-process.
 fn sciotte_token(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: TenantId) -> String {
-    mint_link_token(
+    hosted_signin_session(
         &MintProviderLinkTokenArgs {
             user_id,
             tenant_id: tenant_id.as_uuid(),
@@ -99,7 +100,6 @@ fn sciotte_token(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: Tenan
         },
         &resources.auth.admin_jwt_secret,
     )
-    .expect("mint sign-in link token")
 }
 
 // ── HTTP surface: a continuation with no flow of the caller's own ───────────

@@ -18,11 +18,13 @@
 //! 2. Pierre mints, in-process, an HS256-signed JWT (claims: sub=user_id, tid=tenant_id, tgt=target,
 //!    scope=`provider:{provider}:login`, exp=now+TTL, jti=nonce).
 //! 3. The hosted-login URL (with `?token=...`) is posted to the user in their channel.
-//! 4. User's browser opens the URL. Server validates the token, embeds it in the page.
-//! 5. The page's JS calls `/api/providers/{provider}/*` with `Authorization: Bearer <token>`.
-//! 6. The session sign-in's login, 2FA and OTP handlers accept the link-token as an
-//!    alternative to normal cookie/JWT auth (via [`verify_link_token`]) and
-//!    extract user_id + tenant_id from the claims. No other route accepts one.
+//! 4. User's browser opens the URL. Server validates the token, burns its `jti`,
+//!    and embeds a *sign-in session* token ([`mint_signin_session_token`]) in the page.
+//! 5. The page's JS calls `/api/providers/{provider}/*` with `Authorization: Bearer <session>`.
+//! 6. The session sign-in's login, 2FA, OTP and cancel handlers accept the session
+//!    token (via [`verify_signin_session_token`]) as an alternative to normal
+//!    cookie/JWT auth and extract user_id + tenant_id from the claims. No route
+//!    accepts the burned link-token itself.
 //!
 //! ## Security
 //!
@@ -39,9 +41,10 @@
 //!   admin-token hashing, so no new secret material is introduced.
 //! - **One-time page load**: each token's `jti` is burned on the first
 //!   `GET` of the hosted sign-in page ([`HOSTED_SIGNIN_PATH`]) (see [`NonceStore`]);
-//!   subsequent page loads receive an error. The token remains valid for the
-//!   login, 2FA and OTP POST endpoints within its TTL so the multi-step sign-in flow
-//!   (credentials -> 2FA -> OTP) can complete.
+//!   subsequent page loads receive an error. The burned link-token signs in to
+//!   nothing: the page's sign-in calls carry the session token that load minted,
+//!   which never appears in a URL and lives the sign-in flow's window
+//!   ([`SIGNIN_SESSION_TOKEN_TTL_MINUTES`]), never longer than the link (carnet#1874).
 //! - **Minted in-process only**: no HTTP route mints a provider or connect
 //!   token, so there is no caller to rate-limit; every mint follows a platform
 //!   decision about the user. The one exchange is the hosted import page, which
@@ -386,6 +389,92 @@ pub fn verify_link_token(
     Ok(data.claims)
 }
 
+/// Ceiling on a *sign-in session* token's lifetime (30 minutes).
+///
+/// It is the life of the provider sign-in flow the hosted page drives, which
+/// no step of the sign-in outlives (`REMOTE_FLOW_TTL_SECS` in `pierre-routes-auth`).
+pub const SIGNIN_SESSION_TOKEN_TTL_MINUTES: i64 = 30;
+
+/// Audience of a sign-in session token.
+///
+/// It differs from the hosted-login audience, so [`verify_link_token`] refuses
+/// a session token (it never opens the hosted page) and
+/// [`verify_signin_session_token`] refuses a link-token.
+const SIGNIN_SESSION_TOKEN_AUDIENCE: &str = "pierre-hosted-signin-session";
+
+/// Exchange a burned provider link-token for the hosted page's sign-in session.
+///
+/// The link-token travels in a URL — a chat message, a browser history, a
+/// forwarded link — so once the page has burned it, it signs in to nothing.
+/// The session token is minted only here, at the page load that burned the
+/// link, and reaches the page in its body, never in a URL. It keeps the
+/// link-token's user, tenant, target, channel and scope, takes a fresh `jti`,
+/// and expires after [`SIGNIN_SESSION_TOKEN_TTL_MINUTES`], or with the
+/// link-token if that comes first, so the exchange never extends a link's
+/// life (carnet#1874).
+///
+/// # Errors
+///
+/// [`AppError::auth_invalid`] when `link` is a connect token's claims: the
+/// connect picker is not nonce-burned and keeps its own token; an internal
+/// error when JWT encoding fails.
+pub fn mint_signin_session_token(
+    link: &ProviderLinkTokenClaims,
+    admin_jwt_secret: &str,
+) -> AppResult<String> {
+    if link.scope == provider_scope(CONNECT_PROVIDER) {
+        return Err(AppError::auth_invalid(
+            "A connect link-token is not exchanged for a sign-in session",
+        ));
+    }
+    let now = Timestamp::now();
+    let expiry = (now + Elapsed::minutes(SIGNIN_SESSION_TOKEN_TTL_MINUTES))
+        .epoch_seconds()
+        .min(link.exp);
+    let claims = ProviderLinkTokenClaims {
+        jti: Uuid::new_v4().to_string(),
+        aud: SIGNIN_SESSION_TOKEN_AUDIENCE.to_owned(),
+        iat: now.epoch_seconds(),
+        exp: expiry,
+        ..link.clone()
+    };
+    let key = encoding_key(admin_jwt_secret)?;
+    encode(&Header::new(Algorithm::HS256), &claims, &key)
+        .map_err(|e| AppError::internal(format!("Failed to encode sign-in session token: {e}")))
+}
+
+/// Verify a sign-in session token for `expected_provider`.
+///
+/// Only a token [`mint_signin_session_token`] minted for that provider's
+/// scope passes: a link-token of any scope, an import or a takeover token is
+/// refused by its audience, before its scope is read.
+///
+/// # Errors
+///
+/// [`AppError::auth_invalid`] if the token is malformed, expired,
+/// signature-invalid, or not a session token for `expected_provider`.
+pub fn verify_signin_session_token(
+    token: &str,
+    admin_jwt_secret: &str,
+    expected_provider: &str,
+) -> AppResult<ProviderLinkTokenClaims> {
+    let key = decoding_key(admin_jwt_secret)?;
+    let mut validation = Validation::new(Algorithm::HS256);
+    validation.validate_exp = true;
+    validation.set_issuer(&[PROVIDER_LINK_TOKEN_ISSUER]);
+    validation.set_audience(&[SIGNIN_SESSION_TOKEN_AUDIENCE]);
+    let data = decode::<ProviderLinkTokenClaims>(token, &key, &validation)
+        .map_err(|e| AppError::auth_invalid(format!("Invalid sign-in session token: {e}")))?;
+    let expected_scope = provider_scope(expected_provider);
+    if data.claims.scope != expected_scope {
+        return Err(AppError::auth_invalid(format!(
+            "Sign-in session token scope '{}' does not match '{expected_scope}'",
+            data.claims.scope
+        )));
+    }
+    Ok(data.claims)
+}
+
 /// Ceiling on an *import* link-token's lifetime (1 hour).
 ///
 /// An import token is minted from a connect token
@@ -712,6 +801,97 @@ mod tests {
         let token = mint_connect_link_token(Uuid::new_v4(), Uuid::new_v4(), "slack", None, SECRET)
             .expect("mint connect token");
         verify_link_token(&token, SECRET, CONNECT_PROVIDER).expect("verify connect token")
+    }
+
+    fn sciotte_link_claims() -> ProviderLinkTokenClaims {
+        let token = mint_link_token(
+            &MintProviderLinkTokenArgs {
+                user_id: Uuid::new_v4(),
+                tenant_id: Uuid::new_v4(),
+                provider: "sciotte",
+                target: "garmin",
+                channel: "telegram",
+                channel_thread: Some("thread-1"),
+            },
+            SECRET,
+        )
+        .expect("mint sciotte link token");
+        verify_link_token(&token, SECRET, "sciotte").expect("verify sciotte link token")
+    }
+
+    #[test]
+    fn a_signin_session_token_keeps_the_link_and_lives_the_flow_window() {
+        let link = sciotte_link_claims();
+        let token = mint_signin_session_token(&link, SECRET).expect("mint session");
+        let session = verify_signin_session_token(&token, SECRET, "sciotte").expect("verify");
+
+        assert_eq!(
+            (&session.sub, &session.tid, &session.tgt, &session.scope),
+            (&link.sub, &link.tid, &link.tgt, &link.scope),
+            "the session names the link's athlete, tenant, target and scope"
+        );
+        assert_eq!(
+            (&session.channel, &session.channel_thread),
+            (&link.channel, &link.channel_thread),
+            "the session posts back to the link's conversation"
+        );
+        assert_ne!(session.jti, link.jti, "a fresh jti, not the burned one");
+        assert_eq!(
+            session.exp - session.iat,
+            SIGNIN_SESSION_TOKEN_TTL_MINUTES * 60,
+            "the session lives the sign-in flow's window, not the link's 24 h"
+        );
+    }
+
+    #[test]
+    fn a_signin_session_never_outlives_its_link() {
+        let mut link = sciotte_link_claims();
+        link.exp = Timestamp::now().epoch_seconds() + 120;
+        let token = mint_signin_session_token(&link, SECRET).expect("mint session");
+        let session = verify_signin_session_token(&token, SECRET, "sciotte").expect("verify");
+        assert_eq!(
+            session.exp, link.exp,
+            "a link expiring before the flow window ends takes its session with it"
+        );
+    }
+
+    #[test]
+    fn link_and_session_tokens_never_stand_in_for_each_other() {
+        let link_claims = sciotte_link_claims();
+        let session = mint_signin_session_token(&link_claims, SECRET).expect("mint session");
+        assert!(
+            verify_link_token(&session, SECRET, "sciotte").is_err(),
+            "a session token never opens the hosted page"
+        );
+
+        let link = mint_link_token(
+            &MintProviderLinkTokenArgs {
+                user_id: Uuid::new_v4(),
+                tenant_id: Uuid::new_v4(),
+                provider: "sciotte",
+                target: "strava",
+                channel: "slack",
+                channel_thread: None,
+            },
+            SECRET,
+        )
+        .expect("mint link");
+        assert!(
+            verify_signin_session_token(&link, SECRET, "sciotte").is_err(),
+            "a link-token never signs in as a session"
+        );
+        assert!(
+            verify_signin_session_token(&session, SECRET, "intervals_icu").is_err(),
+            "a session is scoped to its provider"
+        );
+    }
+
+    #[test]
+    fn a_connect_token_is_not_exchanged_for_a_signin_session() {
+        assert!(
+            mint_signin_session_token(&connect_claims(), SECRET).is_err(),
+            "the connect picker keeps its own token: no sign-in session is minted from it"
+        );
     }
 
     #[test]

@@ -392,7 +392,7 @@
             function goToSuccess(target) {
                 const qs = 'channel=' + encodeURIComponent(CONFIG.channel)
                     + '&target=' + encodeURIComponent(target)
-                    + '&token=' + encodeURIComponent(CONFIG.token);
+                    + '&locale=' + encodeURIComponent(document.documentElement.lang);
                 window.location.assign('/providers/connect/success?' + qs);
             }
 

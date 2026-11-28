@@ -266,7 +266,7 @@
                         showPhase('success');
                         setTimeout(() => {
                             const qs = 'channel=' + encodeURIComponent(CONFIG.channel) + '&target=' + encodeURIComponent(CONFIG.target)
-                                + '&token=' + encodeURIComponent(CONFIG.token);
+                                + '&locale=' + encodeURIComponent(document.documentElement.lang);
                             window.location.assign('/providers/signin/success?' + qs);
                         }, 1200);
                         break;

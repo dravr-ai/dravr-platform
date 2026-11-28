@@ -35,11 +35,12 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use common::{create_test_server_resources_with_sciotte, create_test_user, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
+use helpers::hosted_signin::hosted_signin_session;
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::oauth_providers::{SCIOTTE_COROS, TOKEN_TYPE_SESSION};
 use pierre_core::models::TenantId;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_middleware::provider_link_token::{mint_link_token, MintProviderLinkTokenArgs};
+use pierre_middleware::provider_link_token::MintProviderLinkTokenArgs;
 use pierre_routes_auth::{
     remember_remote_flow_for, require_remote_flow, AuthRoutes, CODE_REJECTED_REASON,
     LOGIN_FLOW_EXPIRED_REASON,
@@ -255,7 +256,7 @@ impl Athlete {
 
     /// The same athlete, signing in through a hosted COROS link instead.
     fn with_link_token(mut self) -> Self {
-        let token = mint_link_token(
+        let token = hosted_signin_session(
             &MintProviderLinkTokenArgs {
                 user_id: self.user_id,
                 tenant_id: self.tenant_id.as_uuid(),
@@ -265,8 +266,7 @@ impl Athlete {
                 channel_thread: None,
             },
             &self.resources.auth.admin_jwt_secret,
-        )
-        .unwrap();
+        );
         self.bearer = format!("Bearer {token}");
         self
     }

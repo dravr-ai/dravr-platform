@@ -74,7 +74,7 @@ use crate::card_seats::require_garmin_seat;
 use crate::connect_hosted_import::hosted_import_source;
 use crate::connect_hosted_templates;
 use crate::dead_grant::dead_grant_sign_in_url;
-use crate::hosted_page::{locale_for_reader, locale_for_token, PageStrings};
+use crate::hosted_page::{locale_for_reader, success_page_locale, PageStrings};
 use crate::oauth::compute_providers_status;
 use crate::oauth_start::{query_consents, require_oauth_start_notice};
 use crate::short_link::preferred_locale;
@@ -114,10 +114,10 @@ pub(crate) struct ConnectSuccessQuery {
     pub channel: Option<String>,
     /// Provider/target label shown on the success page.
     pub target: Option<String>,
-    /// The connect link-token the picker was opened with, which names the
-    /// athlete whose locale the page is written in. Absent or expired, the
-    /// page follows the browser's `Accept-Language`.
-    pub token: Option<SecretString>,
+    /// The locale the picker was written in, so this page reads in the same
+    /// language. Absent or unsupported, the page follows the browser's
+    /// `Accept-Language`.
+    pub locale: Option<String>,
 }
 
 /// The card kind whose click opens the credential form. The page script
@@ -643,13 +643,7 @@ pub(crate) async fn handle_connect_hosted_success_page(
 ) -> Response {
     let channel = query.channel.as_deref().unwrap_or("");
     let target = query.target.as_deref().unwrap_or("");
-    let locale = locale_for_token(
-        &resources,
-        query.token.as_ref().map(ExposeSecret::expose_secret),
-        CONNECT_PROVIDER,
-        &headers,
-    )
-    .await;
+    let locale = success_page_locale(query.locale.as_deref(), &headers);
     let strings = PageStrings::new(&resources.messaging_strings, locale);
     Html(connect_hosted_templates::render_connect_success_page(
         &strings, channel, target,

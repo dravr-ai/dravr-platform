@@ -1,5 +1,5 @@
-// ABOUTME: Who is calling a session sign-in route: a Pierre session, or a channel's provider link-token
-// ABOUTME: Carries a link-token's channel context so a sign-in it started posts back to its conversation
+// ABOUTME: Who is calling a session sign-in route: a Pierre session, a hosted sign-in session, or a connect link-token
+// ABOUTME: Carries the hosted page's channel context so a sign-in it started posts back to its conversation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,9 +7,11 @@
 use axum::http::HeaderMap;
 use pierre_core::errors::AppError;
 use pierre_middleware::provider_link_token::{
-    extract_bearer_link_token, verify_link_token, ProviderLinkTokenClaims,
+    extract_bearer_link_token, verify_link_token, verify_signin_session_token,
+    ProviderLinkTokenClaims, CONNECT_PROVIDER,
 };
 use pierre_runtime_context::require_tenant_in;
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::AuthRoutesContext;
@@ -49,10 +51,12 @@ pub(crate) struct LinkContext {
 /// Extract authenticated `user_id` and `tenant_id` from request headers.
 ///
 /// Accepts two authentication methods, tried in order:
-/// 1. A channel-initiated provider link-token (`Authorization: Bearer <link-token>`),
-///    minted in-process by the messaging pipeline or the backfill notifier. This
-///    is the path used by the hosted session sign-in page embedded in chat
-///    channels, and it reaches only the login, 2FA, OTP and cancel routes.
+/// 1. The bearer a hosted page signs in with: the sign-in session token the
+///    hosted sign-in page minted when it burned its provider link-token, or the
+///    hosted connect picker's connect link-token. It reaches only the login,
+///    2FA, OTP, browser hand-over and cancel routes. A provider link-token
+///    itself is refused here: its page burned it, and a copy of its URL must
+///    sign in to nothing (carnet#1874).
 /// 2. A standard Pierre session (cookie or Bearer JWT) — used by the web/mobile
 ///    `SciotteLoginModal` component.
 ///
@@ -97,15 +101,34 @@ pub(crate) async fn authenticate(
     Ok((auth_result.user_id, tenant.as_uuid(), None))
 }
 
-/// If an `Authorization: Bearer ...` header contains a sign-in-scoped link-token,
-/// verify it against the server's admin JWT secret and return the claims.
-/// Returns None when the header is absent, not a Bearer token, or fails verification
-/// as a link-token (so the caller falls through to normal auth).
+/// The claims of a hosted page's sign-in bearer in the `Authorization` header.
+///
+/// That bearer is a sciotte sign-in session token or a connect link-token,
+/// verified against the server's admin JWT secret.
+///
+/// Returns None when the header is absent, not a Bearer token, or neither of
+/// those (so the caller falls through to normal auth, which refuses a
+/// link-token). A sciotte provider link-token is logged on its way to that
+/// refusal: the hosted page never sends one, so it is a copied link.
 fn try_verify_link_token_from_headers(
     resources: &AuthRoutesContext,
     headers: &HeaderMap,
 ) -> Option<ProviderLinkTokenClaims> {
     let header_value = headers.get("authorization").and_then(|h| h.to_str().ok());
     let token = extract_bearer_link_token(header_value)?;
-    verify_link_token(token, &resources.admin_jwt_secret, "sciotte").ok()
+    let secret = &resources.admin_jwt_secret;
+    if let Ok(claims) = verify_signin_session_token(token, secret, "sciotte") {
+        return Some(claims);
+    }
+    if let Ok(claims) = verify_link_token(token, secret, CONNECT_PROVIDER) {
+        return Some(claims);
+    }
+    if let Ok(claims) = verify_link_token(token, secret, "sciotte") {
+        warn!(
+            user_id = %claims.sub,
+            channel = %claims.channel,
+            "Refused a provider link-token on a sign-in call: only the page it opens may exchange it"
+        );
+    }
+    None
 }

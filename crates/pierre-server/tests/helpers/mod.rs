@@ -37,6 +37,7 @@ pub(crate) mod google_oidc;
 pub(crate) mod google_token;
 /// History-walk rows written straight into the job ledger, owed or walked.
 pub(crate) mod history_walk_ledger;
+pub(crate) mod hosted_signin;
 /// Identity Toolkit and the metadata token endpoint, for the account-deletion suites.
 pub(crate) mod identity_toolkit_stub;
 /// An admin's live support session on the athlete an ordinary session names.

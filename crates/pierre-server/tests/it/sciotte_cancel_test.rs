@@ -39,11 +39,12 @@ use axum::routing::post;
 use axum::{Json, Router};
 use common::{create_test_user_with_email, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
+use helpers::hosted_signin::hosted_signin_session;
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::oauth_providers::SCIOTTE_GARMIN;
 use pierre_core::models::TenantId;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_middleware::provider_link_token::{mint_link_token, MintProviderLinkTokenArgs};
+use pierre_middleware::provider_link_token::MintProviderLinkTokenArgs;
 use pierre_routes_auth::{remember_remote_flow, require_remote_flow, AuthRoutes};
 use pierre_test_support::log_capture::{self, CapturedLog};
 use serde_json::{json, Value};
@@ -761,12 +762,13 @@ async fn a_cancel_that_released_nothing_parked_keeps_the_flow() {
 
 // ── The hosted sign-in pages ──
 
-/// The hosted pages sign in with their link-token, so the cancel they send
-/// on `pagehide` carries it too: it must reach the route and the caller's key.
+/// The cancel a hosted page sends on `pagehide` carries its sign-in session.
+///
+/// It must reach the route and the caller's key.
 #[tokio::test]
 async fn a_hosted_pages_link_token_reaches_the_cancel() {
     let athlete = Athlete::new().await;
-    let token = mint_link_token(
+    let token = hosted_signin_session(
         &MintProviderLinkTokenArgs {
             user_id: athlete.user_id,
             tenant_id: athlete.tenant_id.as_uuid(),
@@ -776,8 +778,7 @@ async fn a_hosted_pages_link_token_reaches_the_cancel() {
             channel_thread: None,
         },
         &athlete.resources.auth.admin_jwt_secret,
-    )
-    .unwrap();
+    );
     let hosted = Athlete {
         bearer: format!("Bearer {token}"),
         ..athlete

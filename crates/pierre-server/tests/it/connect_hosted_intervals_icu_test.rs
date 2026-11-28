@@ -507,13 +507,18 @@ async fn posting_valid_credentials_links_the_account_and_redirects_to_success() 
     drop(guard);
 
     assert_eq!(resp.status(), StatusCode::SEE_OTHER);
-    // The token rides along, so the success page is written in the athlete's
-    // locale too.
-    let location = format!(
-        "/providers/connect/success?channel=telegram&target=intervals_icu&token={}",
-        urlencoding::encode(&token)
+    // The athlete's locale rides along, so the success page is written in it
+    // too; the token goes into no URL (carnet#1874). The fixture stores the
+    // athlete's locale as "en".
+    let location = resp.header("location").expect("a redirect").to_owned();
+    assert_eq!(
+        location, "/providers/connect/success?channel=telegram&target=intervals_icu&locale=en",
+        "the redirect carries the athlete's stored locale and no token"
     );
-    assert_eq!(resp.header("location"), Some(location.as_str()));
+    assert!(
+        !location.contains(&*urlencoding::encode(&token)),
+        "the connect token goes into no redirect URL: {location}"
+    );
     let success = AxumTestRequest::get(&location)
         .send(fixture.router.clone())
         .await

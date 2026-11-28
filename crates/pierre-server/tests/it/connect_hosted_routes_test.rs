@@ -15,6 +15,7 @@ use std::sync::Arc;
 use dravr_canot::channels::descriptor_for;
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use helpers::axum_test::AxumTestRequest;
+use helpers::hosted_signin::embedded_page_token;
 use pierre_auth::connect_order::{set_connect_order, ConnectOrder};
 use pierre_config::environment::ServerConfig;
 use pierre_core::constants::oauth::providers as oauth_providers;
@@ -1016,8 +1017,8 @@ fn signin_token(resources: &Arc<ServerContext>, user_id: Uuid, tenant_id: Tenant
 async fn the_signin_paths_serve_the_pages_the_earlier_paths_still_serve() {
     let (resources, user_id, tenant_id) = test_setup().await;
 
-    // Each login render burns its token, so each path gets its own; the
-    // pages are compared with the token itself masked out.
+    // Each login render burns its token and embeds a fresh session, so each
+    // path gets its own; the pages are compared with that session masked out.
     let mut logins = Vec::new();
     for path in [HOSTED_SIGNIN_PATH, "/providers/sciotte/login"] {
         let token = signin_token(&resources, user_id, tenant_id);
@@ -1030,7 +1031,7 @@ async fn the_signin_paths_serve_the_pages_the_earlier_paths_still_serve() {
             body.contains("id=\"phase-credentials\""),
             "{path} renders the sign-in form: {body}"
         );
-        logins.push(body.replace(&token, "<token>"));
+        logins.push(body.replace(embedded_page_token(&body), "<token>"));
     }
     assert_eq!(logins[0], logins[1], "both login paths render one page");
 

@@ -26,12 +26,13 @@ use common::{create_test_user_with_email, generate_test_token};
 use dravr_barrage::record_log::entry::{EntryKind, LogEntry};
 use dravr_barrage::{LiveSource, Scope, SourceKey};
 use helpers::axum_test::AxumTestRequest;
+use helpers::hosted_signin::hosted_signin_session;
 use helpers::impersonation::{assert_refusal_audited, assert_support_refused, impersonation_of};
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::oauth_providers::SCIOTTE_GARMIN;
 use pierre_core::models::TenantId;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_middleware::provider_link_token::{mint_link_token, MintProviderLinkTokenArgs};
+use pierre_middleware::provider_link_token::MintProviderLinkTokenArgs;
 use pierre_routes_auth::AuthRoutes;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
@@ -439,7 +440,8 @@ async fn a_provider_with_no_browser_sign_in_is_refused() {
 #[tokio::test]
 async fn a_channels_link_token_reaches_neither_route() {
     let athlete = Athlete::new().await;
-    let token = mint_link_token(
+    // The bearer the hosted sign-in page signs in with.
+    let token = hosted_signin_session(
         &MintProviderLinkTokenArgs {
             user_id: athlete.user_id,
             tenant_id: athlete.tenant_id.as_uuid(),
@@ -449,8 +451,7 @@ async fn a_channels_link_token_reaches_neither_route() {
             channel_thread: None,
         },
         &athlete.resources.auth.admin_jwt_secret,
-    )
-    .unwrap();
+    );
     let hosted = Athlete {
         bearer: format!("Bearer {token}"),
         ..athlete

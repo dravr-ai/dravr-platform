@@ -13,7 +13,8 @@
 //! are written in that same language:
 //!
 //! - the locale is the stored one of the user the link-token names, never a
-//!   query parameter or a header the browser sends;
+//!   query parameter or a header the browser sends; the success page, which
+//!   is handed no token, is written in the locale its sign-in page passes on;
 //! - every string is the dravr-contremaitre catalogue's, so each assertion
 //!   here compares the page against the catalogue lookup, with one literal
 //!   per locale so a catalogue that returned the wrong language would fail;
@@ -29,6 +30,7 @@ use crate::helpers;
 use std::sync::Arc;
 
 use helpers::axum_test::AxumTestRequest;
+use helpers::hosted_signin::hosted_signin_session;
 use pierre_contremaitre::hosted_strings::{
     KEY_HOSTED_COMMON_ACCOUNT_TITLE, KEY_HOSTED_COMMON_BACK, KEY_HOSTED_COMMON_CREDENTIALS_NOTE,
     KEY_HOSTED_COMMON_EMAIL_LABEL, KEY_HOSTED_COMMON_EMAIL_OR_USERNAME_LABEL,
@@ -178,6 +180,22 @@ impl Fixture {
             &self.resources.auth.admin_jwt_secret,
         )
         .expect("mint hosted-login token")
+    }
+
+    /// The bearer the hosted login page signs in with, once it burned the
+    /// link [`Self::login_token`] mints.
+    fn signin_session(&self, target: &str) -> String {
+        hosted_signin_session(
+            &MintProviderLinkTokenArgs {
+                user_id: self.user_id,
+                tenant_id: self.tenant_id.as_uuid(),
+                provider: "sciotte",
+                target,
+                channel: "telegram",
+                channel_thread: None,
+            },
+            &self.resources.auth.admin_jwt_secret,
+        )
     }
 
     async fn get(&self, url: &str, accept_language: Option<&str>) -> String {
@@ -363,7 +381,7 @@ async fn a_stated_language_never_overrides_the_athletes_stored_locale() {
         format!("/providers/connect?token={token}"),
         format!("/providers/connect?token={token}&lang=en&locale=en"),
         format!("/providers/connect/intervals_icu?token={token}&lang=en"),
-        format!("/providers/connect/success?channel=telegram&target=strava&token={token}&lang=en"),
+        "/providers/connect/success?channel=telegram&target=strava&locale=de&lang=en".to_owned(),
     ] {
         let body = fixture.get(&url, Some("en-US,en;q=0.9")).await;
         assert_lang(&body, "de", &url);
@@ -492,22 +510,28 @@ async fn the_form_literals_read_in_french_and_german() {
 }
 
 // ============================================================================
-// Success, with and without the token
+// Success, in its sign-in page's locale or the browser's
 // ============================================================================
 
 #[tokio::test]
-async fn the_success_page_follows_the_token_then_the_browser() {
+async fn the_success_page_follows_its_sign_in_page_then_the_browser() {
     for locale in SUPPORTED_LOCALES {
         let fixture = athlete(locale).await;
         let catalogue = Catalogue::new(locale);
         let token = fixture.connect_token();
 
-        // With the connect token the page is the athlete's, whatever the
-        // browser asks for.
+        // The picker is written in the athlete's locale and passes its own
+        // `<html lang>` on, so the success page is too, whatever the browser
+        // asks for.
+        let picker = fixture
+            .get(&format!("/providers/connect?token={token}"), Some("pt-BR"))
+            .await;
+        assert_lang(&picker, locale, "the picker");
+        assert!(picker.contains("'&locale=' + encodeURIComponent(document.documentElement.lang)"));
         let body = fixture
             .get(
                 &format!(
-                    "/providers/connect/success?channel=telegram&target=intervals_icu&token={token}"
+                    "/providers/connect/success?channel=telegram&target=intervals_icu&locale={locale}"
                 ),
                 Some("pt-BR"),
             )
@@ -526,22 +550,32 @@ async fn the_success_page_follows_the_token_then_the_browser() {
             );
         }
 
-        // The hosted login's own success page reads its narrower token, at
-        // the path the sign-in lands on.
-        let login = fixture.login_token("strava");
-        for path in [HOSTED_SIGNIN_SUCCESS_PATH] {
-            let body = fixture
-                .get(
-                    &format!("{path}?channel=telegram&target=strava&token={login}"),
-                    Some("pt-BR"),
-                )
-                .await;
-            assert_lang(&body, locale, path);
-            assert!(body.contains(&catalogue.html(KEY_HOSTED_SUCCESS_HEADING, &["Strava"])));
-        }
+        // The hosted login passes its locale to its own success page, at the
+        // path the sign-in lands on.
+        let login = fixture
+            .get(
+                &format!(
+                    "{HOSTED_SIGNIN_PATH}?token={}",
+                    fixture.login_token("strava")
+                ),
+                Some("pt-BR"),
+            )
+            .await;
+        assert_lang(&login, locale, "the hosted login");
+        assert!(login.contains("'&locale=' + encodeURIComponent(document.documentElement.lang)"));
+        let body = fixture
+            .get(
+                &format!(
+                    "{HOSTED_SIGNIN_SUCCESS_PATH}?channel=telegram&target=strava&locale={locale}"
+                ),
+                Some("pt-BR"),
+            )
+            .await;
+        assert_lang(&body, locale, HOSTED_SIGNIN_SUCCESS_PATH);
+        assert!(body.contains(&catalogue.html(KEY_HOSTED_SUCCESS_HEADING, &["Strava"])));
     }
 
-    // Without a token there is no athlete to ask: the browser's language,
+    // No locale, or one the platform does not speak: the browser's language,
     // French when it names none the platform speaks.
     let fixture = athlete("es").await;
     for (accept_language, locale) in [
@@ -554,7 +588,10 @@ async fn the_success_page_follows_the_token_then_the_browser() {
         // A target the registry does not name, and no channel: the unnamed
         // wording, not a made-up label.
         let body = fixture
-            .get("/providers/connect/success?target=nope", accept_language)
+            .get(
+                "/providers/connect/success?target=nope&locale=ja",
+                accept_language,
+            )
             .await;
         assert_lang(&body, locale, "the token-less success page");
         assert_fully_rendered(&body, "token-less success");
@@ -803,17 +840,13 @@ impl Fixture {
     }
 
     /// Every page a Telegram link opens, each from a fresh token.
-    fn telegram_pages(&self) -> [(&'static str, String); 4] {
+    fn telegram_pages(&self) -> [(&'static str, String); 3] {
         let token = self.connect_token();
         [
             ("the picker", format!("/providers/connect?token={token}")),
             (
                 "the Intervals.icu form",
                 format!("/providers/connect/intervals_icu?token={token}"),
-            ),
-            (
-                "the success page",
-                format!("/providers/connect/success?channel=telegram&target=strava&token={token}"),
             ),
             (
                 "the hosted login",
@@ -1139,7 +1172,7 @@ async fn a_failed_sign_in_is_worded_in_the_athletes_locale_in_all_five() {
 #[tokio::test]
 async fn a_lapsed_sign_in_is_refused_with_the_reason_the_page_reads() {
     let fixture = athlete("de").await;
-    let token = fixture.login_token("garmin");
+    let token = fixture.signin_session("garmin");
 
     for (path, body) in [
         (

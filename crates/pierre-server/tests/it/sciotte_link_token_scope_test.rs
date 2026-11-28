@@ -22,6 +22,7 @@ use crate::helpers;
 
 use common::{create_test_server_resources, create_test_user_with_email};
 use helpers::axum_test::AxumTestRequest;
+use helpers::hosted_signin::{embedded_page_token, hosted_signin_session};
 use pierre_middleware::provider_link_token::{
     mint_connect_link_token, mint_link_token, MintProviderLinkTokenArgs,
 };
@@ -106,7 +107,7 @@ async fn a_provider_link_token_signs_in_only_to_its_own_platform() {
         .await
         .unwrap()[0]
         .id;
-    let garmin_token = mint_link_token(
+    let garmin_session = hosted_signin_session(
         &MintProviderLinkTokenArgs {
             user_id,
             tenant_id: tenant_id.as_uuid(),
@@ -116,11 +117,10 @@ async fn a_provider_link_token_signs_in_only_to_its_own_platform() {
             channel_thread: None,
         },
         &resources.auth.admin_jwt_secret,
-    )
-    .unwrap();
+    );
 
     let response = AxumTestRequest::post("/api/providers/sciotte/login")
-        .header("authorization", &format!("Bearer {garmin_token}"))
+        .header("authorization", &format!("Bearer {garmin_session}"))
         .json(&json!({
             "email": "athlete@example.com",
             "password": "secret",
@@ -157,5 +157,152 @@ async fn a_provider_link_token_signs_in_only_to_its_own_platform() {
         body["message"].as_str(),
         Some(REFUSAL),
         "a connect token chooses its platform on the page: {body}"
+    );
+}
+
+/// A copy of a hosted sign-in link signs in to nothing (carnet#1874).
+///
+/// The page burns its link-token on load and signs in with the session token
+/// that load minted, so a chat message, a browser history or a forwarded URL
+/// reaches no sign-in route, before or after the page opened.
+#[tokio::test]
+async fn a_copied_link_token_signs_in_to_nothing() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user_with_email(&resources.agent.database, "copy@link.test")
+        .await
+        .unwrap();
+    let tenant_id = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap()[0]
+        .id;
+    let link = mint_link_token(
+        &MintProviderLinkTokenArgs {
+            user_id,
+            tenant_id: tenant_id.as_uuid(),
+            provider: "sciotte",
+            target: "garmin",
+            channel: "telegram",
+            channel_thread: None,
+        },
+        &resources.auth.admin_jwt_secret,
+    )
+    .unwrap();
+    let routes = || AuthRoutes::routes(resources.auth_routes_context());
+    // A target the link does not name: a bearer the route accepts reaches
+    // the platform check and is refused there, one it does not stops at auth.
+    let login = |bearer: String| {
+        AxumTestRequest::post("/api/providers/sciotte/login")
+            .header("authorization", &format!("Bearer {bearer}"))
+            .json(&json!({
+                "email": "athlete@example.com",
+                "password": "secret",
+                "target": "trainingpeaks",
+                "tos_consent": true,
+            }))
+    };
+
+    let unopened = login(link.clone()).send(routes()).await;
+    assert_eq!(
+        unopened.status(),
+        401,
+        "an unopened link signs in to nothing"
+    );
+
+    let page = AxumTestRequest::get(&format!(
+        "/providers/signin?token={}",
+        urlencoding::encode(&link)
+    ))
+    .send(routes())
+    .await;
+    assert_eq!(page.status(), 200, "a fresh link opens the hosted page");
+    let page = page.text();
+    assert!(
+        !page.contains(&link),
+        "the page never embeds its link-token"
+    );
+    let session = embedded_page_token(&page).to_owned();
+    assert!(
+        !page.contains(&format!("token={}", urlencoding::encode(&session))),
+        "the session token goes into no URL the page renders"
+    );
+    // The page's script builds its URLs at runtime, where no rendered literal
+    // shows them, so the served template is scanned for every use of its
+    // bearer: each one is an `Authorization` header, none a URL.
+    assert_eq!(
+        page.matches("CONFIG.token").count(),
+        page.matches("'Bearer ' + CONFIG.token").count(),
+        "the page's script sends its session only as a bearer header, never in a URL"
+    );
+
+    let copied = login(link.clone()).send(routes()).await;
+    assert_eq!(
+        copied.status(),
+        401,
+        "a copy of the burned link signs in to nothing"
+    );
+
+    let reopened = AxumTestRequest::get(&format!(
+        "/providers/signin?token={}",
+        urlencoding::encode(&session)
+    ))
+    .send(routes())
+    .await
+    .text();
+    assert!(
+        !reopened.contains("id=\"phase-credentials\""),
+        "the session token opens no page: {reopened}"
+    );
+
+    let signed_in = login(session).send(routes()).await;
+    assert_eq!(
+        signed_in.status(),
+        403,
+        "the page's session reaches the route"
+    );
+    let body: Value = signed_in.json();
+    assert_eq!(body["message"].as_str(), Some(REFUSAL), "{body}");
+}
+
+/// A connect token opens no hosted sign-in page.
+///
+/// The picker keeps its own token and page: the token is not exchanged for a
+/// sign-in session, so the page answers with the link error and no bearer.
+#[tokio::test]
+async fn a_connect_token_opens_no_hosted_sign_in_page() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (user_id, _) = create_test_user_with_email(&resources.agent.database, "picker@link.test")
+        .await
+        .unwrap();
+    let tenant_id = resources
+        .common
+        .repos
+        .tenants
+        .list_for_user(user_id)
+        .await
+        .unwrap()[0]
+        .id;
+    let connect = mint_connect_link_token(
+        user_id,
+        tenant_id.as_uuid(),
+        "telegram",
+        None,
+        &resources.auth.admin_jwt_secret,
+    )
+    .unwrap();
+
+    let page = AxumTestRequest::get(&format!(
+        "/providers/signin?token={}",
+        urlencoding::encode(&connect)
+    ))
+    .send(AuthRoutes::routes(resources.auth_routes_context()))
+    .await
+    .text();
+    assert!(
+        !page.contains("id=\"phase-credentials\"") && !page.contains("token: \""),
+        "a connect token renders the link error, with no bearer in it: {page}"
     );
 }

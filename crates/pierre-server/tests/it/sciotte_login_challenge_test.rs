@@ -46,6 +46,7 @@ use common::{create_test_user_with_email, generate_test_token};
 use dravr_tronc::dates::Elapsed;
 use dravr_tronc::dates::Timestamp;
 use helpers::axum_test::AxumTestRequest;
+use helpers::hosted_signin::hosted_signin_session;
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::oauth_providers::{SCIOTTE_GARMIN, TOKEN_TYPE_SESSION};
 use pierre_core::models::{ConnectionStatus, ConnectionType, ReauthMark, TenantId, UserOAuthToken};
@@ -272,7 +273,7 @@ impl Athlete {
 
     /// The same athlete, signing in through a hosted Garmin link instead.
     fn with_link_token(mut self) -> Self {
-        let token = mint_link_token(
+        let token = hosted_signin_session(
             &MintProviderLinkTokenArgs {
                 user_id: self.user_id,
                 tenant_id: self.tenant_id.as_uuid(),
@@ -282,8 +283,7 @@ impl Athlete {
                 channel_thread: None,
             },
             &self.resources.auth.admin_jwt_secret,
-        )
-        .unwrap();
+        );
         self.bearer = format!("Bearer {token}");
         self
     }
@@ -561,12 +561,21 @@ async fn a_challenged_hosted_sign_in_answers_the_reason_its_page_reads() {
 
     // The hosted login page compares the refusal's reason against this exact
     // literal, and carries the challenged sentence naming Garmin. Its script
-    // choosing that sentence is run in `hostedLoginCodeStep.test.ts`.
-    let token = athlete
-        .bearer
-        .strip_prefix("Bearer ")
-        .expect("a bearer")
-        .to_owned();
+    // choosing that sentence is run in `hostedLoginCodeStep.test.ts`. The page
+    // opens from a link-token of its own: the session it signs in with opens
+    // no page.
+    let token = mint_link_token(
+        &MintProviderLinkTokenArgs {
+            user_id: athlete.user_id,
+            tenant_id: athlete.tenant_id.as_uuid(),
+            provider: "sciotte",
+            target: "garmin",
+            channel: "telegram",
+            channel_thread: None,
+        },
+        &athlete.resources.auth.admin_jwt_secret,
+    )
+    .expect("mint hosted-login token");
     let page = AxumTestRequest::get(&format!("/providers/sciotte/login?token={token}"))
         .send(AuthRoutes::routes(athlete.resources.auth_routes_context()))
         .await

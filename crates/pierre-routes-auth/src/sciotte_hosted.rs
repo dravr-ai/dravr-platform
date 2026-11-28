@@ -11,9 +11,10 @@
 //!
 //! - `GET /providers/signin?token=...` — renders the login page. The token
 //!   query parameter is a provider link-token the messaging pipeline or the
-//!   backfill notifier minted in-process. The page embeds the token
-//!   so its client-side JS can call the existing `/api/providers/sciotte/*` API
-//!   with `Authorization: Bearer <token>`.
+//!   backfill notifier minted in-process. The load burns it and embeds the
+//!   sign-in session token it is exchanged for, so the page's client-side JS
+//!   can call the existing `/api/providers/sciotte/*` API with
+//!   `Authorization: Bearer <session>` while the burned link signs in to nothing.
 //! - `GET /providers/signin/success` — confirmation page, auto-closes and can
 //!   deep-link back to the originating channel.
 //!
@@ -35,11 +36,13 @@ use serde::Deserialize;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::hosted_page::{locale_for_claims, locale_for_token, PageStrings};
+use crate::hosted_page::{locale_for_claims, success_page_locale, PageStrings};
 use crate::sciotte_hosted_templates;
 use crate::short_link::preferred_locale;
 use crate::AuthRoutesContext;
-use pierre_middleware::provider_link_token::{verify_link_token, ProviderLinkTokenClaims};
+use pierre_middleware::provider_link_token::{
+    mint_signin_session_token, verify_link_token, ProviderLinkTokenClaims,
+};
 use pierre_providers::backend_resolver;
 use pierre_providers::sciotte_provider::SciotteTarget;
 use pierre_services::provider_notice::asks_for_notice;
@@ -66,10 +69,10 @@ pub(crate) struct HostedSuccessQuery {
     pub channel: Option<String>,
     /// Target platform shown on the success page ("strava" / "garmin")
     pub target: Option<String>,
-    /// The link-token the login page was opened with, which names the athlete
-    /// whose locale the page is written in. Absent or expired, the page
-    /// follows the browser's `Accept-Language`.
-    pub token: Option<SecretString>,
+    /// The locale the login page was written in, so this page reads in it too.
+    ///
+    /// Absent or unsupported, the page follows the browser's `Accept-Language`.
+    pub locale: Option<String>,
 }
 
 /// The locale of the athlete `claims` names, or the browser's when the
@@ -84,14 +87,18 @@ async fn claims_locale(
         .unwrap_or_else(|| preferred_locale(headers).to_owned())
 }
 
-/// Validate the link-token and burn its nonce, returning the verified claims.
+/// Validate the link-token, exchange it for the page's sign-in session and
+/// burn its nonce, returning the verified claims and the session token.
 ///
-/// The rejection is the rendered error page, boxed so the `Err` side stays small.
+/// The session is minted before the burn, so a token that cannot be
+/// exchanged (a connect token, which keeps its own picker) is refused with
+/// its nonce left alone. The rejection is the rendered error page, boxed so
+/// the `Err` side stays small.
 async fn validate_and_burn_link_token(
     resources: &AuthRoutesContext,
     token: &str,
     headers: &HeaderMap,
-) -> Result<ProviderLinkTokenClaims, Box<Response>> {
+) -> Result<(ProviderLinkTokenClaims, String), Box<Response>> {
     let claims = verify_link_token(token, &resources.admin_jwt_secret, LOGIN_TOKEN_PROVIDER)
         .map_err(|e| {
             warn!(error = %e, "Rejected hosted-login page: invalid link-token");
@@ -103,10 +110,22 @@ async fn validate_and_burn_link_token(
             ))
         })?;
 
+    let session = match mint_signin_session_token(&claims, &resources.admin_jwt_secret) {
+        Ok(session) => session,
+        Err(e) => {
+            warn!(error = %e, "Hosted-login page: link not exchangeable for a sign-in session");
+            let locale = claims_locale(resources, &claims, headers).await;
+            return Err(Box::new(render_error_response(
+                resources,
+                &locale,
+                KEY_HOSTED_ERROR_INVALID_LINK,
+            )));
+        }
+    };
+
     // SECURITY: Burn the jti on the first page load so the URL can't be replayed.
-    // The token remains valid for the login, 2FA and OTP POSTs within its TTL
-    // (`PROVIDER_LINK_TOKEN_TTL_MINUTES`) so the multi-step sign-in flow
-    // (credentials -> 2FA -> OTP) can complete.
+    // The sign-in calls carry the session token this load mints, never the
+    // link-token, so a copy of the URL signs in to nothing (carnet#1874).
     if let Err(e) = resources.nonce_store.burn(&claims.jti).await {
         warn!(jti = %claims.jti, error = %e, "Hosted-login page: link already consumed");
         let locale = claims_locale(resources, &claims, headers).await;
@@ -117,7 +136,7 @@ async fn validate_and_burn_link_token(
         )));
     }
 
-    Ok(claims)
+    Ok((claims, session))
 }
 
 /// GET `/providers/signin?token=...` (and the earlier `/providers/sciotte/login`)
@@ -138,8 +157,8 @@ pub(crate) async fn handle_sciotte_hosted_login_page(
         );
     };
 
-    let claims = match validate_and_burn_link_token(&resources, token, &headers).await {
-        Ok(c) => c,
+    let (claims, session) = match validate_and_burn_link_token(&resources, token, &headers).await {
+        Ok(validated) => validated,
         Err(resp) => return *resp,
     };
 
@@ -171,7 +190,7 @@ pub(crate) async fn handle_sciotte_hosted_login_page(
 
     Html(sciotte_hosted_templates::render_login_page(
         &strings,
-        token,
+        &session,
         target,
         &claims.channel,
         consent_required,
@@ -187,13 +206,7 @@ pub(crate) async fn handle_sciotte_hosted_success_page(
 ) -> Response {
     let channel = query.channel.as_deref().unwrap_or("");
     let target = query.target.as_deref().unwrap_or(DEFAULT_TARGET);
-    let locale = locale_for_token(
-        &resources,
-        query.token.as_ref().map(ExposeSecret::expose_secret),
-        LOGIN_TOKEN_PROVIDER,
-        &headers,
-    )
-    .await;
+    let locale = success_page_locale(query.locale.as_deref(), &headers);
     let strings = PageStrings::new(&resources.messaging_strings, locale);
     Html(sciotte_hosted_templates::render_success_page(
         &strings, channel, target,
