@@ -19,6 +19,7 @@ use axum::Router;
 use dravr_tronc::dates::{Elapsed, Timestamp};
 use pierre_core::ai_policy::SourcePolicy;
 use pierre_core::config::profiles::FitnessLevel;
+use pierre_core::constants::oauth::providers::APPLE_HEALTH_ARCHIVE;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     Activity, ActivityBuilder, AnchorProvenance, Athlete, ConnectionType, SportType, TenantId,
@@ -577,6 +578,46 @@ async fn verify_claim_contradicts_a_figure_about_an_athlete_with_nothing_connect
             .contains("no connected data source"),
         "{verdict}"
     );
+}
+
+// An athlete whose only data is an imported archive holds no connection and
+// no token; the activity tools still serve that archive to them, so a figure
+// from it is theirs, never an invented one.
+#[tokio::test]
+async fn verify_claim_supports_a_figure_from_an_imported_archive() {
+    let resources = server().await;
+    let rider = athlete(&resources).await;
+    let archived_run = ActivityBuilder::new(
+        "archive-long",
+        "",
+        SportType::Run,
+        Timestamp::now() - Elapsed::days(1),
+        6_300,
+        APPLE_HEALTH_ARCHIVE,
+    )
+    .distance_meters(21_100.0)
+    .build();
+    hold(&resources, &rider, APPLE_HEALTH_ARCHIVE, &[archived_run]).await;
+
+    for transport in [Transport::McpHttp, Transport::A2a] {
+        let verdict = verify(
+            &resources,
+            &rider,
+            transport,
+            "You covered 21 km on your last run.",
+        )
+        .await;
+
+        assert_eq!(
+            verdict["status"], "supported",
+            "bug: {transport:?}: a figure from the athlete's own archive was called invented: \
+             {verdict}"
+        );
+        assert_eq!(
+            verdict["layer_fired"], "athlete_data",
+            "{transport:?}: {verdict}"
+        );
+    }
 }
 
 #[tokio::test]

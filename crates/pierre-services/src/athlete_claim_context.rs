@@ -33,6 +33,7 @@ use dravr_tronc::dates::{CivilDate, Timestamp};
 use dravr_tronc::text::fold_for_match;
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::constants::provider_capture::current_capture_version;
+use pierre_core::errors::AppError;
 use pierre_core::models::{default_locale, Activity, TenantId};
 use pierre_database::repositories::{historical_depth_covered, BackfillCoverage};
 use pierre_database::RepositoryRegistry;
@@ -119,7 +120,7 @@ pub async fn build_personalized_inputs(
 /// yesterday in French and here in German). `None` reads the athlete's own
 /// account locale, for a caller that has no reply language to go by.
 ///
-/// Returns `None` when the connection lookup *fails*. That means we cannot
+/// Returns `None` when a source lookup *fails*. That means we cannot
 /// establish the athlete's state, and this is the one layer where guessing is
 /// dangerous in a specific direction: "providerless" is what licenses a
 /// `Contradicted` verdict at 0.95 confidence, saying the agent invented a
@@ -132,7 +133,9 @@ pub async fn build_personalized_inputs(
 /// second source, exactly as the dispatch chokepoint does, because the two
 /// tables are known to drift. An athlete holding a live token whose connection
 /// row is missing is served by every tool, so calling them providerless here
-/// would contradict every true figure they were just given.
+/// would contradict every true figure they were just given. The uploads and
+/// imported archives the athlete holds count too: the activity tools serve
+/// them with neither a connection nor a token behind them.
 ///
 /// For a connected athlete the record also carries the history a period total
 /// is checked against (carnet#846): each workout once, each source's own
@@ -148,30 +151,7 @@ pub async fn build_athlete_record(
     let repos = sources.repos;
     let user_id = sources.user_id;
 
-    let connected = match user_has_connected_provider(&repos.provider_connections, user_id).await {
-        Ok(true) => true,
-        Ok(false) => match repos.oauth_tokens.get_tokens(user_id, None).await {
-            Ok(tokens) => !tokens.is_empty(),
-            Err(e) => {
-                warn!(
-                    user_id = %user_id,
-                    error = %e,
-                    "athlete-record: oauth_tokens lookup failed — skipping the \
-                     athlete-data layer rather than risk contradicting a true claim"
-                );
-                return None;
-            }
-        },
-        Err(e) => {
-            warn!(
-                user_id = %user_id,
-                error = %e,
-                "athlete-record: provider_connections lookup failed — skipping the \
-                 athlete-data layer rather than risk contradicting a true claim"
-            );
-            return None;
-        }
-    };
+    let connected = holds_a_record(sources).await?;
 
     // The athlete's own zone, so a 21:00 session belongs to the day they
     // trained. A claim about "Tuesday" is checked against their Tuesday, and a
@@ -291,6 +271,52 @@ fn folded_names(names: impl IntoIterator<Item = String>) -> Vec<String> {
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect()
+}
+
+/// Whether the athlete holds any record the activity tools serve: a provider
+/// connection, an OAuth token, or an upload or imported archive. `None` when
+/// a lookup fails, so the athlete-data layer is skipped rather than guessed.
+async fn holds_a_record(sources: &AthleteSources<'_>) -> Option<bool> {
+    let repos = sources.repos;
+    let user_id = sources.user_id;
+    let skip = |lookup: &'static str| {
+        move |error: AppError| {
+            warn!(
+                user_id = %user_id,
+                lookup,
+                error = %error,
+                "athlete-record: a source lookup failed — skipping the athlete-data \
+                 layer rather than risk contradicting a true claim"
+            );
+        }
+    };
+    if user_has_connected_provider(&repos.provider_connections, user_id)
+        .await
+        .map_err(skip("provider_connections"))
+        .ok()?
+    {
+        return Some(true);
+    }
+    let tokens = repos
+        .oauth_tokens
+        .get_tokens(user_id, None)
+        .await
+        .map_err(skip("oauth_tokens"))
+        .ok()?;
+    if !tokens.is_empty() {
+        return Some(true);
+    }
+    // An athlete whose data is an upload or an imported archive holds no
+    // connection and no token, yet the activity tools serve it to them:
+    // calling them providerless would contradict every true figure those
+    // tools just gave.
+    let held = repos
+        .activity_cache
+        .held_user_provided(user_id, &sources.tenant_id)
+        .await
+        .map_err(skip("uploaded_sources"))
+        .ok()?;
+    Some(!held.is_empty())
 }
 
 /// The athlete's cached activities from `from` to `to`, and what the read
