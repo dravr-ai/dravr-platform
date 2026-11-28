@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
-# ABOUTME: Fails when a committed Boreal stylesheet (hosted page, web and mobile token blocks) is not what its generator emits
+# ABOUTME: Fails when a committed Boreal output (hosted sheet, client token block, native token export) is not what its generator emits
 # ABOUTME: Also fails a hosted template or a client stylesheet that skips its generated sheet or declares a palette of its own
 
 # WHY THIS EXISTS
@@ -22,15 +22,21 @@
 # same tokens (packages/shared-constants/scripts/generate-client-css.ts), and
 # the generator refuses to write one below the WCAG floors it measures.
 #
-# Four checks, all compile-free:
+# The native app is the third consumer with no way to read TypeScript: the Swift
+# repository has no JS runtime, so it vendors a data export of the same tokens,
+# packages/shared-constants/boreal-tokens.json, and generates its asset catalog
+# from that. A stale export would hand it colours the web no longer draws.
+#
+# Five checks, all compile-free:
 #   1. regenerate the hosted sheet into a temp file and diff it against the committed one;
 #   2. regenerate the web client block the same way and diff it (the phone
 #      app's block lives with the app in dravr-pitoune);
-#   3. every hosted template asks for the sheet and declares no styles of its own;
-#   4. each client stylesheet imports its block and declares no custom property itself.
+#   3. regenerate the native token export the same way and diff it;
+#   4. every hosted template asks for the sheet and declares no styles of its own;
+#   5. each client stylesheet imports its block and declares no custom property itself.
 #
-# It fails closed: a generator that exits non-zero, writes nothing, or writes a
-# sheet without its dark scheme is a failure, never a pass over an empty diff.
+# It fails closed: a generator that exits non-zero, writes nothing, or writes an
+# output without its dark scheme is a failure, never a pass over an empty diff.
 
 set -uo pipefail
 
@@ -57,6 +63,10 @@ CLIENT_SHEETS=(
     "frontend/src/index.css|frontend/src/boreal-tokens.generated.css|^html.dark {\$"
 )
 CLIENT_IMPORT="@import './boreal-tokens.generated.css';"
+
+NATIVE_TOKENS="packages/shared-constants/boreal-tokens.json"
+NATIVE_GENERATOR="packages/shared-constants/scripts/generate-native-tokens.ts"
+NATIVE_REGENERATE="cd packages/shared-constants && bun run generate:native-tokens"
 
 echo -e "${BLUE}==== Boreal Generated Stylesheet Gate ====${NC}"
 
@@ -141,7 +151,40 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Check 3: every hosted template draws with the shared sheet, and only with it
+# Check 3: the committed native token export is the generator's output
+# ---------------------------------------------------------------------------
+if ! command -v bun >/dev/null 2>&1; then
+    echo -e "${RED}❌ bun is not on PATH, so the native token export cannot be regenerated to compare.${NC}"
+    FAILED=true
+elif [[ ! -f "$NATIVE_TOKENS" ]]; then
+    echo -e "${RED}❌ ${NATIVE_TOKENS} is missing.${NC}"
+    echo -e "${YELLOW}   Generate it: ${NATIVE_REGENERATE}${NC}"
+    FAILED=true
+else
+    FRESH_TOKENS="$TMP/boreal-tokens.json"
+    if ! NATIVE_OUT="$(bun "$NATIVE_GENERATOR" --out "$FRESH_TOKENS" 2>&1)"; then
+        echo -e "${RED}❌ The native token generator failed:${NC}"
+        printf '%s\n' "$NATIVE_OUT" | sed 's/^/   /'
+        FAILED=true
+    elif [[ ! -s "$FRESH_TOKENS" ]]; then
+        echo -e "${RED}❌ The native token generator exited 0 but wrote nothing — nothing was compared.${NC}"
+        FAILED=true
+    elif ! grep -q '^        "dark": {$' "$FRESH_TOKENS" || ! grep -q '^    "hairlines": {$' "$FRESH_TOKENS"; then
+        echo -e "${RED}❌ The generated export carries no dark scheme or no hairlines — the generator is not emitting what this gate expects.${NC}"
+        FAILED=true
+    elif ! diff -u "$NATIVE_TOKENS" "$FRESH_TOKENS" > "$TMP/native.diff"; then
+        echo -e "${RED}❌ ${NATIVE_TOKENS} is stale against the tokens:${NC}"
+        head -40 "$TMP/native.diff" | sed 's/^/   /'
+        echo -e "${YELLOW}   Regenerate it and commit the result:${NC}"
+        echo -e "${YELLOW}     ${NATIVE_REGENERATE}${NC}"
+        FAILED=true
+    else
+        echo -e "${GREEN}✅ Native tokens: the committed export is the generator's output ($(printf '%s' "$NATIVE_OUT" | tail -1 | sed -E 's/ -> .*//')).${NC}"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Check 4: every hosted template draws with the shared sheet, and only with it
 # ---------------------------------------------------------------------------
 # Discovered, never listed: a page added later is held to the same rule.
 TEMPLATES="$(grep -rl --include='*.html' '<html' crates/*/templates crates/*/src 2>/dev/null | sort || true)"
@@ -178,7 +221,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Check 4: each client stylesheet imports its block and keeps no palette of its own
+# Check 5: each client stylesheet imports its block and keeps no palette of its own
 # ---------------------------------------------------------------------------
 # A custom property declared beside the import is how the hand copy comes back:
 # it silently overrides or extends the generated value on one client only.

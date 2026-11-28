@@ -779,13 +779,16 @@ fi
 # kept a private copy of a palette the product retired months before, because
 # nothing tied them to the tokens. The web stylesheet imports a token block
 # generated from the same source, for the same reason: it used to keep a hand
-# copy of the tree. The gate regenerates and diffs both, holds every hosted
-# template to the shared sheet and the web stylesheet to its block.
+# copy of the tree. The Swift app vendors a JSON export of the tokens
+# (packages/shared-constants/boreal-tokens.json), committed for the same reason
+# again: its repository runs no JavaScript. The gate regenerates and diffs all
+# three, holds every hosted template to the shared sheet and the web stylesheet
+# to its block.
 # It runs when anything a sheet is built from, or anything that embeds one, is
 # in the push; a change to the gate or its generators also runs its self-test.
 if [[ -x "$PROJECT_ROOT/scripts/ci/check-hosted-css.sh" ]] \
     && git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
-       | grep -qE '^crates/pierre-core/src/hosted_page\.css$|^crates/[^/]+/(templates|src)/.*\.html$|^packages/shared-constants/(src/(design-system|brands|wcag)\.ts|scripts/(generate-hosted-css|generate-client-css)\.ts)$|^frontend/public/brand/mark-ink-96\.png$|^frontend/src/(index|boreal-tokens\.generated)\.css$|^scripts/ci/check-hosted-css(\.test)?\.sh$'; then
+       | grep -qE '^crates/pierre-core/src/hosted_page\.css$|^crates/[^/]+/(templates|src)/.*\.html$|^packages/shared-constants/(src/(design-system|brands|wcag)\.ts|scripts/(generate-hosted-css|generate-client-css|generate-native-tokens)\.ts|boreal-tokens\.json)$|^frontend/public/brand/mark-ink-96\.png$|^frontend/src/(index|boreal-tokens\.generated)\.css$|^scripts/ci/check-hosted-css(\.test)?\.sh$'; then
     echo "Tier 1l: Generated Boreal stylesheets"
     echo "-------------------------------------"
     if ! "$PROJECT_ROOT/scripts/ci/check-hosted-css.sh"; then

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ABOUTME: Pins check-hosted-css.sh — the clean case, a stale block per generated sheet, a palette creeping back, a token under its floor
+# ABOUTME: Pins check-hosted-css.sh — the clean case, a stale copy of each generated output, a palette creeping back, a token under its floor
 # ABOUTME: Copies the gate, the generators, the tokens and the sheets into a throwaway tree, so it never touches the checkout
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
@@ -25,6 +25,7 @@ PATHS=(
     scripts/ci/check-hosted-css.sh
     packages/shared-constants/scripts
     packages/shared-constants/src
+    packages/shared-constants/boreal-tokens.json
     crates/pierre-core/src/hosted_page.css
     frontend/public/brand/mark-ink-96.png
     frontend/src/index.css
@@ -61,7 +62,8 @@ echo "check-hosted-css.sh"
 # 1. Clean: the tree as committed passes every check.
 scaffold
 OUT="$(run_check)"; STATUS=$?
-if [ "$STATUS" -eq 0 ] && echo "$OUT" | grep -q "both committed blocks are the generator's output"; then
+if [ "$STATUS" -eq 0 ] && echo "$OUT" | grep -q "both committed blocks are the generator's output" \
+    && echo "$OUT" | grep -q "Native tokens: the committed export is the generator's output"; then
     pass "passes on the committed sheets"
 else
     fail "false positive on the committed tree (status $STATUS): $OUT"
@@ -135,6 +137,36 @@ if [ "$STATUS" -ne 0 ] && echo "$OUT" | grep -q "hosted_page.css is stale"; then
     pass "fails on a drifted hosted sheet"
 else
     fail "did not catch the drifted hosted sheet (status $STATUS)"
+fi
+
+# 9. Catch: a hand edit to the native token export.
+scaffold
+replace_in "$WORK/repo/packages/shared-constants/boreal-tokens.json" '"hex": "#255f4d"' '"hex": "#00241a"'
+OUT="$(run_check)"; STATUS=$?
+if [ "$STATUS" -ne 0 ] && echo "$OUT" | grep -q "boreal-tokens.json is stale"; then
+    pass "fails on a drifted native token export, and names it"
+else
+    fail "did not catch the drifted native token export (status $STATUS)"
+fi
+
+# 10. Catch: a hairline alpha moved in the source and the export was not regenerated.
+scaffold
+replace_in "$WORK/repo/packages/shared-constants/src/design-system.ts" "faint: 0.26, default: 0.4, strong: 0.55" "faint: 0.26, default: 0.45, strong: 0.55"
+OUT="$(run_check)"; STATUS=$?
+if [ "$STATUS" -ne 0 ] && echo "$OUT" | grep -q "boreal-tokens.json is stale"; then
+    pass "fails when a hairline alpha moves under the committed export"
+else
+    fail "did not catch an export left behind by a hairline change (status $STATUS)"
+fi
+
+# 11. Catch: the export deleted — a missing file is never an empty diff.
+scaffold
+rm "$WORK/repo/packages/shared-constants/boreal-tokens.json"
+OUT="$(run_check)"; STATUS=$?
+if [ "$STATUS" -ne 0 ] && echo "$OUT" | grep -q "boreal-tokens.json is missing"; then
+    pass "fails when the native token export is missing"
+else
+    fail "did not catch the missing native token export (status $STATUS)"
 fi
 
 if [ "$FAILURES" -gt 0 ]; then

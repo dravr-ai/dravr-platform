@@ -1,5 +1,5 @@
 // ABOUTME: Boreal Editorial design tokens shared across Dravr web and mobile — the one source of every value
-// ABOUTME: Both client stylesheets and the hosted page sheet are generated from here (packages/shared-constants/scripts)
+// ABOUTME: The client stylesheets, the hosted page sheet and the native token export are generated from here (packages/shared-constants/scripts)
 
 // ========== BOREAL LIGHT — MD3 TOKEN TREE ==========
 

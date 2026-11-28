@@ -251,11 +251,12 @@ function block(client: Client, selector: string, p: ClientPalette, indent: strin
   return `${indent}${selector} {\n${groups.join('\n\n')}\n${indent}}`;
 }
 
-/** One client's stylesheet block, from the palettes. Throws below a contrast floor. */
-export function renderClientCss(
-  client: Client,
-  palettes: Record<ColorScheme, ClientPalette> = sharedPalettes(),
-): string {
+/**
+ * Every pairing both schemes are held to, measured. Throws when one sits below
+ * its floor, so no renderer of these palettes — a client stylesheet or the
+ * native token export — writes a value the clients could not draw legibly.
+ */
+export function pairingsAboveFloor(palettes: Record<ColorScheme, ClientPalette>): Measurement[] {
   const rows = SCHEMES.flatMap((scheme) => measureClientPairings(scheme, palettes[scheme]));
   const failing = rows.filter((r) => r.ratio < r.floor);
   if (failing.length > 0) {
@@ -264,6 +265,15 @@ export function renderClientCss(
       .join('\n  ');
     throw new Error(`the client stylesheets would ship pairings under their WCAG floor:\n  ${detail}`);
   }
+  return rows;
+}
+
+/** One client's stylesheet block, from the palettes. Throws below a contrast floor. */
+export function renderClientCss(
+  client: Client,
+  palettes: Record<ColorScheme, ClientPalette> = sharedPalettes(),
+): string {
+  const rows = pairingsAboveFloor(palettes);
   const weakest = rows.reduce((min, r) => (r.ratio / r.floor < min.ratio / min.floor ? r : min));
 
   const layout = LAYOUT[client];

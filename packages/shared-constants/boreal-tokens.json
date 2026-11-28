@@ -1,0 +1,986 @@
+{
+  "source": "packages/shared-constants/src/design-system.ts",
+  "generator": "packages/shared-constants/scripts/generate-native-tokens.ts",
+  "colors": {
+    "scheme": {
+      "primary": {
+        "light": {
+          "hex": "#255f4d",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#a3d0be",
+          "alpha": 1
+        }
+      },
+      "onPrimary": {
+        "light": {
+          "hex": "#ffffff",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#002117",
+          "alpha": 1
+        }
+      },
+      "primaryContainer": {
+        "light": {
+          "hex": "#e1eae5",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#234e40",
+          "alpha": 1
+        }
+      },
+      "onPrimaryContainer": {
+        "light": {
+          "hex": "#143d30",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#beedd9",
+          "alpha": 1
+        }
+      },
+      "primaryFixed": {
+        "light": {
+          "hex": "#beedd9",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#beedd9",
+          "alpha": 1
+        }
+      },
+      "primaryFixedDim": {
+        "light": {
+          "hex": "#a3d0be",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#a3d0be",
+          "alpha": 1
+        }
+      },
+      "onPrimaryFixed": {
+        "light": {
+          "hex": "#002117",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#002117",
+          "alpha": 1
+        }
+      },
+      "onPrimaryFixedVariant": {
+        "light": {
+          "hex": "#234e40",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#234e40",
+          "alpha": 1
+        }
+      },
+      "inversePrimary": {
+        "light": {
+          "hex": "#a3d0be",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#00241a",
+          "alpha": 1
+        }
+      },
+      "secondary": {
+        "light": {
+          "hex": "#5e5e64",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#c7c6cd",
+          "alpha": 1
+        }
+      },
+      "onSecondary": {
+        "light": {
+          "hex": "#ffffff",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#2f2f35",
+          "alpha": 1
+        }
+      },
+      "secondaryContainer": {
+        "light": {
+          "hex": "#e3e2e9",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#46464c",
+          "alpha": 1
+        }
+      },
+      "onSecondaryContainer": {
+        "light": {
+          "hex": "#64646a",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#e3e2e9",
+          "alpha": 1
+        }
+      },
+      "tertiary": {
+        "light": {
+          "hex": "#03231d",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#adcdc3",
+          "alpha": 1
+        }
+      },
+      "onTertiary": {
+        "light": {
+          "hex": "#ffffff",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#01201a",
+          "alpha": 1
+        }
+      },
+      "tertiaryContainer": {
+        "light": {
+          "hex": "#1b3932",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#2f4c45",
+          "alpha": 1
+        }
+      },
+      "onTertiaryContainer": {
+        "light": {
+          "hex": "#83a399",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#c8eadf",
+          "alpha": 1
+        }
+      },
+      "tertiaryFixedDim": {
+        "light": {
+          "hex": "#adcdc3",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#adcdc3",
+          "alpha": 1
+        }
+      },
+      "error": {
+        "light": {
+          "hex": "#ba1a1a",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#ffb4ab",
+          "alpha": 1
+        }
+      },
+      "onError": {
+        "light": {
+          "hex": "#ffffff",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#690005",
+          "alpha": 1
+        }
+      },
+      "errorContainer": {
+        "light": {
+          "hex": "#ffdad6",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#93000a",
+          "alpha": 1
+        }
+      },
+      "onErrorContainer": {
+        "light": {
+          "hex": "#93000a",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#ffdad6",
+          "alpha": 1
+        }
+      },
+      "surface": {
+        "light": {
+          "hex": "#f7f6f2",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#11130f",
+          "alpha": 1
+        }
+      },
+      "surfaceDim": {
+        "light": {
+          "hex": "#d7d6d1",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#11130f",
+          "alpha": 1
+        }
+      },
+      "surfaceBright": {
+        "light": {
+          "hex": "#f7f6f2",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#363a35",
+          "alpha": 1
+        }
+      },
+      "surfaceContainerLowest": {
+        "light": {
+          "hex": "#ffffff",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#0b0e0b",
+          "alpha": 1
+        }
+      },
+      "surfaceContainerLow": {
+        "light": {
+          "hex": "#ebeae5",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#191c19",
+          "alpha": 1
+        }
+      },
+      "surfaceContainer": {
+        "light": {
+          "hex": "#e0dfda",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#1d201d",
+          "alpha": 1
+        }
+      },
+      "surfaceContainerHigh": {
+        "light": {
+          "hex": "#d7d6d1",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#272b27",
+          "alpha": 1
+        }
+      },
+      "surfaceContainerHighest": {
+        "light": {
+          "hex": "#cfcec9",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#323532",
+          "alpha": 1
+        }
+      },
+      "surfaceVariant": {
+        "light": {
+          "hex": "#e2e1dc",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#414845",
+          "alpha": 1
+        }
+      },
+      "surfaceTint": {
+        "light": {
+          "hex": "#255f4d",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#a3d0be",
+          "alpha": 1
+        }
+      },
+      "onSurface": {
+        "light": {
+          "hex": "#1a1c1b",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#e1e3de",
+          "alpha": 1
+        }
+      },
+      "onSurfaceVariant": {
+        "light": {
+          "hex": "#414845",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#c0c8c3",
+          "alpha": 1
+        }
+      },
+      "inverseSurface": {
+        "light": {
+          "hex": "#2f312f",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#e1e3de",
+          "alpha": 1
+        }
+      },
+      "inverseOnSurface": {
+        "light": {
+          "hex": "#f1f1ee",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#2f312f",
+          "alpha": 1
+        }
+      },
+      "background": {
+        "light": {
+          "hex": "#f7f6f2",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#11130f",
+          "alpha": 1
+        }
+      },
+      "onBackground": {
+        "light": {
+          "hex": "#1a1c1b",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#e1e3de",
+          "alpha": 1
+        }
+      },
+      "outline": {
+        "light": {
+          "hex": "#525a55",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#b0b6af",
+          "alpha": 1
+        }
+      },
+      "outlineVariant": {
+        "light": {
+          "hex": "#c0c8c3",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#414845",
+          "alpha": 1
+        }
+      },
+      "scrim": {
+        "light": {
+          "hex": "#1a1c1b",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#000000",
+          "alpha": 1
+        }
+      }
+    },
+    "brand": {
+      "primaryHover": {
+        "light": {
+          "hex": "#1e5040",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#8cbaa8",
+          "alpha": 1
+        }
+      },
+      "markInk": {
+        "light": {
+          "hex": "#05331f",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#a3d0be",
+          "alpha": 1
+        }
+      }
+    },
+    "pillars": {
+      "activity": {
+        "light": {
+          "hex": "#0f7d68",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#79a694",
+          "alpha": 1
+        }
+      },
+      "nutrition": {
+        "light": {
+          "hex": "#b08326",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#d6b87a",
+          "alpha": 1
+        }
+      },
+      "recovery": {
+        "light": {
+          "hex": "#3e7283",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#9bb6bd",
+          "alpha": 1
+        }
+      },
+      "mobility": {
+        "light": {
+          "hex": "#9b4666",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#c4929e",
+          "alpha": 1
+        }
+      }
+    },
+    "feedback": {
+      "info": {
+        "light": {
+          "hex": "#3e7283",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#9bb6bd",
+          "alpha": 1
+        }
+      },
+      "success": {
+        "light": {
+          "hex": "#2e7d5b",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#79a694",
+          "alpha": 1
+        }
+      },
+      "warning": {
+        "light": {
+          "hex": "#b08326",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#d6b87a",
+          "alpha": 1
+        }
+      }
+    },
+    "boundInks": {
+      "onActivityContainer": {
+        "light": {
+          "hex": "#0b5748",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#9abcae",
+          "alpha": 1
+        }
+      },
+      "onNutritionContainer": {
+        "light": {
+          "hex": "#664c16",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#d8bc81",
+          "alpha": 1
+        }
+      },
+      "onRecoveryContainer": {
+        "light": {
+          "hex": "#2d525e",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#a9c0c6",
+          "alpha": 1
+        }
+      },
+      "onMobilityContainer": {
+        "light": {
+          "hex": "#77354e",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#d1abb4",
+          "alpha": 1
+        }
+      },
+      "onInfoContainer": {
+        "light": {
+          "hex": "#2d525e",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#a9c0c6",
+          "alpha": 1
+        }
+      },
+      "onSuccessContainer": {
+        "light": {
+          "hex": "#20573f",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#9abcae",
+          "alpha": 1
+        }
+      },
+      "onWarningContainer": {
+        "light": {
+          "hex": "#664c16",
+          "alpha": 1
+        },
+        "dark": {
+          "hex": "#d8bc81",
+          "alpha": 1
+        }
+      }
+    },
+    "hairlines": {
+      "ghostBorderFaint": {
+        "light": {
+          "hex": "#9ba59f",
+          "alpha": 0.26
+        },
+        "dark": {
+          "hex": "#c0c8c3",
+          "alpha": 0.14
+        }
+      },
+      "ghostBorder": {
+        "light": {
+          "hex": "#9ba59f",
+          "alpha": 0.4
+        },
+        "dark": {
+          "hex": "#c0c8c3",
+          "alpha": 0.22
+        }
+      },
+      "ghostBorderStrong": {
+        "light": {
+          "hex": "#9ba59f",
+          "alpha": 0.55
+        },
+        "dark": {
+          "hex": "#c0c8c3",
+          "alpha": 0.34
+        }
+      }
+    }
+  },
+  "primaryPalette": {
+    "50": {
+      "hex": "#eef4f1",
+      "alpha": 1
+    },
+    "100": {
+      "hex": "#d6e3dc",
+      "alpha": 1
+    },
+    "200": {
+      "hex": "#a3d0be",
+      "alpha": 1
+    },
+    "300": {
+      "hex": "#79a694",
+      "alpha": 1
+    },
+    "400": {
+      "hex": "#5e8a78",
+      "alpha": 1
+    },
+    "500": {
+      "hex": "#3c6658",
+      "alpha": 1
+    },
+    "600": {
+      "hex": "#234e40",
+      "alpha": 1
+    },
+    "700": {
+      "hex": "#0d3b2e",
+      "alpha": 1
+    },
+    "800": {
+      "hex": "#002117",
+      "alpha": 1
+    },
+    "900": {
+      "hex": "#00241a",
+      "alpha": 1
+    },
+    "950": {
+      "hex": "#001812",
+      "alpha": 1
+    }
+  },
+  "providerColors": {
+    "strava": {
+      "hex": "#fc4c02",
+      "alpha": 1
+    },
+    "garmin": {
+      "hex": "#007cc3",
+      "alpha": 1
+    },
+    "whoop": {
+      "hex": "#00d46a",
+      "alpha": 1
+    },
+    "terra": {
+      "hex": "#6366f1",
+      "alpha": 1
+    },
+    "intervals_icu": {
+      "hex": "#1273de",
+      "alpha": 1
+    },
+    "google": {
+      "hex": "#4285f4",
+      "alpha": 1
+    },
+    "sciotte": {
+      "hex": "#fc4c02",
+      "alpha": 1
+    },
+    "sciotte_garmin": {
+      "hex": "#007cc3",
+      "alpha": 1
+    },
+    "trainingpeaks": {
+      "hex": "#005695",
+      "alpha": 1
+    },
+    "sciotte_trainingpeaks": {
+      "hex": "#005695",
+      "alpha": 1
+    },
+    "coros": {
+      "hex": "#f8273b",
+      "alpha": 1
+    },
+    "sciotte_coros": {
+      "hex": "#f8273b",
+      "alpha": 1
+    }
+  },
+  "providerGlyphInk": {
+    "strava": {
+      "light": {
+        "hex": "#fc4c02",
+        "alpha": 1
+      },
+      "dark": {
+        "hex": "#fc4c02",
+        "alpha": 1
+      }
+    },
+    "sciotte": {
+      "light": {
+        "hex": "#fc4c02",
+        "alpha": 1
+      },
+      "dark": {
+        "hex": "#fc4c02",
+        "alpha": 1
+      }
+    },
+    "garmin": {
+      "light": {
+        "hex": "#007cc3",
+        "alpha": 1
+      },
+      "dark": {
+        "hex": "#007cc3",
+        "alpha": 1
+      }
+    },
+    "sciotte_garmin": {
+      "light": {
+        "hex": "#007cc3",
+        "alpha": 1
+      },
+      "dark": {
+        "hex": "#007cc3",
+        "alpha": 1
+      }
+    },
+    "intervals_icu": {
+      "light": {
+        "hex": "#1273de",
+        "alpha": 1
+      },
+      "dark": {
+        "hex": "#1273de",
+        "alpha": 1
+      }
+    },
+    "trainingpeaks": {
+      "light": {
+        "hex": "#005695",
+        "alpha": 1
+      },
+      "dark": null
+    },
+    "sciotte_trainingpeaks": {
+      "light": {
+        "hex": "#005695",
+        "alpha": 1
+      },
+      "dark": null
+    },
+    "coros": {
+      "light": {
+        "hex": "#f8273b",
+        "alpha": 1
+      },
+      "dark": {
+        "hex": "#f8273b",
+        "alpha": 1
+      }
+    },
+    "sciotte_coros": {
+      "light": {
+        "hex": "#f8273b",
+        "alpha": 1
+      },
+      "dark": {
+        "hex": "#f8273b",
+        "alpha": 1
+      }
+    },
+    "whoop": {
+      "light": null,
+      "dark": {
+        "hex": "#00d46a",
+        "alpha": 1
+      }
+    }
+  },
+  "gradients": {
+    "borealHero": {
+      "start": {
+        "hex": "#255f4d",
+        "alpha": 1
+      },
+      "end": {
+        "hex": "#e1eae5",
+        "alpha": 1
+      },
+      "angle": 145
+    },
+    "violetCyan": {
+      "start": {
+        "hex": "#255f4d",
+        "alpha": 1
+      },
+      "end": {
+        "hex": "#e1eae5",
+        "alpha": 1
+      }
+    },
+    "violetIndigo": {
+      "start": {
+        "hex": "#00241a",
+        "alpha": 0.15
+      },
+      "end": {
+        "hex": "#0d3b2e",
+        "alpha": 0.05
+      }
+    },
+    "darkOverlay": {
+      "start": {
+        "hex": "#00241a",
+        "alpha": 0
+      },
+      "end": {
+        "hex": "#00241a",
+        "alpha": 0.85
+      }
+    },
+    "aiGradient": {
+      "start": {
+        "hex": "#a3d0be",
+        "alpha": 0.08
+      },
+      "end": {
+        "hex": "#0d3b2e",
+        "alpha": 0.6
+      }
+    }
+  },
+  "shadows": {
+    "floating": {
+      "light": [
+        {
+          "x": 0,
+          "y": 12,
+          "blur": 24,
+          "spread": -6,
+          "color": {
+            "hex": "#1a1c1b",
+            "alpha": 0.12
+          }
+        },
+        {
+          "x": 0,
+          "y": 6,
+          "blur": 12,
+          "spread": -3,
+          "color": {
+            "hex": "#1a1c1b",
+            "alpha": 0.08
+          }
+        }
+      ],
+      "dark": [
+        {
+          "x": 0,
+          "y": 12,
+          "blur": 24,
+          "spread": -6,
+          "color": {
+            "hex": "#000000",
+            "alpha": 0.55
+          }
+        },
+        {
+          "x": 0,
+          "y": 6,
+          "blur": 12,
+          "spread": -3,
+          "color": {
+            "hex": "#000000",
+            "alpha": 0.45
+          }
+        }
+      ]
+    },
+    "ambient": {
+      "card": {
+        "color": {
+          "hex": "#1a1c1b",
+          "alpha": 1
+        },
+        "opacity": 0.1,
+        "radius": 3,
+        "offset": {
+          "width": 0,
+          "height": 1
+        }
+      },
+      "hover": {
+        "color": {
+          "hex": "#1a1c1b",
+          "alpha": 1
+        },
+        "opacity": 0.12,
+        "radius": 8,
+        "offset": {
+          "width": 0,
+          "height": 4
+        }
+      },
+      "floating": {
+        "color": {
+          "hex": "#1a1c1b",
+          "alpha": 1
+        },
+        "opacity": 0.18,
+        "radius": 24,
+        "offset": {
+          "width": 0,
+          "height": 12
+        }
+      }
+    },
+    "buttonGlow": {
+      "color": {
+        "hex": "#1a1c1b",
+        "alpha": 1
+      },
+      "opacity": 0.06,
+      "radius": 24
+    }
+  },
+  "typography": {
+    "families": {
+      "display": "Schibsted Grotesk",
+      "headline": "Schibsted Grotesk",
+      "body": "Plus Jakarta Sans",
+      "label": "Plus Jakarta Sans",
+      "serif": "Newsreader",
+      "mono": "JetBrains Mono"
+    },
+    "fontWeight": {
+      "normal": 400,
+      "medium": 500,
+      "semibold": 600,
+      "bold": 700
+    },
+    "brandTrackingEm": 0.15
+  },
+  "spacing": {
+    "xs": 4,
+    "sm": 8,
+    "md": 16,
+    "lg": 24,
+    "xl": 32,
+    "xxl": 48
+  },
+  "radius": {
+    "sm": 2,
+    "md": 4,
+    "lg": 8,
+    "xl": 12,
+    "full": 9999
+  }
+}

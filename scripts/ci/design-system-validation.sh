@@ -114,6 +114,7 @@ for f in \
     "frontend/DESIGN.md" \
     "packages/shared-constants/src/design-system.ts" \
     "frontend/src/boreal-tokens.generated.css" \
+    "packages/shared-constants/boreal-tokens.json" \
     "frontend/tailwind.config.cjs" \
     "frontend/src/index.css"
 do
@@ -122,7 +123,7 @@ do
         FAILED=1
     fi
 done
-[ "$FAILED" -eq 0 ] && echo -e "${GREEN}OK${NC}   the token source, the generated block, its stylesheet and the Tailwind config are present"
+[ "$FAILED" -eq 0 ] && echo -e "${GREEN}OK${NC}   the token source, the generated block, the native export, the stylesheet and the Tailwind config are present"
 echo ""
 
 # ----------------------------------------------------------------------------

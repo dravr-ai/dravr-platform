@@ -106,7 +106,8 @@ components:
 > `../packages/shared-constants/src/design-system.ts`; the client CSS blocks
 > (`src/boreal-tokens.generated.css` here, and the phone app's own block in
 > dravr-pitoune) and the Tailwind configs (`tailwind.config.cjs` here, the
-> phone app's in dravr-pitoune) are generated or mapped from it. Paths are relative to this file. A
+> phone app's in dravr-pitoune) are generated or mapped from it, and so is
+> `../packages/shared-constants/boreal-tokens.json`, the data export the Swift app vendors. Paths are relative to this file. A
 > browsable copy with live previews: `bun run design-system` from the web app directory.
 
 ## Overview
