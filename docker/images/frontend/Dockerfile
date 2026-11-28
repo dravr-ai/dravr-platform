@@ -80,7 +80,12 @@ FROM alpine:3.23
 # nginx 1.28.3-r8 closes nine HIGH/CRITICAL CVEs reported against 1.28.3-r7
 # (CVE-2026-121810, CVE-2026-123007 among them). Gated the 2026-11-19 dev deploy
 # of c49e540cc, which touched no frontend Docker file.
-ARG APK_SECURITY_EPOCH=2026-11-19
+# libxml2 2.13.9-r2 closes seven HIGH CVEs reported against 2.13.9-r1
+# (CVE-2026-11979, CVE-2026-86138, CVE-2026-86139, CVE-2026-86140,
+# CVE-2026-86142, CVE-2026-86143, CVE-2026-86144), code execution and buffer
+# overflows among them. Gated the 2026-11-28 dev deploy of b376f1f7e, which
+# touched no frontend Docker file.
+ARG APK_SECURITY_EPOCH=2026-11-28
 
 # nginx (patched, fixes CVE-2026-9256) + gettext for envsubst (the official nginx
 # image bundled envsubst; plain alpine does not). apk upgrade patches the rest of
