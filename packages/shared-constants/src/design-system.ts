@@ -648,10 +648,20 @@ export const BRAND_TRACKING = '0.15em' as const;
 
 // ========== SPACING / RADIUS / TYPE SCALE ==========
 
-/** Platform-agnostic spacing scale (unchanged). */
+/**
+ * Platform-agnostic spacing scale, in px on the web and points on a native
+ * client. The six t-shirt steps are the web's whole scale. The four steps
+ * between them exist for the native companion, whose compact rows sit on a
+ * 2pt grid: `<step>Plus` is the step plus 2, `<step>Minus` the step minus 2,
+ * and `smMd` the midpoint between `sm` and `md`.
+ */
 export const SPACING = {
   xs: 4,
+  xsPlus: 6,
   sm: 8,
+  smPlus: 10,
+  smMd: 12,
+  mdMinus: 14,
   md: 16,
   lg: 24,
   xl: 32,
@@ -659,7 +669,8 @@ export const SPACING = {
 } as const;
 
 /**
- * Boreal radii — matches the website scale. `full` is kept for chips/tags
+ * Boreal radii — matches the website scale. `xxl` is the native companion's
+ * card corner; a web card stays `xl`. `full` is kept for chips/tags
  * (9999 is for small tags only).
  */
 export const BORDER_RADIUS = {
@@ -667,6 +678,7 @@ export const BORDER_RADIUS = {
   md: 4,
   lg: 8,
   xl: 12,
+  xxl: 16,
   full: 9999,
 } as const;
 

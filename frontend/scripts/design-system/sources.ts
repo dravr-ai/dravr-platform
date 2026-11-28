@@ -186,6 +186,11 @@ function bubbleRadius(): string {
   return match[1];
 }
 
+/** A scale key as the artifact names it: `xxl` is `2xl`, and a camel-case in-between step (`smPlus`) is kebab-case. */
+function scaleStep(key: string): string {
+  return key === 'xxl' ? '2xl' : key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+}
+
 export interface SourceRef { repo: string; ref: string }
 
 export function buildTokens(source: SourceRef, components: Record<string, string>, synced: string) {
@@ -194,11 +199,11 @@ export function buildTokens(source: SourceRef, components: Record<string, string
   const section = theme.spacing.section;
   if (!section) throw new Error('tailwind.config.cjs has no spacing.section');
   const spacing = [
-    ...Object.entries(SPACING).map(([k, px]) => ({ name: `space-${k === 'xxl' ? '2xl' : k}`, value: `${px}px` })),
+    ...Object.entries(SPACING).map(([k, px]) => ({ name: `space-${scaleStep(k)}`, value: `${px}px` })),
     { name: 'space-section', value: remToPx(section) },
   ];
   const radius = [
-    ...Object.entries(BORDER_RADIUS).filter(([k]) => k !== 'full').map(([k, px]) => ({ name: `radius-${k}`, value: `${px}px` })),
+    ...Object.entries(BORDER_RADIUS).filter(([k]) => k !== 'full').map(([k, px]) => ({ name: `radius-${scaleStep(k)}`, value: `${px}px` })),
     { name: 'radius-bubble', value: bubbleRadius() },
     { name: 'radius-full', value: `${BORDER_RADIUS.full}px` },
   ];

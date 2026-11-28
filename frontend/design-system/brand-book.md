@@ -42,8 +42,8 @@ Dravr Boreal is the design system of Dravr, fitness intelligence for athletes an
 
 ## Shape and spacing
 
-- Spacing: `space-xs` 4, `space-sm` 8, `space-md` 16, `space-lg` 24, `space-xl` 32 (between sections) and `space-2xl` 48.
-- Radii: `radius-lg` (8) for buttons and fields, `radius-xl` (12) for cards and the composer, `radius-bubble` (14, with a 4px tail) for the athlete's bubble, and `radius-full` for badges, tags, avatars and dots only.
+- Spacing: `space-xs` 4, `space-sm` 8, `space-md` 16, `space-lg` 24, `space-xl` 32 (between sections) and `space-2xl` 48. The in-between steps `space-xs-plus` 6, `space-sm-plus` 10, `space-sm-md` 12 and `space-md-minus` 14 are for the native companion only.
+- Radii: `radius-lg` (8) for buttons and fields, `radius-xl` (12) for cards and the composer, `radius-bubble` (14, with a 4px tail) for the athlete's bubble, and `radius-full` for badges, tags, avatars and dots only. `radius-2xl` (16) is the native companion's card; a web card stays `radius-xl`.
 - Controls are 32px tall (`control-height`), 28 for small and 44 for the auth CTA. On a coarse pointer or under the `lg` breakpoint, every target lifts to 44.
 
 ## Layout: the messenger

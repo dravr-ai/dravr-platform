@@ -69,10 +69,15 @@ rounded:
   md: "4px"
   lg: "8px"
   xl: "12px"
+  2xl: "16px"
   full: "9999px"
 spacing:
   xs: "4px"
+  xs-plus: "6px"
   sm: "8px"
+  sm-plus: "10px"
+  sm-md: "12px"
+  md-minus: "14px"
   md: "16px"
   lg: "24px"
   xl: "32px"
@@ -215,7 +220,7 @@ A third-party brand hex (a provider's orange, a provider glyph) is exempt from t
 
 ## Layout
 
-Compact, data-first density. Spacing steps 4 / 8 / 16 / 24 / 32 / 48 px (card padding 24, section gap 24, major separation 32). Content max width 1280px; the reading column (thread and composer) is 720px.
+Compact, data-first density. Spacing steps 4 / 8 / 16 / 24 / 32 / 48 px (card padding 24, section gap 24, major separation 32). The scale also carries four in-between steps, 6 / 10 / 12 / 14 (`xsPlus`, `smPlus`, `smMd`, `mdMinus`), for the native companion's compact rows; the web lays out on the six. Content max width 1280px; the reading column (thread and composer) is 720px.
 
 - **Athlete shell:** 72px icon rail; Home is the thread plus a Today panel (320px at `lg`, 360px at `xl`); Groups is a list column (320 / 340px) plus the thread, one column at a time below `lg` (1024px).
 - **Admin shell:** 232px sidebar, 72px collapsed.
@@ -243,7 +248,7 @@ No glow, no violet ring, no backdrop blur on standard cards (blur is only for th
 
 ## Shapes
 
-Quiet, slightly rounded geometry. Radii: 2 / 4 / **8 (buttons, fields)** / **12 (cards)** / full (badges, avatars). Cards are 12px, buttons 8px; pills (`rounded-full`) are reserved for chips and inline shortcuts. On the phone: 4 chips, 8 buttons, 12 floating cards, 20 sheet top and composer field. A circle is one counterpart (a person or agent), a square is many. Phone fields are not rounded at all (a bottom stroke only), as on the web. Hairlines are 1px (`StyleSheet.hairlineWidth` on the phone); the edge of an otherwise invisible control (checkbox, radio) is the `outline` token to meet 3:1.
+Quiet, slightly rounded geometry. Radii: 2 / 4 / **8 (buttons, fields)** / **12 (cards)** / full (badges, avatars). A sixth step, 16 (`xxl`), is the native companion's card corner; a web card stays 12. Cards are 12px, buttons 8px; pills (`rounded-full`) are reserved for chips and inline shortcuts. On the phone: 4 chips, 8 buttons, 12 floating cards, 20 sheet top and composer field. A circle is one counterpart (a person or agent), a square is many. Phone fields are not rounded at all (a bottom stroke only), as on the web. Hairlines are 1px (`StyleSheet.hairlineWidth` on the phone); the edge of an otherwise invisible control (checkbox, radio) is the `outline` token to meet 3:1.
 
 ## Components
 

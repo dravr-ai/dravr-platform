@@ -80,7 +80,11 @@
   },
   "spacing": {
     "space-xs": "Tight inline gaps.",
+    "space-xs-plus": "Native companion only: chip gaps, the inset of a control inside a capsule.",
     "space-sm": "Icon gaps, chip padding.",
+    "space-sm-plus": "Native companion only: the gap between an icon and its label, chip side padding.",
+    "space-sm-md": "Native companion only: the gap between rows in a card, header side padding.",
+    "space-md-minus": "Native companion only: card and capsule side padding.",
     "space-md": "Standard component padding; card padding on a phone.",
     "space-lg": "Card padding at md+, section gap.",
     "space-xl": "Major section separation; the gap between Sections.",
@@ -92,6 +96,7 @@
     "radius-md": "Chips on the phone, small insets.",
     "radius-lg": "Buttons, fields, icon buttons.",
     "radius-xl": "Cards, the composer field, floating panels.",
+    "radius-2xl": "Native companion only: a card in the thread. A web card stays `radius-xl`.",
     "radius-bubble": "The athlete's bubble (with a 4px tail corner, bottom-right).",
     "radius-full": "Badges, tags, avatars, status dots only."
   },

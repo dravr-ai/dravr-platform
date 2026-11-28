@@ -105,6 +105,13 @@ describe('native token export', () => {
   it('carries the scales and the type roles as numbers a native client can use', () => {
     expect(tokens.spacing).toEqual(SPACING);
     expect(tokens.radius).toEqual(BORDER_RADIUS);
+    // Pinned as literals because they are a wire value: the Swift app vendors
+    // this export and reads each step by name, in a repository this one cannot
+    // change, so a renamed or renumbered step breaks its build.
+    expect(tokens.spacing).toEqual({
+      xs: 4, xsPlus: 6, sm: 8, smPlus: 10, smMd: 12, mdMinus: 14, md: 16, lg: 24, xl: 32, xxl: 48,
+    });
+    expect(tokens.radius).toEqual({ sm: 2, md: 4, lg: 8, xl: 12, xxl: 16, full: 9999 });
     expect(tokens.typography.fontWeight).toEqual({ normal: 400, medium: 500, semibold: 600, bold: 700 });
     expect(tokens.typography.brandTrackingEm).toBe(0.15);
     expect(tokens.typography.families.mono).toBe('JetBrains Mono');

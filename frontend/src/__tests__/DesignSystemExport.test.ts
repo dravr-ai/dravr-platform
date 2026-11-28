@@ -87,10 +87,14 @@ describe('design system tokens', () => {
 
   it('takes spacing, radii and the one shadow from the shared constants and the stylesheet', () => {
     const spacing = Object.fromEntries(tokens.spacing.tokens.map((t) => [t.name, t.value]));
-    expect(spacing).toMatchObject({ 'space-xs': '4px', 'space-md': '16px', 'space-2xl': '48px', 'space-section': '136px' });
+    expect(spacing).toEqual({
+      'space-xs': '4px', 'space-xs-plus': '6px', 'space-sm': '8px', 'space-sm-plus': '10px', 'space-sm-md': '12px',
+      'space-md-minus': '14px', 'space-md': '16px', 'space-lg': '24px', 'space-xl': '32px', 'space-2xl': '48px',
+      'space-section': '136px',
+    });
     const radius = Object.fromEntries(tokens.radius.tokens.map((t) => [t.name, t.value]));
     expect(radius).toEqual({
-      'radius-sm': '2px', 'radius-md': '4px', 'radius-lg': '8px', 'radius-xl': '12px', 'radius-bubble': '14px', 'radius-full': '9999px',
+      'radius-sm': '2px', 'radius-md': '4px', 'radius-lg': '8px', 'radius-xl': '12px', 'radius-2xl': '16px', 'radius-bubble': '14px', 'radius-full': '9999px',
     });
     expect(tokens.shadow.tokens[0].value).toEqual({
       light: '0 12px 24px -6px rgba(26, 28, 27, 0.12), 0 6px 12px -3px rgba(26, 28, 27, 0.08)',
