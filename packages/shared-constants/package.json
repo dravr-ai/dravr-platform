@@ -49,7 +49,7 @@
     "test": "vitest run",
     "generate": "node ../../scripts/sdk/generate-surface-capabilities.js",
     "generate:hosted-css": "bun scripts/generate-hosted-css.ts",
-    "generate:client-css": "bun scripts/generate-client-css.ts --only web"
+    "generate:client-css": "bun scripts/generate-client-css.ts"
   },
   "dependencies": {
     "@pierre/chat-utils": "*",

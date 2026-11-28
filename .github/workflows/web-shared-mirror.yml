@@ -1,0 +1,100 @@
+# ABOUTME: Republishes packages/ as the read-only dravr-web-shared mirror on every main push that changes it,
+# ABOUTME: then moves dravr-pitoune's packages/ submodule to that mirror commit; a daily run heals drift
+#
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# Copyright (c) 2026 dravr.ai
+#
+# packages/ here is the one source of the TypeScript the web app and the React Native
+# app share; dravr-web-shared is its mirror, and dravr-pitoune mounts the mirror at
+# packages/ (scripts/ci/web-shared-mirror.sh says why it cannot be the other way
+# round). This lane is what keeps that a mirror rather than a second copy: without
+# it the app reads a snapshot that drifts from the first platform change on.
+#
+# Every run mirrors the tip of main at the time it runs, never the commit that
+# triggered it, so re-running an old run cannot roll the mirror or the app back.
+# The daily schedule repeats the sync, which repairs a mirror or a gitlink someone
+# moved by hand and puts the lane under Monitor: Scheduled Lane Health.
+#
+# Both targets are private and this log is public, so the script prints commit ids
+# and file counts only. GITHUB_TOKEN reaches only this repository; the job reads
+# DRAVR_WEB_SHARED_WRITE_TOKEN from the `web-shared-mirror` environment, which only
+# main may deploy from, so no branch's edited copy of this file can reach it. An
+# empty token, a refused sync (a hand edit in the mirror) or a refused push fails
+# the run, so a stale mirror is a red lane, never a quiet one.
+
+name: "Satellite: dravr-web-shared mirror"
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'packages/**'
+      - 'scripts/web-shared/**'
+      - 'scripts/ci/web-shared-mirror.sh'
+      - '.github/workflows/web-shared-mirror.yml'
+  schedule:
+    # Daily at 05:41 UTC, off the hour.
+    - cron: '41 5 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  # One publisher at a time; a queued run is replaced by a newer one, and every run mirrors main's tip anyway.
+  group: web-shared-mirror
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Mirror packages/ and bump dravr-pitoune
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: web-shared-mirror
+    steps:
+      - name: Checkout main's tip
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Sync dravr-web-shared and move dravr-pitoune's submodule
+        env:
+          TOKEN: ${{ secrets.DRAVR_WEB_SHARED_WRITE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TOKEN" ]; then
+            echo "::error::DRAVR_WEB_SHARED_WRITE_TOKEN is empty — the mirror cannot be published, so the app would read a stale packages/"
+            exit 1
+          fi
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config --global url."https://x-access-token:${TOKEN}@github.com/".insteadOf "https://github.com/"
+          echo "Mirroring dravr-platform@$(git rev-parse --short=12 HEAD), main's tip"
+
+          mirror="$RUNNER_TEMP/dravr-web-shared"
+          pitoune="$RUNNER_TEMP/dravr-pitoune"
+          git clone --quiet https://github.com/dravr-ai/dravr-web-shared.git "$mirror"
+          ./scripts/ci/web-shared-mirror.sh sync --mirror "$mirror"
+          git -C "$mirror" push --quiet origin HEAD:main
+          sha="$(git -C "$mirror" rev-parse HEAD)"
+
+          # The app repository takes pushes from people too, and a clone can fail
+          # transiently: each attempt clones its tip afresh, moves the gitlink and
+          # pushes; three failed attempts fail the run.
+          bump() {
+            rm -rf "$pitoune"
+            git clone --quiet --no-recurse-submodules https://github.com/dravr-ai/dravr-pitoune.git "$pitoune" \
+              && ./scripts/ci/web-shared-mirror.sh bump-pitoune --pitoune "$pitoune" --sha "$sha" \
+              && git -C "$pitoune" push --quiet origin HEAD:main
+          }
+          for attempt in 1 2 3; do
+            if bump; then
+              exit 0
+            fi
+            echo "dravr-pitoune bump attempt $attempt failed"
+            sleep $((attempt * 10))
+          done
+          echo "::error::dravr-pitoune refused the submodule bump three times"
+          exit 1

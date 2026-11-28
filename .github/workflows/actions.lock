@@ -256,6 +256,8 @@ workflows:
         - 'hashicorp/setup-terraform@v4'
     '.github/workflows/tronc-bump.yml': []
     '.github/workflows/tronc-canary.yml': []
+    '.github/workflows/web-shared-mirror.yml':
+        - 'actions/checkout@v6'
 dependencies:
     'actions/cache@v6':
         ref: 'v6'
@@ -282,11 +284,6 @@ dependencies:
         commit: 'sha1-3a2844b7e9c422d3c10d287c895573f7108da1b3'
         owner_id: 44036562
         repo_id: 205262760
-    'actions/setup-java@v5':
-        ref: 'v5'
-        commit: 'sha1-b6effb05e454b25005698d916606bdc6ffcbf961'
-        owner_id: 44036562
-        repo_id: 196057608
     'actions/setup-node@v7':
         ref: 'v7'
         commit: 'sha1-949feb2413d6458794dcd2491c4babbbce0c15c1'
@@ -334,11 +331,6 @@ dependencies:
         commit: 'sha1-d5e4d57b030548f435d0befec15ff413a2c60eff'
         owner_id: 1940490
         repo_id: 260749683
-    'expo/expo-github-action@v9':
-        ref: 'v9'
-        commit: 'sha1-5273c2136bd09c2a341fe3340d3e767ce5a13015'
-        owner_id: 12504344
-        repo_id: 161909611
     'github/codeql-action@v4':
         ref: 'v4'
         commit: 'sha1-33d7b85da1a04171e211befe2c739303b9a4c066'
@@ -374,11 +366,6 @@ dependencies:
         commit: 'sha1-0c5077e51419868618aeaa5fe8019c62421857d6'
         owner_id: 108928776
         repo_id: 512644635
-    'reactivecircus/android-emulator-runner@v2':
-        ref: 'v2'
-        commit: 'sha1-a421e43855164a8197daf9d8d40fe71c6996bb0d'
-        owner_id: 51352484
-        repo_id: 219782401
     'swatinem/rust-cache@v2':
         ref: 'v2'
         commit: 'sha1-d1527c8f67ef9af357290475d4af4b0fab8f12e0'

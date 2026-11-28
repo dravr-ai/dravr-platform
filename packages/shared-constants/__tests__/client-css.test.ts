@@ -4,11 +4,16 @@
 // ABOUTME: Pins what the client stylesheet generator emits for web and mobile: both schemes, from the tokens, above every floor
 // ABOUTME: The two stylesheets used to hand-copy the token tree; this proves the generated blocks carry the source values
 
-import { describe, expect, it } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
+  CLIENT_MANIFESTS,
   clientPalette,
   measureClientPairings,
   renderClientCss,
+  selectedClients,
   sharedPalettes,
   type Client,
 } from '../scripts/generate-client-css';
@@ -133,5 +138,55 @@ describe('client stylesheet blocks', () => {
       dark: clientPalette('dark'),
     };
     expect(() => renderClientCss('mobile', drifted)).toThrow(/light on-nutrition-container on nutrition\/15 over surface/);
+  });
+});
+
+describe('which client blocks a checkout gets', () => {
+  const roots: string[] = [];
+  afterEach(() => {
+    for (const root of roots.splice(0)) {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  /** A throwaway checkout holding the manifest of each named client. */
+  function checkout(...clients: Client[]): string {
+    const root = mkdtempSync(join(tmpdir(), 'client-css-'));
+    roots.push(root);
+    for (const client of clients) {
+      const manifest = join(root, CLIENT_MANIFESTS[client]);
+      mkdirSync(dirname(manifest), { recursive: true });
+      writeFileSync(manifest, '{}');
+    }
+    return root;
+  }
+
+  it('writes only the web block in a dravr-platform checkout', () => {
+    expect(selectedClients([], checkout('web'))).toEqual(['web']);
+  });
+
+  it('writes only the mobile block in a dravr-pitoune checkout', () => {
+    expect(selectedClients([], checkout('mobile'))).toEqual(['mobile']);
+  });
+
+  it('writes both blocks when the checkout holds both clients', () => {
+    expect(selectedClients([], checkout('web', 'mobile'))).toEqual(['web', 'mobile']);
+  });
+
+  it('ignores a leftover client directory that holds no manifest', () => {
+    const root = checkout('web');
+    mkdirSync(join(root, 'frontend-mobile', 'node_modules'), { recursive: true });
+    expect(selectedClients([], root)).toEqual(['web']);
+  });
+
+  it('refuses a checkout holding no client rather than writing nothing', () => {
+    expect(() => selectedClients([], checkout())).toThrow(
+      /no client source in .+: expected one of frontend\/package\.json, frontend-mobile\/package\.json/,
+    );
+  });
+
+  it('lets --only name one client whatever the checkout holds, and refuses an unknown one', () => {
+    expect(selectedClients(['--only', 'mobile'], checkout('web'))).toEqual(['mobile']);
+    expect(() => selectedClients(['--only', 'tablet'], checkout('web'))).toThrow('--only needs one of: web, mobile');
   });
 });

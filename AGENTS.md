@@ -9,7 +9,7 @@
 - **Test placement (ADR-027):** unit tests live in a trailing inline `#[cfg(test)] mod tests { … }` in the module they test; integration tests live in `tests/` and use the crate's public surface only; test fixtures (`create_test_db`, user fixtures) live only in `crates/pierre-test-support`, a `[dev-dependencies]`-only crate. A module or item is `pub` only because a production caller needs it — when a test is its only outside user, move the test in and narrow it to `pub(crate)`.
 - `frontend/` — web SPA (Vite, React, TailwindCSS, port 3000).
 - The React Native app lives in the private `dravr-ai/dravr-pitoune`.
-- `packages/api-client/`, `packages/shared-types/` — TS shared by web and mobile.
+- `packages/` — TS shared by web and mobile; its one source, mirrored to `dravr-ai/dravr-web-shared` for the app by `web-shared-mirror.yml`.
 - `.build/` — git submodule of `dravr-ai/dravr-build-config` (canonical hooks + validation).
 
 This is the public floor. The rules, standards, skills and subagents live in the private

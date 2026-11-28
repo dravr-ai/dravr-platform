@@ -4,7 +4,7 @@
 // ABOUTME: Generates the Boreal custom-property blocks the web and mobile stylesheets import, light and dark
 // ABOUTME: Reads the shared tokens, measures the pairings the clients draw, and fails closed below a WCAG floor
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -40,6 +40,12 @@ export type Client = 'web' | 'mobile';
 export const CLIENT_CSS_PATHS: Record<Client, string> = {
   web: 'frontend/src/boreal-tokens.generated.css',
   mobile: 'frontend-mobile/boreal-tokens.generated.css',
+};
+
+/** The file whose presence says a checkout holds a client's source, not a leftover directory. */
+export const CLIENT_MANIFESTS: Record<Client, string> = {
+  web: 'frontend/package.json',
+  mobile: 'frontend-mobile/package.json',
 };
 
 const SCHEMES: readonly ColorScheme[] = ['light', 'dark'];
@@ -299,18 +305,29 @@ function outputRoot(argv: readonly string[]): string {
   return resolve(process.cwd(), target);
 }
 
-/** `--only <client>` limits the run to one client: a checkout that holds one client's source has no use for the other's block. */
-function selectedClients(argv: readonly string[]): Client[] {
+/**
+ * The clients this checkout holds. This package is shared: dravr-platform holds the web app and
+ * dravr-pitoune, which mounts the dravr-web-shared mirror of it, holds the mobile one, and both run
+ * this script. A block is written for each client whose manifest is in the checkout, and
+ * `--only <client>` names one explicitly. A checkout holding neither is an error, never a run that
+ * writes nothing.
+ */
+export function selectedClients(argv: readonly string[], root: string = REPO_ROOT): Client[] {
   const all = Object.keys(CLIENT_CSS_PATHS) as Client[];
   const at = argv.indexOf('--only');
-  if (at === -1) {
-    return all;
+  if (at !== -1) {
+    const wanted = all.find((client) => client === argv[at + 1]);
+    if (!wanted) {
+      throw new Error(`--only needs one of: ${all.join(', ')}`);
+    }
+    return [wanted];
   }
-  const wanted = all.find((client) => client === argv[at + 1]);
-  if (!wanted) {
-    throw new Error(`--only needs one of: ${all.join(', ')}`);
+  const present = all.filter((client) => existsSync(resolve(root, CLIENT_MANIFESTS[client])));
+  if (present.length === 0) {
+    const manifests = all.map((client) => CLIENT_MANIFESTS[client]).join(', ');
+    throw new Error(`no client source in ${root}: expected one of ${manifests}`);
   }
-  return [wanted];
+  return present;
 }
 
 if (import.meta.main) {
