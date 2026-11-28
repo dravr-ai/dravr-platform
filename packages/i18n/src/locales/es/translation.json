@@ -5540,5 +5540,111 @@
       "notNow": "Ahora no",
       "notNowFailed": "No se guardó tu elección. Vuelve a intentarlo."
     }
+  },
+  "companion": {
+    "session": {
+      "signedOutTitle": "Inicia sesión para retomar tu hilo y tu plan.",
+      "continueWithEmail": "Continuar con mi correo",
+      "signingIn": "Iniciando sesión…",
+      "signInCancelled": "Inicio de sesión cancelado.",
+      "signInFailed": "No se pudo iniciar sesión. Inténtalo de nuevo.",
+      "pendingBody": "Tu cuenta aún no está activa. En cuanto lo esté, tu hilo se abrirá aquí.",
+      "pendingCheckAgain": "Comprobar de nuevo",
+      "expiredAction": "Volver a iniciar sesión",
+      "offlineBanner": "Sin conexión · tu plan sigue legible",
+      "signOutConfirm": "¿Cerrar sesión en este dispositivo?"
+    },
+    "rooms": {
+      "title": "Hilos",
+      "empty": "Aún no hay hilos.",
+      "loadFailed": "No se pudieron cargar tus hilos.",
+      "previewOwn": "Tú: {{preview}}",
+      "previewOther": "{{name}}: {{preview}}",
+      "unread_one": "{{count}} sin leer",
+      "unread_other": "{{count}} sin leer",
+      "openProfile": "Perfil y ajustes"
+    },
+    "thread": {
+      "agentByline": "agente",
+      "you": "Tú",
+      "dayToday": "Hoy",
+      "dayYesterday": "Ayer",
+      "backToRooms": "Volver a los hilos",
+      "openPlan": "Plan de la semana",
+      "via": "vía {{channel}}",
+      "composer": {
+        "placeholder": "Escribe a {{name}}",
+        "placeholderGroup": "Escribe al grupo",
+        "label": "Mensaje para {{name}}",
+        "labelGroup": "Mensaje para el grupo",
+        "send": "Enviar",
+        "dictate": "Dictar"
+      },
+      "sending": "Enviando…",
+      "queuedOffline": "Aún no enviada · saldrá sola en cuanto tengas red",
+      "sendFailed": "Mensaje no enviado",
+      "awaitingReply": "{{name}} está respondiendo…",
+      "stop": "Detener",
+      "replyFailed": "La respuesta no llegó. Inténtalo de nuevo.",
+      "loadEarlier": "Mensajes anteriores",
+      "loadFailed": "No se pudo cargar este hilo.",
+      "empty": "Aún no hay nada aquí. Escribe el primer mensaje."
+    },
+    "today": {
+      "tabToday": "Hoy",
+      "tabWeek": "Semana",
+      "viewPicker": "Vista",
+      "dismiss": "OK",
+      "strip": {
+        "today": "Hoy",
+        "tomorrow": "Mañana · {{weekday}}",
+        "a11yToday": "Hoy: {{session}}. Abrir Hoy.",
+        "a11yTomorrow": "Mañana, {{weekday}}: {{session}}. Abrir el plan."
+      },
+      "sessionLine": "{{title}} · {{duration}}",
+      "session": "Sesión",
+      "sessions_one": "{{count}} sesión",
+      "sessions_other": "{{count}} sesiones",
+      "rest": "Descanso",
+      "noPlan": "Aún no hay plan",
+      "nothingPlanned": "Nada previsto",
+      "steps": "Pasos",
+      "stepRepeat": "{{count}} × {{step}}",
+      "done": "hecho",
+      "a11yDone": "Hecho: {{title}}",
+      "a11yUpcoming": "Próximo: {{title}}",
+      "askChange": "Pedir un cambio para esta sesión",
+      "week": {
+        "title": "Esta semana · {{range}}",
+        "empty": "El plan no dice nada para estos días."
+      },
+      "loadFailed": "No se pudo cargar tu plan."
+    },
+    "sources": {
+      "title": "¿De dónde vienen tus sesiones?",
+      "intro": "Con una sola fuente basta para empezar. Ahí es donde Dravr lee tu sueño y tus sesiones, y adonde llega tu plan.",
+      "settingsRow": "Fuentes de datos",
+      "connect": "Conectar",
+      "connectProvider": "Conectar {{provider}}",
+      "reconnect": "Volver a conectar {{provider}}",
+      "connected": "Conectado",
+      "needsReconnect": "Hay que volver a conectar",
+      "disconnect": "Desconectar {{provider}}",
+      "disconnectConfirm": "¿Desconectar {{provider}}?",
+      "connecting": "Conectando con {{provider}}…",
+      "connectFailed": "No se pudo conectar {{provider}}. Inténtalo de nuevo.",
+      "activitiesOnly": "solo sesiones, sin plan",
+      "appleHealthName": "Salud (Apple)",
+      "appleHealthDescription": "sueño y entrenamientos de tu reloj",
+      "later": "Más tarde",
+      "loadFailed": "No se pudieron cargar tus fuentes."
+    },
+    "settings": {
+      "signedInAs": "Sesión iniciada como {{email}}",
+      "version": "Versión {{version}}"
+    },
+    "errors": {
+      "rateLimited": "Demasiadas solicitudes a la vez. Inténtalo en un momento."
+    }
   }
 }

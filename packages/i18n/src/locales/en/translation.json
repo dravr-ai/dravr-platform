@@ -5540,5 +5540,111 @@
       "notNow": "Not now",
       "notNowFailed": "Your choice wasn’t saved. Try again."
     }
+  },
+  "companion": {
+    "session": {
+      "signedOutTitle": "Sign in to pick up your thread and your plan.",
+      "continueWithEmail": "Continue with my email",
+      "signingIn": "Signing in…",
+      "signInCancelled": "Sign-in cancelled.",
+      "signInFailed": "Sign-in didn't go through. Try again.",
+      "pendingBody": "Your account isn't active yet. As soon as it is, your thread opens here.",
+      "pendingCheckAgain": "Check again",
+      "expiredAction": "Sign in again",
+      "offlineBanner": "Offline · your plan stays readable",
+      "signOutConfirm": "Sign out of this device?"
+    },
+    "rooms": {
+      "title": "Threads",
+      "empty": "No threads yet.",
+      "loadFailed": "Your threads couldn't be loaded.",
+      "previewOwn": "You: {{preview}}",
+      "previewOther": "{{name}}: {{preview}}",
+      "unread_one": "{{count}} unread",
+      "unread_other": "{{count}} unread",
+      "openProfile": "Profile and settings"
+    },
+    "thread": {
+      "agentByline": "agent",
+      "you": "You",
+      "dayToday": "Today",
+      "dayYesterday": "Yesterday",
+      "backToRooms": "Back to threads",
+      "openPlan": "This week's plan",
+      "via": "via {{channel}}",
+      "composer": {
+        "placeholder": "Message {{name}}",
+        "placeholderGroup": "Message the group",
+        "label": "Message to {{name}}",
+        "labelGroup": "Message to the group",
+        "send": "Send",
+        "dictate": "Dictate"
+      },
+      "sending": "Sending…",
+      "queuedOffline": "Not sent yet · it will go on its own as soon as you're back online",
+      "sendFailed": "Message not sent",
+      "awaitingReply": "{{name}} is replying…",
+      "stop": "Stop",
+      "replyFailed": "The reply didn't arrive. Try again.",
+      "loadEarlier": "Earlier messages",
+      "loadFailed": "This thread couldn't be loaded.",
+      "empty": "Nothing here yet. Write the first message."
+    },
+    "today": {
+      "tabToday": "Today",
+      "tabWeek": "Week",
+      "viewPicker": "View",
+      "dismiss": "OK",
+      "strip": {
+        "today": "Today",
+        "tomorrow": "Tomorrow · {{weekday}}",
+        "a11yToday": "Today: {{session}}. Open Today.",
+        "a11yTomorrow": "Tomorrow, {{weekday}}: {{session}}. Open the plan."
+      },
+      "sessionLine": "{{title}} · {{duration}}",
+      "session": "Session",
+      "sessions_one": "{{count}} session",
+      "sessions_other": "{{count}} sessions",
+      "rest": "Rest",
+      "noPlan": "No plan yet",
+      "nothingPlanned": "Nothing planned",
+      "steps": "Steps",
+      "stepRepeat": "{{count}} × {{step}}",
+      "done": "done",
+      "a11yDone": "Done: {{title}}",
+      "a11yUpcoming": "Coming up: {{title}}",
+      "askChange": "Ask for a change to this session",
+      "week": {
+        "title": "This week · {{range}}",
+        "empty": "The plan says nothing for these days."
+      },
+      "loadFailed": "Your plan couldn't be loaded."
+    },
+    "sources": {
+      "title": "Where do your sessions come from?",
+      "intro": "One source is enough to get started. It's where Dravr reads your sleep and your sessions, and where your plan arrives.",
+      "settingsRow": "Data sources",
+      "connect": "Connect",
+      "connectProvider": "Connect {{provider}}",
+      "reconnect": "Reconnect {{provider}}",
+      "connected": "Connected",
+      "needsReconnect": "Needs reconnecting",
+      "disconnect": "Disconnect {{provider}}",
+      "disconnectConfirm": "Disconnect {{provider}}?",
+      "connecting": "Connecting to {{provider}}…",
+      "connectFailed": "{{provider}} couldn't be connected. Try again.",
+      "activitiesOnly": "sessions only, no plan",
+      "appleHealthName": "Health (Apple)",
+      "appleHealthDescription": "sleep and workouts from your watch",
+      "later": "Later",
+      "loadFailed": "Your sources couldn't be loaded."
+    },
+    "settings": {
+      "signedInAs": "Signed in as {{email}}",
+      "version": "Version {{version}}"
+    },
+    "errors": {
+      "rateLimited": "Too many requests at once. Try again in a moment."
+    }
   }
 }

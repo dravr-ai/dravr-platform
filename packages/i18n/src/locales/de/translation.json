@@ -5540,5 +5540,111 @@
       "notNow": "Nicht jetzt",
       "notNowFailed": "Deine Auswahl wurde nicht gespeichert. Versuch es noch einmal."
     }
+  },
+  "companion": {
+    "session": {
+      "signedOutTitle": "Melde dich an, um deinen Verlauf und deinen Plan zu sehen.",
+      "continueWithEmail": "Mit meiner E-Mail fortfahren",
+      "signingIn": "Anmeldung läuft…",
+      "signInCancelled": "Anmeldung abgebrochen.",
+      "signInFailed": "Die Anmeldung hat nicht geklappt. Versuche es erneut.",
+      "pendingBody": "Dein Konto ist noch nicht aktiv. Sobald es so weit ist, öffnet sich dein Verlauf hier.",
+      "pendingCheckAgain": "Erneut prüfen",
+      "expiredAction": "Erneut anmelden",
+      "offlineBanner": "Offline · dein Plan bleibt lesbar",
+      "signOutConfirm": "Von diesem Gerät abmelden?"
+    },
+    "rooms": {
+      "title": "Verläufe",
+      "empty": "Noch keine Verläufe.",
+      "loadFailed": "Deine Verläufe konnten nicht geladen werden.",
+      "previewOwn": "Du: {{preview}}",
+      "previewOther": "{{name}}: {{preview}}",
+      "unread_one": "{{count}} ungelesen",
+      "unread_other": "{{count}} ungelesen",
+      "openProfile": "Profil und Einstellungen"
+    },
+    "thread": {
+      "agentByline": "Agent",
+      "you": "Du",
+      "dayToday": "Heute",
+      "dayYesterday": "Gestern",
+      "backToRooms": "Zurück zu den Verläufen",
+      "openPlan": "Wochenplan",
+      "via": "über {{channel}}",
+      "composer": {
+        "placeholder": "Schreib an {{name}}",
+        "placeholderGroup": "Schreib an die Gruppe",
+        "label": "Nachricht an {{name}}",
+        "labelGroup": "Nachricht an die Gruppe",
+        "send": "Senden",
+        "dictate": "Diktieren"
+      },
+      "sending": "Wird gesendet…",
+      "queuedOffline": "Noch nicht gesendet · geht von selbst raus, sobald du wieder Netz hast",
+      "sendFailed": "Nachricht nicht gesendet",
+      "awaitingReply": "{{name}} antwortet…",
+      "stop": "Stoppen",
+      "replyFailed": "Die Antwort ist nicht angekommen. Versuche es erneut.",
+      "loadEarlier": "Frühere Nachrichten",
+      "loadFailed": "Dieser Verlauf konnte nicht geladen werden.",
+      "empty": "Noch nichts hier. Schreib die erste Nachricht."
+    },
+    "today": {
+      "tabToday": "Heute",
+      "tabWeek": "Woche",
+      "viewPicker": "Ansicht",
+      "dismiss": "OK",
+      "strip": {
+        "today": "Heute",
+        "tomorrow": "Morgen · {{weekday}}",
+        "a11yToday": "Heute: {{session}}. Heute öffnen.",
+        "a11yTomorrow": "Morgen, {{weekday}}: {{session}}. Plan öffnen."
+      },
+      "sessionLine": "{{title}} · {{duration}}",
+      "session": "Einheit",
+      "sessions_one": "{{count}} Einheit",
+      "sessions_other": "{{count}} Einheiten",
+      "rest": "Ruhe",
+      "noPlan": "Noch kein Plan",
+      "nothingPlanned": "Nichts geplant",
+      "steps": "Schritte",
+      "stepRepeat": "{{count}} × {{step}}",
+      "done": "erledigt",
+      "a11yDone": "Erledigt: {{title}}",
+      "a11yUpcoming": "Steht an: {{title}}",
+      "askChange": "Änderung für diese Einheit anfragen",
+      "week": {
+        "title": "Diese Woche · {{range}}",
+        "empty": "Der Plan sagt nichts zu diesen Tagen."
+      },
+      "loadFailed": "Dein Plan konnte nicht geladen werden."
+    },
+    "sources": {
+      "title": "Woher kommen deine Einheiten?",
+      "intro": "Eine einzige Quelle reicht für den Anfang. Dort liest Dravr deinen Schlaf und deine Einheiten, und dort kommt dein Plan an.",
+      "settingsRow": "Datenquellen",
+      "connect": "Verbinden",
+      "connectProvider": "{{provider}} verbinden",
+      "reconnect": "{{provider}} erneut verbinden",
+      "connected": "Verbunden",
+      "needsReconnect": "Muss neu verbunden werden",
+      "disconnect": "{{provider}} trennen",
+      "disconnectConfirm": "{{provider}} trennen?",
+      "connecting": "Verbindung zu {{provider}} wird hergestellt…",
+      "connectFailed": "{{provider}} konnte nicht verbunden werden. Versuche es erneut.",
+      "activitiesOnly": "nur Einheiten, kein Plan",
+      "appleHealthName": "Health (Apple)",
+      "appleHealthDescription": "Schlaf und Trainings von deiner Uhr",
+      "later": "Später",
+      "loadFailed": "Deine Quellen konnten nicht geladen werden."
+    },
+    "settings": {
+      "signedInAs": "Angemeldet als {{email}}",
+      "version": "Version {{version}}"
+    },
+    "errors": {
+      "rateLimited": "Zu viele Anfragen auf einmal. Versuche es gleich noch einmal."
+    }
   }
 }

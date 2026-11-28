@@ -5540,5 +5540,111 @@
       "notNow": "Pas maintenant",
       "notNowFailed": "Ton choix n’a pas été enregistré. Réessaie."
     }
+  },
+  "companion": {
+    "session": {
+      "signedOutTitle": "Connecte-toi pour retrouver ton fil et ton plan.",
+      "continueWithEmail": "Continuer avec mon courriel",
+      "signingIn": "Connexion…",
+      "signInCancelled": "Connexion annulée.",
+      "signInFailed": "La connexion n'a pas abouti. Réessaie.",
+      "pendingBody": "Ton compte n'est pas encore actif. Dès qu'il l'est, ton fil s'ouvre ici.",
+      "pendingCheckAgain": "Vérifier à nouveau",
+      "expiredAction": "Se reconnecter",
+      "offlineBanner": "Hors ligne · ton plan reste lisible",
+      "signOutConfirm": "Te déconnecter de cet appareil ?"
+    },
+    "rooms": {
+      "title": "Fils",
+      "empty": "Aucun fil pour l'instant.",
+      "loadFailed": "Tes fils n'ont pas pu être chargés.",
+      "previewOwn": "Toi : {{preview}}",
+      "previewOther": "{{name}} : {{preview}}",
+      "unread_one": "{{count}} non lu",
+      "unread_other": "{{count}} non lus",
+      "openProfile": "Profil et réglages"
+    },
+    "thread": {
+      "agentByline": "agent",
+      "you": "Toi",
+      "dayToday": "Aujourd'hui",
+      "dayYesterday": "Hier",
+      "backToRooms": "Retour aux fils",
+      "openPlan": "Plan de la semaine",
+      "via": "via {{channel}}",
+      "composer": {
+        "placeholder": "Écris à {{name}}",
+        "placeholderGroup": "Écris au groupe",
+        "label": "Message à {{name}}",
+        "labelGroup": "Message au groupe",
+        "send": "Envoyer",
+        "dictate": "Dicter"
+      },
+      "sending": "Envoi…",
+      "queuedOffline": "Pas encore envoyée · partira toute seule dès que tu as du réseau",
+      "sendFailed": "Message non envoyé",
+      "awaitingReply": "{{name}} répond…",
+      "stop": "Arrêter",
+      "replyFailed": "La réponse n'est pas arrivée. Réessaie.",
+      "loadEarlier": "Messages précédents",
+      "loadFailed": "Ce fil n'a pas pu être chargé.",
+      "empty": "Rien ici pour l'instant. Écris le premier message."
+    },
+    "today": {
+      "tabToday": "Aujourd'hui",
+      "tabWeek": "Semaine",
+      "viewPicker": "Vue",
+      "dismiss": "OK",
+      "strip": {
+        "today": "Aujourd'hui",
+        "tomorrow": "Demain · {{weekday}}",
+        "a11yToday": "Aujourd'hui : {{session}}. Ouvrir Aujourd'hui.",
+        "a11yTomorrow": "Demain {{weekday}} : {{session}}. Ouvrir le plan."
+      },
+      "sessionLine": "{{title}} · {{duration}}",
+      "session": "Séance",
+      "sessions_one": "{{count}} séance",
+      "sessions_other": "{{count}} séances",
+      "rest": "Repos",
+      "noPlan": "Pas encore de plan",
+      "nothingPlanned": "Rien de prévu",
+      "steps": "Étapes",
+      "stepRepeat": "{{count}} × {{step}}",
+      "done": "fait",
+      "a11yDone": "Fait : {{title}}",
+      "a11yUpcoming": "À venir : {{title}}",
+      "askChange": "Demander un changement pour cette séance",
+      "week": {
+        "title": "Cette semaine · {{range}}",
+        "empty": "Le plan ne dit rien pour ces jours."
+      },
+      "loadFailed": "Ton plan n'a pas pu être chargé."
+    },
+    "sources": {
+      "title": "D'où viennent tes séances ?",
+      "intro": "Une seule source suffit pour commencer. C'est là que Dravr lit ton sommeil et tes séances, et que ton plan arrive.",
+      "settingsRow": "Sources de données",
+      "connect": "Connecter",
+      "connectProvider": "Connecter {{provider}}",
+      "reconnect": "Reconnecter {{provider}}",
+      "connected": "Connecté",
+      "needsReconnect": "À reconnecter",
+      "disconnect": "Déconnecter {{provider}}",
+      "disconnectConfirm": "Déconnecter {{provider}} ?",
+      "connecting": "Connexion à {{provider}}…",
+      "connectFailed": "{{provider}} n'a pas pu être connecté. Réessaie.",
+      "activitiesOnly": "séances seulement, pas de plan",
+      "appleHealthName": "Santé (Apple)",
+      "appleHealthDescription": "sommeil et entraînements de ta montre",
+      "later": "Plus tard",
+      "loadFailed": "Tes sources n'ont pas pu être chargées."
+    },
+    "settings": {
+      "signedInAs": "Connecté en tant que {{email}}",
+      "version": "Version {{version}}"
+    },
+    "errors": {
+      "rateLimited": "Trop de demandes d'un coup. Réessaie dans un instant."
+    }
   }
 }

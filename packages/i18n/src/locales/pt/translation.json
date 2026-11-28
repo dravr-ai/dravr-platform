@@ -5540,5 +5540,111 @@
       "notNow": "Agora não",
       "notNowFailed": "A tua escolha não foi guardada. Tenta outra vez."
     }
+  },
+  "companion": {
+    "session": {
+      "signedOutTitle": "Entra para retomares a tua conversa e o teu plano.",
+      "continueWithEmail": "Continuar com o meu e-mail",
+      "signingIn": "A entrar…",
+      "signInCancelled": "Entrada cancelada.",
+      "signInFailed": "Não foi possível entrar. Tenta de novo.",
+      "pendingBody": "A tua conta ainda não está ativa. Assim que estiver, a tua conversa abre aqui.",
+      "pendingCheckAgain": "Verificar de novo",
+      "expiredAction": "Entrar de novo",
+      "offlineBanner": "Offline · o teu plano continua legível",
+      "signOutConfirm": "Terminar sessão neste dispositivo?"
+    },
+    "rooms": {
+      "title": "Conversas",
+      "empty": "Ainda não há conversas.",
+      "loadFailed": "Não foi possível carregar as tuas conversas.",
+      "previewOwn": "Tu: {{preview}}",
+      "previewOther": "{{name}}: {{preview}}",
+      "unread_one": "{{count}} não lida",
+      "unread_other": "{{count}} não lidas",
+      "openProfile": "Perfil e definições"
+    },
+    "thread": {
+      "agentByline": "agente",
+      "you": "Tu",
+      "dayToday": "Hoje",
+      "dayYesterday": "Ontem",
+      "backToRooms": "Voltar às conversas",
+      "openPlan": "Plano da semana",
+      "via": "via {{channel}}",
+      "composer": {
+        "placeholder": "Escreve a {{name}}",
+        "placeholderGroup": "Escreve ao grupo",
+        "label": "Mensagem para {{name}}",
+        "labelGroup": "Mensagem para o grupo",
+        "send": "Enviar",
+        "dictate": "Ditar"
+      },
+      "sending": "A enviar…",
+      "queuedOffline": "Ainda não enviada · segue sozinha assim que tiveres rede",
+      "sendFailed": "Mensagem não enviada",
+      "awaitingReply": "{{name}} está a responder…",
+      "stop": "Parar",
+      "replyFailed": "A resposta não chegou. Tenta de novo.",
+      "loadEarlier": "Mensagens anteriores",
+      "loadFailed": "Não foi possível carregar esta conversa.",
+      "empty": "Ainda não há nada aqui. Escreve a primeira mensagem."
+    },
+    "today": {
+      "tabToday": "Hoje",
+      "tabWeek": "Semana",
+      "viewPicker": "Vista",
+      "dismiss": "OK",
+      "strip": {
+        "today": "Hoje",
+        "tomorrow": "Amanhã · {{weekday}}",
+        "a11yToday": "Hoje: {{session}}. Abrir Hoje.",
+        "a11yTomorrow": "Amanhã, {{weekday}}: {{session}}. Abrir o plano."
+      },
+      "sessionLine": "{{title}} · {{duration}}",
+      "session": "Treino",
+      "sessions_one": "{{count}} treino",
+      "sessions_other": "{{count}} treinos",
+      "rest": "Descanso",
+      "noPlan": "Ainda não há plano",
+      "nothingPlanned": "Nada planeado",
+      "steps": "Passos",
+      "stepRepeat": "{{count}} × {{step}}",
+      "done": "feito",
+      "a11yDone": "Feito: {{title}}",
+      "a11yUpcoming": "A seguir: {{title}}",
+      "askChange": "Pedir uma alteração para este treino",
+      "week": {
+        "title": "Esta semana · {{range}}",
+        "empty": "O plano não diz nada para estes dias."
+      },
+      "loadFailed": "Não foi possível carregar o teu plano."
+    },
+    "sources": {
+      "title": "De onde vêm os teus treinos?",
+      "intro": "Uma única fonte chega para começar. É aí que o Dravr lê o teu sono e os teus treinos, e é aí que o teu plano chega.",
+      "settingsRow": "Fontes de dados",
+      "connect": "Ligar",
+      "connectProvider": "Ligar {{provider}}",
+      "reconnect": "Ligar {{provider}} de novo",
+      "connected": "Ligado",
+      "needsReconnect": "Precisa de nova ligação",
+      "disconnect": "Desligar {{provider}}",
+      "disconnectConfirm": "Desligar {{provider}}?",
+      "connecting": "A ligar a {{provider}}…",
+      "connectFailed": "Não foi possível ligar {{provider}}. Tenta de novo.",
+      "activitiesOnly": "só treinos, sem plano",
+      "appleHealthName": "Saúde (Apple)",
+      "appleHealthDescription": "sono e treinos do teu relógio",
+      "later": "Mais tarde",
+      "loadFailed": "Não foi possível carregar as tuas fontes."
+    },
+    "settings": {
+      "signedInAs": "Sessão iniciada como {{email}}",
+      "version": "Versão {{version}}"
+    },
+    "errors": {
+      "rateLimited": "Demasiados pedidos de uma vez. Tenta daqui a pouco."
+    }
   }
 }
